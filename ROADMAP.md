@@ -22,6 +22,10 @@
 - ☐ `boot/stage2.S`：入口用 BIOS `INT $0x10` 打印 `Stage2 OK`，后续步骤在此文件继续
 - ☐ `scripts/build_image.sh` 更新：sector 0 写 MBR，sector 1+ 写 stage2.bin
 - ☐ 开启 A20：`INT $0x15 AX=0x2401`
+- ☐ VESA 控制器信息：`INT $0x10 AX=0x4F00`，ES:DI 指向 512 字节 `VbeInfoBlock` 缓冲（放 `0x6000`），验证返回 `AX=0x004F`
+- ☐ 枚举目标模式 `0x118`（1024×768×32bpp linear framebuffer）：`INT $0x10 AX=0x4F01 CX=0x118`，ES:DI 指向 256 字节 `ModeInfoBlock`（放 `0x6200`），取 `PhysBasePtr`（偏移 `0x28`，4字节）、`BytesPerScanLine`（偏移 `0x10`）、`XResolution/YResolution`（偏移 `0x12/0x14`）、`BitsPerPixel`（偏移 `0x19`）
+- ☐ 设置视频模式：`INT $0x10 AX=0x4F02 BX=0x4118`（bit14=1 启用 linear framebuffer）
+- ☐ 将 `{PhysBasePtr, BytesPerScanLine, XResolution, YResolution, BitsPerPixel}` 打包写入 `0x6400`（16 字节），供后续填入 `BootInfo`；QEMU 典型值：`PhysBasePtr=0xFD000000, pitch=4096, 1024×768, 32bpp`
 
 ---
 
@@ -60,16 +64,45 @@
 ### `004_boot_load_kernel`
 **效果**：QEMU 不崩溃，debugcon 输出 `J`（确认即将跳转内核），随后内核接管
 
-> **验证手段**：`jmp *%rax` 前一条 `outb $0x4A, $0xE9` 输出字符 `J`；内核启动后由 `005` 的串口驱动接管所有后续输出，不碰串口
+> **验证手段**：`jmp *%rax` 前一条 `outb $0x4A, $0xE9` 输出字符 `J`；内核启动后由 `005` 的串口驱动接管所有后续输出，不碰串口  
+> **ELF 加载方案**：独立 `boot/elf_loader.c`，`-m32 -ffreestanding` 编译，链接进 stage2；stage2.S 保护模式入口直接 `call elf64_load`，汇编侧不写解析逻辑  
+> **内核物理加载地址**：`0x200000`（2MB，与大页边界对齐，页表映射干净）
 
-- ☐ 定义 `boot/boot_info.h`：`MemoryMapEntry {base, length, type}`，`BootInfo {entry_point, kernel_phys_base, kernel_size, fb_addr/width/height/pitch/bpp, mmap_count, mmap[32]}`
-- ☐ 在 long mode 前（保护模式内）用 `INT $0x13 AH=0x42` 读内核 ELF 到物理 `0x100000`（1MB）
-- ☐ 用 E820（`INT $0x15 AX=0xE820`）枚举内存图，填入 `BootInfo.mmap`
-- ☐ 实现 `elf64_load()`：验证魔数 `\x7FELF` + `e_machine=0x3E`，遍历 `PT_LOAD` 段，按 `p_paddr` 复制，多余 BSS 清零，返回 `e_entry`
-- ☐ 在临时页表 PML4[511] 建高半核映射：`0xFFFFFFFF80000000` → `0x000000`（Identity 基础上加高半段）
-- ☐ 填充 `BootInfo`，地址约定放 `0x7000`
-- ☐ 跳转前：`movb $0x4A, %al; outb %al, $0xE9`（输出字符 `J`）
-- ☐ `movq $boot_info_addr, %rdi`（第一参数），`jmp *%rax`（内核入口，用 `jmp` 不用 `call`）
+#### 阶段 A：real mode 内完成（在 001 末尾 VESA 之后、进保护模式之前）
+
+- ☐ E820 内存枚举：`INT $0x15 AX=0xE820`，每次填一条 `MemoryMapEntry` 到 `0x5000` 起的缓冲（最多 32 条），记录条目数到 `0x5000` 前 4 字节
+- ☐ 磁盘读内核：`INT $0x13 AH=0x42`，DAP 指定 LBA=`KERNEL_LBA`（由 build_image.sh 写死，例如 LBA=16），sectors=`KERNEL_SECTOR_COUNT`，dest=`0x0000:0x8000` 的下一段空闲地址 `0x10000`（64KB，作为 ELF 原始字节临时存放区，最大支持约 448KB 的内核镜像）
+
+#### 阶段 B：保护模式内调用 elf_loader.c
+
+- ☐ 定义 `boot/boot_info.h`（bootloader 和内核共用）：
+  ```c
+  typedef struct { uint64_t base, length; uint32_t type, _pad; } MemoryMapEntry;
+  typedef struct {
+      uint64_t entry_point, kernel_phys_base, kernel_size;
+      uint64_t fb_addr; uint32_t fb_width, fb_height, fb_pitch, fb_bpp;
+      uint32_t mmap_count; MemoryMapEntry mmap[32];
+  } BootInfo;
+  ```
+- ☐ 定义 `boot/elf_loader.c`（`-m32 -ffreestanding -nostdlib`）：
+  - `Elf64_Ehdr`/`Elf64_Phdr` 结构体（仅用到的字段）
+  - `elf64_load(void* elf_src, void* load_base)`：验证魔数 `\x7FELF` + `e_machine=0x3E(x86-64)` + `e_type=2(ET_EXEC)`；遍历所有 `PT_LOAD` 段，`memcpy` 到 `p_paddr`（以 `0x200000` 为 phys base），`p_memsz > p_filesz` 部分 `memset 0`（BSS）；返回 `e_entry`（高半核虚拟地址）
+  - 内部实现 `static void* kmemcpy` 和 `static void kmemset`（不依赖任何外部符号）
+- ☐ `boot/CMakeLists.txt` 编译 `elf_loader.c`：`gcc -m32 -ffreestanding -nostdlib -fno-pic -c elf_loader.c -o elf_loader.o`，链接进 stage2 二进制（链接脚本指定 `elf_loader.o` 紧跟 stage2.S 之后）
+- ☐ `stage2.S` 保护模式入口 `.code32` 内：`pushl $0x10000`（elf_src，ELF 原始字节地址），`pushl $0x200000`（load_base），`call elf64_load`，结果 `eax` 存入 `kernel_entry_low`（entry 低 32 位，high 半核地址高 32 位为 `0xFFFFFFFF`，进 long mode 后合并为完整 64-bit）
+
+#### 阶段 C：long mode 内填 BootInfo 并跳转
+
+- ☐ 在临时页表 PML4[511] 建高半核映射：`0xFFFFFFFF80000000` → 物理 `0x000000`（2MB 大页覆盖内核加载区）
+- ☐ 同时保留 PML4[0] identity mapping（保证 far jump 后 RIP 仍有效，内核初始化完再拆）
+- ☐ 进入 `.code64` 后填充 `BootInfo`（约定放物理 `0x7000`）：
+  - `entry_point`：`kernel_entry_low` 符号地址（高半核虚拟地址，`e_entry` 原值）
+  - `kernel_phys_base = 0x200000`，`kernel_size` = 实际加载字节数
+  - `fb_addr/width/height/pitch/bpp`：从 `0x6400` 读取（001 阶段 VESA 保存的值）
+  - `mmap_count` + `mmap[]`：从 `0x5000` 读取（E820 保存的值）
+- ☐ `scripts/build_image.sh` 更新：sector 0 = MBR，sector 1–15 = stage2+elf_loader，sector 16+ = kernel.elf（`KERNEL_LBA=16` 写死）；`KERNEL_SECTOR_COUNT` 由 `$(( ($(stat -c%s kernel.elf) + 511) / 512 ))` 动态计算并写入 stage2 数据区
+- ☐ 跳转前：`movb $0x4A, %al; outb %al, $0xE9`（debugcon 输出 `J`）
+- ☐ `movq $0x7000, %rdi`（BootInfo* 第一参数），`movq kernel_entry(%rip), %rax`，`jmp *%rax`
 
 ---
 
