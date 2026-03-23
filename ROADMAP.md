@@ -13,19 +13,19 @@
 
 > **验证手段**：全程 BIOS `INT $0x10 AH=0x0E` 屏幕字符输出，不碰串口
 
-- ☐ `boot/mbr.S`：`.code16`，`ljmp $0,$real_start` 规范化 CS，清零 `%ds %es %ss %sp`，`movb %dl, boot_drive` 保存启动盘号
-- ☐ 实现 `print_string`：`lodsb` + BIOS `INT $0x10 AH=0x0E` 循环输出，以 `\0` 结尾
-- ☐ 打印 `msg: .asciz "Cinux Booting..."`
-- ☐ 末尾加 DAP 结构（`dap`）：size=0x10，sectors=4，dest=`0x0000:0x8000`，LBA=1
-- ☐ 调 `INT $0x13 AH=0x42`（扩展磁盘读）将 stage2 载入 `0x8000`
-- ☐ `ljmp $0, $0x8000` 跳转 stage2
-- ☐ `boot/stage2.S`：入口用 BIOS `INT $0x10` 打印 `Stage2 OK`，后续步骤在此文件继续
-- ☐ `scripts/build_image.sh` 更新：sector 0 写 MBR，sector 1+ 写 stage2.bin
-- ☐ 开启 A20：`INT $0x15 AX=0x2401`
-- ☐ VESA 控制器信息：`INT $0x10 AX=0x4F00`，ES:DI 指向 512 字节 `VbeInfoBlock` 缓冲（放 `0x6000`），验证返回 `AX=0x004F`
-- ☐ 枚举目标模式 `0x118`（1024×768×32bpp linear framebuffer）：`INT $0x10 AX=0x4F01 CX=0x118`，ES:DI 指向 256 字节 `ModeInfoBlock`（放 `0x6200`），取 `PhysBasePtr`（偏移 `0x28`，4字节）、`BytesPerScanLine`（偏移 `0x10`）、`XResolution/YResolution`（偏移 `0x12/0x14`）、`BitsPerPixel`（偏移 `0x19`）
-- ☐ 设置视频模式：`INT $0x10 AX=0x4F02 BX=0x4118`（bit14=1 启用 linear framebuffer）
-- ☐ 将 `{PhysBasePtr, BytesPerScanLine, XResolution, YResolution, BitsPerPixel}` 打包写入 `0x6400`（16 字节），供后续填入 `BootInfo`；QEMU 典型值：`PhysBasePtr=0xFD000000, pitch=4096, 1024×768, 32bpp`
+- ☑ `boot/mbr.S`：`.code16`，`ljmp $0,$real_start` 规范化 CS，清零 `%ds %es %ss %sp`，`movb %dl, boot_drive` 保存启动盘号
+- ☑ 实现 `print_string`：`lodsb` + BIOS `INT $0x10 AH=0x0E` 循环输出，以 `\0` 结尾
+- ☑ 打印 `msg: .asciz "Cinux Booting..."`
+- ☑ 末尾加 DAP 结构（`dap`）：size=0x10，sectors=4，dest=`0x0000:0x8000`，LBA=1
+- ☑ 调 `INT $0x13 AH=0x42`（扩展磁盘读）将 stage2 载入 `0x8000`
+- ☑ `ljmp $0, $0x8000` 跳转 stage2
+- ☑ `boot/stage2.S`：入口用 BIOS `INT $0x10` 打印 `Stage2 OK`，后续步骤在此文件继续
+- ☑ `scripts/build_image.sh` 更新：sector 0 写 MBR，sector 1+ 写 stage2.bin
+- ☑ 开启 A20：`INT $0x15 AX=0x2401`
+- ☑ VESA 控制器信息：`INT $0x10 AX=0x4F00`，ES:DI 指向 512 字节 `VbeInfoBlock` 缓冲（放 `0x6000`），验证返回 `AX=0x004F`
+- ☑ 枚举目标模式 `0x118`（1024×768×32bpp linear framebuffer）：`INT $0x10 AX=0x4F01 CX=0x118`，ES:DI 指向 256 字节 `ModeInfoBlock`（放 `0x6200`），取 `PhysBasePtr`（偏移 `0x28`，4字节）、`BytesPerScanLine`（偏移 `0x10`）、`XResolution/YResolution`（偏移 `0x12/0x14`）、`BitsPerPixel`（偏移 `0x19`）
+- ☑ 设置视频模式：`INT $0x10 AX=0x4F02 BX=0x4118`（bit14=1 启用 linear framebuffer）
+- ☑ 将 `{PhysBasePtr, BytesPerScanLine, XResolution, YResolution, BitsPerPixel}` 打包写入 `0x6400`（16 字节），供后续填入 `BootInfo`；QEMU 典型值：`PhysBasePtr=0xFD000000, pitch=4096, 1024×768, 32bpp`
 
 ---
 

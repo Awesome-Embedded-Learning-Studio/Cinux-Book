@@ -1,13 +1,105 @@
+# ==============================================================
+# Cinux Bootloader CMake Configuration
+# ==============================================================
+
+# ==============================================================
+# Common Boot Utilities
+# ==============================================================
+
+# Compile common/serial.S as an object file for inclusion
+add_library(boot_common OBJECT
+    common/serial.S
+)
+
+target_compile_options(boot_common PRIVATE
+    -Wa,--32                    # Generate 32-bit object (can be linked as 16-bit)
+)
+
+# ==============================================================
+# MBR (Master Boot Record)
+# ==============================================================
+
 add_executable(mbr
-    mbr_stub.S
+    mbr.S
+)
+
+# Assemble 16-bit code as 32-bit objects, link as 32-bit ELF
+target_compile_options(mbr PRIVATE
+    -Wa,--32                    # Assemble as 32-bit (allows 16-bit code)
 )
 
 target_link_options(mbr PRIVATE
+    -Wl,-m,elf_i386             
     -T ${CMAKE_CURRENT_BINARY_DIR}/mbr.ld
     -nostdlib
+    -no-pie                    
 )
 
-# 链接后处理：转换为纯二进制格式
+# ==============================================================
+# Stage2 Bootloader
+# ==============================================================
+
+add_executable(stage2
+    stage2.S
+    $<TARGET_OBJECTS:boot_common>  # Include common functions
+)
+
+target_compile_options(stage2 PRIVATE
+    -Wa,--32                    # Assemble as 32-bit (allows 16-bit code)
+)
+
+target_link_options(stage2 PRIVATE
+    -Wl,-m,elf_i386
+    -T ${CMAKE_CURRENT_BINARY_DIR}/stage2.ld
+    -nostdlib
+    -no-pie
+)
+
+# ==============================================================
+# Linker Scripts
+# ==============================================================
+
+# Create MBR linker script
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/mbr.ld
+"
+OUTPUT_FORMAT(\"elf32-i386\")
+ENTRY(_start)
+SECTIONS
+{
+    . = 0x7C00;
+    .text : {
+        *(.text)
+        *(.rodata)
+    }
+    .data : { *(.data) }
+    .bss  : { *(.bss) }
+    /DISCARD/ : { *(.comment*) *(.note*) }
+}
+")
+
+# Create Stage2 linker script
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/stage2.ld
+"
+OUTPUT_FORMAT(\"elf32-i386\")
+ENTRY(_start)
+SECTIONS
+{
+    . = 0x0;
+    .text : {
+        *(.text)
+        *(.rodata)
+    }
+    .data : { *(.data) }
+    .bss  : { *(.bss) }
+    /DISCARD/ : { *(.comment*) *(.note*) }
+}
+")
+
+# ==============================================================
+# Post-Build: Convert to Raw Binary
+# ==============================================================
+
+# MBR binary
 add_custom_command(
     TARGET mbr
     POST_BUILD
@@ -16,17 +108,11 @@ add_custom_command(
     VERBATIM
 )
 
-# 创建 MBR 链接脚本
-file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/mbr.ld
-"
-OUTPUT_FORMAT(\"elf64-x86-64\")
-ENTRY(_start)
-SECTIONS
-{
-    . = 0x7C00;
-    .text : { *(.text) }
-    .data : { *(.data) }
-    .bss  : { *(.bss) }
-    /DISCARD/ : { *(.comment*) *(.note*) }
-}
-")
+# Stage2 binary
+add_custom_command(
+    TARGET stage2
+    POST_BUILD
+    COMMAND objcopy -O binary $<TARGET_FILE:stage2> $<TARGET_FILE_DIR:stage2>/stage2.bin
+    COMMENT "Converting Stage2 to raw binary: stage2.bin"
+    VERBATIM
+)

@@ -23,10 +23,15 @@ if(NOT CINUX_IMAGE_PATH)
 endif()
 
 # Let We make boots before sessions
+set(MBR_BIN    "${CMAKE_BINARY_DIR}/boot/mbr.bin")
+set(STAGE2_BIN "${CMAKE_BINARY_DIR}/boot/stage2.bin")
 add_custom_command(
     OUTPUT ${CINUX_IMAGE_PATH}
-    COMMAND ${CMAKE_SOURCE_DIR}/scripts/build_image.sh ${CINUX_IMAGE_PATH}
-    DEPENDS mbr
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/build_image.sh
+        ${MBR_BIN}
+        ${STAGE2_BIN}
+        ${CINUX_IMAGE_PATH}
+    DEPENDS mbr stage2
     COMMENT "Building disk image: ${CINUX_IMAGE_PATH}"
     VERBATIM
 )

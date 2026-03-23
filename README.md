@@ -20,7 +20,9 @@
 
 **Cinux** 是一个从零开始的 x86_64 操作系统开发教程，采用现代 C++23 编写，完全不依赖标准库。
 
-> 💡 **为什么叫 Cinux？** = **C**in (**Ch**inese) + **Lin**ux-like，寓意"中文版 Linux 教程"
+> 💡 **为什么叫 Cinux？** 
+> C/C++'s Linux, 也就是尝试重新再写一个基于C/C++的Linux
+> CharlieChen's *nux（逃）
 
 与大多数 OS 教程不同，Cinux 强调：
 
@@ -194,7 +196,7 @@ Phase 8: GUI       [░░░░░] 0%
 ## 📚 教程结构
 
 ```
-docs/
+document/
 ├── hands-on/          📝 动手版教程（跟着敲代码）
 │   ├── 000-env-toolchain.md       ✅ 环境搭建
 │   ├── 001-boot-real-mode.md      🔨 实模式启动
