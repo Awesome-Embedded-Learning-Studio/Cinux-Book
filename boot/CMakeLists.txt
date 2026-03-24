@@ -9,6 +9,7 @@
 # Compile common/serial.S as an object file for inclusion
 add_library(boot_common OBJECT
     common/serial.S
+    common/boot.S
 )
 
 target_compile_options(boot_common PRIVATE
@@ -115,7 +116,18 @@ SECTIONS
     .data : {
         *(.data)
     }
-    /DISCARD/ : { *(.comment*) *(.note*) }
+
+    .bss : {
+        *(.bss*)
+    }
+    
+    . = 0x10000;
+    
+    ASSERT(. <= 0x10000, \"stage2 too large! exceeds 32KB\")
+    /DISCARD/ : {
+        *(.comment*)
+        *(.note*)
+    }
 }
 ")
 

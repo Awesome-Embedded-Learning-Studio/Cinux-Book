@@ -7,10 +7,16 @@
 set -e  # Exit on error
 
 # ============================================================
-# Path Configuration
+# Source Logging Utilities
 # ============================================================
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+source "${SCRIPT_DIR}/log/logging.sh"
+
+# ============================================================
+# Path Configuration
+# ============================================================
+
 PROJECT_ROOT=$(dirname "$SCRIPT_DIR")
 
 # ============================================================
@@ -20,7 +26,8 @@ PROJECT_ROOT=$(dirname "$SCRIPT_DIR")
 # Usage: build_image.sh [mbr.bin] [stage2.bin] [output.img]
 MBR_BIN=${1:-${BUILD_DIR}/boot/mbr.bin}
 STAGE2_BIN=${2:-${BUILD_DIR}/boot/stage2.bin}
-OUTPUT_IMAGE=${3:-${BUILD_DIR}/cinux.img}
+MINI_ELF=${3:-${BUILD_DIR}/kernel/mini/mini_kernel}
+OUTPUT_IMAGE=${4:-${BUILD_DIR}/cinux.img}
 
 # ============================================================
 # Ensure Build Directory Exists
@@ -34,15 +41,22 @@ mkdir -p "$(dirname "$OUTPUT_IMAGE")"
 
 # Check MBR binary exists
 if [ ! -f "$MBR_BIN" ]; then
-    echo "Error: MBR binary not found at $MBR_BIN"
-    echo "Please run 'make' first to build the bootloader."
+    log_error "MBR binary not found at $MBR_BIN"
+    log_error "Please run 'make' first to build the bootloader."
     exit 1
 fi
 
 # Check Stage2 binary exists
 if [ ! -f "$STAGE2_BIN" ]; then
-    echo "Error: Stage2 binary not found at $STAGE2_BIN"
-    echo "Please run 'make' first to build the bootloader."
+    log_error "Stage2 binary not found at $STAGE2_BIN"
+    log_error "Please run 'make' first to build the bootloader."
+    exit 1
+fi
+
+# Check mini kernel ELF exists
+if [ ! -f "$MINI_ELF" ]; then
+    log_error "Mini kernel ELF not found at $MINI_ELF"
+    log_error "Please run 'make' first to build the mini kernel."
     exit 1
 fi
 
@@ -53,19 +67,83 @@ fi
 # Disk layout:
 # Sector 0:     MBR (512 bytes)
 # Sector 1-15:  Stage2 (up to 15 sectors = 7680 bytes)
+# Sector 16+:   Mini kernel (starts at LBA 16, matches MINI_KERNEL_LBA in boot.S)
 STAGE2_LBA=1
 STAGE2_MAX_SECTORS=15
+MINI_KERNEL_LBA=16
 
-# Get actual Stage2 size
+# Mini kernel size limit (448KB = loaded at 0x10000, must stay below 0x80000)
+MINI_KERNEL_MAX_BYTES=$((448 * 1024))  # 458752 bytes
+MINI_KERNEL_MAX_SECTORS=$((MINI_KERNEL_MAX_BYTES / 512))  # 896 sectors
+
+# ============================================================
+# Validate ELF Header
+# ============================================================
+
+# Check ELF magic number: 0x7f 'E' 'L' 'F'
+ELF_MAGIC=$(dd if="$MINI_ELF" bs=1 count=4 status=none 2>/dev/null | od -A n -t x1 | tr -d ' \n')
+if [ "$ELF_MAGIC" != "7f454c46" ]; then
+    log_error "Invalid ELF header: $MINI_ELF"
+    log_error "       Expected magic: 7f 45 4c 46 (.ELF)"
+    log_error "       Actual magic:   $(echo $ELF_MAGIC | sed 's/../& /g')"
+    exit 1
+fi
+log_success "ELF header valid: $MINI_ELF"
+
+# ============================================================
+# Get File Sizes
+# ============================================================
+
+# Get Stage2 size
 STAGE2_SIZE=$(stat -c%s "$STAGE2_BIN" 2>/dev/null || stat -f%z "$STAGE2_BIN")
 STAGE2_SECTORS=$(( (STAGE2_SIZE + 511) / 512 ))
 
+# Get mini kernel size
+MINI_SIZE=$(stat -c%s "$MINI_ELF" 2>/dev/null || stat -f%z "$MINI_ELF")
+MINI_SECTORS=$(( (MINI_SIZE + 511) / 512 ))
+
+# ============================================================
+# Print Component Sizes
+# ============================================================
+
+echo ""
+echo "=========================================="
+echo "  Component Size Summary"
+echo "=========================================="
+printf "  %-20s %8s bytes  %4s sectors\n" "MBR:" "512" "1"
+printf "  %-20s %8d bytes  %4d sectors\n" "Stage2:" "$STAGE2_SIZE" "$STAGE2_SECTORS"
+printf "  %-20s %8d bytes  %4d sectors\n" "Mini Kernel:" "$MINI_SIZE" "$MINI_SECTORS"
+echo "=========================================="
+TOTAL_SIZE=$((512 + STAGE2_SIZE + MINI_SIZE))
+TOTAL_SECTORS=$((1 + STAGE2_SECTORS + MINI_SECTORS))
+printf "  %-20s %8d bytes  %4d sectors\n" "Total:" "$TOTAL_SIZE" "$TOTAL_SECTORS"
+echo "=========================================="
+echo ""
+
+# ============================================================
+# Validate Size Limits
+# ============================================================
+
 # Validate Stage2 size
 if [ $STAGE2_SECTORS -gt $STAGE2_MAX_SECTORS ]; then
-    echo "Error: Stage2 too large: $STAGE2_SIZE bytes ($STAGE2_SECTORS sectors)"
-    echo "       Maximum allowed: $STAGE2_MAX_SECTORS sectors ($((STAGE2_MAX_SECTORS * 512)) bytes)"
+    log_error "Stage2 too large!"
+    log_error "       Actual:   $STAGE2_SIZE bytes ($STAGE2_SECTORS sectors)"
+    log_error "       Maximum:  $((STAGE2_MAX_SECTORS * 512)) bytes ($STAGE2_MAX_SECTORS sectors)"
     exit 1
 fi
+
+# Validate mini kernel size
+if [ $MINI_SIZE -gt $MINI_KERNEL_MAX_BYTES ]; then
+    log_error "Mini kernel too large!"
+    log_error "       Actual:   $MINI_SIZE bytes ($MINI_SECTORS sectors)"
+    log_error "       Maximum:  $MINI_KERNEL_MAX_BYTES bytes ($MINI_KERNEL_MAX_SECTORS sectors, 448KB)"
+    echo ""
+    log_error "The mini kernel is loaded at 0x10000 and must stay below 0x80000."
+    log_error "Consider reducing kernel size or adjusting the load address."
+    exit 1
+fi
+
+log_success "Size validation passed: All components within limits"
 
 # ============================================================
 # Create Disk Image
@@ -77,11 +155,15 @@ dd if=/dev/zero of="$OUTPUT_IMAGE" bs=1M count=1 status=none
 
 # Step 2: Write MBR to sector 0
 dd if="$MBR_BIN" of="$OUTPUT_IMAGE" bs=512 count=1 conv=notrunc status=none
-echo "MBR written to sector 0"
+log_info "MBR written to sector 0"
 
 # Step 3: Write Stage2 starting at sector 1
 dd if="$STAGE2_BIN" of="$OUTPUT_IMAGE" bs=512 seek=$STAGE2_LBA conv=notrunc status=none
-echo "Stage2 written to sectors $STAGE2_LBA-$((STAGE2_LBA + STAGE2_SECTORS - 1)) ($STAGE2_SECTORS sectors, $STAGE2_SIZE bytes)"
+log_info "Stage2 written to sectors $STAGE2_LBA-$((STAGE2_LBA + STAGE2_SECTORS - 1)) ($STAGE2_SECTORS sectors, $STAGE2_SIZE bytes)"
+
+# Step 4: Write mini kernel starting at sector 16
+dd if="$MINI_ELF" of="$OUTPUT_IMAGE" bs=512 seek=$MINI_KERNEL_LBA conv=notrunc status=none
+log_info "Mini kernel written to sectors $MINI_KERNEL_LBA-$((MINI_KERNEL_LBA + MINI_SECTORS - 1)) ($MINI_SECTORS sectors, $MINI_SIZE bytes)"
 
 # ============================================================
 # Verify Image
@@ -90,9 +172,9 @@ echo "Stage2 written to sectors $STAGE2_LBA-$((STAGE2_LBA + STAGE2_SECTORS - 1))
 # Verify MBR signature
 SIGNATURE=$(dd if="$OUTPUT_IMAGE" bs=1 skip=510 count=2 status=none | xxd -p)
 if [ "$SIGNATURE" = "55aa" ]; then
-    echo "MBR signature valid: 0xAA55"
+    log_success "MBR signature valid: 0xAA55"
 else
-    echo "Warning: MBR signature invalid: $SIGNATURE (expected 55aa)"
+    log_warn "MBR signature invalid: $SIGNATURE (expected 55aa)"
 fi
 
 # ============================================================
@@ -101,7 +183,7 @@ fi
 
 SIZE=$(stat -c%s "$OUTPUT_IMAGE" 2>/dev/null || stat -f%z "$OUTPUT_IMAGE")
 echo ""
-echo "Disk image built successfully!"
+log_success "Disk image built successfully!"
 echo "  Path:  $OUTPUT_IMAGE"
 echo "  Size:  $SIZE bytes"
 echo ""

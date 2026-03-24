@@ -28,13 +28,15 @@ endif()
 # Let We make boots before sessions
 set(MBR_BIN    "${CMAKE_BINARY_DIR}/boot/mbr.bin")
 set(STAGE2_BIN "${CMAKE_BINARY_DIR}/boot/stage2.bin")
+set(MINI_ELF   "${CMAKE_BINARY_DIR}/kernel/mini/mini_kernel")
 add_custom_command(
     OUTPUT ${CINUX_IMAGE_PATH}
     COMMAND ${CMAKE_SOURCE_DIR}/scripts/build_image.sh
         ${MBR_BIN}
         ${STAGE2_BIN}
+        ${MINI_ELF}
         ${CINUX_IMAGE_PATH}
-    DEPENDS mbr stage2
+    DEPENDS mbr stage2 mini_kernel
     COMMENT "Building disk image: ${CINUX_IMAGE_PATH}"
     VERBATIM
 )

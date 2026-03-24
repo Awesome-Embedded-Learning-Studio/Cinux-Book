@@ -8,19 +8,21 @@
 
 ## Phase 1 · Bootloader
 
-### `004_boot_load_kernel`
-**效果**：QEMU 不崩溃，debugcon 输出 `J`（确认即将跳转内核），随后内核接管
+> **架构说明**：本阶段 bootloader 加载并跳转到**小内核 (Bootstrap Kernel)**，由小内核继续加载大内核。
 
-> **验证手段**：`jmp *%rax` 前一条 `outb $0x4A, $0xE9` 输出字符 `J`；内核启动后由 `005` 的串口驱动接管所有后续输出，不碰串口  
-> **ELF 加载方案**：独立 `boot/elf_loader.c`，`-m32 -ffreestanding` 编译，链接进 stage2；stage2.S 保护模式入口直接 `call elf64_load`，汇编侧不写解析逻辑  
-> **内核物理加载地址**：`0x200000`（2MB，与大页边界对齐，页表映射干净）
+### `004_boot_load_mini_kernel`
+**效果**：QEMU 不崩溃，debugcon 输出 `J`（确认即将跳转小内核），随后小内核接管
 
-#### 阶段 A：real mode 内完成（在 001 末尾 VESA 之后、进保护模式之前）
+> **验证手段**：`jmp *%rax` 前一条 `outb $0x4A, $0xE9` 输出字符 `J`；小内核启动后由 `005` 的串口驱动接管所有后续输出
+> **加载方案**：两阶段加载——real mode 读 ELF header（4KB），protected mode 循环读完整小内核（无大小限制）并解析重定位
+> **小内核物理加载地址**：`0x200000`（2MB，与大页边界对齐，页表映射干净）
+
+#### 004_boot_load_mini_kernel_A：real mode 内完成（在 001 末尾 VESA 之后、进保护模式之前）
 
 - ☐ E820 内存枚举：`INT $0x15 AX=0xE820`，每次填一条 `MemoryMapEntry` 到 `0x5000` 起的缓冲（最多 32 条），记录条目数到 `0x5000` 前 4 字节
-- ☐ 磁盘读内核：`INT $0x13 AH=0x42`，DAP 指定 LBA=`KERNEL_LBA`（由 build_image.sh 写死，例如 LBA=16），sectors=`KERNEL_SECTOR_COUNT`，dest=`0x0000:0x8000` 的下一段空闲地址 `0x10000`（64KB，作为 ELF 原始字节临时存放区，最大支持约 448KB 的内核镜像）
+- ☐ 磁盘读 ELF header：`INT $0x13 AH=0x42`，DAP 指定 LBA=`MINI_KERNEL_LBA`（build_image.sh 写死，例如 16），sectors=8（4KB），dest=`0x1000:0x0000`（物理 `0x10000`）；仅用于后续解析 PHDR 获取小内核总大小，**支持任意大小的内核镜像**
 
-#### 阶段 B：保护模式内调用 elf_loader.c
+#### 004_boot_load_mini_kernel_B：保护模式内循环读取完整小内核 + ELF 解析
 
 - ☐ 定义 `boot/boot_info.h`（bootloader 和内核共用）：
   ```c
@@ -33,44 +35,128 @@
   ```
 - ☐ 定义 `boot/elf_loader.c`（`-m32 -ffreestanding -nostdlib`）：
   - `Elf64_Ehdr`/`Elf64_Phdr` 结构体（仅用到的字段）
+  - `calculate_kernel_size(Elf64_Ehdr*)`：遍历所有 `PT_LOAD` 段，计算 `p_offset + p_filesz` 最大值 = 小内核 ELF 文件总大小
+  - `bios_disk_read(uint32_t lba, uint16_t sectors, void* buffer)`：构造 DAP，调用 `INT 0x13 AH=0x42`，buffer 必须在低 1MB（`0x10000` 临时区）
+  - `load_kernel_full(uint32_t kernel_lba, uint32_t load_base)`：循环读取逻辑
+    1. 解析 `0x10000` 的 ELF header，获取总大小
+    2. 循环：每次最多读 128 扇区（64KB）到 `0x10000` → `rep movsd` 搬运到 `load_base + offset`
+    3. 更新 LBA 和 offset，直到读完整个小内核
   - `elf64_load(void* elf_src, void* load_base)`：验证魔数 `\x7FELF` + `e_machine=0x3E(x86-64)` + `e_type=2(ET_EXEC)`；遍历所有 `PT_LOAD` 段，`memcpy` 到 `p_paddr`（以 `0x200000` 为 phys base），`p_memsz > p_filesz` 部分 `memset 0`（BSS）；返回 `e_entry`（高半核虚拟地址）
   - 内部实现 `static void* kmemcpy` 和 `static void kmemset`（不依赖任何外部符号）
-- ☐ `boot/CMakeLists.txt` 编译 `elf_loader.c`：`gcc -m32 -ffreestanding -nostdlib -fno-pic -c elf_loader.c -o elf_loader.o`，链接进 stage2 二进制（链接脚本指定 `elf_loader.o` 紧跟 stage2.S 之后）
-- ☐ `stage2.S` 保护模式入口 `.code32` 内：`pushl $0x10000`（elf_src，ELF 原始字节地址），`pushl $0x200000`（load_base），`call elf64_load`，结果 `eax` 存入 `kernel_entry_low`（entry 低 32 位，high 半核地址高 32 位为 `0xFFFFFFFF`，进 long mode 后合并为完整 64-bit）
+- ☐ `boot/CMakeLists.txt` 编译 `elf_loader.c`：`gcc -m32 -ffreestanding -nostdlib -fno-pic -c elf_loader.c -o elf_loader.o`，链接进 stage2 二进制
+- ☐ `stage2.S` 保护模式入口 `.code32` 内：`pushl $MINI_KERNEL_LBA`，`pushl $0x200000`（load_base），`call load_kernel_full`，结果 `eax` 存入 `kernel_entry_low`（entry 低 32 位，high 半核地址高 32 位为 `0xFFFFFFFF`，进 long mode 后合并为完整 64-bit）
 
-#### 阶段 C：long mode 内填 BootInfo 并跳转
+#### 004_boot_load_mini_kernel_C：long mode 内填 BootInfo 并跳转
 
-- ☐ 在临时页表 PML4[511] 建高半核映射：`0xFFFFFFFF80000000` → 物理 `0x000000`（2MB 大页覆盖内核加载区）
-- ☐ 同时保留 PML4[0] identity mapping（保证 far jump 后 RIP 仍有效，内核初始化完再拆）
+- ☐ 在临时页表 PML4[511] 建高半核映射：`0xFFFFFFFF80000000` → 物理 `0x000000`（2MB 大页覆盖小内核加载区）
+- ☐ 同时保留 PML4[0] identity mapping（保证 far jump 后 RIP 仍有效，小内核初始化完再拆）
 - ☐ 进入 `.code64` 后填充 `BootInfo`（约定放物理 `0x7000`）：
   - `entry_point`：`kernel_entry_low` 符号地址（高半核虚拟地址，`e_entry` 原值）
-  - `kernel_phys_base = 0x200000`，`kernel_size` = 实际加载字节数
+  - `kernel_phys_base = 0x200000`，`kernel_size` = 由 `load_kernel_full` 计算并返回的实际 ELF 文件大小
   - `fb_addr/width/height/pitch/bpp`：从 `0x6400` 读取（001 阶段 VESA 保存的值）
   - `mmap_count` + `mmap[]`：从 `0x5000` 读取（E820 保存的值）
-- ☐ `scripts/build_image.sh` 更新：sector 0 = MBR，sector 1–15 = stage2+elf_loader，sector 16+ = kernel.elf（`KERNEL_LBA=16` 写死）；`KERNEL_SECTOR_COUNT` 由 `$(( ($(stat -c%s kernel.elf) + 511) / 512 ))` 动态计算并写入 stage2 数据区
+- ☐ `scripts/build_image.sh` 更新：sector 0 = MBR，sector 1–15 = stage2+elf_loader，sector 16–xxx = mini.elf（小内核），sector xxx–end = big.elf（大内核）；`MINI_KERNEL_LBA=16` 写死，大内核 LBA 动态计算
 - ☐ 跳转前：`movb $0x4A, %al; outb %al, $0xE9`（debugcon 输出 `J`）
 - ☐ `movq $0x7000, %rdi`（BootInfo* 第一参数），`movq kernel_entry(%rip), %rax`，`jmp *%rax`
 
 ---
 
-## Phase 2 · 内核基础设施
+## Phase 2 · 小内核 (Bootstrap Kernel)
 
-### `005_kernel_entry`
-**效果**：串口输出 `[KERNEL] Hello from Cinux Kernel!` 和内存统计
+> **架构说明**：小内核是最小化的 C++ 内核，只实现运行大内核所需的基础功能。
+> **小内核职责**：初始化硬件 → 提供基础服务（输出、内存、磁盘）→ 加载并跳转到**大内核**。
+> **目录**：`kernel/mini/`，隶属于大内核 `kernel/` 的目录支下。
+> **内存布局**：小内核 @ 0x200000 (2MB)，大内核 @ 0x1000000 (16MB)。
 
-- ☐ `kernel/linker.ld`：`KERNEL_VMA = 0xFFFFFFFF80000000`，`.text` AT(VMA-KERNEL_VMA)，`.bss` 含 `__bss_start/__bss_end`，`__kernel_end`，16KB 内核栈
+### `005_mini_kernel_entry`
+**效果**：串口输出 `[MINI] Bootstrap kernel running @ 0x200000`
+
+- ☐ `kernel/mini/linker.ld`：`MINI_KERNEL_VMA = 0xFFFFFFFF80000000`，`.text`/`.bss`/`.data` 段，小内核栈（8KB）
+- ☐ `kernel/mini/arch/x86_64/boot.S`：`_start` 切换 `%rsp` 到 `__mini_stack_top`，`xorq %rbp,%rbp`，`rep stosb` 清 BSS，`call _init_global_ctors`，`call mini_kernel_main`，`.halt: cli; hlt`
+- ☐ `kernel/mini/arch/x86_64/crt_stub.cpp`：C++ runtime 支持（`__cxa_pure_virtual`、`__stack_chk_fail`、`__cxa_atexit`、`_init_global_ctors`）
+- ☐ 链接脚本加 `.init_array` 段，收集全局构造器
+- ☐ `kernel/mini/drivers/serial.hpp/cpp`：`Serial::init(port,baud)`，`Serial::putc(c)`，`Serial::puts(s)`
+- ☐ `kernel/mini/lib/kprintf.hpp/cpp`：简化版 `kvprintf`/`kprintf`，支持 `%d %u %x %X %s %p %c %%`
+- ☐ `kernel/mini/main.cpp`：`mini_kernel_main(BootInfo*)` 调 `Serial::init()` → `kprintf("[MINI] Bootstrap kernel running @ 0x200000\n")`
+
+---
+
+### `006_mini_kernel_pmm`
+**效果**：物理内存分配器工作，输出 `[MINI] PMM: Total XMB, Free XMB`
+
+- ☐ `kernel/mini/mm/pmm.hpp/cpp`：Bitmap 物理内存分配器
+  - `init(BootInfo&)`：解析 E820，初始化 bitmap
+  - `alloc_page() → uint64_t`（返回物理地址，0=OOM）
+  - `free_page(uint64_t phys)`
+  - `free_page_count()` / `total_page_count()`
+- ☐ Bitmap 放在小内核末端（`__mini_kernel_end` 对齐后）
+- ☐ 过滤低 1MB，标记小内核自身和 bitmap 为已用
+- ☐ `mini_kernel_main` 输出：`kprintf("[MINI] PMM: Total %dMB, Free %dMB\n", ...)`
+
+---
+
+### `007_mini_kernel_interrupts`
+**效果**：触发异常不死机，能看到错误信息
+
+- ☐ `kernel/mini/arch/x86_64/gdt.hpp/cpp`：基础 GDT（null/code64/data64 三项即可）
+- ☐ `kernel/mini/arch/x86_64/idt.hpp/cpp`：简化版 IDT（只配置必要向量）
+- ☐ `kernel/mini/arch/x86_64/interrupts.S`：仅 #BP(3) 和 #PF(14) 的 ISR stub
+- ☐ `kernel/mini/arch/x86_64/exception_handlers.cpp`：
+  - `handle_bp(InterruptFrame*)`：打印 `[MINI] Breakpoint at RIP=0x...`
+  - `handle_pf(InterruptFrame*)`：打印 `[MINI] Page Fault at %cr2=0x...`
+- ☐ `mini_kernel_main` 测试：`asm volatile("int $3")` 验证输出
+
+---
+
+### `008_mini_kernel_disk_and_loader`
+**效果**：从磁盘加载大内核 ELF 并跳转
+
+- ☐ `kernel/mini/drivers/ata.hpp/cpp`：ATA PIO 磁盘驱动
+  - `init()`：检测并初始化 ATA 控制器
+  - `read(uint64_t lba, uint16_t count, void* buffer)`：读取扇区
+- ☐ `kernel/mini/elf_loader.hpp/cpp`：ELF64 解析器
+  - `parse_elf_header(void* elf) → bool`：验证魔数和架构
+  - `calculate_kernel_size(Elf64_Ehdr*) → size_t`：遍历 PT_LOAD
+  - `load_elf(void* elf_src, uint64_t load_base) → uint64_t`：返回 entry_point
+- ☐ `kernel/mini/big_kernel_loader.hpp/cpp`：
+  - `load_big_kernel(uint64_t disk_lba) → uint64_t`：循环读取大内核到 `0x1000000`（16MB）
+- ☐ `mini_kernel_main` 流程：
+  1. 初始化串口
+  2. 初始化 PMM
+  3. 初始化 IDT（#BP/#PF）
+  4. 初始化 ATA
+  5. 加载大内核：`entry = load_big_kernel(BIG_KERNEL_LBA)`
+  6. 输出 `[MINI] Jumping to big kernel at 0x...`
+  7. 跳转：`movq entry, %rax; jmp *%rax`
+
+**常量定义**：
+```cpp
+constexpr uint64_t MINI_KERNEL_LOAD_ADDR = 0x200000;    // 2MB
+constexpr uint64_t BIG_KERNEL_LOAD_ADDR  = 0x1000000;   // 16MB
+```
+
+---
+
+## Phase 3 · 大内核基础设施
+
+> **架构说明**：大内核从 `kernel/` 目录构建，由小内核加载并跳转，实现完整的 OS 功能。
+
+### `009_big_kernel_entry`
+**效果**：串口输出 `[BIG] Big kernel running @ 0x1000000`
+
+- ☐ `kernel/linker.ld`：`KERNEL_VMA = 0xFFFFFFFF80000000`，`.text` AT(VMA-KERNEL_VMA)`，加载地址 `0x1000000`
 - ☐ `kernel/arch/x86_64/boot.S`：`_start` 切换 `%rsp` 到 `__kernel_stack_top`，`xorq %rbp,%rbp`，`rep stosb` 清 BSS，`call _init_global_ctors`，`call kernel_main`，`.halt: cli; hlt`
 - ☐ `kernel/arch/x86_64/crt_stub.cpp`：`__cxa_pure_virtual`、`__stack_chk_fail`（均 `cli;hlt`），`__cxa_atexit` 返回 0，`_init_global_ctors` 遍历 `.init_array`
 - ☐ 链接脚本加 `.init_array` 段，收集全局构造器
 - ☐ `kernel/arch/x86_64/io.hpp`：`io_inb/io_outb/io_inw/io_outw/io_inl/io_outl/io_wait` 全部内联汇编，`"memory"` clobber
 - ☐ `kernel/drivers/serial.hpp/cpp`：`Serial::init(port,baud)`，`Serial::putc(c)`，`Serial::puts(s)`，`Serial::is_ready()`
 - ☐ `kernel/lib/kprintf.hpp/cpp`：`kvprintf(fmt,va_list)`，`kprintf(fmt,...)`，`kpanic(fmt,...) [[noreturn]]`，支持 `%d %u %x %X %s %p %c %%`，`%p` 输出 16 位十六进制
-- ☐ `kernel_main(BootInfo*)` 调 `Serial::init()` → `kprintf("[KERNEL] Hello from Cinux Kernel!\n")`
+- ☐ `kernel_main(BootInfo*)` 调 `Serial::init()` → `kprintf("[BIG] Big kernel running @ 0x1000000\n")`
 - ☐ host 端单元测试 `tests/unit/test_kprintf.cpp`：mock `Serial::putc`，验证各格式化输出
 
 ---
 
-### `006_kernel_gdt_idt`
+### `010_big_kernel_gdt_idt`
 **效果**：触发除零异常后串口打印寄存器 dump，不死机
 
 - ☐ `kernel/arch/x86_64/gdt.hpp`：`GDTEntry [[gnu::packed]]`，`constexpr make_null/make_code64/make_data64/make_tss`；选择子常量 `GDT_KERNEL_CODE=0x08`，`GDT_KERNEL_DATA=0x10`，`GDT_USER_CODE=0x1B`，`GDT_USER_DATA=0x23`，`GDT_TSS=0x28`
@@ -82,7 +168,7 @@
 
 ---
 
-### `007_pic_irq`
+### `011_big_kernel_pic_irq`
 **效果**：串口每秒输出 `[TICK] uptime: Ns`
 
 - ☐ `kernel/arch/x86_64/pic.hpp/cpp`：`PIC::init(master_offset=0x20, slave_offset=0x28)` 发 ICW1–ICW4（含 `io_wait()`），重映射 IRQ0-7→0x20-0x27，IRQ8-15→0x28-0x2F；`PIC::send_eoi(irq)`，`PIC::mask(irq)`，`PIC::unmask(irq)`，`PIC::disable_all()`
@@ -92,9 +178,9 @@
 
 ---
 
-## Phase 3 · 驱动三件套
+## Phase 4 · 驱动三件套
 
-### `008_driver_serial`
+### `012_driver_serial`
 **效果**：`ctest` host 端 kprintf 测试全绿，串口输出格式验证字符串
 
 - ☐ `kprintf` 补全：`fmt_uint(val,base,width,pad,upper,buf,len)` 支持前补零；`%08x`/`%-10s` 等宽度修饰；`%p` 输出 `0x` + 16 位十六进制
@@ -102,7 +188,7 @@
 
 ---
 
-### `009_driver_vga_fb`
+### `013_driver_vga_fb`
 **效果**：屏幕显示彩色字符，自动滚屏
 
 - ☐ `kernel/drivers/framebuffer.hpp/cpp`：`Framebuffer {addr,width,height,pitch,bpp}`；`init(BootInfo&)`（映射 MMIO）；`put_pixel(x,y,argb)`=`addr[y*pitch/4+x]=color`；`fill_rect`；`scroll_up(lines,line_height)` 用 `memmove`；`clear(color=0)`
@@ -113,7 +199,7 @@
 
 ---
 
-### `010_driver_keyboard`
+### `014_driver_keyboard`
 **效果**：按键后屏幕和串口同步回显字符
 
 - ☐ `keyboard_init()`：禁用 PS/2 设备（CMD `0xAD/0xA7`），刷新输出缓冲，写配置字节（IRQ1 on，mouse IRQ12 off），控制器自检（CMD `0xAA`，期望 `0x55`），重新启用（CMD `0xAE`）
@@ -126,9 +212,9 @@
 
 ---
 
-## Phase 4 · 内存管理
+## Phase 5 · 内存管理
 
-### `011_mm_pmm`
+### `015_mm_pmm`
 **效果**：串口输出内存统计，分配/释放测试通过
 
 - ☐ `parse_memory_map(BootInfo&, regions[], max)` 提取 type=1 可用区域，过滤低 1MB，对齐到 4KB
@@ -140,7 +226,7 @@
 
 ---
 
-### `012_mm_vmm`
+### `016_mm_vmm`
 **效果**：map/unmap/translate 可用，缺页异常正确处理
 
 - ☐ `kernel/arch/x86_64/paging.hpp`：`union PageEntry {uint64_t raw; struct{present,writable,user,pwt,pcd,accessed,dirty,huge,global,_avail,addr:40,nx}}`；`FLAG_PRESENT/WRITABLE/USER/NX` 常量
@@ -150,7 +236,7 @@
 
 ---
 
-### `013_mm_heap`
+### `017_mm_heap`
 **效果**：`kmalloc`/`kfree` 可用，`new`/`delete` 接管，碎片化测试通过
 
 - ☐ `BlockHeader [[gnu::packed]] {magic=0xDEADBEEF, size, free, _pad[7], *next}`
@@ -161,7 +247,7 @@
 
 ---
 
-### `014_mm_address_space`
+### `018_mm_address_space`
 **效果**：独立地址空间创建/切换，用户区隔离验证
 
 - ☐ `kernel/mm/address_space.hpp`：`class AddressSpace {pml4_phys_; static *kernel_pml4_}`；`static init_kernel()`（读 CR3 保存）；构造器（alloc 新 PML4，复制 PML4[256–511] 内核条目）；析构器（遍历用户区 PML4[0–255] 逐级释放）；`map/unmap/activate()`（mov CR3）
@@ -170,9 +256,9 @@
 
 ---
 
-## Phase 5 · 进程与调度
+## Phase 6 · 进程与调度
 
-### `015_proc_context`
+### `019_proc_context`
 **效果**：两个内核线程交替串口打印，`yield` 切换
 
 - ☐ `kernel/proc/process.hpp`：`enum TaskState {Running,Ready,Blocked,Dead}`；`struct alignas(16) CpuContext {r15,r14,r13,r12,rbp,rbx,rsp,rip}`；`struct Task {ctx,state,tid,priority,kernel_stack,kernel_stack_top,*addr_space,*name}`
@@ -183,7 +269,7 @@
 
 ---
 
-### `016_proc_scheduler`
+### `020_proc_scheduler`
 **效果**：3 个线程无 `yield` 调用，时钟中断驱动交替运行
 
 - ☐ `kernel/proc/sync.hpp`：`class Spinlock`，`acquire()`（`__atomic_test_and_set` + `pause`），`release()`（`__atomic_clear`），`[[nodiscard]] guard()`（RAII）
@@ -195,7 +281,7 @@
 
 ---
 
-### `017_proc_sync`
+### `021_proc_sync`
 **效果**：Mutex/Semaphore 可用，producer-consumer 无竞争
 
 - ☐ `class Mutex {spin_, *owner_, *wait_head_}`：`lock()`（已锁则 block 当前 task），`unlock()`（唤醒等待队列头），`try_lock()`，`[[nodiscard]] guard()`
@@ -204,9 +290,9 @@
 
 ---
 
-## Phase 6 · 用户态与系统调用
+## Phase 7 · 用户态与系统调用
 
-### `018_ring3_usermode`
+### `022_ring3_usermode`
 **效果**：第一个用户态程序运行，执行特权指令触发 `#GP`
 
 - ☐ `kernel/arch/x86_64/tss.hpp`：`TSS [[gnu::packed]] {_reserved0, rsp[3], _reserved1, ist[7], _reserved2, _reserved3, iopb_offset}`，16 字节对齐
@@ -218,7 +304,7 @@
 
 ---
 
-### `019_syscall`
+### `023_syscall`
 **效果**：用户态 `syscall` 指令触发内核打印 `[USER] Hello from Ring 3!`
 
 - ☐ syscall 号常量：`SYS_read=0, SYS_write=1, SYS_exit=60, SYS_yield=24`
@@ -232,7 +318,7 @@
 
 ---
 
-### `020_shell`
+### `024_shell`
 **效果**：用户态 shell，`echo`/`help`/`clear` 可用
 
 - ☐ `user/libc/syscall.h` 完善：`read(fd,buf,len)` 封装
@@ -244,9 +330,9 @@
 
 ---
 
-## Phase 7 · 存储与文件系统
+## Phase 8 · 存储与文件系统
 
-### `021_driver_ahci`
+### `025_driver_ahci`
 **效果**：串口输出 `[AHCI] Read sector 0: 55 AA`
 
 - ☐ `kernel/drivers/pci.hpp/cpp`：`PCIDevice {bus,slot,func,vendor_id,device_id,class_code,subclass,prog_if,bar[6]}`；`pci_read/pci_write`（写 `0xCF8`，读 `0xCFC`）；`pci_find_ahci(out)`（枚举 class=0x01 subclass=0x06）
@@ -257,7 +343,7 @@
 
 ---
 
-### `022_fs_ramdisk`
+### `026_fs_ramdisk`
 **效果**：串口列出 initrd 中的文件名和大小
 
 - ☐ `UstarHeader [[gnu::packed]]` 512 字节：`name[100]/mode[8]/uid/gid/size[12]/mtime[12]/checksum[8]/typeflag/magic[6]`；`static_assert(sizeof==512)`
@@ -267,7 +353,7 @@
 
 ---
 
-### `023_fs_vfs`
+### `027_fs_vfs`
 **效果**：`open/read/write/close` syscall 框架可用
 
 - ☐ `kernel/fs/vfs.hpp`：`struct Inode {ino,size,type,*fs_private, Ops{read,write,readdir}}`；`struct File {*inode,offset,flags}`；`struct FDTable {*fds[256], alloc(), close(fd)}`
@@ -277,7 +363,7 @@
 
 ---
 
-### `024_fs_ext2`
+### `028_fs_ext2`
 **效果**：挂载 QEMU ext2 分区，shell 中 `ls /` 和 `cat /etc/motd` 可用
 
 - ☐ `Ext2Superblock [[gnu::packed]]`：`s_inodes_count/s_blocks_count/s_log_block_size/s_magic=0xEF53` 等关键字段
@@ -291,9 +377,9 @@
 
 ---
 
-## Phase 8 · GUI（长期目标）
+## Phase 9 · GUI（长期目标）
 
-### `025_gui_framebuffer`
+### `029_gui_framebuffer`
 **效果**：屏幕出现渐变色矩形和 `Cinux GUI` 字样
 
 - ☐ `kernel/drivers/canvas.hpp`：`Canvas {*front_buf, *back_buf, width, height, pitch}`；`draw_pixel`，`draw_rect`，`draw_rect_outline`，`draw_line`（Bresenham），`draw_text`，`blit(dst_x,dst_y,src,w,h)`，`flip()`（back→front memcpy），`clear(color=0)`
@@ -302,7 +388,7 @@
 
 ---
 
-### `026_gui_wm_basic`
+### `030_gui_wm_basic`
 **效果**：可拖动窗口，Z-order 正确
 
 - ☐ PS/2 鼠标驱动：初始化 8042 鼠标（CMD `0xA8` 启用，`0xF4` 发给鼠标激活），IRQ12 handler 解析 3 字节包（buttons/dx/dy），维护全局 `mouse_x/y`
@@ -313,7 +399,7 @@
 
 ---
 
-### `027_gui_native_app`
+### `031_gui_native_app`
 **效果**：屏幕出现可交互的终端模拟器窗口
 
 - ☐ `user/apps/terminal.cpp`：`Terminal extends Window`；`screen_[80][25]` 字符缓冲，`cursor_x_/y_`，关联 shell 进程

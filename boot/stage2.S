@@ -33,6 +33,12 @@
 .extern vesa_save_framebuffer_info
 
 // ============================================================
+// External functions from common/boot.S (004_boot_load_mini_kernel_A)
+// ============================================================
+.extern query_memory_map
+.extern load_kernel_from_disk
+
+// ============================================================
 // External functions from common/long_mode.S
 // ============================================================
 .extern setup_page_tables
@@ -103,6 +109,14 @@ _start:
     // Save framebuffer information to 0x6400
     // Layout: addr(8B) + pitch(4B) + w(2B) + h(2B) = 16B
     call vesa_save_framebuffer_info // [→0x6400] Save FB info
+
+    // ============================================================
+    // 004_boot_load_mini_kernel_A: Real mode 内完成
+    // ============================================================
+
+    call query_memory_map           // [→0x5000] E820 memory map
+
+    call load_kernel_from_disk      // [→0x10000] Load mini kernel ELF header
 
     cli                           // close the inter again
     // ============================================================

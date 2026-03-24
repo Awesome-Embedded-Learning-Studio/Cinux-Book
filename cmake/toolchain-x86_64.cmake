@@ -20,8 +20,7 @@ set(CMAKE_ASM_FLAGS_INIT "-Wa,--divide")
 
 set(CMAKE_EXE_LINKER_FLAGS_INIT "
     -nostdlib                
-    -static                  
-    -Wl,--build-id=none      
+    -static                     
 ")
 
 set(CMAKE_FIND_ROOT_PATH "")
