@@ -13,6 +13,8 @@ set(QEMU_COMMON_FLAGS
 )
 
 # Set the debug console as 0xe9
+# -s: GDB stub on :1234
+# -S: Stop at startup (for debugging)
 set(QEMU_DEBUG_FLAGS
     -s
     -S
@@ -28,13 +30,13 @@ endif()
 # Let We make boots before sessions
 set(MBR_BIN    "${CMAKE_BINARY_DIR}/boot/mbr.bin")
 set(STAGE2_BIN "${CMAKE_BINARY_DIR}/boot/stage2.bin")
-set(MINI_ELF   "${CMAKE_BINARY_DIR}/kernel/mini/mini_kernel")
+set(MINI_BIN   "${CMAKE_BINARY_DIR}/kernel/mini/mini_kernel.bin")
 add_custom_command(
     OUTPUT ${CINUX_IMAGE_PATH}
     COMMAND ${CMAKE_SOURCE_DIR}/scripts/build_image.sh
         ${MBR_BIN}
         ${STAGE2_BIN}
-        ${MINI_ELF}
+        ${MINI_BIN}
         ${CINUX_IMAGE_PATH}
     DEPENDS mbr stage2 mini_kernel
     COMMENT "Building disk image: ${CINUX_IMAGE_PATH}"

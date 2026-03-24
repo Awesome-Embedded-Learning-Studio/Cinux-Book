@@ -26,7 +26,7 @@ PROJECT_ROOT=$(dirname "$SCRIPT_DIR")
 # Usage: build_image.sh [mbr.bin] [stage2.bin] [output.img]
 MBR_BIN=${1:-${BUILD_DIR}/boot/mbr.bin}
 STAGE2_BIN=${2:-${BUILD_DIR}/boot/stage2.bin}
-MINI_ELF=${3:-${BUILD_DIR}/kernel/mini/mini_kernel}
+MINI_BIN=${3:-${BUILD_DIR}/kernel/mini/mini_kernel.bin}
 OUTPUT_IMAGE=${4:-${BUILD_DIR}/cinux.img}
 
 # ============================================================
@@ -53,9 +53,9 @@ if [ ! -f "$STAGE2_BIN" ]; then
     exit 1
 fi
 
-# Check mini kernel ELF exists
-if [ ! -f "$MINI_ELF" ]; then
-    log_error "Mini kernel ELF not found at $MINI_ELF"
+# Check mini kernel bin exists
+if [ ! -f "$MINI_BIN" ]; then
+    log_error "Mini kernel binary not found at $MINI_BIN"
     log_error "Please run 'make' first to build the mini kernel."
     exit 1
 fi
@@ -72,23 +72,15 @@ STAGE2_LBA=1
 STAGE2_MAX_SECTORS=15
 MINI_KERNEL_LBA=16
 
-# Mini kernel size limit (448KB = loaded at 0x10000, must stay below 0x80000)
-MINI_KERNEL_MAX_BYTES=$((448 * 1024))  # 458752 bytes
-MINI_KERNEL_MAX_SECTORS=$((MINI_KERNEL_MAX_BYTES / 512))  # 896 sectors
-
-# ============================================================
-# Validate ELF Header
-# ============================================================
-
-# Check ELF magic number: 0x7f 'E' 'L' 'F'
-ELF_MAGIC=$(dd if="$MINI_ELF" bs=1 count=4 status=none 2>/dev/null | od -A n -t x1 | tr -d ' \n')
-if [ "$ELF_MAGIC" != "7f454c46" ]; then
-    log_error "Invalid ELF header: $MINI_ELF"
-    log_error "       Expected magic: 7f 45 4c 46 (.ELF)"
-    log_error "       Actual magic:   $(echo $ELF_MAGIC | sed 's/../& /g')"
-    exit 1
-fi
-log_success "ELF header valid: $MINI_ELF"
+# Mini kernel size limit (416KB = 832 sectors)
+# Memory layout constraints:
+#   - Real mode stack:    0x9000 ~ 0x19000 (SS=0x0900, SP=0xFFFE)
+#   - Kernel load area:   0x20000 ~ 0x88000 (must avoid real mode stack)
+#   - Protected mode stack: 0x90000 (stage2.S line 168, ESP=0x90000)
+#   - Safety gap:         32KB before protected mode stack
+# Therefore: max kernel size = 0x88000 - 0x20000 = 0x68000 = 416KB = 832 sectors
+MINI_KERNEL_MAX_BYTES=$((416 * 1024))  # 425984 bytes
+MINI_KERNEL_MAX_SECTORS=$((MINI_KERNEL_MAX_BYTES / 512))  # 832 sectors
 
 # ============================================================
 # Get File Sizes
@@ -99,7 +91,7 @@ STAGE2_SIZE=$(stat -c%s "$STAGE2_BIN" 2>/dev/null || stat -f%z "$STAGE2_BIN")
 STAGE2_SECTORS=$(( (STAGE2_SIZE + 511) / 512 ))
 
 # Get mini kernel size
-MINI_SIZE=$(stat -c%s "$MINI_ELF" 2>/dev/null || stat -f%z "$MINI_ELF")
+MINI_SIZE=$(stat -c%s "$MINI_BIN" 2>/dev/null || stat -f%z "$MINI_BIN")
 MINI_SECTORS=$(( (MINI_SIZE + 511) / 512 ))
 
 # ============================================================
@@ -136,10 +128,18 @@ fi
 if [ $MINI_SIZE -gt $MINI_KERNEL_MAX_BYTES ]; then
     log_error "Mini kernel too large!"
     log_error "       Actual:   $MINI_SIZE bytes ($MINI_SECTORS sectors)"
-    log_error "       Maximum:  $MINI_KERNEL_MAX_BYTES bytes ($MINI_KERNEL_MAX_SECTORS sectors, 448KB)"
+    log_error "       Maximum:  $MINI_KERNEL_MAX_BYTES bytes ($MINI_KERNEL_MAX_SECTORS sectors, 416KB)"
     echo ""
-    log_error "The mini kernel is loaded at 0x10000 and must stay below 0x80000."
-    log_error "Consider reducing kernel size or adjusting the load address."
+    log_error "Memory layout constraints:"
+    log_error "  - Real mode stack:       0x9000 ~ 0x19000"
+    log_error "  - Kernel load area:      0x20000 ~ 0x88000 (416KB max)"
+    log_error "  - Protected mode stack:  0x90000"
+    log_error "  - Safety gap:            32KB before protected mode stack"
+    echo ""
+    log_error "To fix this:"
+    log_error "  1. Reduce mini kernel size (remove unused code/features)"
+    log_error "  2. Move protected mode stack to a higher address"
+    log_error "  3. Load kernel at a higher address (requires BIOS int13, may need A20 gate)"
     exit 1
 fi
 
@@ -162,7 +162,7 @@ dd if="$STAGE2_BIN" of="$OUTPUT_IMAGE" bs=512 seek=$STAGE2_LBA conv=notrunc stat
 log_info "Stage2 written to sectors $STAGE2_LBA-$((STAGE2_LBA + STAGE2_SECTORS - 1)) ($STAGE2_SECTORS sectors, $STAGE2_SIZE bytes)"
 
 # Step 4: Write mini kernel starting at sector 16
-dd if="$MINI_ELF" of="$OUTPUT_IMAGE" bs=512 seek=$MINI_KERNEL_LBA conv=notrunc status=none
+dd if="$MINI_BIN" of="$OUTPUT_IMAGE" bs=512 seek=$MINI_KERNEL_LBA conv=notrunc status=none
 log_info "Mini kernel written to sectors $MINI_KERNEL_LBA-$((MINI_KERNEL_LBA + MINI_SECTORS - 1)) ($MINI_SECTORS sectors, $MINI_SIZE bytes)"
 
 # ============================================================

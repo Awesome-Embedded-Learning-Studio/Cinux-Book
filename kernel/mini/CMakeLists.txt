@@ -3,6 +3,7 @@
 # ==============================================================
 
 add_executable(mini_kernel
+    arch/x86_64/boot.S
     main.cpp
 )
 
@@ -26,4 +27,12 @@ target_link_options(mini_kernel PRIVATE
     -T ${CMAKE_CURRENT_SOURCE_DIR}/linker.ld
     -nostdlib
     -no-pie
+)
+
+# Post-build: Convert ELF to flat binary
+add_custom_command(TARGET mini_kernel
+    POST_BUILD
+    COMMAND objcopy -O binary $<TARGET_FILE:mini_kernel> $<TARGET_FILE_DIR:mini_kernel>/mini_kernel.bin
+    COMMENT "Converting mini kernel to flat binary: mini_kernel.bin"
+    VERBATIM
 )

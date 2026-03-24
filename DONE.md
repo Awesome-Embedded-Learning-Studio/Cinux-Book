@@ -71,3 +71,18 @@
 
 - ☑ E820 内存枚举：`INT $0x15 AX=0xE820`，每次填一条 `MemoryMapEntry` 到 `0x5000` 起的缓冲（最多 32 条），记录条目数到 `0x5000` 前 4 字节
 - ☑ 磁盘读 ELF header：`INT $0x13 AH=0x42`，DAP 指定 LBA=`MINI_KERNEL_LBA`（build_image.sh 写死，例如 16），sectors=8（4KB），dest=`0x1000:0x0000`（物理 `0x10000`）；仅用于后续解析 PHDR 获取小内核总大小，**支持任意大小的内核镜像**
+
+
+#### 004_boot_load_mini_kernel_B：real mode 加载完成，protected mode 无操作
+
+- ☐ 定义 `boot/boot_info.h`（bootloader 和内核共用，带汇编注释说明设计原因）：
+  ```c
+  typedef struct { uint64_t base, length; uint32_t type, _pad; } MemoryMapEntry;
+  typedef struct {
+      uint64_t entry_point, kernel_phys_base, kernel_size;
+      uint64_t fb_addr; uint32_t fb_width, fb_height, fb_pitch, fb_bpp;
+      uint32_t mmap_count; MemoryMapEntry mmap[32];
+  } BootInfo;
+  ```
+- ☑ `boot/common/boot.S` 的 `load_kernel_from_disk()` 已完成加载（real mode 读 LBA 16 → 0x20000）
+- ☑ `stage2.S` 保护模式入口：无操作，直接跳过进入 long mode

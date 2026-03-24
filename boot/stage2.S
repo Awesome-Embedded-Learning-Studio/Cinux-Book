@@ -63,6 +63,9 @@
 .set DEBUGCON_PORT,             0xE9
 .set CHAR_LONG_MODE,            0x4C     // 'L' for Long Mode verification
 
+// Kernel LBA (must match boot/common/boot.S)
+.set MINI_KERNEL_LBA,           16       // Mini kernel start LBA (sector 16)
+
 // ============================================================
 // Function: _start
 // Responsibility: Stage2 entry point, called from MBR
@@ -116,7 +119,7 @@ _start:
 
     call query_memory_map           // [→0x5000] E820 memory map
 
-    call load_kernel_from_disk      // [→0x10000] Load mini kernel ELF header
+    call load_kernel_from_disk      // [→0x20000] Load mini kernel ELF (416KB, 832 sectors) to 0x88000, leaving 32KB gap before protected mode stack at 0x90000    
 
     cli                           // close the inter again
     // ============================================================
@@ -159,6 +162,13 @@ pm_entry:
     // 6. Debug output: 'P' for Protected Mode
     movb $0x50, %al               // 'P'
     outb %al, $0xE9               // Debugcon output
+
+    // ============================================================
+    // 004_boot_load_mini_kernel_B: No operation needed
+    // ============================================================
+    // Mini kernel bin was already loaded to 0x20000 in real mode.
+    // Entry point is fixed at 0xFFFFFFFF80020000 (high-half kernel).
+    // Nothing to do in protected mode, proceed to long mode.
 
     // ============================================================
     // Transition to Long Mode

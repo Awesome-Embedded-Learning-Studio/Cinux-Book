@@ -12,6 +12,11 @@ add_library(boot_common OBJECT
     common/boot.S
 )
 
+# ==============================================================
+# C ELF Loader (32-bit freestanding)
+# ==============================================================
+# REMOVED: No longer needed, using flat binary format
+
 target_compile_options(boot_common PRIVATE
     -Wa,--32                    # Generate 32-bit object (can be linked as 16-bit)
 )

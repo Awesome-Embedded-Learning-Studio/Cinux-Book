@@ -66,12 +66,28 @@
 .set DAP_SEGMENT,             0x07B0      // DAP segment = 0x7B00 >> 4
 .set DAP_OFFSET,              0x0000      // DAP offset
 
-// Disk read constants
-.set MINI_KERNEL_LBA,         16          // Mini kernel start LBA (sector 16)
-.set KERNEL_LOAD_SEGMENT,     0x1000      // 0x10000 = 0x1000:0x0000
-.set KERNEL_LOAD_OFFSET,      0x0000
+// ============================================================
+// Mini kernel loading configuration
+// ============================================================
+// Real mode can only access low 1MB directly, so we load to 0x10000
+// The mini kernel (512KB) fits in 0x10000 ~ 0x90000
+// After entering long mode, the disk driver will relocate the large kernel
 
+// Mini kernel disk location
+.set MINI_KERNEL_LBA,         16          // Mini kernel start LBA (sector 16)
+.set MINI_KERNEL_SECTORS,     832         // Total sectors (416KB) - 32KB gap before protected mode stack at 0x90000
+
+// Mini kernel load address (real mode accessible: < 1MB)
+// Real mode stack:    SS=0x0900, SP=0xFFFE (physical: 0x9000~0x19000)
+// Protected mode stack: ESP=0x90000 (stage2.S line 168)
+// Kernel loads to 0x20000~0x90000 to avoid both stacks
+.set MINI_KERNEL_LOAD_PHYS,   0x20000     // Physical address where kernel is loaded
+.set MINI_KERNEL_LOAD_SEG,    0x2000      // Segment: 0x2000 (0x2000 << 4 = 0x20000)
+.set MINI_KERNEL_LOAD_OFF,    0x0000      // Offset
+
+// BIOS disk read limits
 .set DISK_READ_CMD,           0x42        // INT 0x13 AH=0x42 extended read
+.set DISK_MAX_SECTORS_PER_CALL, 127       // Max sectors per BIOS call (int13 limit)
 
 // Error messages (for panic use)
 .extern msg_e820_failed
@@ -158,79 +174,151 @@ query_memory_map:
 
 // ============================================================
 // Function: load_kernel_from_disk
-// Responsibility: Read kernel ELF header (4KB) from disk LBA=16 to 0x10000
+// Responsibility: Read complete mini kernel ELF (512KB) from disk LBA=16
+//                 directly to MINI_KERNEL_LOAD_PHYS (0x10000)
+//
+// Strategy: Read in chunks (max 127 sectors per BIOS call)
+//   - Each iteration updates DAP buffer address for next chunk
+//   - No intermediate copy needed: direct read to final location
+//
+// Memory layout after load:
+//   0x10000 ~ 0x90000: Mini kernel (512KB)
+//
 // Input: None
-// Output: %ax = number of sectors read (8), 0 means failure
-// Clobbers: %ax, %bx, %cx, %dx, %si, %di (saved/restored)
+// Output: %ax = number of sectors read (1024), 0 means failure
+// Clobbers: %ax, %bx, %cx, %dx, %si, %di, %es (saved/restored)
 // ============================================================
 .global load_kernel_from_disk
 .type load_kernel_from_disk, @function
 load_kernel_from_disk:
-    // Save registers
-    pushaw                               // [regs->stack] save all general registers
+    pusha                                // [regs->stack] save all 16-bit registers
     pushw %es                            // [es->stack] save ES
     pushw %ds                            // [ds->stack] save DS
 
-    // Set ES to DAP segment (for DAP access at fixed low memory)
-    movw $DAP_SEGMENT, %ax               // [imm->ax] ES = 0x07B0
-    movw %ax, %es
+    // Initialize: BX = sectors read so far, SI = current buffer offset
+    xorw %bx, %bx                        // [0->bx] BX = 0 (no sectors read yet)
+    xorw %si, %si                        // [0->si] SI = 0 (buffer offset, stays 0)
 
-    // Step 1: Build DAP at fixed location 0x7B00
+    // Set ES to DAP segment for DAP access
+    movw $DAP_SEGMENT, %dx               // [imm->dx] DX = 0x07B0
+    movw %dx, %es
+
+.read_loop:
+    // Check if we've read all sectors
+    cmpw $MINI_KERNEL_SECTORS, %bx       // [imm->bx] Compare with total
+    jae .read_done                       // [cf->] Done if BX >= total
+
+    // Calculate sectors to read this iteration (min(127, remaining))
+    movw $MINI_KERNEL_SECTORS, %ax       // [imm->ax] AX = total sectors
+    subw %bx, %ax                        // [bx->ax] AX = remaining sectors
+    cmpw $DISK_MAX_SECTORS_PER_CALL, %ax // [imm->ax] Compare with max
+    jbe .read_count_ok                   // [cf->] Use AX if <= 127
+    movw $DISK_MAX_SECTORS_PER_CALL, %ax // [imm->ax] Cap at 127
+
+.read_count_ok:
+    // Save sector count in BP
+    movw %ax, %bp                        // [ax->bp] BP = sectors to read
+
+    // CRITICAL: Re-set ES before building DAP (BIOS may clobber it)
+    movw $DAP_SEGMENT, %dx               // [imm->dx] DX = 0x07B0
+    movw %dx, %es                        // [dx->es] ES = DAP segment
+
+    // Build DAP at fixed location 0x7B00
     movw $DAP_OFFSET, %di                // [imm->di] DI = 0x0000
 
-    // Step 2: Fill DAP.size = 16 (DAP structure size)
+    // Fill DAP.size = 16
     movb $16, %es:(%di)                  // [imm->mem] set DAP size
 
-    // Step 3: Fill DAP.count = 8 (4KB = 8 sectors)
-    movw $8, %es:2(%di)                  // [imm->mem] set sector count to 8
+    // Fill DAP.reserved = 0 (important for some BIOS)
+    movb $0, %es:1(%di)                  // [imm->mem] clear reserved byte
 
-    // Step 4: Fill DAP.buffer = 0x10000 (segment:offset format)
-    // offset = 0x0000
-    movw $0x0000, %es:4(%di)             // [imm->mem] buffer offset
-    // segment = 0x1000
-    movw $0x1000, %es:6(%di)             // [imm->mem] buffer segment
+    // Fill DAP.count = BP
+    movw %bp, %es:2(%di)                 // [bp->mem] set sector count
 
-    // Step 5: Fill DAP.lba = MINI_KERNEL_LBA (16)
-    movl $MINI_KERNEL_LBA, %eax          // [imm->eax] LBA=16
-    movl %eax, %es:8(%di)                // [eax->mem] set start LBA (low 32 bits)
-    xorl %eax, %eax                      // [0->eax] high 32 bits = 0
-    movl %eax, %es:12(%di)               // [eax->mem] LBA high 32 bits
+    // Fill DAP.buffer = MINI_KERNEL_LOAD_PHYS + (BX * 512)
+    // Each sector = 512 bytes, so offset = BX sectors * 512
+    // In real mode: segment = (base >> 4), offset = (base & 0xF)
+    // Base = 0x10000 + BX * 512
+    //      = 0x10000 + (BX << 9)
+    // Segment = (0x10000 + (BX << 9)) >> 4
+    //        = 0x1000 + (BX << 5)
+    //        = 0x1000 + (BX * 32)
+    movw %bx, %ax                        // [bx->ax] AX = sector offset
+    shlw $5, %ax                         // [ax->ax] AX *= 32
+    addw $MINI_KERNEL_LOAD_SEG, %ax      // [imm->ax] AX = target segment
+    movw %ax, %es:6(%di)                 // [ax->mem] buffer segment
+    movw $MINI_KERNEL_LOAD_OFF, %ax      // [imm->ax] AX = 0 (offset always 0)
+    movw %ax, %es:4(%di)                 // [ax->mem] buffer offset
 
-    // Step 6: Call INT 0x13 AH=0x42 extended read
-    // DS:SI must point to DAP (0x07B0:0x0000 = physical 0x7B00)
+    // Fill DAP.lba = MINI_KERNEL_LBA + BX (full 8 bytes, must be zero-initialized)
+    movw $MINI_KERNEL_LBA, %ax           // [imm->ax] AX = base LBA (16)
+    addw %bx, %ax                        // [bx->ax] AX = current LBA
+    movw %ax, %es:8(%di)                 // [ax->mem] LBA low 16 bits
+    xorw %ax, %ax                        // [0->ax] AX = 0
+    movw %ax, %es:10(%di)                // [ax->mem] LBA high 16 bits
+    movw %ax, %es:12(%di)                // [ax->mem] LBA upper 16 bits
+    movw %ax, %es:14(%di)                // [ax->mem] LBA top 16 bits (clear garbage)
+
+    // CRITICAL: Save BX and BP across BIOS call (BIOS clobbers both)
+    pushw %bx                            // [bx->stack] save sector counter
+    pushw %bp                            // [bp->stack] save sector count
+
+    // Call INT 0x13 AH=0x42
+    // CRITICAL: INT 13h AH=42h requires DS:SI to point to DAP, NOT ES:SI!
+    //            DS was saved on stack at function entry, so we can modify it.
     movw $DAP_SEGMENT, %dx               // [imm->dx] DX = 0x07B0
-    movw %dx, %ds                        // [dx->ds] DS = 0x07B0
+    movw %dx, %ds                        // [dx->ds] DS = DAP segment (REQUIRED!)
     movw $DAP_OFFSET, %si                // [imm->si] SI = 0x0000
-    movb $0x80, %dl                      // [imm->dl] DL = 0x80 (first hard disk)
+    movb $0x80, %dl                      // [imm->dl] DL = 0x80
     movb $DISK_READ_CMD, %ah             // [imm->ah] AH=0x42
+    
     int $0x13                            // [->regs] execute disk read
 
-    // Step 7: Check error
-    // CF=1 or AH!=0 means failure
-    jc disk_read_failed                  // [cf->] CF=1 means failure
-    cmpb $0, %ah                         // [ah->] AH should be 0 on success
-    jne disk_read_failed                 // [zf->] AH!=0 means error
+    jc .disk_error_restore_bp            // [cf->] CF=1 means failure
+    cmpb $0, %ah                         // [ah->] AH should be 0
+    jne .disk_error_restore_bp           // [zf->] AH!=0 means error
 
-    // Step 8: Restore registers and return sector count (8)
+    // CRITICAL: Restore BP and BX after BIOS call (success path)
+    popw %bp                             // [stack->bp] restore sector count
+    popw %bx                             // [stack->bx] restore sector counter
+
+    // Update sector counter
+    addw %bp, %bx                        // [bp->bx] BX += sectors read
+
+    jmp .read_loop                       // [->] Continue reading
+
+.disk_error_restore_bp:
+    // Restore BP and BX before handling error (stack: BP then BX)
+    popw %bp                             // [stack->bp] restore sector count
+.disk_error_restore:
+    popw %bx                             // [stack->bx] restore sector counter
+    jmp disk_read_failed                 // [->] handle error
+
+.read_done:
     popw %ds                             // [stack->ds] restore DS
     popw %es                             // [stack->es] restore ES
-    popaw                                // [stack->regs] restore general registers
-    movw $8, %ax                         // [imm->ax] return 8 sectors
+    popa   
+    movb $'O', %al                       // [imm->al] Load 'L' (0x4C)
+    outb %al, $0xe9                      // [al->port] Output 'L' to debugcon
+
+    movw $MINI_KERNEL_SECTORS, %ax       // [imm->ax] return sectors read
     ret                                  // [return] return
 
 disk_read_failed:
-    // Restore registers then jump to panic
+    movb $'F', %al                       // [imm->al] Load 'L' (0x4C)
+    outb %al, $0xe9                      // [al->port] Output 'L' to debugcon
     popw %ds                             // [stack->ds] restore DS
     popw %es                             // [stack->es] restore ES
-    popaw                                // [stack->regs] restore general registers
+    popa                                 // [stack->regs] restore general registers
     movw $(msg_disk_read_failed), %si    // [msg->si] load error message
     jmp panic                            // [->never] call panic
 
 disk_too_large:
-    // Kernel exceeds limit, display message and halt
+    movb $'T', %al       // [imm->al] Load 'L' (0x4C)
+    outb %al, $0xe9        // [al->port] Output 'L' to debugcon
     popw %ds                             // [stack->ds] restore DS
     popw %es                             // [stack->es] restore ES
-    popaw                                // [stack->regs] restore general registers
+    popa                                 // [stack->regs] restore general registers
     movw $(msg_disk_too_large), %si      // [msg->si] load error message
     jmp panic                            // [->never] call panic
 

@@ -2,8 +2,8 @@
  * Cinux Mini Kernel - Minimal Linker Script
  * ==============================================================
 
- * Physical load address: 0x200000 (2MB)
- * This ELF is used for testing disk header reading.
+ * Physical load address: 0x20000 (128KB)
+ * Flat binary: objcopy -O binary removes all ELF headers
  */
 
 OUTPUT_FORMAT("elf64-x86-64")
@@ -11,8 +11,8 @@ ENTRY(_start)
 
 SECTIONS
 {
-    /* Kernel loads at physical 2MB */
-    . = 0x200000;
+    /* Kernel loads at physical 0x20000 (128KB) */
+    . = 0x20000;
 
     .text : {
         *(.text)
@@ -27,8 +27,10 @@ SECTIONS
     }
 
     .bss : {
+        __bss_start = .;
         *(.bss)
         *(COMMON)
+        __bss_end = .;
     }
 
     /DISCARD/ : {

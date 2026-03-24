@@ -14,45 +14,21 @@
 **效果**：QEMU 不崩溃，debugcon 输出 `J`（确认即将跳转小内核），随后小内核接管
 
 > **验证手段**：`jmp *%rax` 前一条 `outb $0x4A, $0xE9` 输出字符 `J`；小内核启动后由 `005` 的串口驱动接管所有后续输出
-> **加载方案**：两阶段加载——real mode 读 ELF header（4KB），protected mode 循环读完整小内核（无大小限制）并解析重定位
-> **小内核物理加载地址**：`0x200000`（2MB，与大页边界对齐，页表映射干净）
-
-#### 004_boot_load_mini_kernel_B：保护模式内循环读取完整小内核 + ELF 解析
-
-- ☐ 定义 `boot/boot_info.h`（bootloader 和内核共用）：
-  ```c
-  typedef struct { uint64_t base, length; uint32_t type, _pad; } MemoryMapEntry;
-  typedef struct {
-      uint64_t entry_point, kernel_phys_base, kernel_size;
-      uint64_t fb_addr; uint32_t fb_width, fb_height, fb_pitch, fb_bpp;
-      uint32_t mmap_count; MemoryMapEntry mmap[32];
-  } BootInfo;
-  ```
-- ☐ 定义 `boot/elf_loader.c`（`-m32 -ffreestanding -nostdlib`）：
-  - `Elf64_Ehdr`/`Elf64_Phdr` 结构体（仅用到的字段）
-  - `calculate_kernel_size(Elf64_Ehdr*)`：遍历所有 `PT_LOAD` 段，计算 `p_offset + p_filesz` 最大值 = 小内核 ELF 文件总大小
-  - `bios_disk_read(uint32_t lba, uint16_t sectors, void* buffer)`：构造 DAP，调用 `INT 0x13 AH=0x42`，buffer 必须在低 1MB（`0x10000` 临时区）
-  - `load_kernel_full(uint32_t kernel_lba, uint32_t load_base)`：循环读取逻辑
-    1. 解析 `0x10000` 的 ELF header，获取总大小
-    2. 循环：每次最多读 128 扇区（64KB）到 `0x10000` → `rep movsd` 搬运到 `load_base + offset`
-    3. 更新 LBA 和 offset，直到读完整个小内核
-  - `elf64_load(void* elf_src, void* load_base)`：验证魔数 `\x7FELF` + `e_machine=0x3E(x86-64)` + `e_type=2(ET_EXEC)`；遍历所有 `PT_LOAD` 段，`memcpy` 到 `p_paddr`（以 `0x200000` 为 phys base），`p_memsz > p_filesz` 部分 `memset 0`（BSS）；返回 `e_entry`（高半核虚拟地址）
-  - 内部实现 `static void* kmemcpy` 和 `static void kmemset`（不依赖任何外部符号）
-- ☐ `boot/CMakeLists.txt` 编译 `elf_loader.c`：`gcc -m32 -ffreestanding -nostdlib -fno-pic -c elf_loader.c -o elf_loader.o`，链接进 stage2 二进制
-- ☐ `stage2.S` 保护模式入口 `.code32` 内：`pushl $MINI_KERNEL_LBA`，`pushl $0x200000`（load_base），`call load_kernel_full`，结果 `eax` 存入 `kernel_entry_low`（entry 低 32 位，high 半核地址高 32 位为 `0xFFFFFFFF`，进 long mode 后合并为完整 64-bit）
+> **加载方案**：real mode 直接读取完整小内核到目标地址（无需 protected mode 处理）
+> **小内核物理加载地址**：`0x20000`（128KB，在 real mode 可访问范围内）
+> **格式说明**：小内核使用扁平二进制（bin）格式，objcopy 从 ELF 转换而来
 
 #### 004_boot_load_mini_kernel_C：long mode 内填 BootInfo 并跳转
 
-- ☐ 在临时页表 PML4[511] 建高半核映射：`0xFFFFFFFF80000000` → 物理 `0x000000`（2MB 大页覆盖小内核加载区）
-- ☐ 同时保留 PML4[0] identity mapping（保证 far jump 后 RIP 仍有效，小内核初始化完再拆）
 - ☐ 进入 `.code64` 后填充 `BootInfo`（约定放物理 `0x7000`）：
-  - `entry_point`：`kernel_entry_low` 符号地址（高半核虚拟地址，`e_entry` 原值）
-  - `kernel_phys_base = 0x200000`，`kernel_size` = 由 `load_kernel_full` 计算并返回的实际 ELF 文件大小
+  - `entry_point`：高半核虚拟地址 `0xFFFFFFFF80020000`（固定值，`0xFFFFFFFF80000000 + 0x20000`）
+  - `kernel_phys_base = 0x20000`，`kernel_size` = 写死或从磁盘布局计算
   - `fb_addr/width/height/pitch/bpp`：从 `0x6400` 读取（001 阶段 VESA 保存的值）
   - `mmap_count` + `mmap[]`：从 `0x5000` 读取（E820 保存的值）
-- ☐ `scripts/build_image.sh` 更新：sector 0 = MBR，sector 1–15 = stage2+elf_loader，sector 16–xxx = mini.elf（小内核），sector xxx–end = big.elf（大内核）；`MINI_KERNEL_LBA=16` 写死，大内核 LBA 动态计算
+- ☐ `kernel/mini/linker.ld`：输出格式 `elf64-x86-64`，物理地址 `0x20000`，编译后用 `objcopy -O binary` 转成 `mini.bin`
+- ☐ `scripts/build_image.sh`：sector 0 = MBR，sector 1–15 = stage2，sector 16+ = mini.bin（小内核扁平二进制）
 - ☐ 跳转前：`movb $0x4A, %al; outb %al, $0xE9`（debugcon 输出 `J`）
-- ☐ `movq $0x7000, %rdi`（BootInfo* 第一参数），`movq kernel_entry(%rip), %rax`，`jmp *%rax`
+- ☐ `movq $0x7000, %rdi`（BootInfo* 第一参数），`movq $0xFFFFFFFF80020000, %rax`，`jmp *%rax`
 
 ---
 
@@ -61,18 +37,18 @@
 > **架构说明**：小内核是最小化的 C++ 内核，只实现运行大内核所需的基础功能。
 > **小内核职责**：初始化硬件 → 提供基础服务（输出、内存、磁盘）→ 加载并跳转到**大内核**。
 > **目录**：`kernel/mini/`，隶属于大内核 `kernel/` 的目录支下。
-> **内存布局**：小内核 @ 0x200000 (2MB)，大内核 @ 0x1000000 (16MB)。
+> **内存布局**：小内核 @ 0x20000 (128KB)，大内核 @ 0x1000000 (16MB)。
 
 ### `005_mini_kernel_entry`
-**效果**：串口输出 `[MINI] Bootstrap kernel running @ 0x200000`
+**效果**：串口输出 `[MINI] Bootstrap kernel running @ 0x20000`
 
-- ☐ `kernel/mini/linker.ld`：`MINI_KERNEL_VMA = 0xFFFFFFFF80000000`，`.text`/`.bss`/`.data` 段，小内核栈（8KB）
+- ☐ `kernel/mini/linker.ld`：`MINI_KERNEL_VMA = 0xFFFFFFFF80000000`，物理地址 `0x20000`，`.text`/`.bss`/`.data` 段，小内核栈（8KB）
 - ☐ `kernel/mini/arch/x86_64/boot.S`：`_start` 切换 `%rsp` 到 `__mini_stack_top`，`xorq %rbp,%rbp`，`rep stosb` 清 BSS，`call _init_global_ctors`，`call mini_kernel_main`，`.halt: cli; hlt`
 - ☐ `kernel/mini/arch/x86_64/crt_stub.cpp`：C++ runtime 支持（`__cxa_pure_virtual`、`__stack_chk_fail`、`__cxa_atexit`、`_init_global_ctors`）
 - ☐ 链接脚本加 `.init_array` 段，收集全局构造器
 - ☐ `kernel/mini/drivers/serial.hpp/cpp`：`Serial::init(port,baud)`，`Serial::putc(c)`，`Serial::puts(s)`
 - ☐ `kernel/mini/lib/kprintf.hpp/cpp`：简化版 `kvprintf`/`kprintf`，支持 `%d %u %x %X %s %p %c %%`
-- ☐ `kernel/mini/main.cpp`：`mini_kernel_main(BootInfo*)` 调 `Serial::init()` → `kprintf("[MINI] Bootstrap kernel running @ 0x200000\n")`
+- ☐ `kernel/mini/main.cpp`：`mini_kernel_main(BootInfo*)` 调 `Serial::init()` → `kprintf("[MINI] Bootstrap kernel running @ 0x20000\n")`
 
 ---
 
@@ -106,13 +82,15 @@
 ### `008_mini_kernel_disk_and_loader`
 **效果**：从磁盘加载大内核 ELF 并跳转
 
+> **加载格式说明**：小内核→大内核使用 ELF 格式，因为小内核有完整的 C++ 运行环境和内存管理，处理 ELF 重定位更可靠；bootloader→小内核用 bin 是为了简化阶段 2 代码
+
 - ☐ `kernel/mini/drivers/ata.hpp/cpp`：ATA PIO 磁盘驱动
   - `init()`：检测并初始化 ATA 控制器
   - `read(uint64_t lba, uint16_t count, void* buffer)`：读取扇区
 - ☐ `kernel/mini/elf_loader.hpp/cpp`：ELF64 解析器
   - `parse_elf_header(void* elf) → bool`：验证魔数和架构
   - `calculate_kernel_size(Elf64_Ehdr*) → size_t`：遍历 PT_LOAD
-  - `load_elf(void* elf_src, uint64_t load_base) → uint64_t`：返回 entry_point
+  - `load_elf(void* elf_src, uint64_t load_base) → uint64_t`：返回 entry_point，处理 PT_LOAD 段搬运和 BSS 清零
 - ☐ `kernel/mini/big_kernel_loader.hpp/cpp`：
   - `load_big_kernel(uint64_t disk_lba) → uint64_t`：循环读取大内核到 `0x1000000`（16MB）
 - ☐ `mini_kernel_main` 流程：
