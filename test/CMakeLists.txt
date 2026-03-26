@@ -54,42 +54,52 @@ target_include_directories(test_smoke PRIVATE ${TEST_INCLUDE_DIRS})
 # 注册测试到 CTest
 add_test(NAME smoke COMMAND test_smoke)
 set_tests_properties(smoke PROPERTIES LABELS "smoke")
-# ============================================================
-# 后续测试占位（Milestone 2+）
-# ============================================================
 
-# 预留测试列表：
-#   - test_kprintf : kprintf 格式化输出测试
-#   - test_pmm : 物理内存管理器测试
-#   - test_vmm : 虚拟内存管理器测试
-#   - test_heap : 堆分配器测试
-#   - test_keyboard : 键盘扫描码转换测试
-#
-# 每个测试的添加方式（示例）：
-#   add_executable(test_kprintf unit/test_kprintf.cpp)
-#   target_compile_definitions(test_kprintf PRIVATE CINUX_HOST_TEST)
-#   target_include_directories(test_kprintf PRIVATE ${TEST_INCLUDE_DIRS})
-#   add_test(NAME kprintf COMMAND test_kprintf)
+# ============================================================
+# 测试可执行文件：test_kprintf_format
+# ============================================================
+add_executable(test_kprintf_format
+    unit/test_kprintf_format.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/mini/lib/private/format.cpp
+)
+
+target_compile_definitions(test_kprintf_format PRIVATE CINUX_HOST_TEST)
+target_include_directories(test_kprintf_format PRIVATE ${TEST_INCLUDE_DIRS})
+add_test(NAME kprintf_format COMMAND test_kprintf_format)
+set_tests_properties(kprintf_format PROPERTIES LABELS "kprintf_format")
 
 # ============================================================
 # 测试辅助目标
 # ============================================================
 
-# 创建测试运行辅助目标
-# 目标：
-#   - test : 运行所有测试（通过 CTest）
-#   - test_verbose : 详细模式运行测试
-
-add_custom_target(test
+# Host 端单元测试
+add_custom_target(test_host
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-    DEPENDS test_smoke
-    COMMENT "Running all tests..."
+    DEPENDS test_smoke test_kprintf_format
+    USES_TERMINAL
+    COMMENT "Running host unit tests..."
 )
 
+# 统一测试目标：先运行 host 测试，再运行内核测试（自动退出）
+# 使用脚本包装，确保 USES_TERMINAL 能正确传递给 QEMU
+configure_file(
+    ${CMAKE_SOURCE_DIR}/scripts/run_all_tests.sh.in
+    ${CMAKE_BINARY_DIR}/run_all_tests.sh
+    @ONLY
+)
+
+add_custom_target(test
+    COMMAND sh ${CMAKE_BINARY_DIR}/run_all_tests.sh
+    DEPENDS test_smoke test_kprintf_format test-image
+    USES_TERMINAL
+    COMMENT "Running ALL tests (host then kernel)..."
+)
+
+# 详细模式运行 host 测试
 add_custom_target(test_verbose
     COMMAND ${CMAKE_CTEST_COMMAND} --verbose --output-on-failure
-    DEPENDS test_smoke
-    COMMENT "Running all tests in verbose mode..."
+    DEPENDS test_smoke test_kprintf_format
+    COMMENT "Running host tests in verbose mode..."
 )
 
 # 单个测试快捷方式

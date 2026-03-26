@@ -16,14 +16,10 @@
 ### `005_mini_kernel_entry`
 **效果**：串口输出 `[MINI] Bootstrap kernel running @ 0x20000`
 
-- ☐ `kernel/mini/linker.ld`：`MINI_KERNEL_VMA = 0xFFFFFFFF80000000`，物理地址 `0x20000`，`.text`/`.bss`/`.data` 段，小内核栈（8KB）
-- ☐ `kernel/mini/arch/x86_64/boot.S`：`_start` 切换 `%rsp` 到 `__mini_stack_top`，`xorq %rbp,%rbp`，`rep stosb` 清 BSS，`call _init_global_ctors`，`call mini_kernel_main`，`.halt: cli; hlt`
-- ☐ `kernel/mini/arch/x86_64/crt_stub.cpp`：C++ runtime 支持（`__cxa_pure_virtual`、`__stack_chk_fail`、`__cxa_atexit`、`_init_global_ctors`）
-- ☐ 链接脚本加 `.init_array` 段，收集全局构造器
 - ☐ `kernel/mini/drivers/serial.hpp/cpp`：`Serial::init(port,baud)`，`Serial::putc(c)`，`Serial::puts(s)`
 - ☐ `kernel/mini/lib/kprintf.hpp/cpp`：简化版 `kvprintf`/`kprintf`，支持 `%d %u %x %X %s %p %c %%`
 - ☐ `kernel/mini/main.cpp`：`mini_kernel_main(BootInfo*)` 调 `Serial::init()` → `kprintf("[MINI] Bootstrap kernel running @ 0x20000\n")`
-
+- ☐ 完成项目的调试基建和测试基建
 ---
 
 ### `006_mini_kernel_pmm`

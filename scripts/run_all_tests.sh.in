@@ -1,0 +1,21 @@
+#!/bin/sh
+set -e
+echo ''
+echo '=== Running Host Tests ==='
+@CMAKE_CTEST_COMMAND@ --output-on-failure
+echo ''
+echo '=== Running Kernel Tests ==='
+# 临时关闭 set -e 以捕获 QEMU 退出码
+set +e
+@QEMU_EXECUTABLE@ @QEMU_COMMON_FLAGS_STR@ @QEMU_TEST_EXTRA_FLAGS_STR@ -drive file=@CMAKE_BINARY_DIR@/cinux_test.img,format=raw,index=0,media=disk
+QEMU_EXIT=$?
+set -e
+# isa-debug-exit: exit code = (value << 1) | 1
+# 写入 0 → QEMU 退出码 1 = 测试成功
+if [ $QEMU_EXIT -eq 1 ]; then
+    echo "=== Kernel tests passed ==="
+    exit 0
+else
+    echo "=== Kernel tests FAILED (exit code: $QEMU_EXIT) ===" >&2
+    exit 1
+fi

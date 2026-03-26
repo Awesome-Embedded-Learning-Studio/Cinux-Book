@@ -30,11 +30,11 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 add_subdirectory(boot)
 add_subdirectory(kernel)
 
+include(cmake/qemu.cmake)
+
 if(CINUX_BUILD_TESTS)
     add_subdirectory(test)
 endif()
-
-include(cmake/qemu.cmake)
 
 message(STATUS "")
 message(STATUS "=== Cinux Build Configuration ===")
