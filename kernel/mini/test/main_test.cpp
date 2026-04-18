@@ -20,6 +20,8 @@ extern uint64_t __boot_info_ptr;
 void			run_cpp_tests();   // C++ runtime tests from test_cpp_basic.cpp
 void			run_pmm_tests();   // PMM tests from test_pmm.cpp (006)
 void			run_interrupt_tests(); // GDT/IDT/interrupt tests from test_interrupts.cpp (007)
+void			run_ata_tests();   // ATA PIO tests from test_ata.cpp (008)
+void			run_elf_loader_tests(); // ELF loader tests from test_elf_loader.cpp (008)
 }
 
 extern "C" [[noreturn]] void mini_kernel_main(uint64_t boot_info_addr) {
@@ -73,6 +75,16 @@ extern "C" [[noreturn]] void mini_kernel_main(uint64_t boot_info_addr) {
 	// PMM Tests (006)
 	// ============================================================
 	run_pmm_tests();
+
+	// ============================================================
+	// ATA PIO Tests (008)
+	// ============================================================
+	run_ata_tests();
+
+	// ============================================================
+	// ELF Loader Tests (008)
+	// ============================================================
+	run_elf_loader_tests();
 
 	// ============================================================
 	// Test Complete - Shutdown

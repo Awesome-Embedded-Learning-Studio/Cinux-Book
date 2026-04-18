@@ -32,8 +32,8 @@ using cinux::mini::lib::kprintf;
 // Test State Management
 // ============================================================
 namespace test {
-    static int tests_passed = 0;
-    static int tests_failed = 0;
+    inline int tests_passed = 0;
+    inline int tests_failed = 0;
 
     // Reset test counters (useful for test isolation)
     inline void reset() {

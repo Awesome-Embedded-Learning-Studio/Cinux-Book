@@ -33,8 +33,12 @@ add_library(mini_kernel_common OBJECT
     arch/x86_64/idt.cpp
     arch/x86_64/interrupts.S
     arch/x86_64/exception_handlers.cpp
+    driver/ata.cpp
     driver/serial.cpp
+    elf_loader.cpp
+    big_kernel_loader.cpp
     lib/kprintf.cpp
+    lib/string.cpp
     lib/private/format.cpp
     mm/pmm.cpp
 )

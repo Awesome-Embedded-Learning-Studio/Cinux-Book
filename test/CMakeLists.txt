@@ -83,13 +83,55 @@ add_test(NAME gdt_idt COMMAND test_gdt_idt)
 set_tests_properties(gdt_idt PROPERTIES LABELS "gdt_idt")
 
 # ============================================================
+# 测试可执行文件：test_ata
+# ============================================================
+# ATA PIO driver constants and register encoding logic tests
+# Pure arithmetic tests (no kernel code linked)
+add_executable(test_ata
+    unit/test_ata.cpp
+)
+
+target_compile_definitions(test_ata PRIVATE CINUX_HOST_TEST)
+target_include_directories(test_ata PRIVATE ${TEST_INCLUDE_DIRS})
+add_test(NAME ata COMMAND test_ata)
+set_tests_properties(ata PROPERTIES LABELS "ata")
+
+# ============================================================
+# 测试可执行文件：test_elf_loader
+# ============================================================
+# ELF64 header validation, segment parsing, and loading logic tests
+# Includes elf_loader.cpp directly for host-side testing of pure logic
+add_executable(test_elf_loader
+    unit/test_elf_loader.cpp
+)
+
+target_compile_definitions(test_elf_loader PRIVATE CINUX_HOST_TEST)
+target_include_directories(test_elf_loader PRIVATE ${TEST_INCLUDE_DIRS})
+add_test(NAME elf_loader COMMAND test_elf_loader)
+set_tests_properties(elf_loader PROPERTIES LABELS "elf_loader")
+
+# ============================================================
+# 测试可执行文件：test_big_kernel_loader
+# ============================================================
+# Big kernel loader constants, memory layout, and pipeline logic tests
+# Pure constant and arithmetic verification (no kernel code linked)
+add_executable(test_big_kernel_loader
+    unit/test_big_kernel_loader.cpp
+)
+
+target_compile_definitions(test_big_kernel_loader PRIVATE CINUX_HOST_TEST)
+target_include_directories(test_big_kernel_loader PRIVATE ${TEST_INCLUDE_DIRS})
+add_test(NAME big_kernel_loader COMMAND test_big_kernel_loader)
+set_tests_properties(big_kernel_loader PROPERTIES LABELS "big_kernel_loader")
+
+# ============================================================
 # 测试辅助目标
 # ============================================================
 
 # Host 端单元测试
 add_custom_target(test_host
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader
     USES_TERMINAL
     COMMENT "Running host unit tests..."
 )
@@ -104,7 +146,7 @@ configure_file(
 
 add_custom_target(test
     COMMAND sh ${CMAKE_BINARY_DIR}/run_all_tests.sh
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt test-image
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test-image
     USES_TERMINAL
     COMMENT "Running ALL tests (host then kernel)..."
 )
@@ -112,7 +154,7 @@ add_custom_target(test
 # 详细模式运行 host 测试
 add_custom_target(test_verbose
     COMMAND ${CMAKE_CTEST_COMMAND} --verbose --output-on-failure
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader
     COMMENT "Running host tests in verbose mode..."
 )
 

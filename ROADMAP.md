@@ -5,36 +5,6 @@
 > **Checkpoint**：所有 `☐` 打完后打 tag，触发 prompts/ 工作流
 
 ---
-### `008_mini_kernel_disk_and_loader`
-**效果**：从磁盘加载大内核 ELF 并跳转
-
-> **加载格式说明**：小内核→大内核使用 ELF 格式，因为小内核有完整的 C++ 运行环境和内存管理，处理 ELF 重定位更可靠；bootloader→小内核用 bin 是为了简化阶段 2 代码
-
-- ☐ `kernel/mini/drivers/ata.hpp/cpp`：ATA PIO 磁盘驱动
-  - `init()`：检测并初始化 ATA 控制器
-  - `read(uint64_t lba, uint16_t count, void* buffer)`：读取扇区
-- ☐ `kernel/mini/elf_loader.hpp/cpp`：ELF64 解析器
-  - `parse_elf_header(void* elf) → bool`：验证魔数和架构
-  - `calculate_kernel_size(Elf64_Ehdr*) → size_t`：遍历 PT_LOAD
-  - `load_elf(void* elf_src, uint64_t load_base) → uint64_t`：返回 entry_point，处理 PT_LOAD 段搬运和 BSS 清零
-- ☐ `kernel/mini/big_kernel_loader.hpp/cpp`：
-  - `load_big_kernel(uint64_t disk_lba) → uint64_t`：循环读取大内核到 `0x1000000`（16MB）
-- ☐ `mini_kernel_main` 流程：
-  1. 初始化串口
-  2. 初始化 PMM
-  3. 初始化 IDT（#BP/#PF）
-  4. 初始化 ATA
-  5. 加载大内核：`entry = load_big_kernel(BIG_KERNEL_LBA)`
-  6. 输出 `[MINI] Jumping to big kernel at 0x...`
-  7. 跳转：`movq entry, %rax; jmp *%rax`
-
-**常量定义**：
-```cpp
-constexpr uint64_t MINI_KERNEL_LOAD_ADDR = 0x20000;
-constexpr uint64_t BIG_KERNEL_LOAD_ADDR  = 0x1000000;   // 16MB
-```
-
----
 
 ## Phase 3 · 大内核基础设施
 

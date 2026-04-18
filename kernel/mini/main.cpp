@@ -1,5 +1,10 @@
 /* ==============================================================
  * Cinux Mini Kernel - Main Entry Point
+ *
+ * Milestone 008: ATA PIO driver + ELF64 parser demonstration.
+ * The big kernel does not exist yet (milestone 009+), so this main
+ * verifies that the ATA driver can read sectors and the ELF parser
+ * can validate headers, without attempting to jump to anything.
  * ============================================================== */
 
 extern "C" {
@@ -9,6 +14,8 @@ extern "C" {
 #include <boot_info.h>
 #include "arch/x86_64/gdt.hpp"
 #include "arch/x86_64/idt.hpp"
+#include "driver/ata.hpp"
+#include "elf_loader.hpp"
 #include "lib/kprintf.h"
 #include "mm/pmm.h"
 
@@ -18,12 +25,15 @@ extern "C" {
 extern uint64_t __boot_info_ptr;
 }
 
+/// Sector buffer aligned for DMA-safe access
+static uint8_t g_sector_buf[512] __attribute__((aligned(16)));
+
 extern "C" [[noreturn]] void mini_kernel_main(uint64_t boot_info_addr) {
 	BootInfo* boot_info = (BootInfo*)__boot_info_ptr;
 	(void)boot_info_addr;
 
 	// ============================================================
-	// Kernel Entry Point
+	// Boot Info
 	// ============================================================
 	kprintf("Cinux Mini Kernel v0.1.0\n");
 	kprintf("BootInfo: entry_point=%p, kernel_phys_base=%p\n", boot_info->entry_point,
@@ -36,39 +46,65 @@ extern "C" [[noreturn]] void mini_kernel_main(uint64_t boot_info_addr) {
 	}
 
 	// ============================================================
-	// Initialize GDT (Global Descriptor Table)
+	// Initialize GDT + IDT
 	// ============================================================
-	// GDT must be initialized before IDT, because IDT entries reference the code segment selector in the GDT
 	kprintf("[INIT] Setting up GDT...\n");
 	cinux::mini::arch::gdt_init();
 	kprintf("[INIT] GDT loaded successfully.\n");
 
-	// ============================================================
-	// Initialize IDT (Interrupt Descriptor Table)
-	// ============================================================
-	// IDT configures two exception vectors: #BP(3) and #PF(14)
 	kprintf("[INIT] Setting up IDT...\n");
 	cinux::mini::arch::idt_init();
 	kprintf("[INIT] IDT loaded successfully.\n");
 
 	// ============================================================
-	// Initialize Physical Memory Manager
+	// Initialize PMM
 	// ============================================================
 	using cinux::mini::mm::pmm::init;
 	init(boot_info);
 
 	// ============================================================
-	// Test: Trigger #BP(3) breakpoint exception
+	// Test: #BP breakpoint exception
 	// ============================================================
-	// Manually trigger a breakpoint exception via asm volatile("int $3"),
-	// verifying that GDT/IDT/ISR are correctly configured.
-	// If everything is correct, handle_bp will print exception info and return here to continue execution.
 	kprintf("\n[TEST] Triggering breakpoint exception (int $3)...\n");
 	__asm__ volatile("int $3");
 	kprintf("[TEST] Breakpoint test passed! Execution continued after #BP.\n\n");
 
-	// Halt
-	while (1) {
-		__asm__ volatile("cli; hlt");
+	// ============================================================
+	// Initialize ATA Disk Driver
+	// ============================================================
+	if (!cinux::mini::driver::ata::init()) {
+		kprintf("[INIT] ERROR: ATA initialization failed!\n");
+		while (1) __asm__ volatile("cli; hlt");
 	}
+
+	// ============================================================
+	// Demo: Read MBR and verify boot signature
+	// ============================================================
+	kprintf("[DEMO] Reading MBR (LBA 0)...\n");
+	if (cinux::mini::driver::ata::read(0, 1, g_sector_buf)) {
+		uint16_t sig = static_cast<uint16_t>(g_sector_buf[510]) |
+		               (static_cast<uint16_t>(g_sector_buf[511]) << 8);
+		kprintf("[DEMO] MBR boot signature: 0x%04x %s\n", sig,
+				sig == 0xAA55 ? "(VALID)" : "(INVALID)");
+	} else {
+		kprintf("[DEMO] ERROR: Failed to read MBR\n");
+	}
+
+	// ============================================================
+	// Demo: Read mini kernel from disk and check for ELF header
+	// ============================================================
+	kprintf("[DEMO] Reading mini kernel header (LBA 16)...\n");
+	if (cinux::mini::driver::ata::read(16, 1, g_sector_buf)) {
+		if (cinux::mini::elf_loader::parse_elf_header(g_sector_buf)) {
+			kprintf("[DEMO] ELF header detected at disk LBA 16 (mini kernel)\n");
+		} else {
+			kprintf("[DEMO] No valid ELF header at LBA 16 (expected for flat binary)\n");
+		}
+	}
+
+	// ============================================================
+	// Halt
+	// ============================================================
+	kprintf("\n[MINI] Milestone 008 complete. Waiting for big kernel (009+)...\n");
+	while (1) __asm__ volatile("cli; hlt");
 }
