@@ -7,6 +7,7 @@ add_executable(mini_kernel_test
     main_test.cpp           # 测试专用 main
     test_cpp_basic.cpp
     test_pmm.cpp            # PMM tests (006)
+    test_interrupts.cpp     # GDT/IDT/中断 tests (007)
 )
 
 # 链接共享对象库（添加对象文件）

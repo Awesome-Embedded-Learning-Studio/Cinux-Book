@@ -69,13 +69,27 @@ add_test(NAME kprintf_format COMMAND test_kprintf_format)
 set_tests_properties(kprintf_format PROPERTIES LABELS "kprintf_format")
 
 # ============================================================
+# 测试可执行文件：test_gdt_idt
+# ============================================================
+# GDT/IDT 数据结构与编码逻辑的 host 端单元测试
+# 测试 GDT 描述符编码、IDT 条目编码、结构体布局、段选择子常量
+add_executable(test_gdt_idt
+    unit/test_gdt_idt.cpp
+)
+
+target_compile_definitions(test_gdt_idt PRIVATE CINUX_HOST_TEST)
+target_include_directories(test_gdt_idt PRIVATE ${TEST_INCLUDE_DIRS})
+add_test(NAME gdt_idt COMMAND test_gdt_idt)
+set_tests_properties(gdt_idt PROPERTIES LABELS "gdt_idt")
+
+# ============================================================
 # 测试辅助目标
 # ============================================================
 
 # Host 端单元测试
 add_custom_target(test_host
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-    DEPENDS test_smoke test_kprintf_format
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt
     USES_TERMINAL
     COMMENT "Running host unit tests..."
 )
@@ -90,7 +104,7 @@ configure_file(
 
 add_custom_target(test
     COMMAND sh ${CMAKE_BINARY_DIR}/run_all_tests.sh
-    DEPENDS test_smoke test_kprintf_format test-image
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test-image
     USES_TERMINAL
     COMMENT "Running ALL tests (host then kernel)..."
 )
@@ -98,7 +112,7 @@ add_custom_target(test
 # 详细模式运行 host 测试
 add_custom_target(test_verbose
     COMMAND ${CMAKE_CTEST_COMMAND} --verbose --output-on-failure
-    DEPENDS test_smoke test_kprintf_format
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt
     COMMENT "Running host tests in verbose mode..."
 )
 

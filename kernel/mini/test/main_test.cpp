@@ -7,6 +7,8 @@ extern "C" {
 }
 
 #include "../lib/kprintf.h"
+#include "../arch/x86_64/gdt.hpp"
+#include "../arch/x86_64/idt.hpp"
 #include "boot_info.h"
 #include "kernel_test.h"
 
@@ -17,6 +19,7 @@ extern "C" {
 extern uint64_t __boot_info_ptr;
 void			run_cpp_tests();   // C++ runtime tests from test_cpp_basic.cpp
 void			run_pmm_tests();   // PMM tests from test_pmm.cpp (006)
+void			run_interrupt_tests(); // GDT/IDT/interrupt tests from test_interrupts.cpp (007)
 }
 
 extern "C" [[noreturn]] void mini_kernel_main(uint64_t boot_info_addr) {
@@ -49,6 +52,22 @@ extern "C" [[noreturn]] void mini_kernel_main(uint64_t boot_info_addr) {
 	// C++ Runtime Tests
 	// ============================================================
 	run_cpp_tests();
+
+	// ============================================================
+	// Initialize GDT & IDT (required for interrupt tests)
+	// ============================================================
+	kprintf("[INIT] Setting up GDT...\n");
+	cinux::mini::arch::gdt_init();
+	kprintf("[INIT] GDT loaded successfully.\n");
+
+	kprintf("[INIT] Setting up IDT...\n");
+	cinux::mini::arch::idt_init();
+	kprintf("[INIT] IDT loaded successfully.\n");
+
+	// ============================================================
+	// GDT/IDT/Interrupt Tests (007)
+	// ============================================================
+	run_interrupt_tests();
 
 	// ============================================================
 	// PMM Tests (006)

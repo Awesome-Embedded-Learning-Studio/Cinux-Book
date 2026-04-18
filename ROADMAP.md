@@ -5,20 +5,6 @@
 > **Checkpoint**：所有 `☐` 打完后打 tag，触发 prompts/ 工作流
 
 ---
-
-### `007_mini_kernel_interrupts`
-**效果**：触发异常不死机，能看到错误信息
-
-- ☐ `kernel/mini/arch/x86_64/gdt.hpp/cpp`：基础 GDT（null/code64/data64 三项即可）
-- ☐ `kernel/mini/arch/x86_64/idt.hpp/cpp`：简化版 IDT（只配置必要向量）
-- ☐ `kernel/mini/arch/x86_64/interrupts.S`：仅 #BP(3) 和 #PF(14) 的 ISR stub
-- ☐ `kernel/mini/arch/x86_64/exception_handlers.cpp`：
-  - `handle_bp(InterruptFrame*)`：打印 `[MINI] Breakpoint at RIP=0x...`
-  - `handle_pf(InterruptFrame*)`：打印 `[MINI] Page Fault at %cr2=0x...`
-- ☐ `mini_kernel_main` 测试：`asm volatile("int $3")` 验证输出
-
----
-
 ### `008_mini_kernel_disk_and_loader`
 **效果**：从磁盘加载大内核 ELF 并跳转
 

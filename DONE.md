@@ -146,3 +146,14 @@
 - ☑ Bitmap 放在小内核末端（`__mini_kernel_end` 对齐后）
 - ☑ 过滤低 1MB，标记小内核自身和 bitmap 为已用
 - ☑ `mini_kernel_main` 输出：`kprintf("[MINI] PMM: Total %dMB, Free %dMB\n", ...)`
+
+### `007_mini_kernel_interrupts`
+**效果**：触发异常不死机，能看到错误信息
+
+- ☑ `kernel/mini/arch/x86_64/gdt.hpp/cpp`：基础 GDT（null/code64/data64 三项即可）
+- ☑ `kernel/mini/arch/x86_64/idt.hpp/cpp`：简化版 IDT（只配置必要向量）
+- ☑ `kernel/mini/arch/x86_64/interrupts.S`：仅 #BP(3) 和 #PF(14) 的 ISR stub
+- ☑ `kernel/mini/arch/x86_64/exception_handlers.cpp`：
+  - `handle_bp(InterruptFrame*)`：打印断点异常信息和寄存器 dump
+  - `handle_pf(InterruptFrame*)`：读取 CR2，解析页错误码，打印详细信息
+- ☑ `mini_kernel_main` 测试：`asm volatile("int $3")` 验证输出

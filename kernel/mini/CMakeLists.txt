@@ -29,6 +29,10 @@ set(MINI_KERNEL_COMMON_LINK_OPTIONS
 add_library(mini_kernel_common OBJECT
     arch/x86_64/boot.S
     arch/x86_64/crt_stub.cpp
+    arch/x86_64/gdt.cpp
+    arch/x86_64/idt.cpp
+    arch/x86_64/interrupts.S
+    arch/x86_64/exception_handlers.cpp
     driver/serial.cpp
     lib/kprintf.cpp
     lib/private/format.cpp

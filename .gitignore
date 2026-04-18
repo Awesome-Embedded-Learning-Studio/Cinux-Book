@@ -2,6 +2,7 @@ build/
 .cache
 helpers
 .claude/
+CLAUDE.md
 
 CMakeCache.txt
 CMakeFiles/
