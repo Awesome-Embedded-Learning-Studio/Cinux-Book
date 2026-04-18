@@ -1,17 +1,17 @@
 /**
  * @file kernel/mini/test/test_interrupts.cpp
- * @brief GDT/IDT/中断 的 QEMU 内核端集成测试
+ * @brief QEMU in-kernel integration tests for GDT/IDT/Interrupts
  *
- * 在 QEMU 内核中运行，直接验证 GDT/IDT 初始化后的状态以及
- * 中断处理是否正常工作。
+ * Runs inside the QEMU kernel, directly verifying the state after GDT/IDT
+ * initialization and that interrupt handling works correctly.
  *
- * 测试内容：
- *   - GDT 初始化后段寄存器的值
- *   - IDT 初始化后的基本状态
- *   - #BP(3) 断点异常触发与恢复
- *   - #PF(14) 页错误异常触发与恢复
+ * Test coverage:
+ *   - Segment register values after GDT initialization
+ *   - Basic state after IDT initialization
+ *   - #BP(3) breakpoint exception trigger and recovery
+ *   - #PF(14) page fault exception trigger and recovery
  *
- * 使用 kernel_test.h 框架（不是 test_framework.h）。
+ * Uses the kernel_test.h framework (not test_framework.h).
  */
 
 #include "kernel_test.h"
@@ -22,12 +22,12 @@ using cinux::mini::arch::SEGMENT_CODE64;
 using cinux::mini::arch::SEGMENT_DATA64;
 
 // ============================================================
-// Test 1: 读取当前段寄存器值验证 GDT 加载成功
+// Test 1: Read current segment register values to verify GDT loaded successfully
 // ============================================================
 namespace test_gdt_segments {
 
     /**
-     * @brief 验证 GDT 初始化后 CS 寄存器指向 code64 段
+     * @brief Verify CS register points to code64 segment after GDT initialization
      */
     void test_cs_register() {
         uint16_t cs = 0;
@@ -36,7 +36,7 @@ namespace test_gdt_segments {
     }
 
     /**
-     * @brief 验证 GDT 初始化后 DS 寄存器指向 data64 段
+     * @brief Verify DS register points to data64 segment after GDT initialization
      */
     void test_ds_register() {
         uint16_t ds = 0;
@@ -45,7 +45,7 @@ namespace test_gdt_segments {
     }
 
     /**
-     * @brief 验证 GDT 初始化后 SS 寄存器指向 data64 段
+     * @brief Verify SS register points to data64 segment after GDT initialization
      */
     void test_ss_register() {
         uint16_t ss = 0;
@@ -54,7 +54,7 @@ namespace test_gdt_segments {
     }
 
     /**
-     * @brief 验证 GDT 初始化后 ES 寄存器指向 data64 段
+     * @brief Verify ES register points to data64 segment after GDT initialization
      */
     void test_es_register() {
         uint16_t es = 0;
@@ -64,88 +64,90 @@ namespace test_gdt_segments {
 }
 
 // ============================================================
-// Test 2: #BP 断点异常触发与恢复
+// Test 2: #BP breakpoint exception trigger and recovery
 // ============================================================
 namespace test_bp_exception {
 
-    /// 标记变量：handle_bp 中是否被执行过
+    /// Marker variable: whether handle_bp has been executed
     static volatile int bp_handler_executed = 0;
 
     /**
-     * @brief 验证 INT3 触发 #BP 后执行能继续
+     * @brief Verify execution continues after INT3 triggers #BP
      *
-     * 通过 asm volatile("int $3") 触发断点异常。
-     * 如果 GDT/IDT/ISR 正确配置，handle_bp 会打印信息并返回，
-     * 执行继续到此断言。
+     * Triggers a breakpoint exception via asm volatile("int $3").
+     * If GDT/IDT/ISR are correctly configured, handle_bp will print
+     * information and return, and execution continues to this assertion.
      *
-     * 如果执行不到这里，说明 triple fault 发生，QEMU 会重启。
+     * If execution does not reach here, a triple fault occurred and QEMU will reboot.
      */
     void test_bp_continues_execution() {
-        // 记录执行前状态
+        // Record state before execution
         volatile int marker_before = 0x1234;
 
-        // 触发 #BP(3) 断点异常
+        // Trigger #BP(3) breakpoint exception
         __asm__ volatile("int $3");
 
-        // 如果能到这里，说明 #BP 处理成功并返回
+        // If we reach here, #BP handling succeeded and returned
         volatile int marker_after = 0x5678;
 
-        // 验证变量没有被破坏（栈帧恢复正确）
+        // Verify variables were not corrupted (stack frame restored correctly)
         TEST_ASSERT_EQ(marker_before, 0x1234);
         TEST_ASSERT_EQ(marker_after, 0x5678);
     }
 }
 
 // ============================================================
-// Test 3: #PF 页错误异常触发与恢复
+// Test 3: #PF page fault exception trigger and recovery
 // ============================================================
 namespace test_pf_exception {
 
     /**
-     * @brief 验证访问不存在地址触发 #PF 后执行能继续
+     * @brief Verify execution continues after accessing non-existent address triggers #PF
      *
-     * 通过读取一个未映射的高地址来触发页错误。
-     * 如果 #PF 处理程序正确，会打印信息并返回（IRETQ），
-     * 但由于没有修复页表，下次访问同一地址仍会触发 #PF。
+     * Triggers a page fault by reading an unmapped high address.
+     * If the #PF handler is correct, it will print information and return (IRETQ),
+     * but since the page table is not fixed, accessing the same address again
+     * will trigger another #PF.
      *
-     * 注意：这里我们只验证 #PF 触发后不会死机。
-     * 由于 handle_pf 只是打印信息然后返回，返回后会重新执行
-     * 导致缺页的指令，从而无限循环。因此这个测试使用一种
-     * 特殊方式：修改返回地址来跳过触发指令。
+     * Note: We only verify that #PF trigger does not cause a crash.
+     * Since handle_pf only prints information and returns, returning will re-execute
+     * the faulting instruction, causing an infinite loop. Therefore this test uses a
+     * special approach: modify the return address to skip the faulting instruction.
      *
-     * 更安全的做法是使用一个已知会触发但不影响执行的地址。
-     * 但由于当前 handle_pf 不修复页表，直接触发会导致死循环。
-     * 因此这个测试被标记为可选，默认跳过。
+     * A safer approach is to use an address that is known to trigger but does not
+     * affect execution. But since the current handle_pf does not fix page tables,
+     * directly triggering would cause an infinite loop.
+     * Therefore this test is marked as optional and skipped by default.
      */
     void test_pf_optional() {
-        // #PF 测试需要 handle_pf 修改 RIP 才能安全返回。
-        // 当前 handle_pf 不修改 RIP，直接触发会死循环。
-        // 因此这里只做标记，不实际触发 #PF。
-        // 如果需要测试 #PF，可以在 handle_pf 中添加 RIP 跳过逻辑。
+        // #PF test requires handle_pf to modify RIP for safe return.
+        // Current handle_pf does not modify RIP; directly triggering would cause an infinite loop.
+        // So we only mark it here without actually triggering #PF.
+        // To test #PF, add RIP skip logic in handle_pf.
         kprintf("  [SKIP] #PF test skipped - handle_pf does not skip faulting instruction\n");
     }
 }
 
 // ============================================================
-// Test 4: 多次触发异常不累积破坏
+// Test 4: Multiple exception triggers do not accumulate corruption
 // ============================================================
 namespace test_multiple_exceptions {
 
     /**
-     * @brief 验证连续多次触发 #BP 后系统仍然正常
+     * @brief Verify the system remains normal after multiple consecutive #BP triggers
      */
     void test_multiple_bp() {
         volatile uint64_t canary = 0xCAFEBABEDEADC0DEULL;
 
-        // 第一次触发
+        // First trigger
         __asm__ volatile("int $3");
         TEST_ASSERT_EQ(canary, 0xCAFEBABEDEADC0DEULL);
 
-        // 第二次触发
+        // Second trigger
         __asm__ volatile("int $3");
         TEST_ASSERT_EQ(canary, 0xCAFEBABEDEADC0DEULL);
 
-        // 第三次触发
+        // Third trigger
         __asm__ volatile("int $3");
         TEST_ASSERT_EQ(canary, 0xCAFEBABEDEADC0DEULL);
     }

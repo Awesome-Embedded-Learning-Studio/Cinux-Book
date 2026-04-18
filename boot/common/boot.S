@@ -142,7 +142,7 @@ query_memory_map:
     cmpl $E820_SIGNATURE, %eax
     jne .e820_failed
 
-    // BIOS 可能返回 <24，至少要有 20
+    // BIOS may return <24, must have at least 20
     cmpl $20, %ecx
     jb .e820_failed
 

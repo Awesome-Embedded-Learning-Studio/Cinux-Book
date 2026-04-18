@@ -79,7 +79,7 @@ extern "C" [[noreturn]] void mini_kernel_main(uint64_t boot_info_addr) {
 	// ============================================================
 	kprintf("\n=== All tests completed ===\n");
 
-	// 计算退出码：0=成功，非0=失败
+	// Calculate exit code: 0=success, non-0=failure
 	int exit_code = (test::get_total_failed() > 0) ? 1 : 0;
 	if (exit_code != 0) {
 		kprintf("=== TESTS FAILED (exit code %d) ===\n", exit_code);
@@ -87,11 +87,11 @@ extern "C" [[noreturn]] void mini_kernel_main(uint64_t boot_info_addr) {
 		kprintf("=== ALL TESTS PASSED (exit code %d) ===\n", exit_code);
 	}
 
-	// 使用 QEMU 的 isa-debug-exit 设备安全退出
-	// 向端口 0xf4 写入双字，高字节是退出码
+	// Use QEMU's isa-debug-exit device to safely exit
+	// Write dword to port 0xf4, upper byte is exit code
 	__asm__ volatile("outl %0, $0xf4" : : "a"(exit_code));
 
-	// 如果 QEMU 没有退出（比如在没有 isa-debug-exit 的环境下），则停机
+	// If QEMU did not exit (e.g., no isa-debug-exit available), halt
 	while (1) {
 		__asm__ volatile("cli; hlt");
 	}

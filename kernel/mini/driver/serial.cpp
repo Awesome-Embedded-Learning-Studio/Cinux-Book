@@ -19,17 +19,17 @@ Serial::Serial(uint16_t port) : base_port(port) {
 // Initialize serial port to 115200 8N1 (QEMU default)
 // ============================================================
 void Serial::init() {
-	// 禁用中断
+	// Disable interrupts
 	io::outb(base_port + SerialReg::IER, 0x00);
 
-	// QEMU 默认已经是 115200 8N1，这里设置 LCR 确保配置
+	// QEMU defaults to 115200 8N1; set LCR here to ensure the configuration
 	// LCR = 0x03: 8 bits, no parity, 1 stop bit
 	io::outb(base_port + SerialReg::LCR, 0x03);
 
-	// 启用 FIFO，清除缓冲区，设置 14 字节阈值
+	// Enable FIFO, clear buffers, set 14-byte threshold
 	io::outb(base_port + SerialReg::FCR, 0xC7);
 
-	// 设置 Modem 控制寄存器 (RTS + DTR)
+	// Set Modem Control Register (RTS + DTR)
 	io::outb(base_port + SerialReg::MCR, 0x03);
 
 	// Read LSR to verify it's accessible
@@ -40,7 +40,7 @@ void Serial::init() {
 // Write a single character (blocking poll)
 // ============================================================
 void Serial::putc(char c) {
-	// 等待发送缓冲区就绪
+	// Wait for transmit buffer to be ready
 	uint32_t wait_count = 0;
 	while (!is_tx_ready()) {
 		// Simple spin-wait
@@ -52,7 +52,7 @@ void Serial::putc(char c) {
 		}
 	}
 
-	// 写入字符到 THR
+	// Write character to THR
 	io::outb(base_port + SerialReg::THR, static_cast<uint8_t>(c));
 }
 

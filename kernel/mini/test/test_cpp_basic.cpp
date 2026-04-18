@@ -87,7 +87,7 @@ namespace test3 {
         int getCount() const { return global_construction_count; }
     };
 
-    // 全局对象 - 构造函数应该在 main 之前被调用
+    // Global object - constructor should be called before main
     static GlobalCounter global_counter;
 
     void test_global_construction() {

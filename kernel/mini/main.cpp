@@ -38,7 +38,7 @@ extern "C" [[noreturn]] void mini_kernel_main(uint64_t boot_info_addr) {
 	// ============================================================
 	// Initialize GDT (Global Descriptor Table)
 	// ============================================================
-	// GDT 必须在 IDT 之前初始化，因为 IDT 条目引用 GDT 中的代码段选择子
+	// GDT must be initialized before IDT, because IDT entries reference the code segment selector in the GDT
 	kprintf("[INIT] Setting up GDT...\n");
 	cinux::mini::arch::gdt_init();
 	kprintf("[INIT] GDT loaded successfully.\n");
@@ -46,7 +46,7 @@ extern "C" [[noreturn]] void mini_kernel_main(uint64_t boot_info_addr) {
 	// ============================================================
 	// Initialize IDT (Interrupt Descriptor Table)
 	// ============================================================
-	// IDT 配置 #BP(3) 和 #PF(14) 两个异常向量
+	// IDT configures two exception vectors: #BP(3) and #PF(14)
 	kprintf("[INIT] Setting up IDT...\n");
 	cinux::mini::arch::idt_init();
 	kprintf("[INIT] IDT loaded successfully.\n");
@@ -58,11 +58,11 @@ extern "C" [[noreturn]] void mini_kernel_main(uint64_t boot_info_addr) {
 	init(boot_info);
 
 	// ============================================================
-	// 测试：触发 #BP(3) 断点异常
+	// Test: Trigger #BP(3) breakpoint exception
 	// ============================================================
-	// 通过 asm volatile("int $3") 手动触发断点异常，
-	// 验证 GDT/IDT/ISR 是否正确配置。
-	// 如果一切正常，handle_bp 会打印异常信息，然后返回这里继续执行。
+	// Manually trigger a breakpoint exception via asm volatile("int $3"),
+	// verifying that GDT/IDT/ISR are correctly configured.
+	// If everything is correct, handle_bp will print exception info and return here to continue execution.
 	kprintf("\n[TEST] Triggering breakpoint exception (int $3)...\n");
 	__asm__ volatile("int $3");
 	kprintf("[TEST] Breakpoint test passed! Execution continued after #BP.\n\n");

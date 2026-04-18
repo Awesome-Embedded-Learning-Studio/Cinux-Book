@@ -5,7 +5,7 @@
  * Tests the format functions extracted from kprintf.cpp.
  * These are pure algorithm tests that run in Host mode.
  *
- * 编译条件：-DCINUX_HOST_TEST
+ * Compile condition: -DCINUX_HOST_TEST
  */
 
 #define TEST_FRAMEWORK_IMPL
@@ -18,7 +18,7 @@
 #	include <cstdint>
 #	include <string>
 
-// 直接引用内核的格式化函数实现
+// Directly reference the kernel's format function implementation
 #	include "mini/lib/private/format.h"
 
 using namespace cinux::mini::lib::detail;

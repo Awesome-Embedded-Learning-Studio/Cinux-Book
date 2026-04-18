@@ -71,7 +71,7 @@ namespace test_linker_symbols {
     }
 
     void test_linker_symbol_access() {
-        // 正确访问链接器符号：使用 & 取地址
+        // Correct way to access linker symbols: use & to take address
         uint64_t kernel_size = reinterpret_cast<uint64_t>(&__kernel_size);
         uint64_t kernel_end = reinterpret_cast<uint64_t>(&__mini_kernel_end);
         uint64_t bss_start = reinterpret_cast<uint64_t>(&__bss_start);
@@ -81,7 +81,7 @@ namespace test_linker_symbols {
         kprintf("  bss_start=0x%x, bss_end=0x%x\n", bss_start, bss_end);
 
         TEST_ASSERT_GT(kernel_size, 0);
-        TEST_ASSERT_GE(kernel_end, bss_end);  // __mini_kernel_end 在 BSS 末尾或之后
+        TEST_ASSERT_GE(kernel_end, bss_end);  // __mini_kernel_end is at or after BSS end
         TEST_ASSERT_GT(bss_end, bss_start);
         TEST_ASSERT((bss_end - bss_start) < 1024 * 1024);  // BSS < 1MB
     }
@@ -117,7 +117,7 @@ namespace test_pmm_alloc {
         uint64_t page = alloc_page();
 
         TEST_ASSERT_NE(page, 0);
-        TEST_ASSERT((page & (PAGE_SIZE - 1)) == 0);  // 4KB 对齐
+        TEST_ASSERT((page & (PAGE_SIZE - 1)) == 0);  // 4KB aligned
         TEST_ASSERT_EQ(free_page_count(), free_before - 1);
 
         kprintf("  Allocated page at 0x%x\n", page);

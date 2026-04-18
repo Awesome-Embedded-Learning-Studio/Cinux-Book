@@ -1,18 +1,19 @@
 /**
  * @file test/unit/test_gdt_idt.cpp
- * @brief GDT/IDT 数据结构与编码逻辑的 Host 端单元测试
+ * @brief Host-side unit tests for GDT/IDT data structures and encoding logic
  *
- * 测试范围：
- *   - GDT 描述符编码正确性（make_gdt_entry 的输出）
- *   - IDT 条目编码正确性（set_idt_entry 的输出）
- *   - InterruptFrame 结构体布局正确性（sizeof、字段偏移）
- *   - 段选择子常量正确性
- *   - GdtEntry / IdtEntry 结构体大小和对齐
+ * Test coverage:
+ *   - GDT descriptor encoding correctness (make_gdt_entry output)
+ *   - IDT entry encoding correctness (set_idt_entry output)
+ *   - InterruptFrame struct layout correctness (sizeof, field offsets)
+ *   - Segment selector constant correctness
+ *   - GdtEntry / IdtEntry struct size and alignment
  *
- * 编译条件：-DCINUX_HOST_TEST
+ * Compile condition: -DCINUX_HOST_TEST
  *
- * 注意：ISR stub（汇编）和异常处理函数依赖硬件，
- * 不适合 host 端测试，这里只测试数据结构和编码逻辑。
+ * Note: ISR stubs (assembly) and exception handlers depend on hardware,
+ * and are not suitable for host-side testing. Only data structures and
+ * encoding logic are tested here.
  */
 
 #define TEST_FRAMEWORK_IMPL
@@ -24,18 +25,18 @@
 #include <cstdint>
 #include <cstring>
 
-// 直接 include 内核头文件中的数据结构定义
-// 因为这些结构体是纯数据类型（无硬件依赖），可以在 host 端使用
+// Directly include kernel header data structure definitions
+// These structs are pure data types (no hardware dependency) and can be used on host side
 #include "mini/arch/x86_64/gdt.hpp"
 #include "mini/arch/x86_64/idt.hpp"
 
 using namespace cinux::mini::arch;
 
 // ============================================================
-// Mock：复制 gdt.cpp 中的 make_gdt_entry 函数用于测试
+// Mock: Copy the make_gdt_entry function from gdt.cpp for testing
 // ============================================================
-// make_gdt_entry 在 gdt.cpp 中是 static 函数，无法直接调用。
-// 这里复制其实现用于单元测试编码逻辑的正确性。
+// make_gdt_entry is a static function in gdt.cpp and cannot be called directly.
+// Here we copy its implementation for unit testing the encoding logic correctness.
 
 static GdtEntry make_gdt_entry(uint32_t base, uint32_t limit, uint8_t access, uint8_t flags) {
     GdtEntry entry;
@@ -49,9 +50,9 @@ static GdtEntry make_gdt_entry(uint32_t base, uint32_t limit, uint8_t access, ui
 }
 
 // ============================================================
-// Mock：复制 idt.cpp 中的 set_idt_entry 函数用于测试
+// Mock: Copy the set_idt_entry function from idt.cpp for testing
 // ============================================================
-// 同理，set_idt_entry 是 static 函数，这里复制实现用于测试。
+// Similarly, set_idt_entry is a static function; copied here for testing.
 
 static void set_idt_entry(IdtEntry* table, uint8_t vector, uint64_t handler_addr,
                           uint16_t selector, uint8_t type_attr, uint8_t ist) {
@@ -66,18 +67,18 @@ static void set_idt_entry(IdtEntry* table, uint8_t vector, uint64_t handler_addr
 }
 
 // ============================================================
-// 1. GDT 常量正确性测试
+// 1. GDT constant correctness tests
 // ============================================================
 
 /**
- * @brief 验证 GDT 条目数量为 3（null + code64 + data64）
+ * @brief Verify GDT entry count is 3 (null + code64 + data64)
  */
 TEST("gdt: entries count is 3") {
     ASSERT_EQ(GDT_ENTRIES, 3);
 }
 
 /**
- * @brief 验证 GDT 索引值正确（0, 1, 2）
+ * @brief Verify GDT index values are correct (0, 1, 2)
  */
 TEST("gdt: index values are correct") {
     ASSERT_EQ(GDT_NULL_INDEX, 0);
@@ -86,47 +87,47 @@ TEST("gdt: index values are correct") {
 }
 
 /**
- * @brief 验证段选择子值正确（index * 8，RPL=0）
+ * @brief Verify segment selector values are correct (index * 8, RPL=0)
  */
 TEST("gdt: segment selector values") {
-    // 段选择子 = index * 8 + RPL (RPL=0)
+    // Segment selector = index * 8 + RPL (RPL=0)
     ASSERT_EQ(SEGMENT_NULL, 0x0000);   // 0 * 8 = 0
     ASSERT_EQ(SEGMENT_CODE64, 0x0008); // 1 * 8 = 8
     ASSERT_EQ(SEGMENT_DATA64, 0x0010); // 2 * 8 = 16
 }
 
 /**
- * @brief 验证段选择子之间的关系
+ * @brief Verify relationships between segment selectors
  */
 TEST("gdt: segment selector relationships") {
-    // 每个相邻选择子间隔 8
+    // Each adjacent selector is separated by 8
     ASSERT_EQ(SEGMENT_CODE64 - SEGMENT_NULL, 8);
     ASSERT_EQ(SEGMENT_DATA64 - SEGMENT_CODE64, 8);
 }
 
 // ============================================================
-// 2. GDT 结构体布局测试
+// 2. GDT struct layout tests
 // ============================================================
 
 /**
- * @brief 验证 GdtEntry 结构体大小为 8 字节
+ * @brief Verify GdtEntry struct size is 8 bytes
  */
 TEST("gdt: GdtEntry size is 8 bytes") {
     ASSERT_EQ(sizeof(GdtEntry), 8u);
 }
 
 /**
- * @brief 验证 GdtPointer 结构体大小为 10 字节（2 + 8）
+ * @brief Verify GdtPointer struct size is 10 bytes (2 + 8)
  */
 TEST("gdt: GdtPointer size is 10 bytes") {
     ASSERT_EQ(sizeof(GdtPointer), 10u);
 }
 
 /**
- * @brief 验证 GdtEntry 的 packed 属性（内部字段紧密排列）
+ * @brief Verify GdtEntry packed attribute (internal fields tightly packed)
  */
 TEST("gdt: GdtEntry field offsets are packed") {
-    // 验证各字段偏移量符合 x86_64 GDT 描述符布局
+    // Verify field offsets conform to x86_64 GDT descriptor layout
     ASSERT_EQ(offsetof(GdtEntry, limit_low), 0u);   // byte 0-1
     ASSERT_EQ(offsetof(GdtEntry, base_low), 2u);    // byte 2-3
     ASSERT_EQ(offsetof(GdtEntry, base_middle), 4u); // byte 4
@@ -136,7 +137,7 @@ TEST("gdt: GdtEntry field offsets are packed") {
 }
 
 /**
- * @brief 验证 GdtPointer 的字段偏移
+ * @brief Verify GdtPointer field offsets
  */
 TEST("gdt: GdtPointer field offsets") {
     ASSERT_EQ(offsetof(GdtPointer, limit), 0u); // byte 0-1
@@ -144,16 +145,16 @@ TEST("gdt: GdtPointer field offsets") {
 }
 
 // ============================================================
-// 3. GDT 描述符编码测试
+// 3. GDT descriptor encoding tests
 // ============================================================
 
 /**
- * @brief 验证 null descriptor 全为零
+ * @brief Verify null descriptor is all zeros
  */
 TEST("gdt: null descriptor is all zeros") {
     GdtEntry entry = make_gdt_entry(0, 0, 0, 0);
 
-    // 将整个结构体当作字节数组检查
+    // Treat the entire struct as a byte array for checking
     uint8_t bytes[8];
     memcpy(bytes, &entry, 8);
 
@@ -163,12 +164,12 @@ TEST("gdt: null descriptor is all zeros") {
 }
 
 /**
- * @brief 验证 64-bit code segment 描述符编码
+ * @brief Verify 64-bit code segment descriptor encoding
  *
  * Access = 0x9A: P=1, DPL=00, S=1, E=1, DC=0, RW=1, A=0
  * Flags  = 0x0A: G=1, D=0, L=1, Res=0
- * Base   = 0 (long mode 忽略)
- * Limit  = 0xFFFFF (long mode 忽略)
+ * Base   = 0 (ignored in long mode)
+ * Limit  = 0xFFFFF (ignored in long mode)
  */
 TEST("gdt: code64 descriptor encoding") {
     GdtEntry entry = make_gdt_entry(0, 0xFFFFF, 0x9A, 0x0A);
@@ -188,7 +189,7 @@ TEST("gdt: code64 descriptor encoding") {
 }
 
 /**
- * @brief 验证 64-bit data segment 描述符编码
+ * @brief Verify 64-bit data segment descriptor encoding
  *
  * Access = 0x92: P=1, DPL=00, S=1, E=0, DC=0, RW=1, A=0
  * Flags  = 0x0C: G=1, D/B=1, L=0, Res=0
@@ -211,9 +212,9 @@ TEST("gdt: data64 descriptor encoding") {
 }
 
 /**
- * @brief 验证 make_gdt_entry 对非零 base 的编码
+ * @brief Verify make_gdt_entry encoding with non-zero base
  *
- * 测试 base 地址被正确拆分到三个字段中。
+ * Test that the base address is correctly split into three fields.
  */
 TEST("gdt: make_gdt_entry with non-zero base") {
     uint32_t base = 0x12345678;
@@ -225,9 +226,9 @@ TEST("gdt: make_gdt_entry with non-zero base") {
 }
 
 /**
- * @brief 验证 make_gdt_entry 对非零 limit 的编码
+ * @brief Verify make_gdt_entry encoding with non-zero limit
  *
- * 测试 limit 被正确拆分到 limit_low 和 flags_limit_high 中。
+ * Test that the limit is correctly split into limit_low and flags_limit_high.
  */
 TEST("gdt: make_gdt_entry with non-zero limit") {
     uint32_t limit = 0xABCDE;
@@ -235,25 +236,25 @@ TEST("gdt: make_gdt_entry with non-zero limit") {
 
     // limit_low = limit & 0xFFFF = 0xBCDE
     ASSERT_EQ(entry.limit_low, 0xBCDE);
-    // flags_limit_high 低 4 位 = (limit >> 16) & 0x0F = 0xA
+    // flags_limit_high low 4 bits = (limit >> 16) & 0x0F = 0xA
     ASSERT_EQ(entry.flags_limit_high & 0x0F, 0x0A);
 }
 
 /**
- * @brief 验证 flags 字段只使用低 4 位
+ * @brief Verify flags field only uses low 4 bits
  *
- * 传入 flags = 0xFF，验证只有低 4 位被使用。
+ * Pass flags = 0xFF, verify only low 4 bits are used.
  */
 TEST("gdt: make_gdt_entry flags masking") {
     GdtEntry entry = make_gdt_entry(0, 0xFFFFF, 0, 0xFF);
 
-    // flags << 4 应该只使用低 4 位，即 0x0F << 4 = 0xF0
-    // 再 OR 上 limit_high = 0x0F，结果为 0xFF
+    // flags << 4 should only use low 4 bits, i.e., 0x0F << 4 = 0xF0
+    // OR with limit_high = 0x0F, result is 0xFF
     ASSERT_EQ(entry.flags_limit_high, 0xFF);
 }
 
 /**
- * @brief 验证 code segment access byte 的各个位
+ * @brief Verify individual bits of code segment access byte
  */
 TEST("gdt: code64 access byte bit breakdown") {
     uint8_t access = 0x9A;
@@ -275,7 +276,7 @@ TEST("gdt: code64 access byte bit breakdown") {
 }
 
 /**
- * @brief 验证 data segment access byte 的各个位
+ * @brief Verify individual bits of data segment access byte
  */
 TEST("gdt: data64 access byte bit breakdown") {
     uint8_t access = 0x92;
@@ -290,26 +291,26 @@ TEST("gdt: data64 access byte bit breakdown") {
 }
 
 // ============================================================
-// 4. IDT 常量正确性测试
+// 4. IDT constant correctness tests
 // ============================================================
 
 /**
- * @brief 验证 IDT 最大条目数为 256
+ * @brief Verify IDT maximum entry count is 256
  */
 TEST("idt: max entries is 256") {
     ASSERT_EQ(IDT_MAX_ENTRIES, 256);
 }
 
 /**
- * @brief 验证 IDT 向量号常量
+ * @brief Verify IDT vector number constants
  */
 TEST("idt: vector constants") {
-    ASSERT_EQ(IDT_VEC_BP, 3);   // 断点异常
-    ASSERT_EQ(IDT_VEC_PF, 14);  // 页错误异常
+    ASSERT_EQ(IDT_VEC_BP, 3);   // Breakpoint exception
+    ASSERT_EQ(IDT_VEC_PF, 14);  // Page fault exception
 }
 
 /**
- * @brief 验证 IDT 门类型常量
+ * @brief Verify IDT gate type constants
  */
 TEST("idt: gate type constants") {
     ASSERT_EQ(IDT_TYPE_INTERRUPT_GATE, 0x0E);
@@ -317,25 +318,25 @@ TEST("idt: gate type constants") {
 }
 
 // ============================================================
-// 5. IDT 结构体布局测试
+// 5. IDT struct layout tests
 // ============================================================
 
 /**
- * @brief 验证 IdtEntry 结构体大小为 16 字节
+ * @brief Verify IdtEntry struct size is 16 bytes
  */
 TEST("idt: IdtEntry size is 16 bytes") {
     ASSERT_EQ(sizeof(IdtEntry), 16u);
 }
 
 /**
- * @brief 验证 IdtPointer 结构体大小为 10 字节（2 + 8）
+ * @brief Verify IdtPointer struct size is 10 bytes (2 + 8)
  */
 TEST("idt: IdtPointer size is 10 bytes") {
     ASSERT_EQ(sizeof(IdtPointer), 10u);
 }
 
 /**
- * @brief 验证 IdtEntry 的字段偏移符合 x86_64 IDT 描述符布局
+ * @brief Verify IdtEntry field offsets conform to x86_64 IDT descriptor layout
  */
 TEST("idt: IdtEntry field offsets") {
     ASSERT_EQ(offsetof(IdtEntry, offset_low), 0u);    // byte 0-1
@@ -348,7 +349,7 @@ TEST("idt: IdtEntry field offsets") {
 }
 
 /**
- * @brief 验证 IdtPointer 的字段偏移
+ * @brief Verify IdtPointer field offsets
  */
 TEST("idt: IdtPointer field offsets") {
     ASSERT_EQ(offsetof(IdtPointer, limit), 0u); // byte 0-1
@@ -356,17 +357,17 @@ TEST("idt: IdtPointer field offsets") {
 }
 
 // ============================================================
-// 6. IDT 条目编码测试
+// 6. IDT entry encoding tests
 // ============================================================
 
 /**
- * @brief 验证 set_idt_entry 对地址的拆分编码
+ * @brief Verify set_idt_entry splits address correctly
  *
- * 使用一个已知地址验证 offset_low/mid/high 的拆分正确性。
+ * Use a known address to verify offset_low/mid/high splitting correctness.
  */
 TEST("idt: set_idt_entry splits address correctly") {
     IdtEntry table[256] = {};
-    uint64_t handler_addr = 0x00000000ABCDEFFF; // 测试地址
+    uint64_t handler_addr = 0x00000000ABCDEFFF; // Test address
 
     set_idt_entry(table, 3, handler_addr, 0x0008, 0x8F, 0);
 
@@ -379,13 +380,13 @@ TEST("idt: set_idt_entry splits address correctly") {
 }
 
 /**
- * @brief 验证 set_idt_entry 对高 32 位地址的编码
+ * @brief Verify set_idt_entry encoding for high 32-bit addresses
  *
- * 使用一个 higher-half 地址（bit 32+ 有值）验证。
+ * Use a higher-half address (bit 32+ has values) for verification.
  */
 TEST("idt: set_idt_entry with high address") {
     IdtEntry table[256] = {};
-    uint64_t handler_addr = 0xFFFFFFFF80010000; // higher-half 地址
+    uint64_t handler_addr = 0xFFFFFFFF80010000; // Higher-half address
 
     set_idt_entry(table, 14, handler_addr, 0x0008, 0x8E, 0);
 
@@ -395,7 +396,7 @@ TEST("idt: set_idt_entry with high address") {
 }
 
 /**
- * @brief 验证 set_idt_entry 的 selector 字段
+ * @brief Verify set_idt_entry selector field
  */
 TEST("idt: set_idt_entry selector field") {
     IdtEntry table[256] = {};
@@ -407,7 +408,7 @@ TEST("idt: set_idt_entry selector field") {
 }
 
 /**
- * @brief 验证 #BP 使用陷阱门（type_attr = 0x8F）
+ * @brief Verify #BP uses trap gate (type_attr = 0x8F)
  */
 TEST("idt: breakpoint uses trap gate") {
     IdtEntry table[256] = {};
@@ -424,7 +425,7 @@ TEST("idt: breakpoint uses trap gate") {
 }
 
 /**
- * @brief 验证 #PF 使用中断门（type_attr = 0x8E）
+ * @brief Verify #PF uses interrupt gate (type_attr = 0x8E)
  */
 TEST("idt: pagefault uses interrupt gate") {
     IdtEntry table[256] = {};
@@ -441,7 +442,7 @@ TEST("idt: pagefault uses interrupt gate") {
 }
 
 /**
- * @brief 验证 set_idt_entry 的 ist 字段（应为 0，不使用 IST）
+ * @brief Verify set_idt_entry ist field (should be 0, IST not used)
  */
 TEST("idt: set_idt_entry ist is zero") {
     IdtEntry table[256] = {};
@@ -454,7 +455,7 @@ TEST("idt: set_idt_entry ist is zero") {
 }
 
 /**
- * @brief 验证 set_idt_entry 的 reserved 字段为零
+ * @brief Verify set_idt_entry reserved field is zero
  */
 TEST("idt: set_idt_entry reserved is zero") {
     IdtEntry table[256] = {};
@@ -465,7 +466,7 @@ TEST("idt: set_idt_entry reserved is zero") {
 }
 
 /**
- * @brief 验证不同向量号写入不同条目
+ * @brief Verify different vector numbers write different entries
  */
 TEST("idt: different vectors write different entries") {
     IdtEntry table[256] = {};
@@ -479,26 +480,26 @@ TEST("idt: different vectors write different entries") {
 }
 
 // ============================================================
-// 7. InterruptFrame 结构体布局测试
+// 7. InterruptFrame struct layout tests
 // ============================================================
 
 /**
- * @brief 验证 InterruptFrame 中通用寄存器字段数量
+ * @brief Verify InterruptFrame general-purpose register field count
  *
- * 共 15 个通用寄存器（r15-rax）+ 1 个 error_code + 5 个 CPU 压入字段
+ * 15 general-purpose registers (r15-rax) + 1 error_code + 5 CPU-pushed fields
  */
 TEST("frame: InterruptFrame has correct field count") {
-    // InterruptFrame 包含 21 个 uint64_t 字段
+    // InterruptFrame contains 21 uint64_t fields
     // r15,r14,r13,r12,r11,r10,r9,r8,rdi,rsi,rbp,rdx,rcx,rbx,rax = 15
     // error_code, rip, cs, rflags, rsp, ss = 6
-    // 共 21 * 8 = 168 字节
+    // Total 21 * 8 = 168 bytes
     ASSERT_EQ(sizeof(InterruptFrame), 21u * 8u);
 }
 
 /**
- * @brief 验证 InterruptFrame 中 error_code 字段的偏移
+ * @brief Verify InterruptFrame error_code field offset
  *
- * error_code 在 15 个通用寄存器之后
+ * error_code is after 15 general-purpose registers
  * offset = 15 * 8 = 120
  */
 TEST("frame: error_code offset") {
@@ -506,9 +507,9 @@ TEST("frame: error_code offset") {
 }
 
 /**
- * @brief 验证 InterruptFrame 中 CPU 压入字段的偏移
+ * @brief Verify InterruptFrame CPU-pushed fields offsets
  *
- * rip 紧跟 error_code 之后
+ * rip immediately follows error_code
  */
 TEST("frame: CPU-pushed fields offsets") {
     uint64_t base_offset = offsetof(InterruptFrame, error_code) + 8;
@@ -521,15 +522,15 @@ TEST("frame: CPU-pushed fields offsets") {
 }
 
 /**
- * @brief 验证 InterruptFrame 中通用寄存器的排列顺序
+ * @brief Verify InterruptFrame general-purpose register ordering
  *
- * ISR stub 按逆序压入寄存器（rax 先压入在最低地址），
- * 但 InterruptFrame 结构体中字段声明顺序是从高地址到低地址（r15 最先）。
+ * ISR stub pushes registers in reverse order (rax pushed first at lowest address),
+ * but InterruptFrame struct field declaration order is from high address to low (r15 first).
  */
 TEST("frame: register field order") {
-    // r15 在最低偏移（最先被 push，在栈顶/最高地址）
-    // rax 在最高偏移（最后被 push，在栈底/最低地址附近）
-    // 偏移关系：r15 < r14 < ... < rax
+    // r15 at lowest offset (pushed first, at stack top/highest address)
+    // rax at highest offset (pushed last, near stack bottom/lowest address)
+    // Offset relationship: r15 < r14 < ... < rax
     ASSERT_LT(offsetof(InterruptFrame, r15), offsetof(InterruptFrame, r14));
     ASSERT_LT(offsetof(InterruptFrame, r14), offsetof(InterruptFrame, r13));
     ASSERT_LT(offsetof(InterruptFrame, r13), offsetof(InterruptFrame, r12));
@@ -547,11 +548,11 @@ TEST("frame: register field order") {
 }
 
 // ============================================================
-// 8. 综合场景测试
+// 8. Integration scenario tests
 // ============================================================
 
 /**
- * @brief 验证 GdtPointer 的 limit 计算正确性
+ * @brief Verify GdtPointer limit calculation correctness
  *
  * limit = sizeof(GdtEntry) * GDT_ENTRIES - 1
  */
@@ -562,7 +563,7 @@ TEST("gdt: GdtPointer limit calculation") {
 }
 
 /**
- * @brief 验证 IdtPointer 的 limit 计算正确性
+ * @brief Verify IdtPointer limit calculation correctness
  *
  * limit = sizeof(IdtEntry) * IDT_MAX_ENTRIES - 1
  */
@@ -573,42 +574,42 @@ TEST("idt: IdtPointer limit calculation") {
 }
 
 /**
- * @brief 验证全零 IdtEntry 表示未使用条目
+ * @brief Verify all-zero IdtEntry represents an unused entry
  *
- * 未配置的 IDT 条目应为全零，其中 Present=0 表示未使用。
+ * Unconfigured IDT entries should be all zeros, where Present=0 indicates unused.
  */
 TEST("idt: zero entry is unused") {
     IdtEntry zero_entry = {};
 
-    // type_attr = 0，Present 位 (bit 7) 为 0
+    // type_attr = 0, Present bit (bit 7) is 0
     ASSERT_EQ(zero_entry.type_attr, 0);
     ASSERT_FALSE(zero_entry.type_attr & 0x80); // P = 0
 }
 
 /**
- * @brief 验证 code64 描述符的 flags 中 L 位（Long mode）为 1
+ * @brief Verify code64 descriptor flags has Long mode bit (L) set to 1
  */
 TEST("gdt: code64 flags has long mode bit set") {
     uint8_t flags = 0x0A;
-    // L 位 = bit 1 of flags nibble = 1
+    // L bit = bit 1 of flags nibble = 1
     ASSERT_TRUE(flags & 0x02);
 }
 
 /**
- * @brief 验证 data64 描述符的 flags 中 L 位为 0
+ * @brief Verify data64 descriptor flags has L bit set to 0
  */
 TEST("gdt: data64 flags does not have long mode bit") {
     uint8_t flags = 0x0C;
-    // L 位 = bit 1 of flags nibble = 0
+    // L bit = bit 1 of flags nibble = 0
     ASSERT_FALSE(flags & 0x02);
 }
 
 // ============================================================
-// 主函数
+// Main function
 // ============================================================
 
 /**
- * @brief 测试入口点
+ * @brief Test entry point
  */
 int main() {
     RUN_ALL_TESTS();

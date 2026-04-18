@@ -114,14 +114,14 @@ _start:
     call vesa_save_framebuffer_info // [→0x6400] Save FB info
 
     // ============================================================
-    // 004_boot_load_mini_kernel_A: Real mode 内完成
+    // 004_boot_load_mini_kernel_A: Completed in real mode
     // ============================================================
 
     call query_memory_map           // [→0x5000] E820 memory map
 
     call load_kernel_from_disk      // [→0x20000] Load mini kernel ELF (416KB, 832 sectors) to 0x88000, leaving 32KB gap before protected mode stack at 0x90000    
 
-    cli                           // close the inter again
+    cli                           // disable interrupts again
     // ============================================================
     // Switch to Protected Mode
     // ============================================================

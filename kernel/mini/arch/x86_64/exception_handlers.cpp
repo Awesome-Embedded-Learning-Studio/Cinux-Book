@@ -1,13 +1,15 @@
 /**
  * @file kernel/mini/arch/x86_64/exception_handlers.cpp
- * @brief x86_64 异常处理函数实现
+ * @brief x86_64 Exception Handler Implementations
  *
- * 提供 #BP(3) 和 #PF(14) 两个异常的 C 语言处理函数。
- * 这些函数由 interrupts.S 中的 ISR stub 调用，
- * 接收 InterruptFrame* 指针作为参数，可以读取/修改中断时的寄存器状态。
+ * Provides C handler functions for the #BP(3) and #PF(14) exceptions.
+ * These functions are called by the ISR stubs in interrupts.S,
+ * receiving an InterruptFrame* pointer as the argument, allowing
+ * them to read/modify the register state at the time of the interrupt.
  *
- * 当前实现策略：通过串口打印异常信息后继续执行（不断死机），
- * 符合 milestone 目标"触发异常不死机，能看到错误信息"。
+ * Current implementation strategy: print exception info via serial and
+ * continue execution (no crash/halt), fulfilling the milestone goal of
+ * "trigger an exception without crashing, and display error information".
  */
 
 #include "idt.hpp"
@@ -19,15 +21,15 @@ using cinux::mini::arch::InterruptFrame;
 using cinux::mini::lib::kprintf;
 
 // ============================================================
-// 辅助函数：打印 InterruptFrame 中的关键寄存器
+// Helper: Print key registers from InterruptFrame
 // ============================================================
 
 /**
- * @brief 打印中断栈帧中的寄存器快照
+ * @brief Print a register snapshot from the interrupt stack frame
  *
- * @param frame 指向中断栈帧的指针
- * @param vec_name 异常名称字符串（如 "#BP", "#PF"）
- * @param vector 向量号
+ * @param frame Pointer to the interrupt stack frame
+ * @param vec_name Exception name string (e.g. "#BP", "#PF")
+ * @param vector Vector number
  */
 void dump_interrupt_frame(const InterruptFrame* frame, const char* vec_name, uint8_t vector) {
     kprintf("\n");
@@ -50,50 +52,55 @@ void dump_interrupt_frame(const InterruptFrame* frame, const char* vec_name, uin
 } // anonymous namespace
 
 // ============================================================
-// 公开接口（extern "C"，由 interrupts.S 调用）
+// Public Interface (extern "C", called from interrupts.S)
 // ============================================================
 
 /**
- * @brief #BP(3) 断点异常处理函数
+ * @brief #BP(3) Breakpoint exception handler
  *
- * 当执行 INT3 指令（opcode 0xCC）或 asm volatile("int $3") 时触发。
- * 这是一个陷阱异常，触发时 RIP 指向 INT3 指令的下一条指令，
- * 因此 IRETQ 返回后会继续执行后续代码。
+ * Triggered when the INT3 instruction (opcode 0xCC) or
+ * asm volatile("int $3") is executed. This is a trap exception;
+ * when triggered, RIP points to the instruction after INT3,
+ * so execution continues normally after IRETQ returns.
  *
- * @param frame 指向中断栈帧的指针，包含异常发生时的完整寄存器快照
+ * @param frame Pointer to the interrupt stack frame, containing a
+ *              complete register snapshot at the time of the exception
  */
 extern "C" void handle_bp(InterruptFrame* frame) {
-    // Step 1: 打印断点异常信息
+    // Step 1: Print breakpoint exception information
     dump_interrupt_frame(frame, "#BP", 3);
 
-    // Step 2: 打印提示信息，告知这是软件断点，可以安全继续
+    // Step 2: Print a notice that this is a software breakpoint, safe to continue
     kprintf("[EXCEPTION] Breakpoint triggered at RIP=0x%x\n", frame->rip);
     kprintf("[EXCEPTION] This is a software breakpoint, continuing...\n");
 }
 
 /**
- * @brief #PF(14) 页错误异常处理函数
+ * @brief #PF(14) Page fault exception handler
  *
- * 当 CPU 尝试访问一个不存在或权限不足的页表项时触发。
- * 触发时 CR2 寄存器保存了导致缺页的线性地址。
- * 错误码格式：
- *   Bit 0 (P):   0=页不存在, 1=权限冲突
- *   Bit 1 (W/R): 0=读, 1=写
- *   Bit 2 (U/S): 0=内核态, 1=用户态
- *   Bit 3 (RSVD):1=保留位冲突
- *   Bit 4 (I/D): 1=取指（指令缺页）
+ * Triggered when the CPU attempts to access a page table entry that
+ * does not exist or has insufficient permissions. The CR2 register
+ * holds the linear address that caused the fault.
+ * Error code format:
+ *   Bit 0 (P):   0=page not present, 1=protection violation
+ *   Bit 1 (W/R): 0=read, 1=write
+ *   Bit 2 (U/S): 0=kernel mode, 1=user mode
+ *   Bit 3 (RSVD):1=reserved bits violation
+ *   Bit 4 (I/D): 1=instruction fetch (code page fault)
  *
- * @param frame 指向中断栈帧的指针，frame->error_code 包含页错误码
+ * @param frame Pointer to the interrupt stack frame; frame->error_code
+ *              contains the page fault error code
  *
- * @note 当前实现只打印信息并继续，不做任何页修复。
- *       未来加入 VMM 后，这里会变成缺页处理的核心。
+ * @note The current implementation only prints information and continues,
+ *       without performing any page repair. Once VMM is added in the future,
+ *       this will become the core of the page fault handler.
  */
 extern "C" void handle_pf(InterruptFrame* frame) {
-    // Step 1: 读取 CR2 获取导致缺页的地址
+    // Step 1: Read CR2 to get the faulting address
     uint64_t fault_addr;
     __asm__ volatile ("movq %%cr2, %0" : "=r"(fault_addr));
 
-    // Step 2: 解析错误码
+    // Step 2: Parse the error code
     uint64_t err = frame->error_code;
     const char* present  = (err & 0x01) ? "protection violation" : "page not present";
     const char* access   = (err & 0x02) ? "write" : "read";
@@ -101,7 +108,7 @@ extern "C" void handle_pf(InterruptFrame* frame) {
     const char* reserved = (err & 0x08) ? ", reserved bits" : "";
     const char* fetch    = (err & 0x10) ? ", instruction fetch" : "";
 
-    // Step 3: 打印详细的页错误信息
+    // Step 3: Print detailed page fault information
     dump_interrupt_frame(frame, "#PF", 14);
     kprintf("[EXCEPTION] Page Fault: %s %s %s%s%s\n",
             present, access, mode, reserved, fetch);
