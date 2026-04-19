@@ -100,7 +100,7 @@ add_custom_target(run-gdb
 # ==============================================================
 
 set(MINI_TEST_BIN "${CMAKE_BINARY_DIR}/kernel/mini/mini_kernel_test.bin")
-set(BIG_KERNEL_TEST_BIN "${CMAKE_BINARY_DIR}/kernel/big/big_kernel_test.bin")
+set(BIG_KERNEL_TEST_ELF "${CMAKE_BINARY_DIR}/kernel/big/big_kernel_test_crc.bin")
 
 # 测试内核磁盘镜像
 set(CINUX_TEST_IMAGE_PATH "${CMAKE_BINARY_DIR}/cinux_test.img")
@@ -112,8 +112,8 @@ add_custom_command(
         ${STAGE2_BIN}
         ${MINI_TEST_BIN}
         ${CINUX_TEST_IMAGE_PATH}
-        ${BIG_KERNEL_TEST_BIN}
-    DEPENDS mbr stage2 mini_kernel_test big_kernel
+        ${BIG_KERNEL_TEST_ELF}
+    DEPENDS mbr stage2 mini_kernel_test big_kernel_test
     COMMENT "Building test disk image: ${CINUX_TEST_IMAGE_PATH}"
     VERBATIM
 )
@@ -159,6 +159,40 @@ add_custom_command(
 
 add_custom_target(stress-test-image
     DEPENDS ${STRESS_TEST_IMAGE}
+)
+
+# ==============================================================
+# Big Kernel Test Target (production mini kernel + test big kernel)
+# ==============================================================
+# Uses the production mini kernel (which loads and jumps to big kernel)
+# with the big_kernel_test binary (which has a test main instead of production main).
+
+set(BIG_KERNEL_QEMU_TEST_ELF "${CMAKE_BINARY_DIR}/kernel/big/big_kernel_test")
+set(BIG_KERNEL_QEMU_TEST_IMAGE "${CMAKE_BINARY_DIR}/cinux_big_test.img")
+
+add_custom_command(
+    OUTPUT ${BIG_KERNEL_QEMU_TEST_IMAGE}
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/build_image.sh
+        ${MBR_BIN} ${STAGE2_BIN} ${MINI_BIN}
+        ${BIG_KERNEL_QEMU_TEST_IMAGE}
+        ${BIG_KERNEL_QEMU_TEST_ELF}
+    DEPENDS mbr stage2 mini_kernel big_kernel_test
+    COMMENT "Building big kernel test disk image"
+    VERBATIM
+)
+
+add_custom_target(big-kernel-test-image
+    DEPENDS ${BIG_KERNEL_QEMU_TEST_IMAGE}
+)
+
+add_custom_target(run-big-kernel-test
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/qemu_test_wrapper.sh
+        ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} ${QEMU_TEST_EXTRA_FLAGS}
+        -drive file=${BIG_KERNEL_QEMU_TEST_IMAGE},format=raw,index=0,media=disk
+    DEPENDS big-kernel-test-image
+    USES_TERMINAL
+    COMMENT "Running big kernel GDT/IDT tests in QEMU"
+    VERBATIM
 )
 
 add_custom_target(run-stress-test
@@ -208,7 +242,8 @@ message(STATUS "  make image      : Build disk image only")
 message(STATUS "  make run-gdb    : Connects the qemu automatically")
 message(STATUS "")
 message(STATUS "Test Kernel targets:")
-message(STATUS "  make run-kernel-test            : Run test kernel (auto-exit)")
+message(STATUS "  make run-kernel-test            : Run mini kernel tests (auto-exit)")
+message(STATUS "  make run-big-kernel-test        : Run big kernel GDT/IDT tests (auto-exit)")
 message(STATUS "  make run-kernel-test-interactive : Run test kernel (needs Ctrl+C)")
 message(STATUS "  make run-kernel-test-debug      : Run test kernel with GDB")
 message(STATUS "  make test-image                  : Build test disk image only")

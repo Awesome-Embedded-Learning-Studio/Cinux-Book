@@ -206,3 +206,14 @@ constexpr uint64_t BIG_KERNEL_LOAD_ADDR  = 0x1000000;   // 16MB
 - ☑ `kernel/lib/kprintf.hpp/cpp`：`kvprintf(fmt,va_list)`，`kprintf(fmt,...)`，`kpanic(fmt,...) [[noreturn]]`，支持 `%d %u %x %X %s %p %c %%`，`%p` 输出 16 位十六进制
 - ☑ `kernel_main(BootInfo*)` 调 `Serial::init()` → `kprintf("[BIG] Big kernel running @ 0x1000000\n")`
 - ☑ host 端单元测试 `tests/unit/test_kprintf.cpp`：mock `Serial::putc`，验证各格式化输出
+
+### `010_big_kernel_gdt_idt`
+**效果**：触发除零异常后串口打印寄存器 dump，不死机
+
+- ☐ `kernel/arch/x86_64/gdt.hpp`：`GDTEntry [[gnu::packed]]`，`constexpr make_null/make_code64/make_data64/make_tss`；选择子常量 `GDT_KERNEL_CODE=0x08`，`GDT_KERNEL_DATA=0x10`，`GDT_USER_CODE=0x1B`，`GDT_USER_DATA=0x23`，`GDT_TSS=0x28`
+- ☐ `kernel/arch/x86_64/gdt.cpp`：全局 GDT 数组含 null/kernel_code64/kernel_data64/user_code64/user_data64/TSS（16字节双槽），`gdt_init()` 填充 + `lgdt` + `ltr $GDT_TSS`
+- ☐ `kernel/arch/x86_64/idt.hpp`：`IDTEntry [[gnu::packed]]`，`InterruptFrame` 结构（`r15..rax + vector + error_code + rip/cs/rflags/rsp/ss`），`using IRQHandler = void(*)(InterruptFrame*)`，`idt_set_handler(vector, handler)`，`idt_init()`
+- ☐ `kernel/arch/x86_64/interrupts.S`：`.macro isr_noerr` 推 `$0` + vec，`.macro isr_err` 推 vec；`isr_common` 保存 r15..rax，`movq %rsp,%rdi`，`call isr_dispatch`，恢复寄存器，`addq $16,%rsp`，`iretq`；用宏批量生成 256 个 stub（8/10/11/12/13/14/17/21 有 error code）
+- ☐ `kernel/arch/x86_64/exception_handlers.cpp`：`dump_registers(InterruptFrame*)` 格式化输出所有寄存器；`handle_pf`（读 `%cr2`）、`handle_gp`、`handle_df [[noreturn]]`；在 `idt_init()` 中注册
+- ☐ `kernel_main` 中 `asm volatile("int $3")` 触发 `#BP` 验证 dump 输出
+

@@ -39,6 +39,10 @@ set(BIG_KERNEL_LINK_OPTIONS
 add_library(big_kernel_common OBJECT
     arch/x86_64/boot.S
     arch/x86_64/crt_stub.cpp
+    arch/x86_64/gdt.cpp
+    arch/x86_64/idt.cpp
+    arch/x86_64/interrupts.S
+    arch/x86_64/exception_handlers.cpp
     drivers/serial.cpp
     lib/kprintf.cpp
 )
@@ -66,18 +70,32 @@ set_target_properties(big_kernel PROPERTIES
 target_link_options(big_kernel PRIVATE ${BIG_KERNEL_LINK_OPTIONS})
 
 # ============================================================
-# Big Kernel Test Binary (with trailing CRC32)
+# Big Kernel Test Binary (QEMU in-kernel tests)
 # ============================================================
-# Append a CRC32 checksum to the big kernel ELF for integrity
-# verification during kernel tests.
-#
-# Layout: [ELF data] [4-byte CRC32 LE] [padding to 512B alignment]
+# Separate executable that replaces kernel_main with a test harness.
+# Gets loaded by the mini kernel just like the production big kernel.
 
-set(BIG_KERNEL_TEST_BIN "${CMAKE_BINARY_DIR}/kernel/big/big_kernel_test.bin")
+add_executable(big_kernel_test
+    test/main_test.cpp
+    test/test_gdt_idt.cpp
+)
 
-add_custom_command(TARGET big_kernel POST_BUILD
+target_sources(big_kernel_test PRIVATE $<TARGET_OBJECTS:big_kernel_common>)
+target_link_libraries(big_kernel_test PRIVATE big_kernel_common)
+
+set_target_properties(big_kernel_test PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/kernel/big
+    OUTPUT_NAME "big_kernel_test"
+)
+
+target_link_options(big_kernel_test PRIVATE ${BIG_KERNEL_LINK_OPTIONS})
+
+# Build test disk image: copy the test ELF to sectors where the big kernel lives
+set(BIG_KERNEL_TEST_BIN "${CMAKE_BINARY_DIR}/kernel/big/big_kernel_test_crc.bin")
+
+add_custom_command(TARGET big_kernel_test POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
-        $<TARGET_FILE:big_kernel> ${BIG_KERNEL_TEST_BIN}
+        $<TARGET_FILE:big_kernel_test> ${BIG_KERNEL_TEST_BIN}
     COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/append_crc32.py ${BIG_KERNEL_TEST_BIN}
     COMMENT "Creating big kernel test binary with trailing CRC32"
 )
