@@ -6,17 +6,6 @@
 
 ---
 
-## Phase 5 · 内存管理
-
-### `018_mm_address_space`
-**效果**：独立地址空间创建/切换，用户区隔离验证
-
-- ☐ `kernel/mm/address_space.hpp`：`class AddressSpace {pml4_phys_; static *kernel_pml4_}`；`static init_kernel()`（读 CR3 保存）；构造器（alloc 新 PML4，复制 PML4[256–511] 内核条目）；析构器（遍历用户区 PML4[0–255] 逐级释放）；`map/unmap/activate()`（mov CR3）
-- ☐ 禁止拷贝构造和拷贝赋值（`= delete`）
-- ☐ 串口验证：创建 AS#1 和 AS#2，在 AS#1 映射一页，切换到 AS#2，translate 该地址返回 0
-
----
-
 ## Phase 6 · 进程与调度
 
 ### `019_proc_context`

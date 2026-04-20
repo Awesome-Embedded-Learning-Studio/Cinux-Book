@@ -290,3 +290,10 @@ constexpr uint64_t BIG_KERNEL_LOAD_ADDR  = 0x1000000;   // 16MB
 - ☑ free list 耗尽时调 `VMM::map()` 扩展堆
 - ☑ `operator new/new[]/delete/delete[]` 接管；`operator new(size, align_val_t)` 支持对齐分配
 - ☑ host 测试：1000 次随机大小 alloc/free，检查无泄漏；double-free 触发 magic 校验 panic
+
+### `018_mm_address_space`
+**效果**：独立地址空间创建/切换，用户区隔离验证
+
+- ☑ `kernel/mm/address_space.hpp`：`class AddressSpace {pml4_phys_; static *kernel_pml4_}`；`static init_kernel()`（读 CR3 保存）；构造器（alloc 新 PML4，复制 PML4[256–511] 内核条目）；析构器（遍历用户区 PML4[0–255] 逐级释放）；`map/unmap/activate()`（mov CR3）
+- ☑ 禁止拷贝构造和拷贝赋值（`= delete`）
+- ☑ 串口验证：创建 AS#1 和 AS#2，在 AS#1 映射一页，切换到 AS#2，translate 该地址返回 0

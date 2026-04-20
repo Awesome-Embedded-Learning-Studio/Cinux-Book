@@ -17,13 +17,14 @@
  *   6. PIT (configure channel 0 at 100 Hz)
  *   7. PMM (physical memory manager, bitmap allocator)
  *   8. VMM (virtual memory manager, 4-level paging)
- *   9. Heap (kernel heap allocator, first-fit with coalescing)
- *  10. Framebuffer (map MMIO, init from BootInfo)
- *  11. Font (parse embedded PSF2)
- *  12. Console (init + register as kprintf sink)
- *  13. Keyboard (PS/2 controller init)
- *  14. Unmask IRQ0 + IRQ1, enable interrupts (sti)
- *  15. Keyboard poll loop: echo keypresses to console + serial
+ *   9. AddressSpace (save kernel PML4 for per-process spaces)
+ *  10. Heap (kernel heap allocator, first-fit with coalescing)
+ *  11. Framebuffer (map MMIO, init from BootInfo)
+ *  12. Font (parse embedded PSF2)
+ *  13. Console (init + register as kprintf sink)
+ *  14. Keyboard (PS/2 controller init)
+ *  15. Unmask IRQ0 + IRQ1, enable interrupts (sti)
+ *  16. Keyboard poll loop: echo keypresses to console + serial
  */
 
 #include <stdint.h>
@@ -41,6 +42,7 @@
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vmm.hpp"
 #include "kernel/mm/heap.hpp"
+#include "kernel/mm/address_space.hpp"
 
 using cinux::arch::PIC;
 using cinux::drivers::Console;
@@ -103,40 +105,43 @@ extern "C" void kernel_main() {
     // Step 8: Initialise Virtual Memory Manager
     cinux::mm::g_vmm.init();
 
-    // Step 9: Initialise kernel heap (64 KB initial region after kernel image)
+    // Step 9: Save kernel PML4 for per-process address spaces
+    cinux::mm::AddressSpace::init_kernel();
+
+    // Step 10: Initialise kernel heap (64 KB initial region after kernel image)
     constexpr uint64_t HEAP_VIRT_BASE = 0xFFFF800000000000ULL;
     constexpr uint64_t HEAP_INITIAL_SIZE = 64 * 1024;
     cinux::mm::g_heap.init(HEAP_VIRT_BASE, HEAP_INITIAL_SIZE);
 
-    // Step 10: Initialise framebuffer from BootInfo
+    // Step 11: Initialise framebuffer from BootInfo
     Framebuffer fb;
     fb.init(*boot_info);
     cinux::lib::kprintf("[BIG] Framebuffer initialised: %ux%u %ubpp\n",
                         fb.width(), fb.height(), boot_info->fb_bpp);
 
-    // Step 11: Parse embedded PSF2 font
+    // Step 12: Parse embedded PSF2 font
     PSFFont font;
     font.init();
     cinux::lib::kprintf("[BIG] PSF2 font loaded: %ux%u\n",
                         font.width(), font.height());
 
-    // Step 12: Initialise text console and register as kprintf sink
+    // Step 13: Initialise text console and register as kprintf sink
     Console console;
     console.init(fb, font, 0x00FFFFFF, 0x00000000);
     cinux::lib::kprintf_register_sink(Console::console_sink_adapter, &console);
     cinux::lib::kprintf("[BIG] Console initialised -- dual output active.\n");
 
-    // Step 13: Initialise the PS/2 keyboard controller
+    // Step 14: Initialise the PS/2 keyboard controller
     Keyboard::init();
 
-    // Step 14: Unmask IRQ0 (PIT timer) and IRQ1 (Keyboard), enable interrupts
+    // Step 15: Unmask IRQ0 (PIT timer) and IRQ1 (Keyboard), enable interrupts
     PIC::unmask(0);
     PIC::unmask(1);
     cinux::lib::kprintf("[BIG] IRQ0+IRQ1 unmasked, enabling interrupts...\n");
     __asm__ volatile("sti");
     cinux::lib::kprintf("[BIG] Interrupts enabled. Keyboard echo active.\n");
 
-    // Step 15: Keyboard poll loop -- echo keypresses to console + serial
+    // Step 16: Keyboard poll loop -- echo keypresses to console + serial
     KeyEvent ev;
     while (1) {
         __asm__ volatile("hlt");
