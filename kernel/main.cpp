@@ -5,30 +5,44 @@
  * This is the C++ main function for the "big kernel" -- the full-featured
  * kernel that the mini kernel loads from disk and jumps to.
  *
- * Milestone 011 goal:
- *   Serial prints "[TICK] uptime: Ns" once per second via PIT IRQ0.
+ * Milestone 013 goal:
+ *   Dual-output kprintf (serial + framebuffer console) with VGA
+ *   framebuffer rendering, PSF2 font, and scrolling text console.
  *
  * Initialisation order:
- *   1. Serial port (kprintf)
+ *   1. Serial port (kprintf serial sink)
  *   2. GDT (segment descriptors + TSS)
  *   3. IDT (CPU exception vectors 0-14)
  *   4. PIC (remap IRQ0-15 to vectors 0x20-0x2F)
  *   5. IRQ handlers (register IRQ stubs in IDT)
  *   6. PIT (configure channel 0 at 100 Hz)
- *   7. Unmask IRQ0 + enable interrupts (sti)
- *   8. Idle halt loop
+ *   7. Framebuffer (map MMIO, init from BootInfo)
+ *   8. Font (parse embedded PSF2)
+ *   9. Console (init + register as kprintf sink)
+ *  10. Unmask IRQ0 + enable interrupts (sti)
+ *  11. Idle halt loop
  */
 
 #include <stdint.h>
 
+#include "boot/boot_info.h"
 #include "kernel/arch/x86_64/gdt.hpp"
 #include "kernel/arch/x86_64/idt.hpp"
 #include "kernel/arch/x86_64/pic.hpp"
-#include "kernel/drivers/pit.hpp"
+#include "kernel/drivers/video/console.hpp"
+#include "kernel/drivers/video/font.hpp"
+#include "kernel/drivers/video/framebuffer.hpp"
+#include "kernel/drivers/pit/pit.hpp"
 #include "kernel/lib/kprintf.hpp"
 
 using cinux::arch::PIC;
+using cinux::drivers::Console;
+using cinux::drivers::Framebuffer;
 using cinux::drivers::PIT;
+using cinux::drivers::PSFFont;
+
+// BootInfo is placed at physical 0x7000 by the bootloader
+static constexpr uintptr_t BOOT_INFO_PHYS = 0x7000;
 
 // Forward declarations for IRQ init (defined in irq_handlers.cpp)
 extern "C" void irq_init();
@@ -56,25 +70,6 @@ extern "C" void kernel_main() {
     cinux::arch::g_idt.init();
     cinux::lib::kprintf("[BIG] IDT loaded.\n");
 
-    // -- kprintf format regression test (after serial + GDT + IDT are up) --
-    cinux::lib::kprintf("[KPRINTF] %%d: %d\n", 42);
-    cinux::lib::kprintf("[KPRINTF] %%d negative: %d\n", -123);
-    cinux::lib::kprintf("[KPRINTF] %%u: %u\n", 4294967295u);
-    cinux::lib::kprintf("[KPRINTF] %%x: %x\n", 0xDEADBEEFu);
-    cinux::lib::kprintf("[KPRINTF] %%X: %X\n", 0xDEADBEEFu);
-    cinux::lib::kprintf("[KPRINTF] %%08x: %08x\n", 0xDEADu);
-    cinux::lib::kprintf("[KPRINTF] %%10d: %10d\n", 42);
-    cinux::lib::kprintf("[KPRINTF] %%-10d: %-10d|\n", 42);
-    cinux::lib::kprintf("[KPRINTF] %%s: %s\n", "hello");
-    cinux::lib::kprintf("[KPRINTF] %%-10s: %-10s|\n", "hi");
-    cinux::lib::kprintf("[KPRINTF] %%p: %p\n", (void*)0x1234ABCD5678ull);
-    cinux::lib::kprintf("[KPRINTF] %%c: %c\n", 'Z');
-    cinux::lib::kprintf("[KPRINTF] %%%%: %%\n");
-    cinux::lib::kprintf("[KPRINTF] %%010u: %010u\n", 42u);
-    cinux::lib::kprintf("[KPRINTF] mix: %s n=%d hex=%08x ptr=%p\n",
-                        "test", 99, 0xCAFEBABEu, (void*)0x1ull);
-    cinux::lib::kprintf("[KPRINTF] all format tests done.\n");
-
     // Step 5: Initialise the PIC (remap IRQ0-7 -> 0x20-0x27,
     //         IRQ8-15 -> 0x28-0x2F, all masked)
     PIC::init();
@@ -92,7 +87,26 @@ extern "C" void kernel_main() {
     __asm__ volatile("int $3");
     cinux::lib::kprintf("[BIG] Breakpoint returned, continuing.\n");
 
-    // Step 9: Unmask IRQ0 (PIT timer) and enable interrupts
+    // Step 9: Initialise framebuffer from BootInfo
+    auto* boot_info = reinterpret_cast<const BootInfo*>(BOOT_INFO_PHYS);
+    Framebuffer fb;
+    fb.init(*boot_info);
+    cinux::lib::kprintf("[BIG] Framebuffer initialised: %ux%u %ubpp\n",
+                        fb.width(), fb.height(), boot_info->fb_bpp);
+
+    // Step 10: Parse embedded PSF2 font
+    PSFFont font;
+    font.init();
+    cinux::lib::kprintf("[BIG] PSF2 font loaded: %ux%u\n",
+                        font.width(), font.height());
+
+    // Step 11: Initialise text console and register as kprintf sink
+    Console console;
+    console.init(fb, font, 0x00FFFFFF, 0x00000000);
+    cinux::lib::kprintf_register_sink(Console::console_sink_adapter, &console);
+    cinux::lib::kprintf("[BIG] Console initialised -- dual output active.\n");
+
+    // Step 12: Unmask IRQ0 (PIT timer) and enable interrupts
     PIC::unmask(0);
     cinux::lib::kprintf("[BIG] IRQ0 unmasked, enabling interrupts...\n");
     __asm__ volatile("sti");

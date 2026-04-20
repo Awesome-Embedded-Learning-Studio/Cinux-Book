@@ -21,7 +21,7 @@
 
 #include "gdt.hpp"
 #include "idt.hpp"
-#include "kernel/drivers/pit.hpp"
+#include "kernel/drivers/pit/pit.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "pic.hpp"
 

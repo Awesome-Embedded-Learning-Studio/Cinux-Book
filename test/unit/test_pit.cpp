@@ -28,7 +28,7 @@
 #include <cstdint>
 
 // Include kernel PIT header for constants and types
-#include "drivers/pit.hpp"
+#include "drivers/pit/pit.hpp"
 
 using namespace cinux::drivers;
 

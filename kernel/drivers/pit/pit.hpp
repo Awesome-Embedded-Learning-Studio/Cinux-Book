@@ -1,5 +1,5 @@
 /**
- * @file kernel/drivers/pit.hpp
+ * @file kernel/drivers/pit/pit.hpp
  * @brief Programmable Interval Timer (Intel 8254) driver
  *
  * Configures PIT channel 0 to generate periodic interrupts at a

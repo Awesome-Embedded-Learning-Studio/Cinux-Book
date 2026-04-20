@@ -1,5 +1,5 @@
 /**
- * @file kernel/drivers/serial.hpp
+ * @file kernel/drivers/serial/serial.hpp
  * @brief Serial port (UART 16550) driver for the big kernel
  *
  * Polling-based serial I/O driver.  No interrupt-driven receive --

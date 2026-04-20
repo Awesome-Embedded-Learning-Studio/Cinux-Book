@@ -36,7 +36,7 @@
 // .set FB_INFO_BPP,             16      // Bits per pixel (2 bytes) - optional
 
 // Target video mode
-.set VESA_TARGET_MODE,         0x4118  // 0x118 with bit14 set (linear framebuffer)
+.set VESA_TARGET_MODE,         0x4144  // 0x144 (1024x768x32, Bochs VBE) with bit14 set
 
 // ============================================================
 // Function: print_string
@@ -184,7 +184,7 @@ vesa_get_mode_info:
     xorw %di, %di
 
     movw $0x4F01, %ax               // [→ax] VBE get mode info
-    movw $0x0118, %cx               // [→cx] Mode number (0x118)
+    movw $0x0144, %cx               // [→cx] Mode number (0x144, Bochs VBE)
     int $0x10                       // [→bios] Call video interrupt
 
     // done, check the sessions
@@ -218,7 +218,7 @@ vesa_get_mode_info:
 .global vesa_set_mode
 .type vesa_set_mode, @function
 vesa_set_mode:
-    // TODO: Step 1: Call BIOS INT 0x10 AX=0x4F02 BX=0x4118
+    // Call BIOS INT 0x10 AX=0x4F02 BX=0x4144 (1024x768x32 linear FB)
     // Note: bit 14 (0x4000) enables linear framebuffer
     movw $0x4F02, %ax               // [→ax] VBE set mode function
     movw $VESA_TARGET_MODE, %bx     // [→bx] Mode with linear FB

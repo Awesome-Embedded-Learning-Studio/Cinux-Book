@@ -175,13 +175,55 @@ add_test(NAME kprintf COMMAND test_kprintf)
 set_tests_properties(kprintf PROPERTIES LABELS "kprintf")
 
 # ============================================================
+# 测试可执行文件：test_font
+# ============================================================
+# PSF2 header parsing, glyph offset arithmetic, and bitmap
+# bit extraction logic.  Pure arithmetic -- no kernel code linked.
+add_executable(test_font
+    unit/test_font.cpp
+)
+
+target_compile_definitions(test_font PRIVATE CINUX_HOST_TEST)
+target_include_directories(test_font PRIVATE ${TEST_INCLUDE_DIRS})
+add_test(NAME font COMMAND test_font)
+set_tests_properties(font PROPERTIES LABELS "font")
+
+# ============================================================
+# 测试可执行文件：test_console
+# ============================================================
+# Console cursor logic: column/row tracking, wrapping, scrolling
+# triggers, and control character handling.  Pure arithmetic.
+add_executable(test_console
+    unit/test_console.cpp
+)
+
+target_compile_definitions(test_console PRIVATE CINUX_HOST_TEST)
+target_include_directories(test_console PRIVATE ${TEST_INCLUDE_DIRS})
+add_test(NAME console COMMAND test_console)
+set_tests_properties(console PROPERTIES LABELS "console")
+
+# ============================================================
+# 测试可执行文件：test_framebuffer
+# ============================================================
+# Framebuffer pitch-based indexing, bounds checking, fill_rect
+# region calculation, and scroll_up byte offset arithmetic.
+add_executable(test_framebuffer
+    unit/test_framebuffer.cpp
+)
+
+target_compile_definitions(test_framebuffer PRIVATE CINUX_HOST_TEST)
+target_include_directories(test_framebuffer PRIVATE ${TEST_INCLUDE_DIRS})
+add_test(NAME framebuffer COMMAND test_framebuffer)
+set_tests_properties(framebuffer PROPERTIES LABELS "framebuffer")
+
+# ============================================================
 # 测试辅助目标
 # ============================================================
 
 # Host 端单元测试
 add_custom_target(test_host
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer
     USES_TERMINAL
     COMMENT "Running host unit tests..."
 )
@@ -196,7 +238,7 @@ configure_file(
 
 add_custom_target(test
     COMMAND sh ${CMAKE_BINARY_DIR}/run_all_tests.sh
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test-image
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test-image
     USES_TERMINAL
     COMMENT "Running ALL tests (host then kernel)..."
 )
@@ -204,7 +246,7 @@ add_custom_target(test
 # 详细模式运行 host 测试
 add_custom_target(test_verbose
     COMMAND ${CMAKE_CTEST_COMMAND} --verbose --output-on-failure
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer
     COMMENT "Running host tests in verbose mode..."
 )
 

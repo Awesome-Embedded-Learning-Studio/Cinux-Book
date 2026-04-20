@@ -45,8 +45,13 @@ add_library(big_kernel_common OBJECT
     arch/x86_64/exception_handlers.cpp
     arch/x86_64/irq_handlers.cpp
     arch/x86_64/pic.cpp
-    drivers/pit.cpp
-    drivers/serial.cpp
+    arch/x86_64/paging.cpp
+    drivers/pit/pit.cpp
+    drivers/serial/serial.cpp
+    drivers/video/framebuffer.cpp
+    drivers/video/font.cpp
+    drivers/video/font_data.S
+    drivers/video/console.cpp
     lib/kprintf.cpp
 )
 
@@ -82,6 +87,7 @@ add_executable(big_kernel_test
     test/main_test.cpp
     test/test_gdt_idt.cpp
     test/test_pic_pit.cpp
+    test/test_video.cpp
 )
 
 target_sources(big_kernel_test PRIVATE $<TARGET_OBJECTS:big_kernel_common>)

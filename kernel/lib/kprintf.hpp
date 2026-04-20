@@ -1,10 +1,17 @@
 /**
  * @file kernel/lib/kprintf.hpp
- * @brief Kernel formatted print functions (serial output)
+ * @brief Kernel formatted print functions (multi-backend sink architecture)
  *
  * Provides printf-like formatting for kernel diagnostics.
- * Output goes to the serial port (COM1) and optionally to
- * the QEMU debug console (I/O port 0xE9).
+ * Supports multiple output backends (sinks) that can be registered at
+ * runtime -- e.g. serial port, framebuffer console, QEMU debug console.
+ *
+ * Sink registration:
+ *   using OutputSink = void(*)(char, void* ctx);
+ *   kprintf_register_sink(OutputSink fn, void* ctx);
+ *
+ * Up to 8 sinks may be active simultaneously.  kprintf/kvprintf/kpanic
+ * iterate all enabled sinks and invoke each with every formatted character.
  *
  * Supported format specifiers:
  *   %%  -- literal percent sign
@@ -35,16 +42,41 @@
 
 namespace cinux::lib {
 
+// ============================================================
+// Sink type and registration
+// ============================================================
+
+/// Callback type for kprintf output backends.
+/// @param c    Character to output
+/// @param ctx  Opaque context pointer supplied at registration time
+using OutputSink = void(*)(char c, void* ctx);
+
+/// Maximum number of concurrently registered sinks
+static constexpr uint32_t KPRINTF_MAX_SINKS = 8;
+
 /**
- * @brief Initialise the serial port used by kprintf
+ * @brief Register an output sink for kprintf
+ *
+ * @param fn   Sink callback function (must not be null)
+ * @param ctx  Opaque context passed to fn on each character
+ */
+void kprintf_register_sink(OutputSink fn, void* ctx);
+
+// ============================================================
+// Initialization and formatted output
+// ============================================================
+
+/**
+ * @brief Initialise kprintf with the default serial sink
  *
  * Must be called once before any kprintf / kpanic / kvprintf call.
- * Configures COM1 to 115200 8N1 polling mode.
+ * Configures COM1 to 115200 8N1 polling mode and registers it as
+ * the first output sink.
  */
 void kprintf_init();
 
 /**
- * @brief Variadic formatted print to serial (kernel equivalent of printf)
+ * @brief Variadic formatted print to all registered sinks
  *
  * @param fmt  printf-style format string
  * @param ...  variadic arguments matching the format specifiers
@@ -64,7 +96,7 @@ void kvprintf(const char* fmt, va_list args);
 /**
  * @brief Kernel panic -- print message and halt
  *
- * Prints the formatted message to serial, then enters an
+ * Prints the formatted message to all sinks, then enters an
  * infinite cli;hlt loop.  This function never returns.
  *
  * @param fmt  printf-style format string

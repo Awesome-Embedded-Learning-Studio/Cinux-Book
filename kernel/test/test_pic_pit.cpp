@@ -28,7 +28,7 @@
 #include "big_kernel_test.h"
 
 #include "kernel/arch/x86_64/pic.hpp"
-#include "kernel/drivers/pit.hpp"
+#include "kernel/drivers/pit/pit.hpp"
 
 using cinux::arch::PIC;
 using cinux::drivers::PIT;

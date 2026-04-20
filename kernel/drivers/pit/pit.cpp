@@ -1,5 +1,5 @@
 /**
- * @file kernel/drivers/pit.cpp
+ * @file kernel/drivers/pit/pit.cpp
  * @brief PIT (Intel 8254) driver implementation
  *
  * Configures PIT channel 0 in square-wave mode, maintains a tick
@@ -7,7 +7,7 @@
  * a "[TICK] uptime: Ns" message once per second.
  */
 
-#include "kernel/drivers/pit.hpp"
+#include "pit.hpp"
 
 #include <stdint.h>
 
@@ -28,45 +28,42 @@ namespace cinux::drivers {
 // ============================================================
 
 uint64_t PIT::tick_count_ = 0;
-uint32_t PIT::freq_hz_    = 100;
+uint32_t PIT::freq_hz_	  = 100;
 
 // ============================================================
 // PIT::init() -- configure channel 0 as square-wave generator
 // ============================================================
 
 void PIT::init(uint32_t freq_hz) {
-    // Store the frequency for uptime calculations
-    freq_hz_ = freq_hz;
+	// Store the frequency for uptime calculations
+	freq_hz_ = freq_hz;
 
-    // Calculate the divisor: base_clock / desired_frequency
-    // Clamp to 16-bit range [1, 65535]
-    uint32_t divisor = PitHW::BASE_FREQ / freq_hz;
-    if (divisor > 65535) {
-        divisor = 65535;
-    }
-    if (divisor == 0) {
-        divisor = 1;
-    }
+	// Calculate the divisor: base_clock / desired_frequency
+	// Clamp to 16-bit range [1, 65535]
+	uint32_t divisor = PitHW::BASE_FREQ / freq_hz;
+	if (divisor > 65535) {
+		divisor = 65535;
+	}
+	if (divisor == 0) {
+		divisor = 1;
+	}
 
-    // Command byte 0x36:
-    //   0x30 = channel 0, LSB-then-MSB access mode
-    //   0x06 = square wave generator (mode 3)
-    //   0x00 = binary counter (not BCD)
-    // Total: 0x36
-    io_outb(PitHW::COMMAND, PitHW::CMD_CHANNEL_0 |
-                             PitHW::CMD_LSB_MSB |
-                             PitHW::CMD_MODE_3 |
-                             PitHW::CMD_BINARY);
+	// Command byte 0x36:
+	//   0x30 = channel 0, LSB-then-MSB access mode
+	//   0x06 = square wave generator (mode 3)
+	//   0x00 = binary counter (not BCD)
+	// Total: 0x36
+	io_outb(PitHW::COMMAND,
+			PitHW::CMD_CHANNEL_0 | PitHW::CMD_LSB_MSB | PitHW::CMD_MODE_3 | PitHW::CMD_BINARY);
 
-    // Write divisor: low byte first, then high byte
-    io_outb(PitHW::CHANNEL_0, static_cast<uint8_t>(divisor & 0xFF));
-    io_outb(PitHW::CHANNEL_0, static_cast<uint8_t>((divisor >> 8) & 0xFF));
+	// Write divisor: low byte first, then high byte
+	io_outb(PitHW::CHANNEL_0, static_cast<uint8_t>(divisor & 0xFF));
+	io_outb(PitHW::CHANNEL_0, static_cast<uint8_t>((divisor >> 8) & 0xFF));
 
-    // Reset tick counter
-    tick_count_ = 0;
+	// Reset tick counter
+	tick_count_ = 0;
 
-    kprintf("[PIT] Initialised at %u Hz (divisor=%u)\n",
-            freq_hz_, divisor);
+	kprintf("[PIT] Initialised at %u Hz (divisor=%u)\n", freq_hz_, divisor);
 }
 
 // ============================================================
@@ -74,17 +71,17 @@ void PIT::init(uint32_t freq_hz) {
 // ============================================================
 
 void PIT::irq0_handler(InterruptFrame* /*frame*/) {
-    // Increment the global tick counter
-    tick_count_++;
+	// Increment the global tick counter
+	tick_count_++;
 
-    // Print uptime once per second (every freq_hz_ ticks)
-    if ((tick_count_ % freq_hz_) == 0) {
-        uint64_t seconds = tick_count_ / freq_hz_;
-        kprintf("[TICK] uptime: %us\n", static_cast<unsigned>(seconds));
-    }
+	// Print uptime once per second (every freq_hz_ ticks)
+	if ((tick_count_ % freq_hz_) == 0) {
+		uint64_t seconds = tick_count_ / freq_hz_;
+		kprintf("[TICK] uptime: %us\n", static_cast<unsigned>(seconds));
+	}
 
-    // Signal End-Of-Interrupt to the PIC so the next IRQ can arrive
-    PIC::send_eoi(0);
+	// Signal End-Of-Interrupt to the PIC so the next IRQ can arrive
+	PIC::send_eoi(0);
 }
 
 // ============================================================
@@ -92,7 +89,7 @@ void PIT::irq0_handler(InterruptFrame* /*frame*/) {
 // ============================================================
 
 uint64_t PIT::get_ticks() {
-    return tick_count_;
+	return tick_count_;
 }
 
 // ============================================================
@@ -100,8 +97,8 @@ uint64_t PIT::get_ticks() {
 // ============================================================
 
 uint64_t PIT::get_uptime_ms() {
-    // (tick_count * 1000) / freq_hz gives milliseconds
-    return (tick_count_ * 1000) / freq_hz_;
+	// (tick_count * 1000) / freq_hz gives milliseconds
+	return (tick_count_ * 1000) / freq_hz_;
 }
 
 // ============================================================
@@ -109,7 +106,7 @@ uint64_t PIT::get_uptime_ms() {
 // ============================================================
 
 uint32_t PIT::freq_hz() {
-    return freq_hz_;
+	return freq_hz_;
 }
 
 }  // namespace cinux::drivers
@@ -119,5 +116,5 @@ uint32_t PIT::freq_hz() {
 // ============================================================
 
 extern "C" void pit_irq0_handler(cinux::arch::InterruptFrame* frame) {
-    cinux::drivers::PIT::irq0_handler(frame);
+	cinux::drivers::PIT::irq0_handler(frame);
 }

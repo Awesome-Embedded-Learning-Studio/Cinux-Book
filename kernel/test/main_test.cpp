@@ -19,6 +19,7 @@
 extern "C" {
 void run_gdt_idt_tests();
 void run_pic_pit_tests();
+void run_video_tests();
 }
 
 extern "C" void kernel_main() {
@@ -40,6 +41,9 @@ extern "C" void kernel_main() {
     // PIC/PIT/IRQ tests handle their own init (PIC, PIT, irq_init, STI/CLI)
     // so we run them after the basic GDT/IDT tests.
     run_pic_pit_tests();
+
+    // Video tests use real VBE framebuffer (set up by bootloader)
+    run_video_tests();
 
     // Step 5: Report and exit
     int exit_code = (test::get_total_failed() > 0) ? 1 : 0;

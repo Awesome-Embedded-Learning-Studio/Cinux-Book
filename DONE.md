@@ -226,3 +226,13 @@ constexpr uint64_t BIG_KERNEL_LOAD_ADDR  = 0x1000000;   // 16MB
 - ☐ `kernel/drivers/pit.hpp/cpp`：`PIT::init(freq_hz=100)` 写 CMD `0x43=0x36`，写 divisor=`1193182/freq_hz` 低/高字节到 `0x40`；全局 `tick_count`；`PIT::get_ticks()`，`PIT::get_uptime_ms()`
 - ☐ `PIT::irq0_handler(InterruptFrame*)` 递增 `tick_count`，每 `freq_hz` tick 调 `kprintf("[TICK] uptime: %us\n", ...)`;末尾 `PIC::send_eoi(0)`
 - ☐ `idt_init()` 注册 `irq0_handler` 到 vector `0x20`；`kernel_main` 末尾 `PIC::init()`，`PIC::unmask(0)`，`sti`，死循环
+
+---
+
+## Phase 4 · 驱动三件套
+
+### `012_driver_serial`
+**效果**：`ctest` host 端 kprintf 测试全绿，串口输出格式验证字符串
+
+- ☑ `kprintf` 补全：`fmt_uint(val,base,width,pad,upper,buf,len)` 支持前补零；`%08x`/`%-10s` 等宽度修饰；`%p` 输出 `0x` + 16 位十六进制
+- ☑ host 测试 `test_kprintf.cpp`：mock `Serial::putc` 捕获输出，`TEST` 覆盖 `%d`/`%u`/`%x`/`%X`/`%s`/`%p`/`%%`/负数/前补零
