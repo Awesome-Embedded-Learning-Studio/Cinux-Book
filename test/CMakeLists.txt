@@ -125,6 +125,36 @@ add_test(NAME big_kernel_loader COMMAND test_big_kernel_loader)
 set_tests_properties(big_kernel_loader PROPERTIES LABELS "big_kernel_loader")
 
 # ============================================================
+# 测试可执行文件：test_pic
+# ============================================================
+# 8259A PIC driver constants, ICW encoding, EOI logic, and IMR
+# mask/unmask bit manipulation tests.  Pure arithmetic -- no kernel
+# code linked.
+add_executable(test_pic
+    unit/test_pic.cpp
+)
+
+target_compile_definitions(test_pic PRIVATE CINUX_HOST_TEST)
+target_include_directories(test_pic PRIVATE ${TEST_INCLUDE_DIRS})
+add_test(NAME pic COMMAND test_pic)
+set_tests_properties(pic PROPERTIES LABELS "pic")
+
+# ============================================================
+# 测试可执行文件：test_pit
+# ============================================================
+# Intel 8254 PIT driver constants, divisor calculation, command byte
+# composition, and uptime tracking logic tests.  Pure arithmetic --
+# no kernel code linked.
+add_executable(test_pit
+    unit/test_pit.cpp
+)
+
+target_compile_definitions(test_pit PRIVATE CINUX_HOST_TEST)
+target_include_directories(test_pit PRIVATE ${TEST_INCLUDE_DIRS})
+add_test(NAME pit COMMAND test_pit)
+set_tests_properties(pit PROPERTIES LABELS "pit")
+
+# ============================================================
 # 测试可执行文件：test_kprintf (big kernel kprintf formatting)
 # ============================================================
 # Tests the big kernel's kprintf formatting helpers and %p spec.
@@ -150,7 +180,7 @@ set_tests_properties(kprintf PROPERTIES LABELS "kprintf")
 # Host 端单元测试
 add_custom_target(test_host
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit
     USES_TERMINAL
     COMMENT "Running host unit tests..."
 )
@@ -165,7 +195,7 @@ configure_file(
 
 add_custom_target(test
     COMMAND sh ${CMAKE_BINARY_DIR}/run_all_tests.sh
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test-image
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test-image
     USES_TERMINAL
     COMMENT "Running ALL tests (host then kernel)..."
 )
@@ -173,7 +203,7 @@ add_custom_target(test
 # 详细模式运行 host 测试
 add_custom_target(test_verbose
     COMMAND ${CMAKE_CTEST_COMMAND} --verbose --output-on-failure
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit
     COMMENT "Running host tests in verbose mode..."
 )
 

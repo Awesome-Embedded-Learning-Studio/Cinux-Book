@@ -43,6 +43,9 @@ add_library(big_kernel_common OBJECT
     arch/x86_64/idt.cpp
     arch/x86_64/interrupts.S
     arch/x86_64/exception_handlers.cpp
+    arch/x86_64/irq_handlers.cpp
+    arch/x86_64/pic.cpp
+    drivers/pit.cpp
     drivers/serial.cpp
     lib/kprintf.cpp
 )
@@ -78,6 +81,7 @@ target_link_options(big_kernel PRIVATE ${BIG_KERNEL_LINK_OPTIONS})
 add_executable(big_kernel_test
     test/main_test.cpp
     test/test_gdt_idt.cpp
+    test/test_pic_pit.cpp
 )
 
 target_sources(big_kernel_test PRIVATE $<TARGET_OBJECTS:big_kernel_common>)

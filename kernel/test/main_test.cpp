@@ -18,6 +18,7 @@
 
 extern "C" {
 void run_gdt_idt_tests();
+void run_pic_pit_tests();
 }
 
 extern "C" void kernel_main() {
@@ -35,6 +36,10 @@ extern "C" void kernel_main() {
 
     // Step 4: Run test suites
     run_gdt_idt_tests();
+
+    // PIC/PIT/IRQ tests handle their own init (PIC, PIT, irq_init, STI/CLI)
+    // so we run them after the basic GDT/IDT tests.
+    run_pic_pit_tests();
 
     // Step 5: Report and exit
     int exit_code = (test::get_total_failed() > 0) ? 1 : 0;

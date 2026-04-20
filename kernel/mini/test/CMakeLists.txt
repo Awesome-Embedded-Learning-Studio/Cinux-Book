@@ -4,10 +4,10 @@
 # ==============================================================
 
 add_executable(mini_kernel_test
-    main_test.cpp           # 测试专用 main
+    main_test.cpp           # Test-specific main entry point
     test_cpp_basic.cpp
     test_pmm.cpp            # PMM tests (006)
-    test_interrupts.cpp     # GDT/IDT/中断 tests (007)
+    test_interrupts.cpp     # GDT/IDT/Interrupt tests (007)
     test_ata.cpp            # ATA PIO tests (008)
     test_elf_loader.cpp     # ELF64 parser/loader tests (008)
     test_big_kernel_load.cpp # Big kernel loading tests (009)

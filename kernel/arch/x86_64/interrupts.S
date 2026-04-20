@@ -160,3 +160,34 @@ ISR_ERRCODE   isr_np_stub,  handle_np       /* #NP(11): Segment Not Present */
 ISR_ERRCODE   isr_ss_stub,  handle_ss       /* #SS(12): Stack Fault */
 ISR_ERRCODE   isr_gp_stub,  handle_gp       /* #GP(13): General Protection */
 ISR_ERRCODE   isr_pf_stub,  handle_pf       /* #PF(14): Page Fault */
+
+# ============================================================
+# Hardware IRQ stubs (PIC remapped vectors 0x20-0x2F)
+# ============================================================
+# Master PIC: IRQ0-7 → INT 0x20-0x27
+# Slave PIC:  IRQ8-15 → INT 0x28-0x2F
+#
+# For milestone 011, only IRQ0 (PIT timer) has a real handler.
+# All other IRQs get a default no-op handler for safety.
+# Note: The C handlers are responsible for PIC::send_eoi().
+# ============================================================
+
+/* Master PIC IRQs */
+ISR_NOERRCODE irq0_stub,  pit_irq0_handler     /* IRQ0(0x20): PIT Timer */
+ISR_NOERRCODE irq1_stub,  irq_default_handler   /* IRQ1(0x21): Keyboard */
+ISR_NOERRCODE irq2_stub,  irq_default_handler   /* IRQ2(0x22): Cascade */
+ISR_NOERRCODE irq3_stub,  irq_default_handler   /* IRQ3(0x23): COM2 */
+ISR_NOERRCODE irq4_stub,  irq_default_handler   /* IRQ4(0x24): COM1 */
+ISR_NOERRCODE irq5_stub,  irq_default_handler   /* IRQ5(0x25): LPT2 */
+ISR_NOERRCODE irq6_stub,  irq_default_handler   /* IRQ6(0x26): Floppy */
+ISR_NOERRCODE irq7_stub,  irq_default_handler   /* IRQ7(0x27): LPT1 */
+
+/* Slave PIC IRQs */
+ISR_NOERRCODE irq8_stub,  irq_default_handler   /* IRQ8(0x28):  RTC */
+ISR_NOERRCODE irq9_stub,  irq_default_handler   /* IRQ9(0x29):  Free */
+ISR_NOERRCODE irq10_stub, irq_default_handler   /* IRQ10(0x2A): Free */
+ISR_NOERRCODE irq11_stub, irq_default_handler   /* IRQ11(0x2B): Free */
+ISR_NOERRCODE irq12_stub, irq_default_handler   /* IRQ12(0x2C): PS/2 Mouse */
+ISR_NOERRCODE irq13_stub, irq_default_handler   /* IRQ13(0x2D): FPU */
+ISR_NOERRCODE irq14_stub, irq_default_handler   /* IRQ14(0x2E): Primary ATA */
+ISR_NOERRCODE irq15_stub, irq_default_handler   /* IRQ15(0x2F): Secondary ATA */

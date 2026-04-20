@@ -9,6 +9,7 @@ extern "C" {
 #include "../lib/kprintf.h"
 #include "../arch/x86_64/gdt.hpp"
 #include "../arch/x86_64/idt.hpp"
+#include "../big_kernel_loader.hpp"
 #include "boot_info.h"
 #include "kernel_test.h"
 
@@ -98,23 +99,32 @@ extern "C" [[noreturn]] void mini_kernel_main(uint64_t boot_info_addr) {
 	// the standard test suite. Use `make run-stress-test` to run them.
 
 	// ============================================================
-	// Test Complete - Shutdown
+	// Test Complete
 	// ============================================================
-	kprintf("\n=== All tests completed ===\n");
+	kprintf("\n=== Mini kernel tests completed ===\n");
 
 	// Calculate exit code: 0=success, non-0=failure
 	int exit_code = (test::get_total_failed() > 0) ? 1 : 0;
 	if (exit_code != 0) {
-		kprintf("=== TESTS FAILED (exit code %d) ===\n", exit_code);
-	} else {
-		kprintf("=== ALL TESTS PASSED (exit code %d) ===\n", exit_code);
+		kprintf("=== MINI KERNEL TESTS FAILED (exit code %d) ===\n", exit_code);
+		__asm__ volatile("outl %0, $0xf4" : : "a"(exit_code));
+		while (1) {
+			__asm__ volatile("cli; hlt");
+		}
 	}
 
-	// Use QEMU's isa-debug-exit device to safely exit
-	// Write dword to port 0xf4, upper byte is exit code
-	__asm__ volatile("outl %0, $0xf4" : : "a"(exit_code));
+	kprintf("=== MINI KERNEL TESTS PASSED ===\n");
 
-	// If QEMU did not exit (e.g., no isa-debug-exit available), halt
+	// Big kernel test was loaded into memory by run_big_kernel_load_tests().
+	// Jump to its entry point so it can run PIC/PIT and other big-kernel tests.
+	constexpr uint64_t KERNEL_VIRT_BASE = 0xFFFFFFFF80000000ULL;
+	uint64_t virt_entry = KERNEL_VIRT_BASE +
+		cinux::mini::loader::BIG_KERNEL_LOAD_ADDR;
+	kprintf("\n=== Launching big kernel test at 0x%p ===\n",
+			reinterpret_cast<void*>(virt_entry));
+	auto big_entry = reinterpret_cast<void(*)()>(virt_entry);
+	big_entry();
+	// Should not reach here — big kernel test exits via isa-debug-exit
 	while (1) {
 		__asm__ volatile("cli; hlt");
 	}
