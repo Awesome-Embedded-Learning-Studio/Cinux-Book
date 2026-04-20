@@ -231,13 +231,30 @@ add_test(NAME keyboard COMMAND test_keyboard)
 set_tests_properties(keyboard PROPERTIES LABELS "keyboard")
 
 # ============================================================
+# 测试可执行文件：test_pmm
+# ============================================================
+# Physical Memory Manager: parse_memory_map logic and bitmap
+# allocator algorithm tests.  Pure arithmetic -- no kernel code linked.
+add_executable(test_pmm
+    unit/test_pmm.cpp
+)
+
+target_compile_definitions(test_pmm PRIVATE CINUX_HOST_TEST)
+target_include_directories(test_pmm PRIVATE
+    ${TEST_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}
+)
+add_test(NAME pmm COMMAND test_pmm)
+set_tests_properties(pmm PROPERTIES LABELS "pmm")
+
+# ============================================================
 # 测试辅助目标
 # ============================================================
 
 # Host 端单元测试
 add_custom_target(test_host
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm
     USES_TERMINAL
     COMMENT "Running host unit tests..."
 )
@@ -252,7 +269,7 @@ configure_file(
 
 add_custom_target(test
     COMMAND sh ${CMAKE_BINARY_DIR}/run_all_tests.sh
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test-image
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm test-image
     USES_TERMINAL
     COMMENT "Running ALL tests (host then kernel)..."
 )
@@ -260,7 +277,7 @@ add_custom_target(test
 # 详细模式运行 host 测试
 add_custom_target(test_verbose
     COMMAND ${CMAKE_CTEST_COMMAND} --verbose --output-on-failure
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm
     COMMENT "Running host tests in verbose mode..."
 )
 

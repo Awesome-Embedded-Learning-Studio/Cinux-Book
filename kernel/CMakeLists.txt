@@ -54,6 +54,7 @@ add_library(big_kernel_common OBJECT
     drivers/video/font_data.S
     drivers/video/console.cpp
     lib/kprintf.cpp
+    mm/pmm.cpp
 )
 
 target_compile_options(big_kernel_common PUBLIC ${BIG_KERNEL_COMPILE_OPTIONS})
@@ -90,6 +91,7 @@ add_executable(big_kernel_test
     test/test_pic_pit.cpp
     test/test_video.cpp
     test/test_keyboard.cpp
+    test/test_pmm.cpp
 )
 
 target_sources(big_kernel_test PRIVATE $<TARGET_OBJECTS:big_kernel_common>)

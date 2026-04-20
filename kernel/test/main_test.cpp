@@ -10,9 +10,14 @@
  *   1 = some tests failed (QEMU exits with code 3 via isa-debug-exit)
  */
 
+#include <stdint.h>
+
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/arch/x86_64/gdt.hpp"
 #include "kernel/arch/x86_64/idt.hpp"
+
+#include "boot/boot_info.h"
+#include "kernel/mm/pmm.hpp"
 
 #include "big_kernel_test.h"
 
@@ -21,7 +26,10 @@ void run_gdt_idt_tests();
 void run_pic_pit_tests();
 void run_video_tests();
 void run_keyboard_tests();
+void run_pmm_tests();
 }
+
+static constexpr uintptr_t BOOT_INFO_PHYS = 0x7000;
 
 extern "C" void kernel_main() {
     // Step 1: Initialise serial port for test output
@@ -48,6 +56,11 @@ extern "C" void kernel_main() {
 
     // Keyboard tests use PS/2 controller (QEMU emulated)
     run_keyboard_tests();
+
+    // PMM tests: initialise with real BootInfo, then run tests
+    auto* boot_info = reinterpret_cast<const BootInfo*>(BOOT_INFO_PHYS);
+    cinux::mm::g_pmm.init(*boot_info);
+    run_pmm_tests();
 
     // Step 5: Report and exit
     int exit_code = (test::get_total_failed() > 0) ? 1 : 0;

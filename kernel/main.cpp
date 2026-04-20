@@ -5,8 +5,8 @@
  * This is the C++ main function for the "big kernel" -- the full-featured
  * kernel that the mini kernel loads from disk and jumps to.
  *
- * Milestone 014 goal:
- *   Keyboard input with screen + serial echo on keypress.
+ * Milestone 015 goal:
+ *   Physical Memory Manager with bitmap allocator.
  *
  * Initialisation order:
  *   1. Serial port (kprintf serial sink)
@@ -15,12 +15,13 @@
  *   4. PIC (remap IRQ0-15 to vectors 0x20-0x2F)
  *   5. IRQ handlers (register IRQ stubs in IDT)
  *   6. PIT (configure channel 0 at 100 Hz)
- *   7. Framebuffer (map MMIO, init from BootInfo)
- *   8. Font (parse embedded PSF2)
- *   9. Console (init + register as kprintf sink)
- *  10. Keyboard (PS/2 controller init)
- *  11. Unmask IRQ0 + IRQ1, enable interrupts (sti)
- *  12. Keyboard poll loop: echo keypresses to console + serial
+ *   7. PMM (physical memory manager, bitmap allocator)
+ *   8. Framebuffer (map MMIO, init from BootInfo)
+ *   9. Font (parse embedded PSF2)
+ *  10. Console (init + register as kprintf sink)
+ *  11. Keyboard (PS/2 controller init)
+ *  12. Unmask IRQ0 + IRQ1, enable interrupts (sti)
+ *  13. Keyboard poll loop: echo keypresses to console + serial
  */
 
 #include <stdint.h>
@@ -35,6 +36,7 @@
 #include "kernel/drivers/pit/pit.hpp"
 #include "kernel/drivers/keyboard/keyboard.hpp"
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/mm/pmm.hpp"
 
 using cinux::arch::PIC;
 using cinux::drivers::Console;
@@ -90,8 +92,11 @@ extern "C" void kernel_main() {
     __asm__ volatile("int $3");
     cinux::lib::kprintf("[BIG] Breakpoint returned, continuing.\n");
 
-    // Step 9: Initialise framebuffer from BootInfo
+    // Step 7: Initialise Physical Memory Manager
     auto* boot_info = reinterpret_cast<const BootInfo*>(BOOT_INFO_PHYS);
+    cinux::mm::g_pmm.init(*boot_info);
+
+    // Step 8: Initialise framebuffer from BootInfo
     Framebuffer fb;
     fb.init(*boot_info);
     cinux::lib::kprintf("[BIG] Framebuffer initialised: %ux%u %ubpp\n",
@@ -109,17 +114,17 @@ extern "C" void kernel_main() {
     cinux::lib::kprintf_register_sink(Console::console_sink_adapter, &console);
     cinux::lib::kprintf("[BIG] Console initialised -- dual output active.\n");
 
-    // Step 10: Initialise the PS/2 keyboard controller
+    // Step 11: Initialise the PS/2 keyboard controller
     Keyboard::init();
 
-    // Step 11: Unmask IRQ0 (PIT timer) and IRQ1 (Keyboard), enable interrupts
+    // Step 12: Unmask IRQ0 (PIT timer) and IRQ1 (Keyboard), enable interrupts
     PIC::unmask(0);
     PIC::unmask(1);
     cinux::lib::kprintf("[BIG] IRQ0+IRQ1 unmasked, enabling interrupts...\n");
     __asm__ volatile("sti");
     cinux::lib::kprintf("[BIG] Interrupts enabled. Keyboard echo active.\n");
 
-    // Step 12: Keyboard poll loop -- echo keypresses to console + serial
+    // Step 13: Keyboard poll loop -- echo keypresses to console + serial
     KeyEvent ev;
     while (1) {
         __asm__ volatile("hlt");
