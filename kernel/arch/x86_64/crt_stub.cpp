@@ -9,12 +9,16 @@
  *   - __stack_chk_fail     : called if stack canary is corrupted
  *   - __cxa_atexit         : no-op (kernels never "exit")
  *   - _init_global_ctors   : walks .init_array, calls each constructor
- *   - operator new / delete: halt on use (no heap yet)
+ *   - operator new / delete: redirected to Heap::alloc / Heap::free
  *
  * All stubs that represent programming errors simply cli;hlt forever.
  */
 
 #include <stdint.h>
+#include <stddef.h>
+#include <new>
+
+#include "kernel/mm/heap.hpp"
 
 extern "C" {
 
@@ -101,48 +105,78 @@ void _init_global_ctors() {
 }  // extern "C"
 
 // ============================================================
-// Operator new / delete (minimal stubs)
+// Operator new / delete -- redirected to Heap
 // ============================================================
 // Must be outside extern "C" -- they need C++ mangling.
-// Halt on use because the big kernel has no heap allocator yet.
 
 /**
- * @brief Placement-like operator new -- no heap, halt on use
+ * @brief Single-object new -- delegates to Heap::alloc
  */
 void* operator new(unsigned long size) {
-    (void)size;
-    while (1) {
-        __asm__ volatile("cli; hlt");
-    }
+    return cinux::mm::g_heap.alloc(static_cast<size_t>(size));
 }
 
 /**
- * @brief Array new -- no heap, halt on use
+ * @brief Array new -- delegates to Heap::alloc
  */
 void* operator new[](unsigned long size) {
-    (void)size;
-    while (1) {
-        __asm__ volatile("cli; hlt");
-    }
+    return cinux::mm::g_heap.alloc(static_cast<size_t>(size));
 }
 
 /**
- * @brief Single-object delete -- no heap, halt on use
+ * @brief Aligned new -- delegates to Heap::alloc with alignment
+ */
+void* operator new(unsigned long size, std::align_val_t align) {
+    return cinux::mm::g_heap.alloc(static_cast<size_t>(size),
+                                   static_cast<size_t>(align));
+}
+
+/**
+ * @brief Aligned array new -- delegates to Heap::alloc with alignment
+ */
+void* operator new[](unsigned long size, std::align_val_t align) {
+    return cinux::mm::g_heap.alloc(static_cast<size_t>(size),
+                                   static_cast<size_t>(align));
+}
+
+/**
+ * @brief Single-object delete -- delegates to Heap::free
  */
 void operator delete(void* ptr) noexcept {
-    (void)ptr;
-    while (1) {
-        __asm__ volatile("cli; hlt");
-    }
+    cinux::mm::g_heap.free(ptr);
 }
 
 /**
- * @brief Sized delete -- no heap, halt on use
+ * @brief Sized delete -- delegates to Heap::free (size ignored)
  */
-void operator delete(void* ptr, unsigned long size) noexcept {
-    (void)ptr;
-    (void)size;
-    while (1) {
-        __asm__ volatile("cli; hlt");
-    }
+void operator delete(void* ptr, unsigned long) noexcept {
+    cinux::mm::g_heap.free(ptr);
+}
+
+/**
+ * @brief Array delete -- delegates to Heap::free
+ */
+void operator delete[](void* ptr) noexcept {
+    cinux::mm::g_heap.free(ptr);
+}
+
+/**
+ * @brief Sized array delete -- delegates to Heap::free (size ignored)
+ */
+void operator delete[](void* ptr, unsigned long) noexcept {
+    cinux::mm::g_heap.free(ptr);
+}
+
+/**
+ * @brief Aligned delete -- delegates to Heap::free (alignment ignored)
+ */
+void operator delete(void* ptr, std::align_val_t) noexcept {
+    cinux::mm::g_heap.free(ptr);
+}
+
+/**
+ * @brief Aligned sized delete -- delegates to Heap::free
+ */
+void operator delete(void* ptr, unsigned long, std::align_val_t) noexcept {
+    cinux::mm::g_heap.free(ptr);
 }

@@ -8,17 +8,6 @@
 
 ## Phase 5 · 内存管理
 
-### `017_mm_heap`
-**效果**：`kmalloc`/`kfree` 可用，`new`/`delete` 接管，碎片化测试通过
-
-- ☐ `BlockHeader [[gnu::packed]] {magic=0xDEADBEEF, size, free, _pad[7], *next}`
-- ☐ `kernel/mm/heap.hpp`：`Heap::init(virt_base, initial_size)`，`alloc(size,align=16)→void*`（first-fit，split），`free(ptr)`（magic 验证，coalesce），`dump_stats()`
-- ☐ free list 耗尽时调 `VMM::map()` 扩展堆
-- ☐ `operator new/new[]/delete/delete[]` 接管；`operator new(size, align_val_t)` 支持对齐分配
-- ☐ host 测试：1000 次随机大小 alloc/free，检查无泄漏；double-free 触发 magic 校验 panic
-
----
-
 ### `018_mm_address_space`
 **效果**：独立地址空间创建/切换，用户区隔离验证
 

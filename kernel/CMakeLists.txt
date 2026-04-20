@@ -56,6 +56,7 @@ add_library(big_kernel_common OBJECT
     lib/kprintf.cpp
     mm/pmm.cpp
     mm/vmm.cpp
+    mm/heap.cpp
 )
 
 target_compile_options(big_kernel_common PUBLIC ${BIG_KERNEL_COMPILE_OPTIONS})
@@ -94,6 +95,7 @@ add_executable(big_kernel_test
     test/test_keyboard.cpp
     test/test_pmm.cpp
     test/test_vmm.cpp
+    test/test_heap.cpp
 )
 
 target_sources(big_kernel_test PRIVATE $<TARGET_OBJECTS:big_kernel_common>)

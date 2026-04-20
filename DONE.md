@@ -281,3 +281,12 @@ constexpr uint64_t BIG_KERNEL_LOAD_ADDR  = 0x1000000;   // 16MB
 - ☑ `kernel/mm/vmm.hpp`：`VMM::map(virt,phys,flags,pml4=nullptr)`（缺中间级时 `PMM::alloc_page()` 新建并清零），`VMM::unmap(virt,pml4=nullptr)`，`VMM::translate(virt)→uint64_t`，`flush_tlb(virt)`（`invlpg`），`flush_tlb_all()`（reload CR3）
 - ☑ `#PF handler` 更新：读 `%cr2`，尝试按需分配，无法处理时 panic
 - ☑ host 测试 `test_vmm.cpp`：mock PMM，验证 map→translate→unmap 正确
+
+### `017_mm_heap`
+**效果**：`kmalloc`/`kfree` 可用，`new`/`delete` 接管，碎片化测试通过
+
+- ☑ `BlockHeader [[gnu::packed]] {magic=0xDEADBEEF, size, free, _pad[7], *next}`
+- ☑ `kernel/mm/heap.hpp`：`Heap::init(virt_base, initial_size)`，`alloc(size,align=16)→void*`（first-fit，split），`free(ptr)`（magic 验证，coalesce），`dump_stats()`
+- ☑ free list 耗尽时调 `VMM::map()` 扩展堆
+- ☑ `operator new/new[]/delete/delete[]` 接管；`operator new(size, align_val_t)` 支持对齐分配
+- ☑ host 测试：1000 次随机大小 alloc/free，检查无泄漏；double-free 触发 magic 校验 panic

@@ -19,6 +19,7 @@
 #include "boot/boot_info.h"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vmm.hpp"
+#include "kernel/mm/heap.hpp"
 
 #include "big_kernel_test.h"
 
@@ -29,6 +30,7 @@ void run_video_tests();
 void run_keyboard_tests();
 void run_pmm_tests();
 void run_vmm_tests();
+void run_heap_tests();
 }
 
 static constexpr uintptr_t BOOT_INFO_PHYS = 0x7000;
@@ -67,6 +69,12 @@ extern "C" void kernel_main() {
     // VMM tests: initialise VMM after PMM, then run tests
     cinux::mm::g_vmm.init();
     run_vmm_tests();
+
+    // Heap tests: initialise Heap after VMM, then run tests
+    constexpr uint64_t HEAP_VIRT_BASE = 0xFFFFFFFF80100000ULL;
+    constexpr uint64_t HEAP_INIT_SIZE  = 64 * 1024;  // 64 KB
+    cinux::mm::g_heap.init(HEAP_VIRT_BASE, HEAP_INIT_SIZE);
+    run_heap_tests();
 
     // Step 5: Report and exit
     int exit_code = (test::get_total_failed() > 0) ? 1 : 0;
