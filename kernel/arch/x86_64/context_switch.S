@@ -67,6 +67,11 @@ context_switch:
     /* Switch to the new task's stack */
     movq 48(%rsi), %rsp              # to+48→%rsp: switch stack pointer
 
+    /* Re-enable interrupts -- we may have entered from ISR context (IF=0).
+       New tasks must start with interrupts on; resumed tasks will restore
+       their original RFLAGS via IRETQ unwinding regardless. */
+    sti
+
     /* Jump to the new task's saved instruction pointer */
     jmp *56(%rsi)                    # to+56→RIP: resume execution
 

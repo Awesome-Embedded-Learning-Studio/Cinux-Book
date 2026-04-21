@@ -307,3 +307,13 @@ constexpr uint64_t BIG_KERNEL_LOAD_ADDR  = 0x1000000;   // 16MB
 - ☑ `yield()` = 调度器选下一个 task，调 `context_switch(current, next)`
 - ☑ `kernel_main` 创建两个任务各打印 5 行，手动 `yield`，验证交替输出
 - 审查项目已有组件，要求线程安全
+
+### `020_proc_scheduler`
+**效果**：3 个线程无 `yield` 调用，时钟中断驱动交替运行
+
+- ☑ `kernel/proc/sync.hpp`：`class Spinlock`，`acquire()`（`__atomic_test_and_set` + `pause`），`release()`（`__atomic_clear`），`[[nodiscard]] guard()`（RAII）
+- ☑ `kernel/proc/scheduler.hpp`：`Scheduler::init()`，`add_task(Task*)`，`remove_task(Task*)`，`tick()`（IRQ0 调用），`yield()`，`block(Task*,reason)`，`unblock(Task*)`，`current()`，`is_initialized()`
+- ☑ 就绪队列：环形数组 Round-Robin；`idle_task`（只执行 `hlt`）
+- ☑ `tick()` 每 N tick 调 `schedule()`，`schedule()` 先发 EOI 再 `context_switch`
+- ☑ 进程切换时更新 `TSS.RSP0` 为新 task 内核栈顶
+- ☑ `per_cpu` 数据结构占位（`struct PerCPU {Task* current; uint64_t kernel_stack}`，单核用静态全局）

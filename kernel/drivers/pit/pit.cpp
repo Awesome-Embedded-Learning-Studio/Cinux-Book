@@ -15,6 +15,7 @@
 #include "kernel/arch/x86_64/io.hpp"
 #include "kernel/arch/x86_64/pic.hpp"
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/proc/scheduler.hpp"
 
 using cinux::arch::InterruptFrame;
 using cinux::arch::PIC;
@@ -76,6 +77,8 @@ void PIT::irq0_handler(InterruptFrame* /*frame*/) {
 
 	// Signal End-Of-Interrupt to the PIC so the next IRQ can arrive
 	PIC::send_eoi(0);
+
+	cinux::proc::Scheduler::tick();
 }
 
 // ============================================================

@@ -47,6 +47,10 @@ void GDT::init() {
     load();
 }
 
+void GDT::tss_set_rsp0(uint64_t rsp0) {
+    g_gdt.tss_.rsp[0] = rsp0;
+}
+
 void GDT::load() {
     __asm__ volatile(
         "lgdt %[gdtr]\n\t"

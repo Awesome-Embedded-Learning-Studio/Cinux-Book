@@ -378,11 +378,63 @@ void test_increasing_tid() {
 }  // namespace test_task_builder_defaults
 
 // ============================================================
+// Test 9: Scheduler new APIs (020)
+// ============================================================
+
+namespace test_scheduler_new {
+
+void test_is_initialized() {
+    Scheduler::init();
+    TEST_ASSERT_TRUE(Scheduler::is_initialized());
+}
+
+void test_remove_task() {
+    Scheduler::init();
+
+    Task* task = TaskBuilder()
+        .set_entry(test_task_builder::dummy_entry)
+        .set_name("remove_test")
+        .build();
+    TEST_ASSERT_NOT_NULL(task);
+
+    Scheduler::add_task(task);
+    TEST_ASSERT_NOT_NULL(task->sched_class);
+
+    Scheduler::remove_task(task);
+    TEST_ASSERT_EQ(static_cast<int>(task->state),
+                   static_cast<int>(TaskState::Dead));
+}
+
+void test_block_unblock() {
+    Scheduler::init();
+
+    Task* task = TaskBuilder()
+        .set_entry(test_task_builder::dummy_entry)
+        .set_name("block_test")
+        .build();
+    TEST_ASSERT_NOT_NULL(task);
+
+    Scheduler::add_task(task);
+    TEST_ASSERT_EQ(static_cast<int>(task->state),
+                   static_cast<int>(TaskState::Ready));
+
+    Scheduler::block(task, "test block");
+    TEST_ASSERT_EQ(static_cast<int>(task->state),
+                   static_cast<int>(TaskState::Blocked));
+
+    Scheduler::unblock(task);
+    TEST_ASSERT_EQ(static_cast<int>(task->state),
+                   static_cast<int>(TaskState::Ready));
+}
+
+}  // namespace test_scheduler_new
+
+// ============================================================
 // Entry point
 // ============================================================
 
 extern "C" void run_scheduler_tests() {
-    TEST_SECTION("Scheduler/Process Tests (019)");
+    TEST_SECTION("Scheduler/Process Tests (020)");
 
     RUN_TEST(test_task_builder::test_build_basic_task);
     RUN_TEST(test_task_builder_null::test_build_null_entry);
@@ -396,6 +448,9 @@ extern "C" void run_scheduler_tests() {
     RUN_TEST(test_task_builder_defaults::test_default_name);
     RUN_TEST(test_task_builder_defaults::test_default_priority);
     RUN_TEST(test_task_builder_defaults::test_increasing_tid);
+    RUN_TEST(test_scheduler_new::test_is_initialized);
+    RUN_TEST(test_scheduler_new::test_remove_task);
+    RUN_TEST(test_scheduler_new::test_block_unblock);
 
     TEST_SUMMARY();
 }

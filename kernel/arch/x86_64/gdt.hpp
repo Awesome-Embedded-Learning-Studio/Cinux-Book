@@ -60,6 +60,8 @@ class GDT {
 public:
     void init();
 
+    static void tss_set_rsp0(uint64_t rsp0);
+
 private:
     struct [[gnu::packed]] Entry {
         uint16_t limit_low;

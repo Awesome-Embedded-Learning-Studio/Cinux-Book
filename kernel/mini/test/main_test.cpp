@@ -6,10 +6,10 @@ extern "C" {
 #include <stdint.h>
 }
 
-#include "../lib/kprintf.h"
 #include "../arch/x86_64/gdt.hpp"
 #include "../arch/x86_64/idt.hpp"
 #include "../big_kernel_loader.hpp"
+#include "../lib/kprintf.h"
 #include "boot_info.h"
 #include "kernel_test.h"
 
@@ -18,13 +18,14 @@ using cinux::mini::lib::kdebugf;
 
 extern "C" {
 extern uint64_t __boot_info_ptr;
-void			run_cpp_tests();   // C++ runtime tests from test_cpp_basic.cpp
-void			run_pmm_tests();   // PMM tests from test_pmm.cpp (006)
-void			run_interrupt_tests(); // GDT/IDT/interrupt tests from test_interrupts.cpp (007)
-void			run_ata_tests();   // ATA PIO tests from test_ata.cpp (008)
-void			run_elf_loader_tests(); // ELF loader tests from test_elf_loader.cpp (008)
-void			run_big_kernel_load_tests(); // Big kernel loading tests from test_big_kernel_load.cpp (009)
-void			run_stress_big_kernel_tests(); // Stress test: large kernel load
+void			run_cpp_tests();		 // C++ runtime tests from test_cpp_basic.cpp
+void			run_pmm_tests();		 // PMM tests from test_pmm.cpp (006)
+void			run_interrupt_tests();	 // GDT/IDT/interrupt tests from test_interrupts.cpp (007)
+void			run_ata_tests();		 // ATA PIO tests from test_ata.cpp (008)
+void			run_elf_loader_tests();	 // ELF loader tests from test_elf_loader.cpp (008)
+uint64_t
+run_big_kernel_load_tests();		 // Big kernel loading tests from test_big_kernel_load.cpp (009)
+void run_stress_big_kernel_tests();	 // Stress test: large kernel load
 }
 
 extern "C" [[noreturn]] void mini_kernel_main(uint64_t boot_info_addr) {
@@ -92,7 +93,7 @@ extern "C" [[noreturn]] void mini_kernel_main(uint64_t boot_info_addr) {
 	// ============================================================
 	// Big Kernel Loading Tests (009)
 	// ============================================================
-	run_big_kernel_load_tests();
+	uint64_t big_kernel_entry = run_big_kernel_load_tests();
 
 	// Note: stress tests (run_stress_big_kernel_tests) require a special
 	// disk image with a large synthetic ELF. They are NOT run as part of
@@ -116,13 +117,28 @@ extern "C" [[noreturn]] void mini_kernel_main(uint64_t boot_info_addr) {
 	kprintf("=== MINI KERNEL TESTS PASSED ===\n");
 
 	// Big kernel test was loaded into memory by run_big_kernel_load_tests().
-	// Jump to its entry point so it can run PIC/PIT and other big-kernel tests.
-	constexpr uint64_t KERNEL_VIRT_BASE = 0xFFFFFFFF80000000ULL;
-	uint64_t virt_entry = KERNEL_VIRT_BASE +
-		cinux::mini::loader::BIG_KERNEL_LOAD_ADDR;
+	// Only jump if the entry point has a real kernel (cli + mov rsp, imm64).
+	// The stress-test synthetic ELF only has cli followed by data patterns.
+	if (big_kernel_entry == 0) {
+		kprintf("\n=== No big kernel loaded, exiting ===\n");
+		__asm__ volatile("outl %0, $0xf4" : : "a"(0));
+		while (1)
+			__asm__ volatile("cli; hlt");
+	}
+
+	// Real kernel _start: cli (0xFA) then mov rsp, imm64 (REX.W MOVABS = 48 BC)
+	auto* code			 = reinterpret_cast<const uint8_t*>(big_kernel_entry);
+	bool  is_real_kernel = (code[0] == 0xFA) && (code[1] == 0x48) && (code[2] == 0xBC);
+	if (!is_real_kernel) {
+		kprintf("\n=== Loaded ELF is not a real kernel, exiting ===\n");
+		__asm__ volatile("outl %0, $0xf4" : : "a"(0));
+		while (1)
+			__asm__ volatile("cli; hlt");
+	}
+
 	kprintf("\n=== Launching big kernel test at 0x%p ===\n",
-			reinterpret_cast<void*>(virt_entry));
-	auto big_entry = reinterpret_cast<void(*)()>(virt_entry);
+			reinterpret_cast<void*>(big_kernel_entry));
+	auto big_entry = reinterpret_cast<void (*)()>(big_kernel_entry);
 	big_entry();
 	// Should not reach here — big kernel test exits via isa-debug-exit
 	while (1) {

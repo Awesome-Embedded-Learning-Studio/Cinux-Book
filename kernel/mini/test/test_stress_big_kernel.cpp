@@ -19,6 +19,7 @@
 #include "../lib/kprintf.h"
 
 using cinux::mini::loader::BIG_KERNEL_LOAD_ADDR;
+using cinux::mini::loader::BIG_KERNEL_ENTRY_VADDR;
 using cinux::mini::loader::BIG_KERNEL_LBA;
 using cinux::mini::loader::BigKernelLoadState;
 using cinux::mini::loader::load_big_kernel_phase1;
@@ -98,7 +99,7 @@ namespace test_stress_phase2 {
         uint64_t entry = load_big_kernel_phase2(state, STRESS_KERNEL_LBA);
         TEST_ASSERT(entry != 0);
         kprintf("  Entry point: 0x%p\n", reinterpret_cast<void*>(entry));
-        TEST_ASSERT_EQ(entry, BIG_KERNEL_LOAD_ADDR);
+        TEST_ASSERT_EQ(entry, BIG_KERNEL_ENTRY_VADDR);
 
         // The synthetic ELF has one PT_LOAD at p_paddr=0x1000000
         // with memsz = filesz. Verify the data pattern.

@@ -1,6 +1,8 @@
 #include "kernel/proc/scheduler.hpp"
 
+#include "kernel/arch/x86_64/gdt.hpp"
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/proc/per_cpu.hpp"
 
 namespace cinux::proc {
 
@@ -65,6 +67,12 @@ const char* RoundRobin::name() const {
 }
 
 // ============================================================
+// PerCPU global
+// ============================================================
+
+PerCPU g_per_cpu{nullptr, 0};
+
+// ============================================================
 // Scheduler static state
 // ============================================================
 
@@ -72,15 +80,41 @@ SchedulingClass* Scheduler::classes_[Scheduler::MAX_CLASSES];
 int Scheduler::class_count_ = 0;
 Task* Scheduler::current_ = nullptr;
 RoundRobin Scheduler::default_rr_;
+Task* Scheduler::idle_task_ = nullptr;
+bool Scheduler::initialized_ = false;
+int Scheduler::tick_count_ = 0;
+int Scheduler::current_slice_ = 0;
 
 // ============================================================
 // Scheduler implementation
 // ============================================================
 
+void Scheduler::idle_entry() {
+    while (true) {
+        __asm__ volatile("hlt");
+    }
+}
+
 void Scheduler::init() {
     class_count_ = 0;
     current_ = nullptr;
+    idle_task_ = nullptr;
+    tick_count_ = 0;
+    current_slice_ = 0;
     register_class(&default_rr_);
+
+    idle_task_ = TaskBuilder()
+        .set_entry(idle_entry)
+        .set_name("idle")
+        .set_priority(255)
+        .build();
+
+    if (idle_task_ != nullptr) {
+        idle_task_->state = TaskState::Ready;
+        cinux::lib::kprintf("[SCHED] Idle task created tid=%u\n", idle_task_->tid);
+    }
+
+    initialized_ = true;
     cinux::lib::kprintf("[SCHED] Scheduler initialised with %s class\n",
                         default_rr_.name());
 }
@@ -102,24 +136,24 @@ void Scheduler::add_task(Task* task) {
                         task->tid, task->name, task->sched_class->name());
 }
 
+void Scheduler::remove_task(Task* task) {
+    if (task == nullptr) {
+        return;
+    }
+    if (task->sched_class != nullptr) {
+        task->sched_class->dequeue(task);
+    }
+    task->state = TaskState::Dead;
+    cinux::lib::kprintf("[SCHED] Task tid=%u '%s' removed\n",
+                        task->tid, task->name);
+}
+
 void Scheduler::yield() {
     if (current_ == nullptr) {
         return;
     }
 
-    SchedulingClass* cls = current_->sched_class;
-    if (cls == nullptr) {
-        return;
-    }
-
-    Task* next = cls->pick_next();
-    if (next == nullptr || next == current_) {
-        return;
-    }
-
-    Task* prev = current_;
-    current_ = next;
-    context_switch(&prev->ctx, &next->ctx);
+    schedule();
 }
 
 void Scheduler::exit_current() {
@@ -133,16 +167,27 @@ void Scheduler::exit_current() {
 
     Task* next = default_rr_.pick_next();
     if (next == nullptr) {
-        cinux::lib::kprintf("[SCHED] No more tasks, halting.\n");
-        while (1) __asm__ volatile("cli; hlt");
+        if (idle_task_ != nullptr) {
+            next = idle_task_;
+        } else {
+            cinux::lib::kprintf("[SCHED] No more tasks, halting.\n");
+            while (1) __asm__ volatile("cli; hlt");
+        }
     }
 
     current_ = next;
+    g_per_cpu.current = next;
+    if (next != idle_task_) {
+        cinux::arch::GDT::tss_set_rsp0(next->kernel_stack_top);
+    }
     context_switch(&prev->ctx, &next->ctx);
 }
 
 void Scheduler::run_first(Task* boot_task) {
     current_ = boot_task;
+    g_per_cpu.current = boot_task;
+    cinux::arch::GDT::tss_set_rsp0(boot_task->kernel_stack_top);
+    current_slice_ = 0;
 
     Task* next = default_rr_.pick_next();
     if (next == nullptr) {
@@ -150,11 +195,101 @@ void Scheduler::run_first(Task* boot_task) {
     }
 
     current_ = next;
+    g_per_cpu.current = next;
+    cinux::arch::GDT::tss_set_rsp0(next->kernel_stack_top);
     context_switch(&boot_task->ctx, &next->ctx);
 }
 
 Task* Scheduler::current() {
     return current_;
+}
+
+bool Scheduler::is_initialized() {
+    return initialized_;
+}
+
+void Scheduler::tick() {
+    if (!initialized_ || current_ == nullptr) {
+        return;
+    }
+
+    tick_count_++;
+    current_slice_++;
+
+    if (current_slice_ >= DEFAULT_TIME_SLICE) {
+        current_slice_ = 0;
+        schedule();
+    }
+}
+
+void Scheduler::schedule() {
+    if (current_ == nullptr) {
+        return;
+    }
+
+    Task* prev = current_;
+
+    if (prev->state == TaskState::Running) {
+        prev->state = TaskState::Ready;
+    }
+
+    Task* next = default_rr_.pick_next();
+
+    if (next == nullptr || next == prev) {
+        if (prev->state != TaskState::Blocked && prev->state != TaskState::Dead) {
+            prev->state = TaskState::Running;
+            return;
+        }
+
+        if (idle_task_ != nullptr && idle_task_ != prev) {
+            next = idle_task_;
+        } else {
+            return;
+        }
+    }
+
+    current_ = next;
+    g_per_cpu.current = next;
+    current_slice_ = 0;
+
+    if (next != idle_task_) {
+        cinux::arch::GDT::tss_set_rsp0(next->kernel_stack_top);
+    }
+
+    context_switch(&prev->ctx, &next->ctx);
+}
+
+void Scheduler::block(Task* task, const char* reason) {
+    if (task == nullptr) {
+        return;
+    }
+
+    task->state = TaskState::Blocked;
+    if (task->sched_class != nullptr) {
+        task->sched_class->dequeue(task);
+    }
+
+    cinux::lib::kprintf("[SCHED] Task tid=%u '%s' blocked: %s\n",
+                        task->tid, task->name, reason ? reason : "unknown");
+
+    if (task == current_) {
+        schedule();
+    }
+}
+
+void Scheduler::unblock(Task* task) {
+    if (task == nullptr) {
+        return;
+    }
+
+    task->state = TaskState::Ready;
+    if (task->sched_class == nullptr) {
+        task->sched_class = &default_rr_;
+    }
+    task->sched_class->enqueue(task);
+
+    cinux::lib::kprintf("[SCHED] Task tid=%u '%s' unblocked\n",
+                        task->tid, task->name);
 }
 
 }  // namespace cinux::proc

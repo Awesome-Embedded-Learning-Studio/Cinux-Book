@@ -21,6 +21,7 @@
 #include "../lib/kprintf.h"
 
 using cinux::mini::loader::BIG_KERNEL_LOAD_ADDR;
+using cinux::mini::loader::BIG_KERNEL_ENTRY_VADDR;
 using cinux::mini::loader::BIG_KERNEL_LBA;
 using cinux::mini::loader::BigKernelLoadState;
 using cinux::mini::loader::load_big_kernel_phase1;
@@ -143,7 +144,7 @@ namespace test_big_kernel_entry {
 
 	void test_entry_address() {
 		TEST_ASSERT(g_loaded_entry != 0);
-		TEST_ASSERT_EQ(g_loaded_entry, BIG_KERNEL_LOAD_ADDR);
+		TEST_ASSERT_EQ(g_loaded_entry, BIG_KERNEL_ENTRY_VADDR);
 	}
 }
 
@@ -163,7 +164,7 @@ namespace test_big_kernel_first_insn {
 // Test Entry Point
 // ============================================================
 
-extern "C" void run_big_kernel_load_tests() {
+extern "C" uint64_t run_big_kernel_load_tests() {
 	TEST_SECTION("Big Kernel Load Tests (009)");
 
 	// Run Phase 1 to read headers — all subsequent tests depend on this
@@ -171,7 +172,7 @@ extern "C" void run_big_kernel_load_tests() {
 	if (!g_phase1_ok) {
 		kprintf("  FATAL: Phase 1 failed, skipping remaining tests\n");
 		TEST_SUMMARY();
-		return;
+		return 0;
 	}
 
 	RUN_TEST(test_big_kernel_elf_magic::test_elf_magic);
@@ -181,4 +182,5 @@ extern "C" void run_big_kernel_load_tests() {
 	RUN_TEST(test_big_kernel_first_insn::test_first_instruction_is_cli);
 
 	TEST_SUMMARY();
+	return g_loaded_entry;
 }

@@ -35,6 +35,12 @@ constexpr uint64_t MINI_KERNEL_LOAD_ADDR = 0x20000;
 /// Physical address where the big kernel ELF will be staged from disk
 constexpr uint64_t BIG_KERNEL_LOAD_ADDR = 0x1000000;  // 16MB
 
+/// Big kernel higher-half virtual base (must match kernel/linker.ld KERNEL_VMA)
+constexpr uint64_t BIG_KERNEL_VMA = 0xFFFFFFFF80000000ULL;
+
+/// Expected virtual entry point of the big kernel (_start)
+constexpr uint64_t BIG_KERNEL_ENTRY_VADDR = BIG_KERNEL_VMA + BIG_KERNEL_LOAD_ADDR;
+
 /// LBA on disk where the big kernel ELF binary starts
 /// Must match the disk image layout in scripts/build_image.sh
 constexpr uint64_t BIG_KERNEL_LBA = 848;
@@ -108,7 +114,7 @@ bool load_big_kernel_phase1(uint64_t disk_lba, BigKernelLoadState& state);
  *
  * @param state     State from Phase 1
  * @param disk_lba  Starting LBA of the big kernel
- * @return Physical entry point on success, 0 on failure
+ * @return Virtual entry point on success, 0 on failure
  */
 uint64_t load_big_kernel_phase2(const BigKernelLoadState& state, uint64_t disk_lba);
 
