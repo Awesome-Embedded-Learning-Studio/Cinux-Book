@@ -38,13 +38,12 @@ using SyscallFn = int64_t(*)(uint64_t, uint64_t, uint64_t,
  * Writes LSTAR MSR with the address of syscall_entry, configures
  * SFMASK to clear IF on entry, and sets up the STAR MSR with
  * kernel/user segment selectors.  Also initialises the per-CPU
- * kernel stack pointer used by syscall_entry.
+ * kernel stack pointer used by syscall_entry and registers all
+ * built-in syscall handlers.
  *
  * Must be called once during boot, after GDT and usermode_init().
- *
- * @param kernel_rsp  The kernel stack pointer to use on SYSCALL entry
  */
-void syscall_init(uint64_t kernel_rsp);
+void syscall_init();
 
 /**
  * @brief Register a syscall handler in the dispatch table

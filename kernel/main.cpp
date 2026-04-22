@@ -48,9 +48,6 @@
 #include "kernel/mm/vmm.hpp"
 #include "kernel/mm/heap.hpp"
 #include "kernel/mm/address_space.hpp"
-#include "kernel/syscall/sys_write.hpp"
-#include "kernel/syscall/sys_exit.hpp"
-#include "kernel/syscall/sys_yield.hpp"
 
 using cinux::arch::PIC;
 using cinux::drivers::Console;
@@ -154,16 +151,7 @@ extern "C" void kernel_main() {
     cinux::arch::usermode_init();
 
     // Step 19: Initialise syscall infrastructure (LSTAR, SFMASK, dispatch table)
-    {
-        uint64_t kernel_rsp;
-        __asm__ volatile("movq %%rsp, %0" : "=r"(kernel_rsp));
-        cinux::arch::syscall_init(kernel_rsp);
-
-        using namespace cinux::syscall;
-        cinux::arch::syscall_register(SyscallNr::SYS_write, sys_write);
-        cinux::arch::syscall_register(SyscallNr::SYS_exit, sys_exit);
-        cinux::arch::syscall_register(SyscallNr::SYS_yield, sys_yield);
-    }
+    cinux::arch::syscall_init();
 
     // Step 20: Launch the first user-mode program (Ring 3)
     cinux::lib::kprintf("[BIG] ===== Milestone 023: Syscall from Ring 3 =====\n");

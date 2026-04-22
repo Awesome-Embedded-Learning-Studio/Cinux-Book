@@ -18,28 +18,14 @@
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/pmm.hpp"
 
-namespace {
-/// Default virtual address for the top of the user stack
-constexpr uint64_t USER_STACK_TOP = 0x7FFFFF000;
-
-/// x86_64 SysV ABI: RSP ≡ 8 mod 16 at _start entry (mimics `call` push)
-constexpr uint64_t USER_ABI_RSP_OFFSET = 8;
-static_assert((USER_STACK_TOP - USER_ABI_RSP_OFFSET) % 16 == 8,
-			  "User entry RSP must satisfy x86_64 ABI alignment");
-
-/// Number of 4 KB pages for the user stack (16 KB)
-constexpr uint64_t USER_STACK_PAGES = 4;
-
-}  // namespace
-
 
 namespace cinux::arch {
 
 extern "C" void usermode_init_asm();
 
 extern "C" {
-extern const uint8_t _binary_hello_bin_start[];
-extern const uint8_t _binary_hello_bin_end[];
+extern const uint8_t _binary_shell_bin_start[];
+extern const uint8_t _binary_shell_bin_end[];
 }  // extern "C"
 
 // ============================================================
@@ -91,10 +77,10 @@ void launch_first_user() {
 	}
 
 	constexpr uint64_t KERNEL_VMA = 0xFFFFFFFF80000000ULL;
-	size_t			   user_size  = _binary_hello_bin_end - _binary_hello_bin_start;
+	size_t			   user_size  = _binary_shell_bin_end - _binary_shell_bin_start;
 	auto*			   code_virt  = reinterpret_cast<uint8_t*>(code_phys + KERNEL_VMA);
 	for (size_t i = 0; i < user_size; i++) {
-		code_virt[i] = _binary_hello_bin_start[i];
+		code_virt[i] = _binary_shell_bin_start[i];
 	}
 
 	uint64_t stack_size = USER_STACK_PAGES * PAGE_SIZE;

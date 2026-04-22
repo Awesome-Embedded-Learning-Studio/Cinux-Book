@@ -39,6 +39,7 @@ void run_scheduler_tests();
 void run_sync_tests();
 void run_usermode_tests();
 void run_syscall_tests();
+void run_shell_tests();
 }
 
 static constexpr uintptr_t BOOT_INFO_PHYS = 0x7000;
@@ -99,10 +100,11 @@ extern "C" void kernel_main() {
     run_usermode_tests();
 
     // Syscall tests (023): requires syscall_init() after usermode_init
-    uint64_t test_kernel_rsp;
-    __asm__ volatile("movq %%rsp, %0" : "=r"(test_kernel_rsp));
-    cinux::arch::syscall_init(test_kernel_rsp);
+    cinux::arch::syscall_init();
     run_syscall_tests();
+
+    // Shell tests (024): verifies kernel-side infrastructure for user shell
+    run_shell_tests();
 
     // Step 5: Report and exit
     int exit_code = (test::get_total_failed() > 0) ? 1 : 0;

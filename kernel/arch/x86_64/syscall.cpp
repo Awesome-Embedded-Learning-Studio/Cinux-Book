@@ -14,6 +14,10 @@
 
 #include "kernel/arch/x86_64/gdt.hpp"
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/syscall/sys_read.hpp"
+#include "kernel/syscall/sys_write.hpp"
+#include "kernel/syscall/sys_exit.hpp"
+#include "kernel/syscall/sys_yield.hpp"
 
 namespace cinux::arch {
 
@@ -41,13 +45,25 @@ void write_msr(uint32_t msr, uint64_t value) {
     );
 }
 
+/// Register all built-in syscall handlers into the dispatch table
+void register_builtin_handlers() {
+    using namespace cinux::syscall;
+    syscall_register(SyscallNr::SYS_read,  sys_read);
+    syscall_register(SyscallNr::SYS_write, sys_write);
+    syscall_register(SyscallNr::SYS_exit,  sys_exit);
+    syscall_register(SyscallNr::SYS_yield, sys_yield);
+}
+
 }  // anonymous namespace
 
 // ============================================================
 // Public interface
 // ============================================================
 
-void syscall_init(uint64_t kernel_rsp) {
+void syscall_init() {
+    // Capture the current kernel stack pointer for syscall_entry
+    uint64_t kernel_rsp;
+    __asm__ volatile("movq %%rsp, %0" : "=r"(kernel_rsp));
     g_syscall_kernel_rsp = kernel_rsp;
 
     for (uint64_t i = 0; i < cinux::syscall::SYSCALL_TABLE_SIZE; i++) {
@@ -58,8 +74,8 @@ void syscall_init(uint64_t kernel_rsp) {
     constexpr uint32_t MSR_LSTAR  = 0xC0000082;
     constexpr uint32_t MSR_SFMASK = 0xC0000084;
 
-    uint64_t star_val = (static_cast<uint64_t>(GDT_KERNEL_CODE) << 32)
-                      | (static_cast<uint64_t>(GDT_KERNEL_CODE) << 48);
+    uint64_t star_val = (static_cast<uint64_t>(GDT_SYSRET_BASE) << 48)
+                      | (static_cast<uint64_t>(GDT_KERNEL_CODE) << 32);
     write_msr(MSR_STAR, star_val);
 
     uint64_t entry_addr = reinterpret_cast<uint64_t>(syscall_entry);
@@ -67,6 +83,9 @@ void syscall_init(uint64_t kernel_rsp) {
 
     uint64_t sfmask_val = 0x200;
     write_msr(MSR_SFMASK, sfmask_val);
+
+    // Register all built-in syscall handlers
+    register_builtin_handlers();
 
     kprintf("[SYSCALL] LSTAR=%p STAR configured SFMASK=0x200 (clear IF)\n",
             reinterpret_cast<void*>(entry_addr));
@@ -94,6 +113,8 @@ extern "C" int64_t syscall_dispatch(uint64_t nr,
                                     uint64_t a1, uint64_t a2, uint64_t a3,
                                     uint64_t a4, uint64_t a5, uint64_t a6) {
     if (nr >= cinux::syscall::SYSCALL_TABLE_SIZE) {
+        cinux::lib::kprintf("[DISPATCH] invalid syscall nr=%u\n",
+                            static_cast<unsigned>(nr));
         return -1;
     }
 

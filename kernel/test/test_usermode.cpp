@@ -40,6 +40,7 @@ using cinux::arch::GDT_KERNEL_DATA;
 using cinux::arch::GDT_USER_CODE;
 using cinux::arch::GDT_USER_DATA;
 using cinux::arch::GDT_TSS;
+using cinux::arch::GDT_SYSRET_BASE;
 using cinux::arch::PAGE_SIZE;
 using cinux::arch::FLAG_PRESENT;
 using cinux::arch::FLAG_WRITABLE;
@@ -99,18 +100,18 @@ uint64_t read_msr(uint32_t msr) {
     return (static_cast<uint64_t>(high) << 32) | low;
 }
 
-void test_star_msr_kernel_cs() {
-    // STAR[63:48] should be 0x08 (kernel CS base)
+void test_star_msr_sysret_base() {
+    // STAR[63:48] should be GDT_SYSRET_BASE (0x23)
     uint64_t star = read_msr(0xC0000081);
     uint16_t star_hi = static_cast<uint16_t>(star >> 48);
-    TEST_ASSERT_EQ(star_hi, 0x08);
+    TEST_ASSERT_EQ(star_hi, GDT_SYSRET_BASE);
 }
 
 void test_star_msr_syscall_cs() {
-    // STAR[47:32] should be 0x08 (SYSCALL CS base)
+    // STAR[47:32] should be 0x10 (SYSCALL CS base — kernel code)
     uint64_t star = read_msr(0xC0000081);
     uint16_t star_lo = static_cast<uint16_t>((star >> 32) & 0xFFFF);
-    TEST_ASSERT_EQ(star_lo, 0x08);
+    TEST_ASSERT_EQ(star_lo, 0x10);
 }
 
 void test_efer_sce_bit_set() {
@@ -350,7 +351,7 @@ extern "C" void run_usermode_tests() {
     RUN_TEST(test_tss_rsp0::test_rsp0_overwrite);
     RUN_TEST(test_tss_rsp0::test_rsp0_with_current_rsp);
 
-    RUN_TEST(test_msr::test_star_msr_kernel_cs);
+    RUN_TEST(test_msr::test_star_msr_sysret_base);
     RUN_TEST(test_msr::test_star_msr_syscall_cs);
     RUN_TEST(test_msr::test_efer_sce_bit_set);
     RUN_TEST(test_msr::test_sfmask_if_bit);

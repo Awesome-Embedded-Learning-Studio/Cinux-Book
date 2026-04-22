@@ -3,7 +3,7 @@
  * @brief Host-side unit tests for big-kernel GDT/IDT data structures and encoding logic
  *
  * Test coverage:
- *   - GDT segment selector constants (0x08/0x10/0x1B/0x23/0x28)
+ *   - GDT segment selector constants (0x10/0x18/0x33/0x2B/0x38)
  *   - GDT factory functions: null_entry, segment_entry, tss entries
  *   - IDT ExceptionVector enum underlying values (DE=0, DF=8, GP=13, PF=14)
  *   - IDT make_idt_attr: correct combination of Present + DPL + Gate Type
@@ -151,35 +151,35 @@ static void test_set_idt_entry(TestIdtEntry* table, uint8_t vector,
 // 1. GDT Segment Selector Constants
 // ============================================================
 
-/// Verify kernel code selector is 0x08 (index 1, RPL 0)
-TEST("gdt: kernel code selector is 0x08") {
-    ASSERT_EQ(GDT_KERNEL_CODE, 0x0008u);
+/// Verify kernel code selector is 0x10 (index 2, RPL 0)
+TEST("gdt: kernel code selector is 0x10") {
+    ASSERT_EQ(GDT_KERNEL_CODE, 0x0010u);
 }
 
-/// Verify kernel data selector is 0x10 (index 2, RPL 0)
-TEST("gdt: kernel data selector is 0x10") {
-    ASSERT_EQ(GDT_KERNEL_DATA, 0x0010u);
+/// Verify kernel data selector is 0x18 (index 3, RPL 0)
+TEST("gdt: kernel data selector is 0x18") {
+    ASSERT_EQ(GDT_KERNEL_DATA, 0x0018u);
 }
 
-/// Verify user code selector is 0x1B (index 3, RPL 3)
-TEST("gdt: user code selector is 0x1B") {
-    ASSERT_EQ(GDT_USER_CODE, 0x001Bu);
+/// Verify user code selector is 0x33 (index 6, RPL 3)
+TEST("gdt: user code selector is 0x33") {
+    ASSERT_EQ(GDT_USER_CODE, 0x0033u);
 }
 
-/// Verify user data selector is 0x23 (index 4, RPL 3)
-TEST("gdt: user data selector is 0x23") {
-    ASSERT_EQ(GDT_USER_DATA, 0x0023u);
+/// Verify user data selector is 0x2B (index 5, RPL 3)
+TEST("gdt: user data selector is 0x2B") {
+    ASSERT_EQ(GDT_USER_DATA, 0x002Bu);
 }
 
-/// Verify TSS selector is 0x28 (index 5, RPL 0)
-TEST("gdt: TSS selector is 0x28") {
-    ASSERT_EQ(GDT_TSS, 0x0028u);
+/// Verify TSS selector is 0x38 (index 7, RPL 0)
+TEST("gdt: TSS selector is 0x38") {
+    ASSERT_EQ(GDT_TSS, 0x0038u);
 }
 
 /// Verify selector stride is 8 bytes each
 TEST("gdt: selectors have 8-byte stride") {
     ASSERT_EQ(static_cast<unsigned>(GDT_KERNEL_DATA - GDT_KERNEL_CODE), 0x0008u);
-    ASSERT_EQ(static_cast<unsigned>(GDT_USER_CODE - GDT_KERNEL_DATA), 0x000Bu);
+    ASSERT_EQ(static_cast<unsigned>(GDT_USER_CODE - GDT_KERNEL_DATA), 0x001Bu);
 }
 
 /// Verify user selectors have RPL=3 in low 2 bits
@@ -690,7 +690,7 @@ TEST("idt: set_idt_entry selector field") {
 
     test_set_idt_entry(table, 3, 0x1000, GDT_KERNEL_CODE, 0x8F, 0);
     ASSERT_EQ(table[3].selector, GDT_KERNEL_CODE);
-    ASSERT_EQ(table[3].selector, 0x0008u);
+    ASSERT_EQ(table[3].selector, 0x0010u);
 }
 
 /// Verify IDT entry IST field is 0 (IST not used in current design)

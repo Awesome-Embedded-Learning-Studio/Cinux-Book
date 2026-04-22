@@ -4,7 +4,9 @@
  *
  * Provides a VT100-like text console that renders characters, handles
  * line wrapping, scrolling, and basic control characters (\n, \r, \b).
- * Exposes a static sink adapter for registration with kprintf.
+ * Also supports minimal ANSI CSI escape sequences (ESC[2J, ESC[H) for
+ * screen clearing and cursor homing.  Exposes a static sink adapter for
+ * registration with kprintf.
  *
  * Usage:
  *   Console console;
@@ -23,6 +25,18 @@
 #include "framebuffer.hpp"
 
 namespace cinux::drivers {
+
+/**
+ * @brief ANSI escape sequence parser state
+ *
+ * Minimal state machine to handle CSI (Control Sequence Introducer)
+ * sequences emitted by cmd_clear: ESC[2J (clear screen) and ESC[H (cursor home).
+ */
+enum class AnsiState : uint8_t {
+    Normal,  ///< Not inside an escape sequence
+    Esc,     ///< Received ESC (0x1B), expecting '['
+    Bracket, ///< Received ESC[, collecting parameters
+};
 
 class Console {
 public:
@@ -43,6 +57,10 @@ public:
 	 *   \\n  -- new line (CR + LF)
 	 *   \\r  -- carriage return (move to column 0)
 	 *   \\b  -- backspace (move cursor left, wrap if needed)
+	 *
+	 * Also processes minimal ANSI CSI sequences:
+	 *   ESC[2J  -- clear screen
+	 *   ESC[H   -- cursor home (0,0)
 	 *
 	 * Printable characters are rendered at the current cursor position
 	 * and the cursor advances.  Auto-wraps at the right margin.
@@ -75,6 +93,7 @@ public:
 private:
 	void scroll();
 	void new_line();
+	void handle_ansi_csi(char final_byte);
 
 	Framebuffer* fb_   = nullptr;
 	PSFFont*	 font_ = nullptr;
@@ -84,6 +103,11 @@ private:
 	uint32_t	 rows_ = 0;
 	uint32_t	 fg_   = 0x00FFFFFF;
 	uint32_t	 bg_   = 0x00000000;
+
+	/// ANSI escape sequence parser state
+	AnsiState ansi_state_ = AnsiState::Normal;
+	char ansi_params_[16] = {};
+	uint8_t ansi_pos_     = 0;
 };
 
 }  // namespace cinux::drivers

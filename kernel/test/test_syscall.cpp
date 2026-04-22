@@ -28,6 +28,7 @@
 #include <stdint.h>
 
 #include "big_kernel_test.h"
+#include "kernel/arch/x86_64/gdt.hpp"
 #include "kernel/arch/x86_64/syscall.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/syscall/sys_exit.hpp"
@@ -102,17 +103,17 @@ void test_lstar_msr_set() {
 }
 
 void test_star_msr_syscall_cs() {
-	// STAR[47:32] = SYSCALL CS base = 0x08
-	uint64_t star		= read_msr(0xC0000081);
-	uint16_t syscall_cs = static_cast<uint16_t>((star >> 32) & 0xFFFF);
-	TEST_ASSERT_EQ(syscall_cs, 0x08);
+    // STAR[47:32] = SYSCALL CS base = 0x10 (kernel code)
+    uint64_t star        = read_msr(0xC0000081);
+    uint16_t syscall_cs  = static_cast<uint16_t>((star >> 32) & 0xFFFF);
+    TEST_ASSERT_EQ(syscall_cs, 0x10);
 }
 
-void test_star_msr_sysret_cs() {
-	// STAR[63:48] = SYSRET CS base = 0x08
-	uint64_t star	   = read_msr(0xC0000081);
-	uint16_t sysret_cs = static_cast<uint16_t>(star >> 48);
-	TEST_ASSERT_EQ(sysret_cs, 0x08);
+void test_star_msr_sysret_base() {
+    // STAR[63:48] = GDT_SYSRET_BASE (0x23)
+    uint64_t star        = read_msr(0xC0000081);
+    uint16_t sysret_base = static_cast<uint16_t>(star >> 48);
+    TEST_ASSERT_EQ(sysret_base, cinux::arch::GDT_SYSRET_BASE);
 }
 
 void test_sfmask_clears_if() {
@@ -333,7 +334,7 @@ extern "C" void run_syscall_tests() {
 
 	RUN_TEST(test_syscall_msr::test_lstar_msr_set);
 	RUN_TEST(test_syscall_msr::test_star_msr_syscall_cs);
-	RUN_TEST(test_syscall_msr::test_star_msr_sysret_cs);
+	RUN_TEST(test_syscall_msr::test_star_msr_sysret_base);
 	RUN_TEST(test_syscall_msr::test_sfmask_clears_if);
 
 	RUN_TEST(test_dispatch::test_register_and_dispatch);

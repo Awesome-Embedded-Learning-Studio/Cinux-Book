@@ -18,11 +18,23 @@ namespace cinux::arch {
 // Segment Selector Constants
 // ============================================================
 
-constexpr uint16_t GDT_KERNEL_CODE = 0x08;
-constexpr uint16_t GDT_KERNEL_DATA = 0x10;
-constexpr uint16_t GDT_USER_CODE   = 0x1B;
-constexpr uint16_t GDT_USER_DATA   = 0x23;
-constexpr uint16_t GDT_TSS         = 0x28;
+/// Linux-compatible GDT selector layout:
+///   Idx 0: NULL
+///   Idx 1 (0x08): unused (TLS placeholder)
+///   Idx 2 (0x10): Kernel Code   ← SYSCALL CS
+///   Idx 3 (0x18): Kernel Data   ← SYSCALL SS
+///   Idx 4 (0x20): User32 Code   ← STAR[63:48] base for SYSRETQ
+///   Idx 5 (0x28): User Data     ← SYSRETQ SS = 0x28|3 = 0x2B
+///   Idx 6 (0x30): User64 Code   ← SYSRETQ CS = 0x30|3 = 0x33
+///   Idx 7-8 (0x38): TSS (16 bytes)
+constexpr uint16_t GDT_KERNEL_CODE = 0x10;
+constexpr uint16_t GDT_KERNEL_DATA = 0x18;
+constexpr uint16_t GDT_USER_CODE   = 0x33;
+constexpr uint16_t GDT_USER_DATA   = 0x2B;
+constexpr uint16_t GDT_TSS         = 0x38;
+/// STAR[63:48] for SYSRETQ: using 0x23 so that +8=0x2B (SS with RPL=3 baked in)
+/// and +16=0x33 (CS with RPL=3 baked in), avoiding reliance on CPU RPL-setting behavior.
+constexpr uint16_t GDT_SYSRET_BASE = 0x23;
 
 // ============================================================
 // Segment Descriptor Flags (scoped enum bitmask)
@@ -134,8 +146,8 @@ private:
         };
     }
 
-    // 5 segment descriptors + TSS (16 bytes = 2 slots) = 7 entries
-    static constexpr auto kEntryCount = 7;
+    // 6 segment descriptors + NULL + TLS placeholder + TSS (16 bytes = 2 slots) = 9 entries
+    static constexpr auto kEntryCount = 9;
 
     Entry entries_[kEntryCount]{};
     Pointer gdtr_{};

@@ -11,8 +11,8 @@
  *   - R11 = saved RFLAGS (restored into RFLAGS by SYSRET)
  *   - RSP must be set to the user stack before SYSRET
  *   - SYSRET loads RCX into RIP, R11 into RFLAGS
- *   - CS is set to STAR[48:63] + 16 (0x1B -> user code, Ring 3)
- *   - SS is set to STAR[48:63] + 8  (0x23 -> user data, Ring 3)
+ *   - CS is set to STAR[63:48] + 16 (0x33 -> user code, Ring 3)
+ *   - SS is set to STAR[63:48] + 8  (0x2B -> user data, Ring 3)
  *
  * AT&T syntax notes:
  *   Operand order: source, destination
@@ -34,13 +34,15 @@
 usermode_init_asm:
 
     # Write STAR MSR (0xC0000081)
-    #   [63:48] = SYSRET CS base selector (0x08, kernel code)
-    #   [47:32] = SYSCALL CS base selector (0x08, kernel code)
-    # The SYSRET target CS = STAR[63:48] + 16 = 0x18, which with RPL=3 = 0x1B
-    # The SYSRET target SS = STAR[63:48] + 8  = 0x10, which with RPL=3 = 0x23
-    movq $0x08, %rdx                   # $0x08→%rdx: kernel CS selector value
+    #   [63:48] = SYSRET base selector (0x23, encodes RPL=3 directly)
+    #   [47:32] = SYSCALL CS base selector (0x10, kernel code)
+    # SYSRET target CS = STAR[63:48] + 16 = 0x33 (user64 code, RPL=3)
+    # SYSRET target SS = STAR[63:48] + 8  = 0x2B (user data, RPL=3)
+    # SYSCALL CS = STAR[47:32] = 0x10 (kernel code)
+    # SYSCALL SS = STAR[47:32] + 8 = 0x18 (kernel data)
+    movq $0x23, %rdx                   # $0x23→%rdx: SYSRET base (RPL=3 embedded)
     shlq $16, %rdx                     # %rdx<<16→%rdx: shift to EDX[31:16] for STAR[63:48]
-    orq $0x08, %rdx                    # $0x08|%rdx→%rdx: also set EDX[15:0] for STAR[47:32]
+    orq $0x10, %rdx                    # $0x10|%rdx→%rdx: set EDX[15:0] for STAR[47:32] (kernel CS)
     xorq %rax, %rax                    # 0→%rax: clear low 32 bits (unused)
     movq $0xC0000081, %rcx             # MSR_STAR→%rcx: STAR MSR index
     wrmsr                              # %edx:%eax→MSR[rcx]: write STAR MSR
@@ -101,7 +103,7 @@ jump_to_usermode:
     xorq %r15, %r15                    # 0→%r15: clear R15
 
     # Execute SYSRET to enter Ring 3
-    # SYSRET: %rcx→RIP, %r11→RFLAGS, CS=STAR[63:48]+16|RPL, SS=STAR[63:48]+8|RPL
+    # SYSRET: %rcx→RIP, %r11→RFLAGS, CS=STAR[63:48]+16, SS=STAR[63:48]+8
     sysretq                             # enter user mode (Ring 3)
 
 .size jump_to_usermode, . - jump_to_usermode

@@ -106,14 +106,16 @@ syscall_entry:
 
     addq $8, %rsp                      # $8→%rsp: remove 7th arg from stack
 
-    # Step 5: Save return value in RBX (will not be touched by SYSRETQ)
-    movq %rax, %rbx                    # %rax→%rbx: save return value
+    # Step 5: Save return value in GS scratch slot 2 (gs:16)
+    #         Cannot use RBX -- it must be restored from the trap frame.
+    movq %rax, %gs:16                  # save return value in per-CPU scratch
 
     # Step 6: Restore user state from trap frame
     movq 0(%rsp), %rax                 # frame+0→%rax: recover user RSP
     movq %rax, %gs:8                   # %rax→%gs:8: store user RSP for later restore
     movq 8(%rsp), %rcx                 # frame+8→%rcx: user RIP (SYSRETQ loads RIP from RCX)
     movq 16(%rsp), %r11                # frame+16→%r11: user RFLAGS (SYSRETQ loads RFLAGS from R11)
+    movq 80(%rsp), %rbx                # frame+80→%rbx: RESTORE user RBX (callee-saved)
 
     # Deallocate trap frame (12 slots * 8 bytes = 96 bytes)
     addq $96, %rsp                     # $96→%rsp: remove entire trap frame
@@ -122,13 +124,13 @@ syscall_entry:
     movq %gs:8, %rsp                   # %gs:8→%rsp: switch back to user stack
 
     # Step 8: Restore return value to RAX
-    movq %rbx, %rax                    # %rbx→%rax: restore syscall return value
+    movq %gs:16, %rax                  # scratch→%rax: restore syscall return value
 
     # Step 9: SWAPGS back to user GS base
     swapgs                             # kernel_gsbase↔user_gsbase: activate user GS
 
     # Step 10: Return to Ring 3
-    # SYSRETQ loads: RCX→RIP, R11→RFLAGS, CS=STAR[63:48]+16|RPL, SS=STAR[63:48]+8|RPL
+    # SYSRETQ loads: RCX→RIP, R11→RFLAGS, CS=STAR[63:48]+16, SS=STAR[63:48]+8
     sysretq                            # return to Ring 3
 
 .size syscall_entry, . - syscall_entry

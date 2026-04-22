@@ -6,22 +6,6 @@
 
 ---
 
-## Phase 7 · 用户态与系统调用
-
-### `024_shell`
-**效果**：用户态 shell，`echo`/`help`/`clear` 可用
-
-**前置条件（023 已完成）**：用户态编译基础设施、syscall 封装、`launch_first_user()` 启动机制、FPU/SSE 支持
-
-- ☐ `user/libc/syscall.h` 添加 `sys_read(fd,buf,len)` 封装
-- ☐ `user/shell/main.cpp`：`_start()` 主循环 `print_prompt → read_line(sys_read) → tokenize → dispatch → repeat`
-- ☐ tokenizer：按空格切割，返回 `argc/argv`
-- ☐ builtin 表：`{"echo",cmd_echo},{"help",cmd_help},{"clear",cmd_clear},{nullptr,nullptr}`
-- ☐ `cmd_echo`：`write(1, argv[1..], ...)`；`cmd_clear`：`write(1, "\033[2J\033[H", 7)`（ANSI 清屏）；`cmd_help`：打印命令列表
-- ☐ CMake 切换嵌入 binary 从 `hello` 到 `shell`（`user/CMakeLists.txt`）
-
----
-
 ## Phase 8 · 存储与文件系统
 
 ### `025_driver_ahci`

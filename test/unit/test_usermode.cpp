@@ -170,34 +170,28 @@ TEST("usermode: STAR MSR index is 0xC0000081") {
     ASSERT_EQ(MSR_STAR, 0xC0000081u);
 }
 
-/// Verify STAR[63:48] = 0x08 (kernel CS) produces user CS = 0x1B
-TEST("usermode: SYSRET derives user CS = 0x1B from STAR") {
-    // STAR[63:48] = 0x08
-    // SYSRET: CS = STAR[63:48] + 16 | RPL = 0x08 + 0x10 | 0x03 = 0x1B
-    constexpr uint16_t star_cs_base = 0x08;
-    constexpr uint16_t user_cs = star_cs_base + 16 + 3;
-    ASSERT_EQ(user_cs, 0x1Bu);
+/// Verify STAR[63:48] = GDT_SYSRET_BASE produces user CS = 0x33
+TEST("usermode: SYSRET derives user CS from STAR") {
+    // STAR[63:48] = GDT_SYSRET_BASE = 0x23
+    // SYSRET: CS = STAR[63:48] + 16 = 0x23 + 0x10 = 0x33 (RPL already baked in)
+    constexpr uint16_t star_cs_base = GDT_SYSRET_BASE;
+    constexpr uint16_t user_cs = star_cs_base + 16;
     ASSERT_EQ(user_cs, GDT_USER_CODE);
 }
 
-/// Verify STAR[63:48] = 0x08 produces SYSRET SS (hardware-computed)
+/// Verify STAR[63:48] produces SYSRET SS (hardware-computed)
 TEST("usermode: SYSRET derives SS from STAR") {
-    // SYSRET: SS = STAR[63:48] + 8 (then RPL is forced to 3 by hardware)
-    // STAR[63:48] = 0x08, so SS = 0x08 + 8 = 0x10, with RPL=3 -> 0x13
-    // In 64-bit mode, the SS selector value is largely irrelevant since
-    // all data segment bases are treated as 0 in long mode.
-    constexpr uint16_t star_cs_base = 0x08;
-    constexpr uint16_t sysret_ss = (star_cs_base + 8) | 0x03;
-    ASSERT_EQ(sysret_ss, 0x13u);
+    // SYSRET: SS = STAR[63:48] + 8 = 0x23 + 8 = 0x2B (RPL already baked in)
+    constexpr uint16_t star_cs_base = GDT_SYSRET_BASE;
+    constexpr uint16_t sysret_ss = star_cs_base + 8;
+    ASSERT_EQ(sysret_ss, GDT_USER_DATA);
 }
 
-/// Verify STAR value encoding: high 32 bits = (0x08 << 16) | 0x08
+/// Verify STAR value encoding: high 32 bits match GDT_SYSRET_BASE and GDT_KERNEL_CODE
 TEST("usermode: STAR high 32 bits encoding") {
-    // From usermode.S:
-    //   rdx = 0x08 << 16 | 0x08 = 0x00080008
-    //   rax = 0 (low 32 bits unused)
-    constexpr uint64_t star_high = (0x08ULL << 16) | 0x08ULL;
-    ASSERT_EQ(star_high, 0x00080008ULL);
+    constexpr uint64_t star_high = (static_cast<uint64_t>(GDT_SYSRET_BASE) << 16)
+                                 | static_cast<uint64_t>(GDT_KERNEL_CODE);
+    ASSERT_EQ(star_high, 0x00230010ULL);
 }
 
 /// Verify EFER.SCE bit is bit 0
@@ -336,9 +330,9 @@ TEST("usermode: TSS descriptor is 16 bytes (2 GDT slots)") {
     ASSERT_EQ(sizeof(TestTSS) - 1, 103u);  // limit = sizeof(TSS) - 1
 }
 
-/// Verify GDT_TSS selector (0x28) points to entry index 5
-TEST("usermode: GDT_TSS selector index is 5") {
-    ASSERT_EQ(static_cast<unsigned>(GDT_TSS / 8), 5u);
+/// Verify GDT_TSS selector (0x38) points to entry index 7
+TEST("usermode: GDT_TSS selector index is 7") {
+    ASSERT_EQ(static_cast<unsigned>(GDT_TSS / 8), 7u);
 }
 
 // ============================================================

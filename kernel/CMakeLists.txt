@@ -66,6 +66,7 @@ add_library(big_kernel_common OBJECT
     arch/x86_64/usermode.cpp
     arch/x86_64/syscall.S
     arch/x86_64/syscall.cpp
+    syscall/sys_read.cpp
     syscall/sys_write.cpp
     syscall/sys_exit.cpp
     syscall/sys_yield.cpp
@@ -115,6 +116,7 @@ add_executable(big_kernel_test
     test/test_sync.cpp
     test/test_usermode.cpp
     test/test_syscall.cpp
+    test/test_shell.cpp
 )
 
 target_sources(big_kernel_test PRIVATE $<TARGET_OBJECTS:big_kernel_common>)
