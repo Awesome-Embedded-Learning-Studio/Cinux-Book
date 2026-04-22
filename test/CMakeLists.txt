@@ -442,13 +442,28 @@ add_test(NAME vfs_mount COMMAND test_vfs_mount)
 set_tests_properties(vfs_mount PROPERTIES LABELS "vfs_mount")
 
 # ============================================================
+# 测试可执行文件：test_ext2
+# ============================================================
+# ext2 filesystem: packed struct sizes, field offsets, block_size
+# computation, group/inode offset arithmetic, constants, enum values.
+# Pure arithmetic -- no kernel code linked.
+add_executable(test_ext2
+    unit/test_ext2.cpp
+)
+
+target_compile_definitions(test_ext2 PRIVATE CINUX_HOST_TEST)
+target_include_directories(test_ext2 PRIVATE ${TEST_INCLUDE_DIRS})
+add_test(NAME ext2 COMMAND test_ext2)
+set_tests_properties(ext2 PROPERTIES LABELS "ext2")
+
+# ============================================================
 # 测试辅助目标
 # ============================================================
 
 # Host 端单元测试
 add_custom_target(test_host
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm test_vmm test_heap test_address_space test_scheduler test_sync test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table test_vfs_mount
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm test_vmm test_heap test_address_space test_scheduler test_sync test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table test_vfs_mount test_ext2
     USES_TERMINAL
     COMMENT "Running host unit tests..."
 )
@@ -463,7 +478,7 @@ configure_file(
 
 add_custom_target(test
     COMMAND sh ${CMAKE_BINARY_DIR}/run_all_tests.sh
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm test_vmm test_heap test_address_space test_scheduler test_sync test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table test_vfs_mount test-image
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm test_vmm test_heap test_address_space test_scheduler test_sync test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table test_vfs_mount test_ext2 test-image
     USES_TERMINAL
     COMMENT "Running ALL tests (host then kernel)..."
 )
@@ -471,7 +486,7 @@ add_custom_target(test
 # 详细模式运行 host 测试
 add_custom_target(test_verbose
     COMMAND ${CMAKE_CTEST_COMMAND} --verbose --output-on-failure
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm test_vmm test_heap test_address_space test_scheduler test_sync test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table test_vfs_mount
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm test_vmm test_heap test_address_space test_scheduler test_sync test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table test_vfs_mount test_ext2
     COMMENT "Running host tests in verbose mode..."
 )
 

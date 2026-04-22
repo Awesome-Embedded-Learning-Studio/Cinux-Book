@@ -43,6 +43,7 @@ void run_shell_tests();
 void run_ahci_tests();
 void run_ramdisk_tests();
 void run_vfs_syscall_tests();
+void run_ext2_tests();
 }
 
 static constexpr uintptr_t BOOT_INFO_PHYS = 0x7000;
@@ -117,6 +118,9 @@ extern "C" void kernel_main() {
 
     // VFS syscall integration tests (027): sys_open/read/write/close via VFS
     run_vfs_syscall_tests();
+
+    // Ext2 filesystem tests (028): mount, lookup, read, readdir, VFS integration
+    run_ext2_tests();
 
     // Step 5: Report and exit
     int exit_code = (test::get_total_failed() > 0) ? 1 : 0;

@@ -8,20 +8,6 @@
 
 ## Phase 8 · 存储与文件系统
 
-### `028_fs_ext2`
-**效果**：挂载 QEMU ext2 分区，shell 中 `ls /` 和 `cat /etc/motd` 可用
-
-- ☐ `Ext2Superblock [[gnu::packed]]`：`s_inodes_count/s_blocks_count/s_log_block_size/s_magic=0xEF53` 等关键字段
-- ☐ `Ext2Inode [[gnu::packed]]`：`i_mode/i_uid/i_size/i_block[15]`（0-11 直接块，12 单重间接，13 双重间接）
-- ☐ `Ext2DirEntry [[gnu::packed]]`：`inode/rec_len/name_len/file_type/name[]`
-- ☐ `ext2_init()`：读 superblock（磁盘偏移 1024B），验证 magic，计算 block_size=`1024<<s_log_block_size`，读 block group descriptor table
-- ☐ `ext2_read_inode(ino)`：group=(ino-1)/inodes_per_group，table_block=bg_inode_table，偏移=(ino-1)%inodes_per_group × inode_size
-- ☐ `ext2_read_file(inode,buf,offset,len)`：遍历 `i_block[0-11]`（直接），支持 `i_block[12]`（单重间接块），不要求实现写
-- ☐ `ext2_readdir(inode,index)`：遍历目录数据块的 `Ext2DirEntry` 链表（`rec_len` 步进）
-- ☐ 挂载到 VFS：实现 `FileSystem` concept，`mount("/")`；shell 新增 `ls` 和 `cat` builtin 调 `sys_open/read/close`
-
----
-
 ### `028b_sync_safety`
 **效果**：所有内核共享数据结构加锁保护，PMM/Heap/调度器/中断上下文可安全并发
 

@@ -46,7 +46,7 @@
 #include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/drivers/ahci/ahci.hpp"
 #include "kernel/drivers/pci/pci.hpp"
-#include "kernel/fs/ramdisk.hpp"
+#include "kernel/fs/ext2.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/drivers/video/console.hpp"
 #include "kernel/drivers/video/font.hpp"
@@ -169,9 +169,9 @@ extern "C" void kernel_main() {
     pci.init();
 
     // Step 21: Find AHCI controller and initialise
+    static cinux::drivers::ahci::AHCI ahci;
     cinux::drivers::pci::PCIDevice ahci_dev;
     if (pci.find_ahci(ahci_dev)) {
-        cinux::drivers::ahci::AHCI ahci;
         ahci.init(ahci_dev);
 
         // Step 22: Read sector 0 (MBR) and check boot signature
@@ -198,18 +198,18 @@ extern "C" void kernel_main() {
         cinux::lib::kprintf("[AHCI] No AHCI controller found.\n");
     }
 
-    // Step 22: Mount the embedded initrd ramdisk (ustar archive)
-    cinux::lib::kprintf("[BIG] ===== Milestone 026: Ramdisk (initrd) =====\n");
-    static cinux::fs::Ramdisk ramdisk;
-    if (!ramdisk.mount()) {
-        cinux::lib::kprintf("[RAMDISK] mount failed!\n");
+    // Step 22: Mount ext2 filesystem from AHCI port 1
+    cinux::lib::kprintf("[BIG] ===== Milestone 028: ext2 Filesystem =====\n");
+    static cinux::fs::Ext2 ext2(ahci, 1);
+    if (!ext2.mount()) {
+        cinux::lib::kprintf("[EXT2] mount failed!\n");
     }
 
-    // Step 27: Register ramdisk in VFS mount table
+    // Step 27: Register ext2 in VFS mount table
     cinux::lib::kprintf("[BIG] ===== Milestone 027: VFS =====\n");
     cinux::fs::vfs_mount_init();
-    cinux::fs::vfs_mount_add("/", &ramdisk);
-    cinux::lib::kprintf("[VFS] Ramdisk mounted at /\n");
+    cinux::fs::vfs_mount_add("/", &ext2);
+    cinux::lib::kprintf("[VFS] ext2 mounted at /\n");
 
     // Step 23: Launch the first user-mode program (Ring 3)
     cinux::lib::kprintf("[BIG] ===== Milestone 023: Syscall from Ring 3 =====\n");
