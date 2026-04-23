@@ -41,13 +41,12 @@
 #include "kernel/arch/x86_64/gdt.hpp"
 #include "kernel/arch/x86_64/idt.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
+#include "kernel/arch/x86_64/memory_layout.hpp"
 #include "kernel/arch/x86_64/pic.hpp"
 #include "kernel/arch/x86_64/syscall.hpp"
 #include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/drivers/ahci/ahci.hpp"
 #include "kernel/drivers/pci/pci.hpp"
-#include "kernel/fs/ext2.hpp"
-#include "kernel/fs/vfs_mount.hpp"
 #include "kernel/drivers/video/console.hpp"
 #include "kernel/drivers/video/font.hpp"
 #include "kernel/drivers/video/framebuffer.hpp"
@@ -58,21 +57,24 @@
 #include "kernel/mm/vmm.hpp"
 #include "kernel/mm/heap.hpp"
 #include "kernel/mm/address_space.hpp"
+#include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/init.hpp"
+#include "kernel/proc/process.hpp"
 
 using cinux::arch::PIC;
 using cinux::drivers::Console;
 using cinux::drivers::Framebuffer;
 using cinux::drivers::Keyboard;
-using cinux::drivers::KeyEvent;
 using cinux::drivers::PIT;
 using cinux::drivers::PSFFont;
+using cinux::proc::Scheduler;
+using cinux::proc::TaskBuilder;
 
 // BootInfo is placed at physical 0x7000 by the bootloader
 static constexpr uintptr_t BOOT_INFO_PHYS = 0x7000;
 
 // Forward declarations for IRQ init (defined in irq_handlers.cpp)
 extern "C" void irq_init();
-extern "C" void run_concurrent_stress();
 
 
 /**
@@ -126,7 +128,7 @@ extern "C" void kernel_main() {
     cinux::mm::AddressSpace::init_kernel();
 
     // Step 12: Initialise kernel heap (64 KB initial region after kernel image)
-    constexpr uint64_t HEAP_VIRT_BASE = 0xFFFF800000000000ULL;
+    constexpr uint64_t HEAP_VIRT_BASE = cinux::arch::KMEM_HEAP_BASE;
     constexpr uint64_t HEAP_INITIAL_SIZE = 64 * 1024;
     cinux::mm::g_heap.init(HEAP_VIRT_BASE, HEAP_INITIAL_SIZE);
 
@@ -174,11 +176,12 @@ extern "C" void kernel_main() {
     cinux::drivers::pci::PCIDevice ahci_dev;
     if (pci.find_ahci(ahci_dev)) {
         ahci.init(ahci_dev);
+        cinux::drivers::ahci::AHCI::set_instance(&ahci);
 
         // Step 22: Read sector 0 (MBR) and check boot signature
         uint64_t buf_phys = cinux::mm::g_pmm.alloc_page();
         if (buf_phys != 0) {
-            constexpr uint64_t buf_virt = 0xFFFF800000300000ULL;
+            constexpr uint64_t buf_virt = cinux::arch::KMEM_DMA_BASE;
             constexpr uint64_t buf_flags = cinux::arch::FLAG_PRESENT
                                          | cinux::arch::FLAG_WRITABLE;
             cinux::mm::g_vmm.map(buf_virt, buf_phys, buf_flags);
@@ -199,35 +202,32 @@ extern "C" void kernel_main() {
         cinux::lib::kprintf("[AHCI] No AHCI controller found.\n");
     }
 
-    // Step 22: Mount ext2 filesystem from AHCI port 1
-    cinux::lib::kprintf("[BIG] ===== Milestone 028: ext2 Filesystem =====\n");
-    static cinux::fs::Ext2 ext2(ahci, 1);
-    if (!ext2.mount()) {
-        cinux::lib::kprintf("[EXT2] mount failed!\n");
+    // Step 22: Initialise scheduler and spawn kernel init thread
+    cinux::lib::kprintf("[BIG] ===== Scheduler & Init Thread =====\n");
+    Scheduler::init();
+
+    auto* init_task = TaskBuilder()
+        .set_entry(cinux::proc::kernel_init_thread)
+        .set_name("kernel_init")
+        .build();
+    if (init_task != nullptr) {
+        Scheduler::add_task(init_task);
     }
 
-    // Step 27: Register ext2 in VFS mount table
-    cinux::lib::kprintf("[BIG] ===== Milestone 027: VFS =====\n");
-    cinux::fs::vfs_mount_init();
-    cinux::fs::vfs_mount_add("/", &ext2);
-    cinux::lib::kprintf("[VFS] ext2 mounted at /\n");
+    auto* boot_task = TaskBuilder()
+        .set_entry([]() {
+            cinux::lib::kprintf("[BOOT] boot_task_entry reached -- UNEXPECTED\n");
+            while (true) __asm__ volatile("hlt");
+        })
+        .set_name("boot")
+        .build();
+    if (boot_task != nullptr) {
+        Scheduler::run_first(boot_task);
+    }
 
-    // Step 23: Launch the first user-mode program (Ring 3)
-    cinux::lib::kprintf("[BIG] ===== Milestone 023: Syscall from Ring 3 =====\n");
-    run_concurrent_stress();
-
-    cinux::lib::kprintf("[BIG] Returned from user mode launch (unexpected).\n");
-
-    // Step 24: Keyboard poll loop -- echo keypresses to console + serial
-    KeyEvent ev;
-    while (1) {
+    cinux::lib::kprintf("[BOOT] All tasks exited, entering idle loop.\n");
+    while (true) {
+        Scheduler::yield();
         __asm__ volatile("hlt");
-
-        // Drain all pending keyboard events
-        while (Keyboard::poll(ev)) {
-            if (ev.pressed && ev.ascii != 0) {
-                console.putc(ev.ascii);
-            }
-        }
     }
 }

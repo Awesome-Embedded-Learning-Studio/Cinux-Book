@@ -44,6 +44,8 @@ namespace cinux::drivers::ahci {
  */
 class AHCI {
 public:
+    static AHCI& instance();
+    static void set_instance(AHCI* ahci);
     /**
      * @brief Initialise the AHCI controller from a PCI device descriptor
      *
@@ -167,6 +169,8 @@ private:
 
     /// MMIO base pointer (virtual address of BAR5)
     HBAMem* hba_mem_{};
+
+    static AHCI* s_instance_;
 
     /// Physical addresses of per-port command lists
     uint64_t cmd_list_phys_[MAX_PORTS]{};

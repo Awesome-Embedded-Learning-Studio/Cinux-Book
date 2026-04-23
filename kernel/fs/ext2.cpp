@@ -14,6 +14,7 @@
 #include <stddef.h>
 
 #include "kernel/arch/x86_64/paging_config.hpp"
+#include "kernel/arch/x86_64/memory_layout.hpp"
 #include "kernel/drivers/ahci/ahci.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/lib/string.hpp"
@@ -27,7 +28,7 @@ namespace cinux::fs {
 // ============================================================
 
 /// Base virtual address for ext2 DMA page mappings
-static constexpr uint64_t EXT2_DMA_VIRT_BASE = 0xFFFF800000400000ULL;
+static constexpr uint64_t EXT2_DMA_VIRT_BASE = cinux::arch::KMEM_EXT2_DMA_BASE;
 
 // ============================================================
 // Ext2FileOps method implementations

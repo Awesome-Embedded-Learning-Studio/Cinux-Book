@@ -476,3 +476,34 @@ constexpr uint64_t BIG_KERNEL_LOAD_ADDR  = 0x1000000;   // 16MB
 
 **验证**
 - ☑ 全局审计：grep 所有 static/global 可变状态，确认已保护或标注「启动单线程」
+
+---
+
+### `028e_init_thread`
+
+**效果**：调度器启动对齐 Linux init 线程模型；统一内核虚拟内存布局；修复 launch_first_user 绕过调度器
+
+**调度器启动重构**
+- ☑ `Scheduler::init()` 从 `run_concurrent_stress()` 提取到 `kernel_main()` 直接调用
+- ☑ 新建 `kernel/proc/init.cpp`：`kernel_init_thread()` 负责文件系统挂载 + shell 启动（Linux PID 1 等价）
+- ☑ `kernel_main()` 创建 boot task 后调用 `run_first()`，启动调度后进入 yield+hlt 空闲回退
+- ☑ 删除 `kernel/stress/stress_test.cpp` 及整个 `kernel/stress/` 目录
+
+**修复 launch_first_user 绕过调度器**
+- ☑ 删除 `usermode.cpp` 中手动创建的零初始化 `static Task shell_task{}`
+- ☑ 改为使用调度器管理的当前 Task（kernel_init），更新其 `addr_space` 和 `cwd`
+- ☑ `user_space` 改为 placement new（避免 `AddressSpace` 析构器触发 `__dso_handle` 链接错误）
+
+**AHCI 全局实例封装**
+- ☑ AHCI 类添加 `static instance()/set_instance()` 方法，替代裸全局变量
+- ☑ `main.cpp` 初始化后 `set_instance()`，`init.cpp` 通过 `AHCI::instance()` 访问
+
+**统一内核虚拟内存布局**
+- ☑ 新建 `kernel/arch/x86_64/memory_layout.hpp`：定义 KMEM_HEAP/MMIO/STACK/DMA/EXT2_DMA 区域
+- ☑ 所有区域通过 base + size 计算，新增区域只需插入一行
+- ☑ 修复内核栈虚拟地址覆盖 AHCI MMIO 映射导致 ext2 挂载失败的 bug
+
+**验证**
+- ☑ host 单元测试全部通过（28 tests）
+- ☑ QEMU 内核测试（run-kernel-test）通过
+- ☑ QEMU 生产内核（run）启动正常：scheduler → init thread → ext2 mount → shell

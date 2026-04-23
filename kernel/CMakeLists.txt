@@ -70,6 +70,7 @@ add_library(big_kernel_common OBJECT
     proc/process.cpp
     proc/scheduler.cpp
     proc/sync.cpp
+    proc/init.cpp
     arch/x86_64/context_switch.S
     arch/x86_64/usermode.S
     arch/x86_64/usermode.cpp
@@ -127,7 +128,6 @@ add_custom_target(initrd_obj DEPENDS ${INITRD_OBJ})
 # Production big kernel executable
 add_executable(big_kernel
     main.cpp
-    stress/stress_test.cpp
 )
 
 target_sources(big_kernel PRIVATE $<TARGET_OBJECTS:big_kernel_common>)

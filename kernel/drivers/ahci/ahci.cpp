@@ -9,11 +9,18 @@
 #include <stdint.h>
 
 #include "kernel/arch/x86_64/paging_config.hpp"
+#include "kernel/arch/x86_64/memory_layout.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vmm.hpp"
 
 namespace cinux::drivers::ahci {
+
+AHCI* AHCI::s_instance_ = nullptr;
+
+AHCI& AHCI::instance() { return *s_instance_; }
+
+void AHCI::set_instance(AHCI* ahci) { s_instance_ = ahci; }
 
 // ============================================================
 // Internal constants
@@ -21,7 +28,7 @@ namespace cinux::drivers::ahci {
 
 /// Virtual address region reserved for MMIO mappings
 /// Using the same high-canonical range as the heap but well separated
-static constexpr uint64_t MMIO_VIRT_BASE = 0xFFFF800000100000ULL;
+static constexpr uint64_t MMIO_VIRT_BASE = cinux::arch::KMEM_MMIO_BASE;
 
 /// Spin limit for polling operations (~1 second at ~1 GHz)
 static constexpr uint32_t POLL_TIMEOUT = 100000000U;

@@ -10,6 +10,7 @@
 #include <stddef.h>
 
 #include "kernel/arch/x86_64/paging_config.hpp"
+#include "kernel/arch/x86_64/memory_layout.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/heap.hpp"
 #include "kernel/mm/pmm.hpp"
@@ -26,7 +27,7 @@ namespace {
 
 std::atomic<uint64_t> next_tid{1};
 
-std::atomic<uint64_t> next_stack_vaddr{0xFFFF800000100000ULL};
+std::atomic<uint64_t> next_stack_vaddr{cinux::arch::KMEM_STACK_BASE};
 
 uint64_t alloc_stack_vaddr(uint64_t pages) {
     uint64_t vaddr = next_stack_vaddr.fetch_add(pages * cinux::arch::PAGE_SIZE, std::memory_order_relaxed);

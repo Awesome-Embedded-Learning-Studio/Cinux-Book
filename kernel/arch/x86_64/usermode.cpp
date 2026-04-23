@@ -11,6 +11,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <new>
 
 #include "kernel/arch/x86_64/gdt.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
@@ -64,7 +65,8 @@ void usermode_init() {
 void launch_first_user() {
 	kprintf("[USER] Setting up first user-mode program...\n");
 
-	AddressSpace user_space;
+	alignas(alignof(AddressSpace)) static uint8_t user_space_storage[sizeof(AddressSpace)];
+	auto* user_space = new (user_space_storage) AddressSpace;
 
 	constexpr uint64_t KERNEL_VMA = 0xFFFFFFFF80000000ULL;
 	size_t			   user_size  = _binary_shell_bin_end - _binary_shell_bin_start;
@@ -83,7 +85,7 @@ void launch_first_user() {
 		}
 
 		uint64_t virt = USER_ENTRY_BASE + page * PAGE_SIZE;
-		if (!user_space.map(virt, code_phys, kUserPageFlags)) {
+		if (!user_space->map(virt, code_phys, kUserPageFlags)) {
 			kprintf("[USER] FATAL: failed to map user code page %u at %p\n",
 					page, reinterpret_cast<void*>(virt));
 			return;
@@ -112,7 +114,7 @@ void launch_first_user() {
 		}
 
 		uint64_t virt = stack_base + i * PAGE_SIZE;
-		if (!user_space.map(virt, phys, kUserPageFlags)) {
+		if (!user_space->map(virt, phys, kUserPageFlags)) {
 			kprintf("[USER] FATAL: failed to map user stack page at %p\n",
 					reinterpret_cast<void*>(virt));
 			return;
@@ -122,7 +124,7 @@ void launch_first_user() {
 	{
 		auto* kern_pml4 =
 			reinterpret_cast<const uint64_t*>(AddressSpace::kernel_pml4() + KERNEL_VMA);
-		auto* user_pml4 = reinterpret_cast<uint64_t*>(user_space.pml4_phys() + KERNEL_VMA);
+		auto* user_pml4 = reinterpret_cast<uint64_t*>(user_space->pml4_phys() + KERNEL_VMA);
 
 		if ((kern_pml4[0] & FLAG_PRESENT) && (user_pml4[0] & FLAG_PRESENT)) {
 			auto* kern_pdpt =
@@ -137,9 +139,9 @@ void launch_first_user() {
 		}
 	}
 
-	user_space.activate();
+	user_space->activate();
 	kprintf("[USER] User address space activated (PML4 at phys %p).\n",
-			reinterpret_cast<void*>(user_space.pml4_phys()));
+			reinterpret_cast<void*>(user_space->pml4_phys()));
 
 	uint64_t kernel_rsp0;
 	__asm__ volatile("movq %%rsp, %0" : "=r"(kernel_rsp0));
@@ -163,12 +165,13 @@ void launch_first_user() {
 	kprintf("[USER] Jumping to Ring 3: entry=%p stack=%p\n",
 			reinterpret_cast<void*>(USER_ENTRY_BASE), reinterpret_cast<void*>(USER_STACK_TOP));
 
-	// Create a minimal Task so chdir/getcwd can read/write a per-process cwd
-	static cinux::proc::Task shell_task{};
-	shell_task.cwd[0] = '/';
-	shell_task.cwd[1] = '\0';
-	shell_task.state = cinux::proc::TaskState::Running;
-	cinux::proc::Scheduler::set_current(&shell_task);
+	auto* current = cinux::proc::Scheduler::current();
+	if (current != nullptr) {
+		current->addr_space = user_space;
+		current->cwd[0] = '/';
+		current->cwd[1] = '\0';
+		cinux::proc::Scheduler::set_current(current);
+	}
 
 	jump_to_usermode(USER_ENTRY_BASE, USER_STACK_TOP - USER_ABI_RSP_OFFSET, 0);
 
