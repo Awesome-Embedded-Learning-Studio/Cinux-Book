@@ -93,18 +93,19 @@ syscall_entry:
     # System V AMD64: args in %rdi, %rsi, %rdx, %rcx, %r8, %r9, then stack
     # Load arg6 before pushing so offsets are correct
     movq 72(%rsp), %rax                # frame+72→%rax: a6 (original R9)
-    pushq %rax                         # %rax→(%rsp): push 7th C arg onto stack (shifts frame by +8)
+    subq $8, %rsp                      # align stack to 16 bytes before push
+    pushq %rax                         # %rax→(%rsp): push 7th C arg onto stack (shifts frame by +16)
 
-    movq 32(%rsp), %rdi                # frame+32→%rdi: 1st arg = syscall number (+8 offset)
-    movq 40(%rsp), %rsi                # frame+40→%rsi: 2nd arg = a1 (original RDI)
-    movq 48(%rsp), %rdx                # frame+48→%rdx: 3rd arg = a2 (original RSI)
-    movq 56(%rsp), %rcx                # frame+56→%rcx: 4th arg = a3 (original RDX)
-    movq 64(%rsp), %r8                 # frame+64→%r8:  5th arg = a4 (original R10)
-    movq 72(%rsp), %r9                 # frame+72→%r9:  6th arg = a5 (original R8)
+    movq 40(%rsp), %rdi                # frame+40→%rdi: 1st arg = syscall number (+16 offset)
+    movq 48(%rsp), %rsi                # frame+48→%rsi: 2nd arg = a1 (original RDI)
+    movq 56(%rsp), %rdx                # frame+56→%rdx: 3rd arg = a2 (original RSI)
+    movq 64(%rsp), %rcx                # frame+64→%rcx: 4th arg = a3 (original RDX)
+    movq 72(%rsp), %r8                 # frame+72→%r8:  5th arg = a4 (original R10)
+    movq 80(%rsp), %r9                 # frame+80→%r9:  6th arg = a5 (original R8)
 
     call syscall_dispatch              # call C dispatcher
 
-    addq $8, %rsp                      # $8→%rsp: remove 7th arg from stack
+    addq $16, %rsp                     # $16→%rsp: remove 7th arg + alignment pad from stack
 
     # Step 5: Save return value in GS scratch slot 2 (gs:16)
     #         Cannot use RBX -- it must be restored from the trap frame.

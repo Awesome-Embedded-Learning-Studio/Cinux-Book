@@ -160,6 +160,10 @@ constexpr CmdEntry builtin_cmds[] = {
     {"clear", cmd_clear},
     {"cat",   cmd_cat},
     {"ls",    cmd_ls},
+    {"touch", cmd_touch},
+    {"mkdir", cmd_mkdir},
+    {"rm",    cmd_rm},
+    {"rmdir", cmd_rmdir},
     {nullptr, nullptr},
 };
 

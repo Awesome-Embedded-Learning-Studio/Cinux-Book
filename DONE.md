@@ -418,3 +418,19 @@ constexpr uint64_t BIG_KERNEL_LOAD_ADDR  = 0x1000000;   // 16MB
 - ☑ `ext2_read_file(inode,buf,offset,len)`：遍历 `i_block[0-11]`（直接），支持 `i_block[12]`（单重间接块），不要求实现写
 - ☑ `ext2_readdir(inode,index)`：遍历目录数据块的 `Ext2DirEntry` 链表（`rec_len` 步进）
 - ☑ 挂载到 VFS：实现 `FileSystem` concept，`mount("/")`；shell 新增 `ls` 和 `cat` builtin 调 `sys_open/read/close`
+
+---
+
+### `028b_fs_ext2_write`
+**效果**：shell 中 `touch /hello.txt`、`mkdir /tmp`、`echo hello > /file`、`rm /file` 可用
+
+- ☑ ext2 block allocator：扫描 block bitmap 找空闲块，分配并标记，回写 bitmap 到磁盘
+- ☑ ext2 inode allocator：扫描 inode bitmap 找空闲 inode，分配并标记，回写 bitmap 到磁盘
+- ☑ ext2 write：`ext2_file_write()` 写入数据，按需分配新 block（直接块 0-11 + 单间接块 12），更新 inode size，回写 inode 到磁盘
+- ☑ ext2 create：`ext2_create(parent_inode, name)` 分配 inode + 添加目录项 + 回写目录块
+- ☑ ext2 mkdir：`ext2_mkdir(parent_inode, name)` 分配 inode + 初始化 `.`/`..` 目录项 + 回写
+- ☑ ext2 unlink：`ext2_unlink(parent_inode, name)` 移除目录项 + 释放 block + 释放 inode + 回写 bitmap
+- ☑ InodeOps 扩展：`create` / `mkdir` / `unlink` 函数指针加入 `InodeOps`
+- ☑ `sys_creat` / `sys_mkdir` / `sys_unlink` / `sys_rmdir` syscall 注册与实现
+- ☑ Shell 新增命令：`touch`、`mkdir`、`rm`、`rmdir`、输出重定向 `echo ... > file`
+- ☑ AHCI write 路径打通：ext2 修改后的 block/bitmap/inode 通过 AHCI::write 回写磁盘

@@ -22,6 +22,7 @@
 #include <stddef.h>
 
 #include "fs/ext2_types.hpp"
+#include "fs/inode.hpp"
 #include "fs/vfs_filesystem.hpp"
 
 namespace cinux::drivers::ahci {
@@ -36,6 +37,51 @@ namespace cinux::fs {
 
 /// Maximum block groups supported (covers up to ~8 GB with 4K blocks)
 static constexpr uint32_t EXT2_MAX_GROUPS = 128;
+
+// ============================================================
+// Ext2 InodeOps subclasses (forward-declared, defined in ext2.cpp)
+// ============================================================
+
+class Ext2;
+
+/**
+ * @brief InodeOps for ext2 regular files
+ *
+ * Overrides read() and write(); all other operations use the
+ * InodeOps defaults (return -1 / nullptr).
+ */
+class Ext2FileOps : public InodeOps {
+public:
+    explicit Ext2FileOps(Ext2& ext2);
+
+    int64_t read(const Inode* inode, uint64_t offset,
+                 void* buf, uint64_t count) override;
+    int64_t write(Inode* inode, uint64_t offset,
+                  const void* buf, uint64_t count) override;
+
+private:
+    Ext2& ext2_;
+};
+
+/**
+ * @brief InodeOps for ext2 directories
+ *
+ * Overrides readdir(), create(), mkdir(), and unlink();
+ * read()/write() use the InodeOps defaults.
+ */
+class Ext2DirOps : public InodeOps {
+public:
+    explicit Ext2DirOps(Ext2& ext2);
+
+    int64_t readdir(const Inode* inode, uint64_t index,
+                    char* name, uint64_t name_max) override;
+    Inode* create(Inode* dir, const char* name, uint32_t namelen) override;
+    Inode* mkdir(Inode* dir, const char* name, uint32_t namelen) override;
+    int64_t unlink(Inode* dir, const char* name, uint32_t namelen) override;
+
+private:
+    Ext2& ext2_;
+};
 
 // ============================================================
 // Ext2 Filesystem Driver Class
@@ -114,34 +160,218 @@ public:
      */
     bool read_block(uint32_t block_num);
 
-private:
+    /**
+     * @brief Write the DMA buffer contents back to an ext2 block on disk
+     *
+     * The caller should first populate the DMA buffer (via dma_buf_virt())
+     * with the modified block data, then call write_block() to flush it
+     * to disk.  This is the counterpart to read_block().
+     *
+     * @param block_num  ext2 block number (0-based)
+     * @return true on success, false on I/O error
+     */
+    bool write_block(uint32_t block_num);
+
     // ============================================================
-    // Disk I/O helpers
+    // File / directory mutation
     // ============================================================
 
     /**
-     * @brief Ensure the DMA buffer is allocated and mapped
+     * @brief Create a new regular file inside a directory
      *
-     * Allocates a physical page and maps it into kernel virtual
-     * address space if not already done.  Called lazily by
-     * read_block() on first use.
+     * Allocates a new inode, initialises it as a regular file (mode REG,
+     * links_count = 1), adds a directory entry in the parent, and writes
+     * all modified metadata back to disk.
      *
-     * @return true if the buffer is ready, false on allocation failure
+     * @param parent_ino  Inode number of the parent directory
+     * @param name        Name of the new file (NOT null-terminated)
+     * @param name_len    Length of the name
+     * @return Pointer to the new VFS Inode on success, nullptr on failure
      */
-    bool ensure_dma_buffer();
+    Inode* create(uint32_t parent_ino, const char* name, uint32_t name_len);
+
+    /**
+     * @brief Create a new subdirectory inside a directory
+     *
+     * Allocates a new inode, initialises it as a directory (mode DIR,
+     * links_count = 2), allocates one data block, writes "." and ".."
+     * entries, adds a directory entry in the parent, and writes all
+     * modified metadata back to disk.
+     *
+     * @param parent_ino  Inode number of the parent directory
+     * @param name        Name of the new directory (NOT null-terminated)
+     * @param name_len    Length of the name
+     * @return Pointer to the new VFS Inode on success, nullptr on failure
+     */
+    Inode* mkdir(uint32_t parent_ino, const char* name, uint32_t name_len);
+
+    /**
+     * @brief Remove a directory entry and, if link count reaches zero,
+     *        free the associated inode and data blocks
+     *
+     * Scans the parent directory for the named entry, removes it, and
+     * decrements the target inode's link count.  If the link count
+     * becomes zero, all data blocks are freed and the inode is released.
+     *
+     * @param parent_ino  Inode number of the parent directory
+     * @param name        Name of the entry to remove (NOT null-terminated)
+     * @param name_len    Length of the name
+     * @return 0 on success, -1 on failure
+     */
+    int unlink(uint32_t parent_ino, const char* name, uint32_t name_len);
+
+    // ============================================================
+    // Block allocator
+    // ============================================================
+
+    /**
+     * @brief Allocate a free data block from the filesystem
+     *
+     * Scans block bitmaps across all block groups to find a free block.
+     * Marks the block as used in the bitmap, updates the superblock and
+     * block group descriptor free-block counts, and writes all modified
+     * metadata back to disk.
+     *
+     * @return Allocated block number (0-based), or 0 if the filesystem is full
+     */
+    uint32_t alloc_block();
+
+    /**
+     * @brief Release a previously allocated data block
+     *
+     * Clears the block's bit in the appropriate block bitmap, updates
+     * the superblock and block group descriptor free-block counts, and
+     * writes all modified metadata back to disk.
+     *
+     * @param block_num  ext2 block number to free (must be > 0)
+     * @return true on success, false on error
+     */
+    bool free_block(uint32_t block_num);
+
+    // ============================================================
+    // Inode allocator
+    // ============================================================
+
+    /**
+     * @brief Allocate a free inode from the filesystem
+     *
+     * Scans inode bitmaps across all block groups to find a free inode.
+     * Marks the inode as used in the bitmap, updates the superblock and
+     * block group descriptor free-inode counts, and writes all modified
+     * metadata back to disk.
+     *
+     * @return Allocated inode number (1-based), or 0 if no free inodes
+     */
+    uint32_t alloc_inode();
+
+    /**
+     * @brief Release a previously allocated inode
+     *
+     * Clears the inode's bit in the appropriate inode bitmap, updates
+     * the superblock and block group descriptor free-inode counts, and
+     * writes all modified metadata back to disk.
+     *
+     * @param ino  Inode number to free (1-based, must be > 0)
+     * @return true on success, false on error
+     */
+    bool free_inode(uint32_t ino);
+
+    // ============================================================
+    // Disk inode read/write (public for InodeOps callback access)
+    // ============================================================
 
     /**
      * @brief Read an on-disk inode by inode number
-     *
-     * Computes the block group, locates the inode table, reads
-     * the appropriate block, and copies the inode data into
-     * the provided buffer.
      *
      * @param ino          Inode number (1-based)
      * @param out_inode    Output buffer for the inode data
      * @return true on success, false on I/O error
      */
     bool read_disk_inode(uint32_t ino, Ext2Inode& out_inode);
+
+    /**
+     * @brief Write an on-disk inode back to disk
+     *
+     * @param ino          Inode number (1-based)
+     * @param inode        The inode data to write
+     * @return true on success, false on I/O error
+     */
+    bool write_disk_inode(uint32_t ino, const Ext2Inode& inode);
+
+    /**
+     * @brief Get or allocate a block pointer for a given file block index
+     *
+     * @param disk      On-disk inode (modified with new block pointers)
+     * @param file_block  Logical block index within the file (0..12)
+     * @return Disk block number allocated, or 0 on failure
+     */
+    uint32_t get_or_alloc_block(Ext2Inode& disk, uint32_t file_block);
+
+    /**
+     * @brief Add a directory entry to a parent directory
+     *
+     * @param dir_ino      Parent directory inode number
+     * @param dir_disk     On-disk inode (modified in-memory)
+     * @param entry_ino    Inode number of the new entry
+     * @param name         Entry name (NOT null-terminated)
+     * @param name_len     Length of the name
+     * @param file_type    Ext2FileType value for the new entry
+     * @return true on success, false on failure
+     */
+    bool add_dir_entry(uint32_t dir_ino, Ext2Inode& dir_disk,
+                       uint32_t entry_ino, const char* name,
+                       uint32_t name_len, Ext2FileType file_type);
+
+    /**
+     * @brief Remove a directory entry from a parent directory
+     *
+     * @param dir_ino      Parent directory inode number
+     * @param dir_disk     On-disk inode of the parent directory
+     * @param name         Entry name to remove (NOT null-terminated)
+     * @param name_len     Length of the name
+     * @param out_entry_ino  [out] Inode number of the removed entry
+     * @return true on success, false on failure
+     */
+    bool remove_dir_entry(uint32_t dir_ino, const Ext2Inode& dir_disk,
+                          const char* name, uint32_t name_len,
+                          uint32_t& out_entry_ino);
+
+private:
+    // ============================================================
+    // Internal helpers
+    // ============================================================
+
+    /**
+     * @brief Ensure the DMA buffer is allocated and mapped
+     *
+     * @return true if the buffer is ready, false on allocation failure
+     */
+    bool ensure_dma_buffer();
+
+    // ============================================================
+    // Metadata write-back helpers
+    // ============================================================
+
+    /**
+     * @brief Write the cached superblock back to disk
+     *
+     * Flushes the in-memory sb_ to the on-disk superblock location
+     * (byte offset 1024).
+     *
+     * @return true on success, false on I/O error
+     */
+    bool write_superblock();
+
+    /**
+     * @brief Write a single block group descriptor back to disk
+     *
+     * Reads the BGDT block that contains the specified group's descriptor,
+     * patches the descriptor entry, and writes the block back.
+     *
+     * @param group  Block group index (0-based)
+     * @return true on success, false on I/O error
+     */
+    bool write_bgdt(uint32_t group);
 
     // ============================================================
     // Inode cache management
@@ -189,6 +419,10 @@ private:
     // ============================================================
     // Member data
     // ============================================================
+
+    /// Ops instances for file and directory inodes
+    Ext2FileOps file_ops_;
+    Ext2DirOps  dir_ops_;
 
     /// Reference to the AHCI controller
     cinux::drivers::ahci::AHCI& ahci_;

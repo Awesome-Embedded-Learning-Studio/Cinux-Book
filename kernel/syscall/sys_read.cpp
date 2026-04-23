@@ -87,10 +87,6 @@ int64_t sys_read(uint64_t fd, uint64_t buf_virt, uint64_t count,
         return -1;
     }
 
-    if (file->inode->ops->read == nullptr) {
-        return -1;
-    }
-
     auto* buf = reinterpret_cast<void*>(buf_virt);
     int64_t result = file->inode->ops->read(file->inode, file->offset, buf, count);
 

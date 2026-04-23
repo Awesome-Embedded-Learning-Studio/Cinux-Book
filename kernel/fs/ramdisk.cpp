@@ -36,21 +36,15 @@ extern const uint8_t _binary_initrd_end[];
 
 namespace {
 
-/**
- * @brief Read bytes from a ramdisk inode at a given offset
- *
- * Copies data from the ramdisk archive into the caller's buffer.
- * The file data pointer and size are stored in the RamdiskEntry
- * referenced by the inode's fs_private field.
- *
- * @param inode   The inode to read from
- * @param offset  Byte offset within the file
- * @param buf     Destination buffer (kernel address)
- * @param count   Number of bytes to read
- * @return Number of bytes actually read, or -1 on error
- */
-int64_t ramdisk_read(const Inode* inode, uint64_t offset,
-                     void* buf, uint64_t count) {
+class RamdiskFileOps : public InodeOps {
+public:
+    int64_t read(const Inode* inode, uint64_t offset,
+                 void* buf, uint64_t count) override;
+    int64_t write(Inode*, uint64_t, const void*, uint64_t) override;
+};
+
+int64_t RamdiskFileOps::read(const Inode* inode, uint64_t offset,
+                             void* buf, uint64_t count) {
     if (inode == nullptr || inode->fs_private == nullptr || buf == nullptr) {
         return -1;
     }
@@ -70,31 +64,23 @@ int64_t ramdisk_read(const Inode* inode, uint64_t offset,
     return static_cast<int64_t>(to_read);
 }
 
-/**
- * @brief Write bytes to a ramdisk inode (read-only, always returns error)
- */
-int64_t ramdisk_write(Inode*, uint64_t, const void*, uint64_t) {
+int64_t RamdiskFileOps::write(Inode*, uint64_t, const void*, uint64_t) {
     return -1;
 }
 
-/**
- * @brief Read the next directory entry name from the ramdisk
- *
- * Treats the entire ramdisk as a flat directory.  The index maps to
- * the entry table: entry 0 is ".", entry 1 is "..", and entries
- * 2..N+1 are the actual file entries.
- *
- * The directory inode's fs_private points to a RamdiskDirContext that
- * holds the entry table pointer and entry count, set up during mount().
- *
- * @param inode      Directory inode
- * @param index      Entry index (0-based)
- * @param name       Output buffer for the entry name
- * @param name_max   Size of the output buffer
- * @return 1 if an entry was read, 0 if no more entries, -1 on error
- */
-int64_t ramdisk_readdir(const Inode* inode, uint64_t index,
-                        char* name, uint64_t name_max) {
+class RamdiskDirOps : public InodeOps {
+public:
+    int64_t write(Inode*, uint64_t, const void*, uint64_t) override;
+    int64_t readdir(const Inode* inode, uint64_t index,
+                    char* name, uint64_t name_max) override;
+};
+
+int64_t RamdiskDirOps::write(Inode*, uint64_t, const void*, uint64_t) {
+    return -1;
+}
+
+int64_t RamdiskDirOps::readdir(const Inode* inode, uint64_t index,
+                               char* name, uint64_t name_max) {
     if (inode == nullptr || inode->fs_private == nullptr ||
         name == nullptr || name_max == 0) {
         return -1;
@@ -103,7 +89,6 @@ int64_t ramdisk_readdir(const Inode* inode, uint64_t index,
     auto* ctx = static_cast<const RamdiskDirContext*>(inode->fs_private);
 
     if (index == 0) {
-        // "." entry
         if (name_max < 2) {
             return -1;
         }
@@ -113,7 +98,6 @@ int64_t ramdisk_readdir(const Inode* inode, uint64_t index,
     }
 
     if (index == 1) {
-        // ".." entry
         if (name_max < 3) {
             return -1;
         }
@@ -128,7 +112,6 @@ int64_t ramdisk_readdir(const Inode* inode, uint64_t index,
         return 0;
     }
 
-    // Copy the entry name from the entry table
     const char* src = ctx->entries[file_index].name;
     uint64_t copy_len = name_max - 1;
     uint64_t i = 0;
@@ -139,20 +122,6 @@ int64_t ramdisk_readdir(const Inode* inode, uint64_t index,
     name[i] = '\0';
     return 1;
 }
-
-/// Static InodeOps instance for regular file inodes
-InodeOps ramdisk_file_ops = {
-    ramdisk_read,
-    ramdisk_write,
-    nullptr,  // no readdir for regular files
-};
-
-/// Static InodeOps instance for the root directory inode
-InodeOps ramdisk_dir_ops = {
-    nullptr,          // no read on directories
-    ramdisk_write,    // still returns -1
-    ramdisk_readdir,
-};
 
 // ============================================================
 // Internal helpers
@@ -215,6 +184,10 @@ uint64_t octal_to_uint(const char* s, size_t len) {
 }
 
 bool Ramdisk::mount() {
+    // Allocate ops instances
+    file_ops_ = new RamdiskFileOps();
+    dir_ops_ = new RamdiskDirOps();
+
     // Step 1: Resolve archive boundaries from linker symbols
     base_ = _binary_initrd_start;
     size_ = static_cast<uint64_t>(_binary_initrd_end - _binary_initrd_start);
@@ -272,7 +245,7 @@ bool Ramdisk::mount() {
                 entry.inode.ino = entry_count_;
                 entry.inode.size = file_size;
                 entry.inode.type = InodeType::Regular;
-                entry.inode.ops = &ramdisk_file_ops;
+                entry.inode.ops = file_ops_;
                 entry.inode.fs_private = &entry;
 
                 cinux::lib::kprintf("[RAMDISK]   FILE: ");
@@ -303,7 +276,7 @@ bool Ramdisk::mount() {
     root_inode_.ino = 0;
     root_inode_.size = 0;
     root_inode_.type = InodeType::Directory;
-    root_inode_.ops = &ramdisk_dir_ops;
+    root_inode_.ops = dir_ops_;
     root_inode_.fs_private = &root_ctx_;
 
     return entry_count_ > 0;

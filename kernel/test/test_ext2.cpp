@@ -39,7 +39,6 @@ using cinux::drivers::ahci::AHCI;
 using cinux::fs::Ext2;
 using cinux::fs::Inode;
 using cinux::fs::InodeType;
-using cinux::fs::InodeOps;
 
 // ============================================================
 // Helper: create an initialised AHCI + Ext2 for each test
@@ -157,7 +156,6 @@ void test_lookup_root_has_readdir_ops() {
     Inode* root = pair.ext2->lookup("");
     TEST_ASSERT_NOT_NULL(root);
     TEST_ASSERT_NOT_NULL(root->ops);
-    TEST_ASSERT_NOT_NULL(root->ops->readdir);
 
     teardown_ext2(pair);
 }
@@ -204,7 +202,6 @@ void test_lookup_file_has_read_ops() {
     TEST_ASSERT_EQ(static_cast<uint32_t>(ino->type),
                    static_cast<uint32_t>(InodeType::Regular));
     TEST_ASSERT_NOT_NULL(ino->ops);
-    TEST_ASSERT_NOT_NULL(ino->ops->read);
 
     // Read the file content
     char buf[256] = {};
@@ -213,11 +210,9 @@ void test_lookup_file_has_read_ops() {
 
     cinux::lib::kprintf("[EXT2] Read %ld bytes from file\n", n);
 
-    // Write returns -1 (read-only)
-    if (ino->ops->write != nullptr) {
-        int64_t w = ino->ops->write(ino, 0, "x", 1);
-        TEST_ASSERT_EQ(w, -1);
-    }
+    // Write should succeed now that write path is implemented
+    int64_t w = ino->ops->write(ino, 0, "x", 1);
+    TEST_ASSERT_EQ(w, 1);
 
     teardown_ext2(pair);
 }
@@ -294,8 +289,6 @@ void test_readdir_dot_and_dotdot() {
     Inode* root = pair.ext2->lookup("");
     TEST_ASSERT_NOT_NULL(root);
     TEST_ASSERT_NOT_NULL(root->ops);
-    TEST_ASSERT_NOT_NULL(root->ops->readdir);
-
     char name[256] = {};
 
     // Index 0: "."
@@ -448,8 +441,6 @@ void test_vfs_open_read_close() {
     TEST_ASSERT_NOT_NULL(file);
     TEST_ASSERT_NOT_NULL(file->inode);
     TEST_ASSERT_NOT_NULL(file->inode->ops);
-    TEST_ASSERT_NOT_NULL(file->inode->ops->read);
-
     char buf[256] = {};
     int64_t n = file->inode->ops->read(file->inode, file->offset, buf,
                                         sizeof(buf) - 1);

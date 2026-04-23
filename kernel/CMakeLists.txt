@@ -55,6 +55,7 @@ add_library(big_kernel_common OBJECT
     drivers/video/console.cpp
     drivers/pci/pci.cpp
     drivers/ahci/ahci.cpp
+    fs/inode.cpp
     fs/ramdisk.cpp
     fs/ext2.cpp
     fs/file.cpp
@@ -80,6 +81,10 @@ add_library(big_kernel_common OBJECT
     syscall/sys_exit.cpp
     syscall/sys_yield.cpp
     syscall/sys_getdents.cpp
+    syscall/sys_creat.cpp
+    syscall/sys_mkdir.cpp
+    syscall/sys_unlink.cpp
+    syscall/sys_rmdir.cpp
 )
 
 target_compile_options(big_kernel_common PUBLIC ${BIG_KERNEL_COMPILE_OPTIONS})
@@ -159,6 +164,12 @@ add_executable(big_kernel_test
     test/test_ramdisk.cpp
     test/test_vfs_syscall.cpp
     test/test_ext2.cpp
+    test/test_ahci_write.cpp
+    test/test_ext2_allocator.cpp
+    test/test_ext2_ops.cpp
+    test/test_ext2_inode_ops.cpp
+    test/test_syscall_ext2.cpp
+    test/test_shell_write.cpp
 )
 
 target_sources(big_kernel_test PRIVATE $<TARGET_OBJECTS:big_kernel_common>)

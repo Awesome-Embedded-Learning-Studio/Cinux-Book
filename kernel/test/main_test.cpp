@@ -44,6 +44,12 @@ void run_ahci_tests();
 void run_ramdisk_tests();
 void run_vfs_syscall_tests();
 void run_ext2_tests();
+void run_ahci_write_tests();
+void run_ext2_allocator_tests();
+void run_ext2_ops_tests();
+void run_ext2_inode_ops_tests();
+void run_syscall_ext2_tests();
+void run_shell_write_tests();
 }
 
 static constexpr uintptr_t BOOT_INFO_PHYS = 0x7000;
@@ -121,6 +127,24 @@ extern "C" void kernel_main() {
 
     // Ext2 filesystem tests (028): mount, lookup, read, readdir, VFS integration
     run_ext2_tests();
+
+    // AHCI write + ext2 write_block tests (028b): write round-trip, write_block
+    run_ahci_write_tests();
+
+    // Ext2 allocator tests (028b): alloc_block, free_block, alloc_inode, free_inode
+    run_ext2_allocator_tests();
+
+    // Ext2 write/create/mkdir/unlink tests (028b)
+    run_ext2_ops_tests();
+
+    // Ext2 InodeOps virtual class tests (028b)
+    run_ext2_inode_ops_tests();
+
+    // Syscall ext2 integration tests (028b): sys_creat/mkdir/unlink/rmdir
+    run_syscall_ext2_tests();
+
+    // Shell write command tests (028b): touch/mkdir/rm/rmdir/echo redirect
+    run_shell_write_tests();
 
     // Step 5: Report and exit
     int exit_code = (test::get_total_failed() > 0) ? 1 : 0;

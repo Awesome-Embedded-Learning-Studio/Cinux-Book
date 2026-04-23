@@ -26,6 +26,10 @@ enum class SyscallNr : uint64_t {
     SYS_exit     = 60,
     SYS_yield    = 24,
     SYS_getdents = 78,
+    SYS_mkdir    = 83,
+    SYS_rmdir    = 84,
+    SYS_creat    = 85,
+    SYS_unlink   = 87,
 };
 
 constexpr uint64_t SYSCALL_TABLE_SIZE = 256;

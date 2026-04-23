@@ -235,11 +235,20 @@ add_custom_target(run-stress-test
 )
 
 # 运行测试内核（自动退出模式）
+# 每次 run-kernel-test 前强制重建 ext2.img，确保磁盘状态干净
+add_custom_target(regenerate-ext2-image
+    COMMAND ${CMAKE_COMMAND} -E remove -f ${EXT2_IMAGE}
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh ${EXT2_IMAGE}
+    DEPENDS ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh
+    COMMENT "Regenerating ext2 disk image for clean test state"
+    VERBATIM
+)
+
 add_custom_target(run-kernel-test
     COMMAND ${CMAKE_SOURCE_DIR}/scripts/qemu_test_wrapper.sh
         ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} ${QEMU_TEST_EXTRA_FLAGS}
         -drive file=${CINUX_TEST_IMAGE_PATH},format=raw,index=0,media=disk
-    DEPENDS test-image ${AHCI_TEST_IMAGE} ${EXT2_IMAGE}
+    DEPENDS test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
     USES_TERMINAL
     COMMENT "Starting QEMU with TEST kernel (auto-exit)"
     VERBATIM

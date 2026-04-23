@@ -29,7 +29,7 @@ struct CmdEntry {
 // Built-in command handlers (one per .cpp file)
 // ============================================================
 
-/** @brief echo: print arguments separated by spaces (cmd_echo.cpp) */
+/** @brief echo: print arguments separated by spaces; supports > redirect (cmd_echo.cpp) */
 void cmd_echo(int argc, char** argv);
 
 /** @brief help: print list of available commands (cmd_help.cpp) */
@@ -43,3 +43,15 @@ void cmd_cat(int argc, char** argv);
 
 /** @brief ls: list directory contents (cmd_ls.cpp) */
 void cmd_ls(int argc, char** argv);
+
+/** @brief touch: create an empty file (cmd_touch.cpp) */
+void cmd_touch(int argc, char** argv);
+
+/** @brief mkdir: create a new directory (cmd_mkdir.cpp) */
+void cmd_mkdir(int argc, char** argv);
+
+/** @brief rm: remove a file (cmd_rm.cpp) */
+void cmd_rm(int argc, char** argv);
+
+/** @brief rmdir: remove an empty directory (cmd_rmdir.cpp) */
+void cmd_rmdir(int argc, char** argv);

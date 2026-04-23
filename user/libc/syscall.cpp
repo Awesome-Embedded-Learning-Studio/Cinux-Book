@@ -70,6 +70,26 @@ int64_t sys_getdents(int fd, void* buf, size_t count) {
                      (uint64_t)fd, (uint64_t)buf, (uint64_t)count);
 }
 
+int64_t sys_creat(const char* path) {
+    return _syscall1(static_cast<uint64_t>(SyscallNr::SYS_creat),
+                     (uint64_t)path);
+}
+
+int64_t sys_mkdir(const char* path) {
+    return _syscall1(static_cast<uint64_t>(SyscallNr::SYS_mkdir),
+                     (uint64_t)path);
+}
+
+int64_t sys_unlink(const char* path) {
+    return _syscall1(static_cast<uint64_t>(SyscallNr::SYS_unlink),
+                     (uint64_t)path);
+}
+
+int64_t sys_rmdir(const char* path) {
+    return _syscall1(static_cast<uint64_t>(SyscallNr::SYS_rmdir),
+                     (uint64_t)path);
+}
+
 void sys_exit(int code) {
     _syscall1(static_cast<uint64_t>(SyscallNr::SYS_exit), (uint64_t)code);
     __builtin_unreachable();

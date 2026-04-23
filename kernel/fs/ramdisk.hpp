@@ -126,6 +126,10 @@ public:
     uint32_t entry_count() const;
 
 private:
+    /// Ops instances for file and directory inodes
+    InodeOps* file_ops_;
+    InodeOps* dir_ops_;
+
     /// Pointer to the start of the embedded archive
     const uint8_t* base_{};
 

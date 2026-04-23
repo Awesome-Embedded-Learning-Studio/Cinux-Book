@@ -37,52 +37,26 @@ enum class InodeType : uint8_t {
 struct Inode;
 
 /**
- * @brief Function-pointer table for inode-level operations
+ * @brief Abstract base class for inode-level operations
  *
- * Each concrete filesystem fills an InodeOps with pointers to its own
- * read / write / readdir implementations.  This avoids per-inode
- * virtual dispatch overhead (no vtable pointer) while remaining
- * extensible.
- *
- * Every function pointer may be nullptr if the operation is unsupported
- * for a given inode type (e.g. readdir on a regular file).
+ * Each concrete filesystem provides InodeOps subclasses that implement
+ * read, write, readdir, create, mkdir, and unlink.  Unsupported
+ * operations fall back to the default implementations (returning -1
+ * or nullptr).
  */
-struct InodeOps {
-    /**
-     * @brief Read bytes from an inode at a given offset
-     *
-     * @param inode   The inode to read from
-     * @param offset  Byte offset within the file
-     * @param buf     Destination buffer (kernel address)
-     * @param count   Number of bytes to read
-     * @return Number of bytes actually read, or -1 on error
-     */
-    int64_t (*read)(const Inode* inode, uint64_t offset,
-                    void* buf, uint64_t count);
+class InodeOps {
+public:
+    virtual ~InodeOps() = default;
 
-    /**
-     * @brief Write bytes to an inode at a given offset
-     *
-     * @param inode   The inode to write to
-     * @param offset  Byte offset within the file
-     * @param buf     Source buffer (kernel address)
-     * @param count   Number of bytes to write
-     * @return Number of bytes actually written, or -1 on error
-     */
-    int64_t (*write)(Inode* inode, uint64_t offset,
-                     const void* buf, uint64_t count);
-
-    /**
-     * @brief Read the next directory entry name
-     *
-     * @param inode  Directory inode
-     * @param index  Entry index (0-based, incremented by caller)
-     * @param name   Output buffer for the entry name
-     * @param name_max  Size of the output buffer
-     * @return 1 if an entry was read, 0 if no more entries, -1 on error
-     */
-    int64_t (*readdir)(const Inode* inode, uint64_t index,
-                       char* name, uint64_t name_max);
+    virtual int64_t read(const Inode* inode, uint64_t offset,
+                         void* buf, uint64_t count);
+    virtual int64_t write(Inode* inode, uint64_t offset,
+                          const void* buf, uint64_t count);
+    virtual int64_t readdir(const Inode* inode, uint64_t index,
+                            char* name, uint64_t name_max);
+    virtual Inode* create(Inode* dir, const char* name, uint32_t namelen);
+    virtual Inode* mkdir(Inode* dir, const char* name, uint32_t namelen);
+    virtual int64_t unlink(Inode* dir, const char* name, uint32_t namelen);
 };
 
 // ============================================================

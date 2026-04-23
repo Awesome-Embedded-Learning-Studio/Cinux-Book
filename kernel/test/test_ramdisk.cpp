@@ -103,7 +103,6 @@ void test_ramdisk_mount_returns_true() {
 void test_ramdisk_mount_finds_files() {
 	Ramdisk rd;
 	rd.mount();
-	// The test initrd.tar contains 3 files: hello.txt, readme.txt, etc/passwd
 	TEST_ASSERT_EQ(rd.entry_count(), 3u);
 }
 
@@ -189,13 +188,11 @@ void test_read_hello_content() {
 	auto* inode = rd.lookup("hello.txt");
 	TEST_ASSERT_NOT_NULL(inode);
 	TEST_ASSERT_NOT_NULL(inode->ops);
-	TEST_ASSERT_NOT_NULL(inode->ops->read);
 
 	char	buf[64] = {};
 	int64_t n		= inode->ops->read(inode, 0, buf, sizeof(buf) - 1);
 	TEST_ASSERT_GT(n, 0);
 
-	// hello.txt contains "Hello from Cinux!\n" (19 bytes with newline)
 	const char expected[]	= "Hello from Cinux!\n";
 	auto	   expected_len = static_cast<uint64_t>(sizeof(expected) - 1);
 	TEST_ASSERT_EQ(static_cast<uint64_t>(n), expected_len);
@@ -210,7 +207,6 @@ void test_read_with_offset() {
 	TEST_ASSERT_NOT_NULL(inode);
 
 	char	buf[8] = {};
-	// Skip first 6 bytes ("Hello ") and read "from"
 	int64_t n	   = inode->ops->read(inode, 6, buf, 4);
 	TEST_ASSERT_EQ(n, 4);
 	TEST_ASSERT_TRUE(memcmp(buf, "from", 4) == 0);
@@ -224,7 +220,6 @@ void test_read_past_end_returns_zero() {
 	TEST_ASSERT_NOT_NULL(inode);
 
 	char	buf[8] = {};
-	// Read from beyond file size
 	int64_t n	   = inode->ops->read(inode, 10000, buf, 4);
 	TEST_ASSERT_EQ(n, 0);
 }
@@ -235,7 +230,6 @@ void test_write_returns_error() {
 
 	auto* inode = rd.lookup("hello.txt");
 	TEST_ASSERT_NOT_NULL(inode);
-	TEST_ASSERT_NOT_NULL(inode->ops->write);
 
 	const char data[] = "test";
 	int64_t	   n	  = inode->ops->write(inode, 0, data, 4);
@@ -243,15 +237,7 @@ void test_write_returns_error() {
 }
 
 void test_read_null_inode_returns_error() {
-	// ramdisk_read with null inode should return -1
-	// We can't easily construct an InodeOps here since the ops are static
-	// in ramdisk.cpp's anonymous namespace.  Instead, test via a null File.
-	// cinux::fs::File null_file{};
-	// null_file.inode = nullptr;
-
-	// Call through the same path sys_read would use
 	cinux::fs::FDTable fd_table;
-	// No file allocated, so get returns nullptr -> sys_read path returns -1
 	cinux::fs::File*   f = fd_table.get(0);
 	TEST_ASSERT_NULL(f);
 }
@@ -265,32 +251,26 @@ void test_read_null_inode_returns_error() {
 namespace test_vfs_integration {
 
 void test_vfs_mount_and_resolve() {
-	// Initialise VFS mount table
 	cinux::fs::vfs_mount_init();
 
-	// Create and mount a Ramdisk at "/"
 	Ramdisk* rd = new Ramdisk();
 	TEST_ASSERT_TRUE(rd->mount());
 
 	bool added = cinux::fs::vfs_mount_add("/", rd);
 	TEST_ASSERT_TRUE(added);
 
-	// Resolve should find the ramdisk
 	const char*			   rel_path = nullptr;
 	cinux::fs::FileSystem* fs		= cinux::fs::vfs_resolve("/hello.txt", &rel_path);
 	TEST_ASSERT_NOT_NULL(fs);
 	TEST_ASSERT_NOT_NULL(rel_path);
 
-	// The relative path should be "hello.txt" (past the "/" mount prefix)
 	TEST_ASSERT_TRUE(strcmp(rel_path, "hello.txt") == 0);
 
-	// Clean up
 	cinux::fs::vfs_mount_remove("/");
 	delete rd;
 }
 
 void test_vfs_open_read_close() {
-	// Initialise VFS and FD table
 	cinux::fs::vfs_mount_init();
 
 	Ramdisk* rd = new Ramdisk();
@@ -298,7 +278,6 @@ void test_vfs_open_read_close() {
 
 	cinux::fs::vfs_mount_add("/", rd);
 
-	// Simulate sys_open: resolve -> lookup -> alloc
 	const char*			   rel_path = nullptr;
 	cinux::fs::FileSystem* fs		= cinux::fs::vfs_resolve("/hello.txt", &rel_path);
 	TEST_ASSERT_NOT_NULL(fs);
@@ -309,12 +288,10 @@ void test_vfs_open_read_close() {
 	int fd = cinux::fs::g_global_fd_table().alloc(inode, cinux::fs::OpenFlags::RDONLY);
 	TEST_ASSERT_GE(fd, 0);
 
-	// Simulate sys_read: get File -> inode -> ops -> read
 	cinux::fs::File* file = cinux::fs::g_global_fd_table().get(fd);
 	TEST_ASSERT_NOT_NULL(file);
 	TEST_ASSERT_NOT_NULL(file->inode);
 	TEST_ASSERT_NOT_NULL(file->inode->ops);
-	TEST_ASSERT_NOT_NULL(file->inode->ops->read);
 
 	char	buf[64] = {};
 	int64_t n		= file->inode->ops->read(file->inode, file->offset, buf, sizeof(buf) - 1);
@@ -323,23 +300,18 @@ void test_vfs_open_read_close() {
 	const char expected[] = "Hello from Cinux!\n";
 	TEST_ASSERT_TRUE(memcmp(buf, expected, sizeof(expected) - 1) == 0);
 
-	// Update offset (simulating what sys_read does)
 	file->offset += static_cast<uint64_t>(n);
 
-	// Read again from new offset -- should return 0 (past end)
 	char	buf2[16] = {};
 	int64_t n2		 = file->inode->ops->read(file->inode, file->offset, buf2, sizeof(buf2));
 	TEST_ASSERT_EQ(n2, 0);
 
-	// Simulate sys_close
 	int close_result = cinux::fs::g_global_fd_table().close(fd);
 	TEST_ASSERT_EQ(close_result, 0);
 
-	// Verify fd is no longer valid
 	cinux::fs::File* closed_file = cinux::fs::g_global_fd_table().get(fd);
 	TEST_ASSERT_NULL(closed_file);
 
-	// Clean up
 	cinux::fs::vfs_mount_remove("/");
 	delete rd;
 }
@@ -359,7 +331,6 @@ void test_vfs_open_nonexistent_fails() {
 	cinux::fs::Inode* inode = fs->lookup(rel_path);
 	TEST_ASSERT_NULL(inode);
 
-	// Clean up
 	cinux::fs::vfs_mount_remove("/");
 	delete rd;
 }
@@ -367,7 +338,6 @@ void test_vfs_open_nonexistent_fails() {
 void test_vfs_close_invalid_fd() {
 	cinux::fs::vfs_mount_init();
 
-	// Closing an unallocated fd should return -1
 	int result = cinux::fs::g_global_fd_table().close(42);
 	TEST_ASSERT_EQ(result, -1);
 }
@@ -380,7 +350,6 @@ void test_vfs_open_multiple_files() {
 
 	cinux::fs::vfs_mount_add("/", rd);
 
-	// Open hello.txt
 	const char*			   rel1 = nullptr;
 	cinux::fs::FileSystem* fs1	= cinux::fs::vfs_resolve("/hello.txt", &rel1);
 	TEST_ASSERT_NOT_NULL(fs1);
@@ -389,7 +358,6 @@ void test_vfs_open_multiple_files() {
 	int fd1 = cinux::fs::g_global_fd_table().alloc(ino1, cinux::fs::OpenFlags::RDONLY);
 	TEST_ASSERT_GE(fd1, 0);
 
-	// Open readme.txt
 	const char*			   rel2 = nullptr;
 	cinux::fs::FileSystem* fs2	= cinux::fs::vfs_resolve("/readme.txt", &rel2);
 	TEST_ASSERT_NOT_NULL(fs2);
@@ -398,21 +366,17 @@ void test_vfs_open_multiple_files() {
 	int fd2 = cinux::fs::g_global_fd_table().alloc(ino2, cinux::fs::OpenFlags::RDONLY);
 	TEST_ASSERT_GE(fd2, 0);
 
-	// Different fds
 	TEST_ASSERT_NE(fd1, fd2);
 
-	// Read from hello.txt (fd1)
 	cinux::fs::File* f1 = cinux::fs::g_global_fd_table().get(fd1);
 	TEST_ASSERT_NOT_NULL(f1);
 	char	buf1[64] = {};
 	int64_t n1		 = f1->inode->ops->read(f1->inode, 0, buf1, sizeof(buf1) - 1);
 	TEST_ASSERT_GT(n1, 0);
 
-	// Close both
 	TEST_ASSERT_EQ(cinux::fs::g_global_fd_table().close(fd1), 0);
 	TEST_ASSERT_EQ(cinux::fs::g_global_fd_table().close(fd2), 0);
 
-	// Clean up
 	cinux::fs::vfs_mount_remove("/");
 	delete rd;
 }

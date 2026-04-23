@@ -38,10 +38,6 @@ int64_t sys_getdents(uint64_t fd, uint64_t buf_virt, uint64_t count,
         return -1;
     }
 
-    if (file->inode->ops->readdir == nullptr) {
-        return -1;
-    }
-
     auto* name_buf = reinterpret_cast<char*>(buf_virt);
     int64_t result = file->inode->ops->readdir(
         file->inode, file->offset, name_buf, count);

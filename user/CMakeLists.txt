@@ -35,6 +35,10 @@ add_executable(user_shell
     programs/shell/cmd_clear.cpp
     programs/shell/cmd_cat.cpp
     programs/shell/cmd_ls.cpp
+    programs/shell/cmd_touch.cpp
+    programs/shell/cmd_mkdir.cpp
+    programs/shell/cmd_rm.cpp
+    programs/shell/cmd_rmdir.cpp
 )
 target_compile_options(user_shell PRIVATE ${USER_COMPILE_FLAGS})
 target_compile_definitions(user_shell PRIVATE __USER__)

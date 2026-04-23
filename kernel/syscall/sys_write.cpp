@@ -52,10 +52,6 @@ int64_t sys_write(uint64_t fd, uint64_t buf_virt, uint64_t count,
         return -1;
     }
 
-    if (file->inode->ops->write == nullptr) {
-        return -1;
-    }
-
     const auto* buf = reinterpret_cast<const void*>(buf_virt);
     int64_t result = file->inode->ops->write(file->inode, file->offset, buf, count);
 

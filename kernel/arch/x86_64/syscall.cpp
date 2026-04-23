@@ -21,6 +21,10 @@
 #include "kernel/syscall/sys_exit.hpp"
 #include "kernel/syscall/sys_yield.hpp"
 #include "kernel/syscall/sys_getdents.hpp"
+#include "kernel/syscall/sys_creat.hpp"
+#include "kernel/syscall/sys_mkdir.hpp"
+#include "kernel/syscall/sys_unlink.hpp"
+#include "kernel/syscall/sys_rmdir.hpp"
 
 namespace cinux::arch {
 
@@ -58,6 +62,10 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_exit,  sys_exit);
     syscall_register(SyscallNr::SYS_yield, sys_yield);
     syscall_register(SyscallNr::SYS_getdents, sys_getdents);
+    syscall_register(SyscallNr::SYS_creat,    sys_creat);
+    syscall_register(SyscallNr::SYS_mkdir,    sys_mkdir);
+    syscall_register(SyscallNr::SYS_unlink,   sys_unlink);
+    syscall_register(SyscallNr::SYS_rmdir,    sys_rmdir);
 }
 
 }  // anonymous namespace

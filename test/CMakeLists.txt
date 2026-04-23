@@ -408,6 +408,7 @@ set_tests_properties(ramdisk PROPERTIES LABELS "ramdisk")
 # Links directly with kernel/fs/file.cpp (no hardware dependencies).
 add_executable(test_fd_table
     unit/test_fd_table.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/fs/inode.cpp
     ${CMAKE_SOURCE_DIR}/kernel/fs/file.cpp
 )
 
@@ -428,6 +429,7 @@ set_tests_properties(fd_table PROPERTIES LABELS "fd_table")
 # Links with kernel/fs/vfs_mount.cpp and kernel/fs/file.cpp.
 add_executable(test_vfs_mount
     unit/test_vfs_mount.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/fs/inode.cpp
     ${CMAKE_SOURCE_DIR}/kernel/fs/vfs_mount.cpp
     ${CMAKE_SOURCE_DIR}/kernel/fs/file.cpp
 )
@@ -457,13 +459,109 @@ add_test(NAME ext2 COMMAND test_ext2)
 set_tests_properties(ext2 PROPERTIES LABELS "ext2")
 
 # ============================================================
+# 测试可执行文件：test_ahci_write
+# ============================================================
+# AHCI write path and ext2 write_block logic: CFIS write command encoding,
+# command header write flag, block-to-LBA arithmetic, PRDT byte count,
+# read-modify-write pattern verification.  Pure arithmetic -- no kernel
+# code linked.
+add_executable(test_ahci_write
+    unit/test_ahci_write.cpp
+)
+
+target_compile_definitions(test_ahci_write PRIVATE CINUX_HOST_TEST)
+target_include_directories(test_ahci_write PRIVATE ${TEST_INCLUDE_DIRS})
+add_test(NAME ahci_write COMMAND test_ahci_write)
+set_tests_properties(ahci_write PROPERTIES LABELS "ahci_write")
+
+# ============================================================
+# 测试可执行文件：test_ext2_allocator
+# ============================================================
+# ext2 block/inode allocator: bitmap scanning, bit manipulation,
+# cross-group allocation, free-then-realloc, counter consistency,
+# boundary conditions (last group, full filesystem, zero input).
+# Pure arithmetic -- no kernel code linked.
+add_executable(test_ext2_allocator
+    unit/test_ext2_allocator.cpp
+)
+
+target_compile_definitions(test_ext2_allocator PRIVATE CINUX_HOST_TEST)
+target_include_directories(test_ext2_allocator PRIVATE ${TEST_INCLUDE_DIRS})
+add_test(NAME ext2_allocator COMMAND test_ext2_allocator)
+set_tests_properties(ext2_allocator PROPERTIES LABELS "ext2_allocator")
+
+# ============================================================
+# 测试可执行文件：test_ext2_ops
+# ============================================================
+# ext2 write/create/mkdir/unlink operations: file write (single,
+# cross-block, multi-block), create inode+dir entry, mkdir with
+# dot/dotdot, unlink with block+inode free, add_dir_entry splitting,
+# remove_dir_entry merge, full flow round-trip.
+# Pure arithmetic -- no kernel code linked.
+add_executable(test_ext2_ops
+    unit/test_ext2_ops.cpp
+)
+
+target_compile_definitions(test_ext2_ops PRIVATE CINUX_HOST_TEST)
+target_include_directories(test_ext2_ops PRIVATE ${TEST_INCLUDE_DIRS})
+add_test(NAME ext2_ops COMMAND test_ext2_ops)
+set_tests_properties(ext2_ops PROPERTIES LABELS "ext2_ops")
+
+# ============================================================
+# 测试可执行文件：test_ext2_inode_ops
+# ============================================================
+# InodeOps virtual class hierarchy: default implementations,
+# MockFileOps/MockDirOps override dispatch, base-class pointer
+# virtual dispatch, Inode ops pointer assignment for file vs dir.
+# Pure C++ virtual dispatch testing -- no kernel code linked.
+add_executable(test_ext2_inode_ops
+    unit/test_ext2_inode_ops.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/fs/inode.cpp
+)
+
+target_compile_definitions(test_ext2_inode_ops PRIVATE CINUX_HOST_TEST)
+target_include_directories(test_ext2_inode_ops PRIVATE ${TEST_INCLUDE_DIRS})
+add_test(NAME ext2_inode_ops COMMAND test_ext2_inode_ops)
+set_tests_properties(ext2_inode_ops PROPERTIES LABELS "ext2_inode_ops")
+
+# ============================================================
+# 测试可执行文件：test_syscall_ext2
+# ============================================================
+# sys_creat/sys_mkdir/sys_unlink/sys_rmdir: split_pathname, path
+# resolution, canonical address validation, VFS dispatch, ops call.
+# Pure reimplementation -- no kernel code linked.
+add_executable(test_syscall_ext2
+    unit/test_syscall_ext2.cpp
+)
+
+target_compile_definitions(test_syscall_ext2 PRIVATE CINUX_HOST_TEST)
+target_include_directories(test_syscall_ext2 PRIVATE ${TEST_INCLUDE_DIRS})
+add_test(NAME syscall_ext2 COMMAND test_syscall_ext2)
+set_tests_properties(syscall_ext2 PROPERTIES LABELS "syscall_ext2")
+
+# ============================================================
+# 测试可执行文件：test_shell_write
+# ============================================================
+# Shell write commands: touch, mkdir, rm, rmdir, echo redirect.
+# Command parsing, usage messages, error output verification.
+# Pure reimplementation with mock syscalls -- no kernel code linked.
+add_executable(test_shell_write
+    unit/test_shell_write.cpp
+)
+
+target_compile_definitions(test_shell_write PRIVATE CINUX_HOST_TEST)
+target_include_directories(test_shell_write PRIVATE ${TEST_INCLUDE_DIRS})
+add_test(NAME shell_write COMMAND test_shell_write)
+set_tests_properties(shell_write PROPERTIES LABELS "shell_write")
+
+# ============================================================
 # 测试辅助目标
 # ============================================================
 
 # Host 端单元测试
 add_custom_target(test_host
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm test_vmm test_heap test_address_space test_scheduler test_sync test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table test_vfs_mount test_ext2
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm test_vmm test_heap test_address_space test_scheduler test_sync test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table test_vfs_mount test_ext2 test_ahci_write test_ext2_allocator test_ext2_ops test_ext2_inode_ops test_syscall_ext2 test_shell_write
     USES_TERMINAL
     COMMENT "Running host unit tests..."
 )
@@ -478,7 +576,7 @@ configure_file(
 
 add_custom_target(test
     COMMAND sh ${CMAKE_BINARY_DIR}/run_all_tests.sh
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm test_vmm test_heap test_address_space test_scheduler test_sync test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table test_vfs_mount test_ext2 test-image
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm test_vmm test_heap test_address_space test_scheduler test_sync test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table test_vfs_mount test_ext2 test_ahci_write test_ext2_allocator test_ext2_ops test_ext2_inode_ops test_syscall_ext2 test_shell_write test-image
     USES_TERMINAL
     COMMENT "Running ALL tests (host then kernel)..."
 )
@@ -486,7 +584,7 @@ add_custom_target(test
 # 详细模式运行 host 测试
 add_custom_target(test_verbose
     COMMAND ${CMAKE_CTEST_COMMAND} --verbose --output-on-failure
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm test_vmm test_heap test_address_space test_scheduler test_sync test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table test_vfs_mount test_ext2
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm test_vmm test_heap test_address_space test_scheduler test_sync test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table test_vfs_mount test_ext2 test_ahci_write test_ext2_allocator test_ext2_ops test_ext2_inode_ops test_syscall_ext2 test_shell_write
     COMMENT "Running host tests in verbose mode..."
 )
 
