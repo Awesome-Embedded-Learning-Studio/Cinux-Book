@@ -59,6 +59,7 @@ void run_window_tests();
 void run_window_manager_tests();
 void run_gui_integration_tests();
 void run_bitmap_icon_tests();
+void run_desktop_tests();
 void run_terminal_tests();
 void run_pipe_tests();
 void run_sys_pipe_tests();
@@ -135,6 +136,10 @@ extern "C" void kernel_main() {
     // Bitmap icon tests (032): draw_bitmap pixel rendering, transparency,
     // clipping, icon_data constants, DesktopIcon::contains hit testing
     run_bitmap_icon_tests();
+
+    // Desktop tests (033): WM init + add_desktop_icon + hit_test_icon +
+    // consume_pending_icon_action + composite with icons
+    run_desktop_tests();
 
     // Terminal tests (031): character buffer, cursor, write, ANSI, scroll
     run_terminal_tests();

@@ -35,20 +35,11 @@ Terminal::Terminal(uint32_t x, uint32_t y, const char* title)
 // ============================================================
 
 Terminal::~Terminal() {
-    // Close stdin pipe write end: shell's read() will return 0 (EOF)
-    // This signals to the shell that the terminal is gone.
-    if (stdin_pipe_ != nullptr) {
-        stdin_pipe_->close_writer();
-        stdin_pipe_ = nullptr;
-    }
-
-    // Close stdout pipe read end: shell's write() will return -1
-    // This prevents the shell from blocking on output after the
-    // terminal has been destroyed.
-    if (stdout_pipe_ != nullptr) {
-        stdout_pipe_->close_reader();
-        stdout_pipe_ = nullptr;
-    }
+    // Pipes are owned externally (by the process that created them).
+    // Just clear our references — do NOT close the pipe endpoints,
+    // since multiple terminals may share the same pipe pair.
+    stdin_pipe_  = nullptr;
+    stdout_pipe_ = nullptr;
 }
 
 // ============================================================

@@ -49,7 +49,7 @@ namespace detail {
  * @param c  ASCII hex digit ('0'-'9', 'a'-'f', 'A'-'F')
  * @return   Nibble value, or 0 for invalid characters
  */
-consteval uint32_t hex_nibble(char c) {
+constexpr uint32_t hex_nibble(char c) {
     if (c >= '0' && c <= '9')      return static_cast<uint32_t>(c - '0');
     if (c >= 'a' && c <= 'f')      return static_cast<uint32_t>(c - 'a') + 10;
     if (c >= 'A' && c <= 'F')      return static_cast<uint32_t>(c - 'A') + 10;
@@ -63,7 +63,7 @@ consteval uint32_t hex_nibble(char c) {
  * @param nibble  Index (0-15)
  * @return        32-bit colour from the palette
  */
-consteval uint32_t palette_lookup(const uint32_t (&pal)[16], uint32_t nibble) {
+constexpr uint32_t palette_lookup(const uint32_t (&pal)[16], uint32_t nibble) {
     return pal[nibble];
 }
 
@@ -79,7 +79,7 @@ consteval uint32_t palette_lookup(const uint32_t (&pal)[16], uint32_t nibble) {
  * @return         1024-element pixel array
  */
 template <uint32_t Rows>
-consteval std::array<uint32_t, 1024> build_icon(
+constexpr std::array<uint32_t, 1024> build_icon(
         const uint32_t (&palette)[16],
         const char* const (&rows)[Rows]) {
     static_assert(Rows == 32, "Icon must have exactly 32 rows");

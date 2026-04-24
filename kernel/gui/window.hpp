@@ -105,6 +105,16 @@ public:
      */
     virtual void on_paint(cinux::drivers::Canvas& canvas) { (void)canvas; }
 
+    /**
+     * @brief Query whether this window is a terminal
+     *
+     * Returns false for base Window; Terminal overrides to return true.
+     * Used by the GUI tick callback to avoid unsafe static_cast.
+     *
+     * @return true if this window is a Terminal, false otherwise
+     */
+    virtual bool is_terminal() const { return false; }
+
     // ============================================================
     // Drawing
     // ============================================================

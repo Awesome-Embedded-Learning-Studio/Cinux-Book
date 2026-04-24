@@ -10,7 +10,6 @@
 
 #ifdef CINUX_GUI
 #include "kernel/gui/gui_init.hpp"
-#include "kernel/gui/terminal.hpp"
 #include "kernel/ipc/pipe.hpp"
 #include "kernel/ipc/pipe_ops.hpp"
 #include "kernel/fs/file.hpp"
@@ -36,9 +35,6 @@ void kernel_init_thread() {
     cinux::lib::kprintf("[VFS] ext2 mounted at /\n");
 
 #ifdef CINUX_GUI
-    // Start the GUI: mouse init, terminal window, PIT tick callback
-    auto* term = cinux::gui::gui_start();
-
     // Create stdin pipe: Terminal on_key -> shell sys_read(0)
     auto* stdin_pipe = new cinux::ipc::Pipe();
     auto* stdin_read_ops = new cinux::ipc::PipeReadOps(stdin_pipe);
@@ -61,13 +57,15 @@ void kernel_init_thread() {
     auto* stdout_file = new cinux::fs::File(stdout_write_inode, 0, cinux::fs::OpenFlags::WRONLY);
     cinux::fs::g_global_fd_table().set(1, stdout_file);
 
-    // Connect pipes to the Terminal
-    term->set_stdin_pipe(stdin_pipe);
-    term->set_stdout_pipe(stdout_pipe);
+    // Store pipe pointers for the GUI subsystem
+    cinux::gui::set_shell_pipes(stdin_pipe, stdout_pipe);
 
     cinux::lib::kprintf("[INIT] Terminal-shell pipes connected: stdin_pipe=%p stdout_pipe=%p\n",
                         reinterpret_cast<void*>(stdin_pipe),
                         reinterpret_cast<void*>(stdout_pipe));
+
+    // Start the GUI: mouse init, desktop icons, PIT tick callback
+    cinux::gui::gui_start();
 #endif
 
     cinux::lib::kprintf("[INIT] ===== Milestone 023: Syscall from Ring 3 =====\n");

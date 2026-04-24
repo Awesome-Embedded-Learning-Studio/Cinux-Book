@@ -24,6 +24,7 @@
 #include <stdint.h>
 
 #include "kernel/drivers/canvas.hpp"
+#include "kernel/gui/desktop_icon.hpp"
 #include "kernel/gui/event.hpp"
 #include "kernel/gui/window.hpp"
 
@@ -52,7 +53,9 @@ public:
     // ============================================================
 
     static constexpr uint32_t MAX_WINDOWS    = 64;
+    static constexpr uint32_t MAX_ICONS      = 16;
     static constexpr uint32_t DESKTOP_COLOR  = 0x00224466;  // Dark teal desktop
+    static constexpr uint32_t ICON_LABEL_COLOR = 0x00FFFFFF;  // White icon labels
 
     // ============================================================
     // Singleton access
@@ -143,6 +146,44 @@ public:
      * @param id  Window ID to raise
      */
     void raise(uint32_t id);
+
+    // ============================================================
+    // Desktop icon management
+    // ============================================================
+
+    /**
+     * @brief Register a desktop icon for rendering and hit testing
+     *
+     * The icon is appended to the internal icon array.  It will be
+     * drawn by composite() and tested by hit_test_icon() on clicks.
+     *
+     * @param icon  The desktop icon to register
+     * @return      true if the icon was added, false if the array is full
+     */
+    bool add_desktop_icon(const DesktopIcon& icon);
+
+    /**
+     * @brief Check whether a screen coordinate hits any registered desktop icon
+     *
+     * Iterates through registered icons in reverse order so that
+     * later-registered icons take priority on overlap.
+     *
+     * @param mx  Mouse X in screen coordinates
+     * @param my  Mouse Y in screen coordinates
+     * @return    Pointer to the hit icon, or nullptr if none was hit
+     */
+    const DesktopIcon* hit_test_icon(int32_t mx, int32_t my) const;
+
+    /**
+     * @brief Consume and return the pending icon action, if any
+     *
+     * After a desktop icon click is detected in handle_mouse(), the
+     * action is stored in pending_icon_action_.  This method returns
+     * that action and resets it to IconAction::None.
+     *
+     * @return  The pending action, or IconAction::None if no click occurred
+     */
+    IconAction consume_pending_icon_action();
 
     // ============================================================
     // Compositing
@@ -251,6 +292,17 @@ private:
      */
     void draw_cursor(cinux::drivers::Canvas& screen);
 
+    /**
+     * @brief Draw all registered desktop icons onto the screen canvas
+     *
+     * Renders each icon's bitmap and centres its label text below it.
+     * Called by composite() after clearing the desktop and before
+     * blitting windows, so icons appear behind all windows.
+     *
+     * @param screen  The screen canvas to draw onto
+     */
+    void draw_desktop_icons(cinux::drivers::Canvas& screen);
+
     // ============================================================
     // Cursor bitmap
     // ============================================================
@@ -300,6 +352,11 @@ private:
     bool    dragging_      = false;    ///< True while a title-bar drag is active
     int32_t drag_offset_x_ = 0;        ///< Mouse X offset from window origin at drag start
     int32_t drag_offset_y_ = 0;        ///< Mouse Y offset from window origin at drag start
+
+    // Desktop icon state
+    DesktopIcon icons_[MAX_ICONS] = {};  ///< Registered desktop icons
+    uint32_t    icon_count_       = 0;   ///< Number of registered icons
+    IconAction  pending_icon_action_ = IconAction::None;  ///< Pending action from icon click
 
     // External dependencies (not owned)
     cinux::drivers::Canvas*  screen_ = nullptr;  ///< Screen canvas for compositing

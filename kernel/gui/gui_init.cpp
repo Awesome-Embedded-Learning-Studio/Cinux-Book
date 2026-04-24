@@ -13,9 +13,12 @@
 #include "kernel/drivers/mouse.hpp"
 #include "kernel/drivers/pit/pit.hpp"
 #include "kernel/drivers/video/font.hpp"
+#include "kernel/gui/desktop_icon.hpp"
 #include "kernel/gui/event.hpp"
+#include "kernel/gui/icon.hpp"
 #include "kernel/gui/terminal.hpp"
 #include "kernel/gui/window_manager.hpp"
+#include "kernel/ipc/pipe.hpp"
 #include "kernel/lib/kprintf.hpp"
 
 namespace cinux::gui {
@@ -27,6 +30,11 @@ namespace cinux::gui {
 namespace {
 cinux::drivers::Canvas*	 g_screen = nullptr;
 cinux::drivers::PSFFont* g_font	  = nullptr;
+
+// Shell pipe pointers set by set_shell_pipes() before gui_start()
+cinux::ipc::Pipe* g_stdin_pipe  = nullptr;
+cinux::ipc::Pipe* g_stdout_pipe = nullptr;
+
 }  // anonymous namespace
 
 // ============================================================
@@ -71,6 +79,63 @@ void gui_init(cinux::drivers::Canvas& screen, cinux::drivers::PSFFont& font) {
 }
 
 // ============================================================
+// set_shell_pipes() -- store pipe pointers for terminal creation
+// ============================================================
+
+void set_shell_pipes(cinux::ipc::Pipe* stdin_pipe, cinux::ipc::Pipe* stdout_pipe) {
+	g_stdin_pipe  = stdin_pipe;
+	g_stdout_pipe = stdout_pipe;
+	cinux::lib::kprintf("[GUI] Shell pipes stored: stdin=%p stdout=%p\n",
+	                    reinterpret_cast<void*>(stdin_pipe),
+	                    reinterpret_cast<void*>(stdout_pipe));
+}
+
+// ============================================================
+// Internal helper: create a shell terminal window
+// ============================================================
+
+namespace {
+
+void create_shell_terminal() {
+	auto& wm = WindowManager::instance();
+
+	// Calculate terminal dimensions
+	uint32_t term_w = Terminal::COLS * 8;	// 80 * 8 = 640
+	uint32_t term_h = Terminal::ROWS * 16;	// 25 * 16 = 400
+
+	// Centre the terminal on screen if possible
+	uint32_t term_x = 80;
+	uint32_t term_y = 60;
+
+	if (g_screen != nullptr) {
+		uint32_t sw = g_screen->width();
+		uint32_t sh = g_screen->height();
+		if (term_w + 80 < sw) {
+			term_x = (sw - term_w) / 2;
+		}
+		if (term_h + 60 < sh) {
+			term_y = (sh - term_h) / 2;
+		}
+	}
+
+	auto* term = new Terminal(term_x, term_y, "Cinux Terminal");
+	term->set_font(g_font);
+
+	// Connect shell pipes if available
+	if (g_stdin_pipe != nullptr) {
+		term->set_stdin_pipe(g_stdin_pipe);
+	}
+	if (g_stdout_pipe != nullptr) {
+		term->set_stdout_pipe(g_stdout_pipe);
+	}
+
+	wm.add_window(term);
+	cinux::lib::kprintf("[GUI] Shell terminal created and connected.\n");
+}
+
+}  // anonymous namespace
+
+// ============================================================
 // PIT tick callback: process events + composite
 // ============================================================
 
@@ -113,9 +178,15 @@ void gui_tick_callback(void* /*ctx*/) {
 		}
 	}
 
+	// Check if a desktop icon was clicked
+	IconAction action = wm.consume_pending_icon_action();
+	if (action == IconAction::OpenShell) {
+		create_shell_terminal();
+	}
+
 	// Poll the focused terminal for shell output (if it has a stdout pipe)
 	auto* focused = wm.focused();
-	if (focused != nullptr) {
+	if (focused != nullptr && focused->is_terminal()) {
 		auto* term = static_cast<Terminal*>(focused);
 		term->poll_output();
 		term->render_to_canvas();
@@ -131,8 +202,8 @@ void gui_tick_callback(void* /*ctx*/) {
 // gui_start() -- activate the WM tick loop from kernel_init_thread
 // ============================================================
 
-Terminal* gui_start() {
-	cinux::lib::kprintf("[GUI] ===== Milestone 030: GUI Window Manager =====\n");
+void gui_start() {
+	cinux::lib::kprintf("[GUI] ===== Milestone 033: GUI Desktop =====\n");
 
 	// Initialise PS/2 mouse driver
 	cinux::drivers::Mouse::init();
@@ -142,36 +213,36 @@ Terminal* gui_start() {
 		cinux::drivers::Mouse::set_screen_bounds(g_screen->width(), g_screen->height());
 	}
 
-	// Create a Terminal window for the shell
-	uint32_t term_w = Terminal::COLS * 8;	// 80 * 8 = 640
-	uint32_t term_h = Terminal::ROWS * 16;	// 25 * 16 = 400
+	// Register desktop icons on the desktop
+	auto& wm = WindowManager::instance();
 
-	// Centre the terminal on screen if possible
-	uint32_t term_x = 80;
-	uint32_t term_y = 60;
+	DesktopIcon shell_icon{
+		.x      = 40,
+		.y      = 40,
+		.bitmap = icons::data::k_shell_icon.data(),
+		.label  = "Shell",
+		.width  = icons::ICON_SIZE,
+		.height = icons::ICON_SIZE,
+		.action = IconAction::OpenShell,
+	};
+	wm.add_desktop_icon(shell_icon);
 
-	if (g_screen != nullptr) {
-		uint32_t sw = g_screen->width();
-		uint32_t sh = g_screen->height();
-		if (term_w + 80 < sw) {
-			term_x = (sw - term_w) / 2;
-		}
-		if (term_h + 60 < sh) {
-			term_y = (sh - term_h) / 2;
-		}
-	}
+	DesktopIcon calc_icon{
+		.x      = 40,
+		.y      = 120,
+		.bitmap = icons::data::k_calc_icon.data(),
+		.label  = "Calculator",
+		.width  = icons::ICON_SIZE,
+		.height = icons::ICON_SIZE,
+		.action = IconAction::OpenCalculator,
+	};
+	wm.add_desktop_icon(calc_icon);
 
-	auto* term = new Terminal(term_x, term_y, "Cinux Terminal");
-	term->set_font(g_font);
-	WindowManager::instance().add_window(term);
-
-	cinux::lib::kprintf("[GUI] WindowManager initialised with Terminal window.\n");
+	cinux::lib::kprintf("[GUI] Desktop icons registered: Shell, Calculator.\n");
 
 	// Register the GUI tick callback for event processing + compositing
 	cinux::drivers::PIT::set_tick_callback(gui_tick_callback, nullptr);
 	cinux::lib::kprintf("[GUI] GUI tick callback registered on PIT.\n");
-
-	return term;
 }
 
 }  // namespace cinux::gui

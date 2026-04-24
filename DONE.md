@@ -613,3 +613,29 @@ constexpr uint64_t BIG_KERNEL_LOAD_ADDR  = 0x1000000;   // 16MB
 - ☑ `kernel/gui/desktop_icon.hpp`（新建）：`enum class IconAction : uint8_t { None, OpenShell, OpenCalculator }`；`struct DesktopIcon { x, y, bitmap*, label, width, height, action }` + `contains(mx, my)` inline hit test
 - ☑ Host 单元测试 `test/unit/test_bitmap_icon.cpp`：draw_bitmap 像素验证、透明跳过、越界 clip、DesktopIcon::contains 边界测试
 - ☑ Kernel 测试 `kernel/test/test_bitmap_icon.cpp`：QEMU 渲染验证
+
+---
+
+## Phase 9 · GUI 桌面环境
+
+### `033_gui_desktop`
+**效果**：启动后显示桌面背景 + 两个可点击图标（Shell、Calculator）；点击 Shell 图标弹出终端窗口
+
+**Shell 启动时序设计**：Shell 进程仍在 boot 时启动（`launch_first_user` 不变），pipe 在 `init.cpp` 创建并绑定 fd 0/1；Terminal 窗口延迟到用户点击 Shell 图标时才创建，pipe 指针存入 `gui_init` 模块变量；Shell 输出暂存 pipe buffer，Terminal 连接后通过 `poll_output` 取回
+
+- ☑ `kernel/gui/window_manager.hpp/cpp`：
+  - 新增 `DesktopIcon icons_[16]` + `icon_count_` + `pending_icon_action_`
+  - 新增 `add_desktop_icon()`、`hit_test_icon()`、`consume_pending_icon_action()`
+  - `composite()` 修改：clear 后、blit 窗口前，调用 `draw_desktop_icons()` 绘制图标位图 + 居中标签文字
+  - `handle_mouse()` 修改：MouseDown 且无窗口命中时，检查 `hit_test_icon()`，命中则设 `pending_icon_action_`
+- ☑ `kernel/gui/window.hpp` 新增 `virtual bool is_terminal() const { return false; }`
+- ☑ `kernel/gui/terminal.hpp` 新增 `bool is_terminal() const override { return true; }`
+- ☑ `kernel/gui/gui_init.hpp/cpp`：
+  - `gui_start()` 返回类型改为 `void`，不再创建 Terminal
+  - 新增 `set_shell_pipes(stdin_pipe*, stdout_pipe*)` 存储管道指针
+  - 新增内部 `create_shell_terminal()` helper：创建 Terminal + 连接管道 + add_window
+  - `gui_tick_callback` 修改：检查 `consume_pending_icon_action()`，`OpenShell` 时调 `create_shell_terminal()`；terminal poll 用 `is_terminal()` 替代 `static_cast`
+  - `gui_start()` 中注册两个 DesktopIcon（Shell @ (40,40)、Calculator @ (40,120)）
+- ☑ `kernel/proc/init.cpp`：pipe 创建后调 `set_shell_pipes()`，删除 `term->set_stdin_pipe/set_stdout_pipe`，`gui_start()` 不再捕获返回值
+- ☑ Host 单元测试 `test/unit/test_desktop.cpp`：add_desktop_icon、hit_test_icon、consume_pending_icon_action、图标点击设 action、桌面空白点击清 focus
+- ☑ Kernel 测试 `kernel/test/test_desktop.cpp`：WM 初始化 + 图标 hit test + composite 不崩溃

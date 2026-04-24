@@ -197,6 +197,7 @@ add_executable(big_kernel_test
     test/test_window_manager.cpp
     test/test_gui_integration.cpp
     test/test_bitmap_icon.cpp
+    test/test_desktop.cpp
     test/test_terminal.cpp
     test/test_pipe.cpp
     test/test_sys_pipe.cpp

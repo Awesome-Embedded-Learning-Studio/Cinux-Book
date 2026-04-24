@@ -45,6 +45,8 @@ void WindowManager::init(cinux::drivers::Canvas* screen, cinux::drivers::PSFFont
 	dragging_ = false;
 	mouse_x_  = 0;
 	mouse_y_  = 0;
+	icon_count_ = 0;
+	pending_icon_action_ = IconAction::None;
 }
 
 // ============================================================
@@ -137,6 +139,37 @@ void WindowManager::raise(uint32_t id) {
 }
 
 // ============================================================
+// Desktop icon management
+// ============================================================
+
+bool WindowManager::add_desktop_icon(const DesktopIcon& icon) {
+	if (icon_count_ >= MAX_ICONS) {
+		return false;
+	}
+
+	icons_[icon_count_] = icon;
+	icon_count_++;
+	return true;
+}
+
+const DesktopIcon* WindowManager::hit_test_icon(int32_t mx, int32_t my) const {
+	// Iterate from last-registered to first so later icons take priority
+	for (uint32_t i = icon_count_; i > 0; i--) {
+		uint32_t idx = i - 1;
+		if (icons_[idx].contains(mx, my)) {
+			return &icons_[idx];
+		}
+	}
+	return nullptr;
+}
+
+IconAction WindowManager::consume_pending_icon_action() {
+	IconAction action = pending_icon_action_;
+	pending_icon_action_ = IconAction::None;
+	return action;
+}
+
+// ============================================================
 // Compositing
 // ============================================================
 
@@ -147,6 +180,9 @@ void WindowManager::composite() {
 
 	// Clear the screen back buffer with the desktop background colour
 	screen_->clear(DESKTOP_COLOR);
+
+	// Draw desktop icons behind all windows
+	draw_desktop_icons(*screen_);
 
 	// Blit each window from lowest Z-order (index 0) to highest
 	for (uint32_t i = 0; i < count_; i++) {
@@ -196,6 +232,48 @@ void WindowManager::draw_cursor(cinux::drivers::Canvas& screen) {
 }
 
 // ============================================================
+// Desktop icon rendering
+// ============================================================
+
+void WindowManager::draw_desktop_icons(cinux::drivers::Canvas& screen) {
+	if (font_ == nullptr) {
+		return;
+	}
+
+	uint32_t glyph_w = font_->width();
+
+	for (uint32_t i = 0; i < icon_count_; i++) {
+		const DesktopIcon& icon = icons_[i];
+
+		// Draw the icon bitmap (transparent pixels are skipped by draw_bitmap)
+		screen.draw_bitmap(
+			static_cast<uint32_t>(icon.x),
+			static_cast<uint32_t>(icon.y),
+			icon.width,
+			icon.height,
+			icon.bitmap);
+
+		// Compute label length
+		uint32_t label_len = 0;
+		if (icon.label != nullptr) {
+			for (const char* p = icon.label; *p != '\0'; p++) {
+				label_len++;
+			}
+		}
+
+		if (label_len > 0) {
+			// Centre the label text horizontally below the icon bitmap
+			uint32_t text_w = label_len * glyph_w;
+			uint32_t label_x = static_cast<uint32_t>(icon.x)
+				+ (icon.width - text_w) / 2;
+			uint32_t label_y = static_cast<uint32_t>(icon.y) + icon.height + 2;
+
+			screen.draw_text(label_x, label_y, icon.label, ICON_LABEL_COLOR, *font_);
+		}
+	}
+}
+
+// ============================================================
 // Input handling
 // ============================================================
 
@@ -215,10 +293,20 @@ void WindowManager::handle_mouse(Event& ev) {
 		Window* hit = hit_test(ev.mouse.x, ev.mouse.y);
 
 		if (hit == nullptr) {
-			// Clicked on the desktop background -- clear focus
-			if (focused_ != nullptr) {
-				focused_->set_focused(false);
-				focused_ = nullptr;
+			// No window hit -- check if a desktop icon was clicked
+			const DesktopIcon* icon_hit = hit_test_icon(ev.mouse.x, ev.mouse.y);
+			if (icon_hit != nullptr) {
+				pending_icon_action_ = icon_hit->action;
+				if (focused_ != nullptr) {
+					focused_->set_focused(false);
+					focused_ = nullptr;
+				}
+			} else {
+				// Clicked on the desktop background -- clear focus
+				if (focused_ != nullptr) {
+					focused_->set_focused(false);
+					focused_ = nullptr;
+				}
 			}
 			break;
 		}

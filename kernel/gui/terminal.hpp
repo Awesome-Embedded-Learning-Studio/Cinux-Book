@@ -111,6 +111,12 @@ public:
      */
     void on_paint(cinux::drivers::Canvas& canvas) override;
 
+    /**
+     * @brief Query whether this window is a terminal
+     * @return true (Terminal is always a terminal window)
+     */
+    bool is_terminal() const override { return true; }
+
     // ============================================================
     // External write interface (shell stdout callback)
     // ============================================================
