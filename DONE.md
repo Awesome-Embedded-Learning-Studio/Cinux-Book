@@ -602,3 +602,14 @@ constexpr uint64_t BIG_KERNEL_LOAD_ADDR  = 0x1000000;   // 16MB
   - ☑ EOF 传播：关闭 pipe 通知 shell 退出
   - ☑ CLI 模式行为不变
   - ☑ 端到端内核测试
+
+---
+
+### `032_gui_bitmap_icon`
+**效果**：Canvas 支持 32×32 像素图标渲染；Shell/Calculator 图标定义为 `constexpr` 像素数据
+
+- ☑ `kernel/drivers/canvas.hpp/cpp` 新增 `draw_bitmap(x, y, w, h, const uint32_t pixels[])` — 逐像素绘制，`0x00000000` 视为透明跳过，clip 到画布边界
+- ☑ `kernel/gui/icon.hpp`（新建）：`namespace cinux::gui::icons` 定义 `constexpr uint32_t ICON_SIZE = 32`，`k_shell_icon[1024]`（黑色终端 + 白色 `>_` 提示符），`k_calc_icon[1024]`（灰色机身 + 按键网格）
+- ☑ `kernel/gui/desktop_icon.hpp`（新建）：`enum class IconAction : uint8_t { None, OpenShell, OpenCalculator }`；`struct DesktopIcon { x, y, bitmap*, label, width, height, action }` + `contains(mx, my)` inline hit test
+- ☑ Host 单元测试 `test/unit/test_bitmap_icon.cpp`：draw_bitmap 像素验证、透明跳过、越界 clip、DesktopIcon::contains 边界测试
+- ☑ Kernel 测试 `kernel/test/test_bitmap_icon.cpp`：QEMU 渲染验证

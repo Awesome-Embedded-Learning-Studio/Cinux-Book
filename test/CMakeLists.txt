@@ -604,6 +604,21 @@ add_test(NAME canvas COMMAND test_canvas)
 set_tests_properties(canvas PROPERTIES LABELS "canvas")
 
 # ============================================================
+# 测试可执行文件：test_bitmap_icon
+# ============================================================
+# Bitmap icon rendering: draw_bitmap pixel verification, transparency
+# skip, out-of-bounds clipping, DesktopIcon::contains boundary tests.
+# Pure reimplementation -- no kernel code linked.
+add_executable(test_bitmap_icon
+    unit/test_bitmap_icon.cpp
+)
+
+target_compile_definitions(test_bitmap_icon PRIVATE CINUX_HOST_TEST)
+target_include_directories(test_bitmap_icon PRIVATE ${TEST_INCLUDE_DIRS})
+add_test(NAME bitmap_icon COMMAND test_bitmap_icon)
+set_tests_properties(bitmap_icon PROPERTIES LABELS "bitmap_icon")
+
+# ============================================================
 # 测试可执行文件：test_mouse
 # ============================================================
 # PS/2 mouse driver: init command sequence, 3-byte packet parsing,
@@ -763,7 +778,7 @@ set_tests_properties(shell_redirect PROPERTIES LABELS "shell_redirect")
 # Host 端单元测试
 add_custom_target(test_host
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm test_vmm test_heap test_address_space test_scheduler test_sync test_sync_concurrent test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table test_vfs_mount test_ext2 test_ahci_write test_ext2_allocator test_ext2_ops test_ext2_inode_ops test_syscall_ext2 test_shell_write test_cwd_stat test_canvas test_mouse test_event_queue test_window test_window_manager test_terminal test_pipe test_sys_pipe test_shell_redirect
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm test_vmm test_heap test_address_space test_scheduler test_sync test_sync_concurrent test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table test_vfs_mount test_ext2 test_ahci_write test_ext2_allocator test_ext2_ops test_ext2_inode_ops test_syscall_ext2 test_shell_write test_cwd_stat test_canvas test_bitmap_icon test_mouse test_event_queue test_window test_window_manager test_terminal test_pipe test_sys_pipe test_shell_redirect
     USES_TERMINAL
     COMMENT "Running host unit tests..."
 )
@@ -778,7 +793,7 @@ configure_file(
 
 add_custom_target(test_all
     COMMAND sh ${CMAKE_BINARY_DIR}/run_all_tests.sh
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm test_vmm test_heap test_address_space test_scheduler test_sync test_sync_concurrent test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table test_vfs_mount test_ext2 test_ahci_write test_ext2_allocator test_ext2_ops test_ext2_inode_ops test_syscall_ext2 test_shell_write test_cwd_stat test_canvas test_mouse test_event_queue test_window test_window_manager test_terminal test_pipe test_sys_pipe test_shell_redirect test-image
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm test_vmm test_heap test_address_space test_scheduler test_sync test_sync_concurrent test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table test_vfs_mount test_ext2 test_ahci_write test_ext2_allocator test_ext2_ops test_ext2_inode_ops test_syscall_ext2 test_shell_write test_cwd_stat test_canvas test_bitmap_icon test_mouse test_event_queue test_window test_window_manager test_terminal test_pipe test_sys_pipe test_shell_redirect test-image
     USES_TERMINAL
     COMMENT "Running ALL tests (host then kernel)..."
 )
@@ -786,7 +801,7 @@ add_custom_target(test_all
 # 详细模式运行 host 测试
 add_custom_target(test_verbose
     COMMAND ${CMAKE_CTEST_COMMAND} --verbose --output-on-failure
-    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm test_vmm test_heap test_address_space test_scheduler test_sync test_sync_concurrent test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table test_vfs_mount test_ext2 test_ahci_write test_ext2_allocator test_ext2_ops test_ext2_inode_ops test_syscall_ext2 test_shell_write test_cwd_stat test_canvas test_mouse test_event_queue test_window test_window_manager test_terminal test_pipe test_sys_pipe test_shell_redirect
+    DEPENDS test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader test_big_kernel_loader test_kprintf test_pic test_pit test_font test_console test_framebuffer test_keyboard test_pmm test_vmm test_heap test_address_space test_scheduler test_sync test_sync_concurrent test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table test_vfs_mount test_ext2 test_ahci_write test_ext2_allocator test_ext2_ops test_ext2_inode_ops test_syscall_ext2 test_shell_write test_cwd_stat test_canvas test_bitmap_icon test_mouse test_event_queue test_window test_window_manager test_terminal test_pipe test_sys_pipe test_shell_redirect
     COMMENT "Running host tests in verbose mode..."
 )
 

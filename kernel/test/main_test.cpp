@@ -58,6 +58,7 @@ void run_mouse_event_tests();
 void run_window_tests();
 void run_window_manager_tests();
 void run_gui_integration_tests();
+void run_bitmap_icon_tests();
 void run_terminal_tests();
 void run_pipe_tests();
 void run_sys_pipe_tests();
@@ -130,6 +131,10 @@ extern "C" void kernel_main() {
     // GUI integration tests (030D): gui_init wiring, keyboard dual-path,
     // PIT tick callback, mouse event flow through EventQueue -> WM
     run_gui_integration_tests();
+
+    // Bitmap icon tests (032): draw_bitmap pixel rendering, transparency,
+    // clipping, icon_data constants, DesktopIcon::contains hit testing
+    run_bitmap_icon_tests();
 
     // Terminal tests (031): character buffer, cursor, write, ANSI, scroll
     run_terminal_tests();

@@ -162,6 +162,23 @@ public:
     void blit(int32_t dst_x, int32_t dst_y, Canvas& src,
               uint32_t sx, uint32_t sy, uint32_t w, uint32_t h);
 
+    /**
+     * @brief Draw a pixel bitmap with transparency onto the back buffer
+     *
+     * Renders a w x h bitmap from a pixel array.  Each pixel is a 32-bit
+     * colour value in 0x00RRGGBB format.  Pixels with the value 0x00000000
+     * are treated as fully transparent and skipped.  The bitmap is clipped
+     * to the canvas bounds.
+     *
+     * @param x       Left edge on the canvas
+     * @param y       Top edge on the canvas
+     * @param w       Bitmap width in pixels
+     * @param h       Bitmap height in pixels
+     * @param pixels  Span of w*h pixel values (row-major, top-to-bottom)
+     */
+    void draw_bitmap(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
+                     const uint32_t* pixels);
+
     uint32_t width() const { return width_; }
     uint32_t height() const { return height_; }
     uint32_t pitch() const { return pitch_; }

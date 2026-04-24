@@ -282,4 +282,33 @@ void Canvas::blit(int32_t dst_x, int32_t dst_y, Canvas& src,
     }
 }
 
+void Canvas::draw_bitmap(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
+                         const uint32_t* pixels) {
+    if (back_buf_ == nullptr || pixels == nullptr)
+        return;
+
+    uint32_t pixels_per_row = pitch_ / 4;
+
+    for (uint32_t row = 0; row < h; row++) {
+        // Clip to canvas bounds (vertical)
+        if (y + row >= height_)
+            break;
+
+        for (uint32_t col = 0; col < w; col++) {
+            // Clip to canvas bounds (horizontal)
+            if (x + col >= width_)
+                break;
+
+            // Read pixel from the source array
+            uint32_t color = pixels[row * w + col];
+
+            // 0x00000000 is treated as fully transparent
+            if (color == 0x00000000)
+                continue;
+
+            back_buf_[(y + row) * pixels_per_row + (x + col)] = color;
+        }
+    }
+}
+
 }  // namespace cinux::drivers

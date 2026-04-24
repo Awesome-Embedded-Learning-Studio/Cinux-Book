@@ -256,8 +256,8 @@ private:
     // ============================================================
 
     static constexpr uint32_t CURSOR_SIZE    = 16;
-    static constexpr uint32_t CURSOR_WHITE   = 0x00FFFFFF;
-    static constexpr uint32_t CURSOR_BLACK   = 0x00000000;
+    static constexpr uint32_t CURSOR_WHITE   = 0x00888888;
+    static constexpr uint32_t CURSOR_BLACK   = 0x00FFFFFF;
 
     /**
      * 16x16 classic arrow cursor bitmap (MSB-first per row).
