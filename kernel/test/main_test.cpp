@@ -64,6 +64,7 @@ void run_terminal_tests();
 void run_pipe_tests();
 void run_sys_pipe_tests();
 void run_terminal_shell_tests();
+void run_fork_exec_tests();
 }
 
 static constexpr uintptr_t BOOT_INFO_PHYS = 0x7000;
@@ -168,6 +169,10 @@ extern "C" void kernel_main() {
     // Syscall tests (023): requires syscall_init() after usermode_init
     cinux::arch::syscall_init();
     run_syscall_tests();
+
+    // Fork/exec tests (034 sub-1): PID allocator, TCB fields,
+    // sys_getpid/sys_getppid -- requires scheduler and syscall_init
+    run_fork_exec_tests();
 
     // Shell tests (024): verifies kernel-side infrastructure for user shell
     run_shell_tests();

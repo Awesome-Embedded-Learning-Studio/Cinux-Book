@@ -35,6 +35,11 @@ enum class SyscallNr : uint64_t {
     SYS_creat    = 85,
     SYS_unlink   = 87,
     SYS_pipe     = 22,
+    SYS_getpid   = 39,
+    SYS_getppid  = 110,
+    SYS_fork     = 57,
+    SYS_execve   = 59,
+    SYS_waitpid  = 61,
 };
 
 constexpr uint64_t SYSCALL_TABLE_SIZE = 256;

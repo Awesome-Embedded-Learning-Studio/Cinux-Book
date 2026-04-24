@@ -18,6 +18,12 @@
 #include "kernel/syscall/sys_close.hpp"
 #include "kernel/syscall/sys_creat.hpp"
 #include "kernel/syscall/sys_exit.hpp"
+#include "kernel/syscall/sys_fork.hpp"
+#include "kernel/syscall/sys_execve.hpp"
+#include "kernel/syscall/sys_getpid.hpp"
+#include "kernel/syscall/sys_getppid.hpp"
+#include "kernel/syscall/sys_waitpid.hpp"
+#include "kernel/syscall/sys_getppid.hpp"
 #include "kernel/syscall/sys_getcwd.hpp"
 #include "kernel/syscall/sys_getdents.hpp"
 #include "kernel/syscall/sys_mkdir.hpp"
@@ -72,6 +78,11 @@ void register_builtin_handlers() {
 	syscall_register(SyscallNr::SYS_stat, sys_stat);
 	syscall_register(SyscallNr::SYS_fstat, sys_fstat);
 	syscall_register(SyscallNr::SYS_pipe, sys_pipe);
+	syscall_register(SyscallNr::SYS_getpid, sys_getpid);
+	syscall_register(SyscallNr::SYS_getppid, sys_getppid);
+	syscall_register(SyscallNr::SYS_fork, sys_fork);
+	syscall_register(SyscallNr::SYS_execve, sys_execve);
+	syscall_register(SyscallNr::SYS_waitpid, sys_waitpid);
 }
 
 }  // anonymous namespace

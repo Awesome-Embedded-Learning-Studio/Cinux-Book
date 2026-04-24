@@ -639,3 +639,32 @@ constexpr uint64_t BIG_KERNEL_LOAD_ADDR  = 0x1000000;   // 16MB
 - ☑ `kernel/proc/init.cpp`：pipe 创建后调 `set_shell_pipes()`，删除 `term->set_stdin_pipe/set_stdout_pipe`，`gui_start()` 不再捕获返回值
 - ☑ Host 单元测试 `test/unit/test_desktop.cpp`：add_desktop_icon、hit_test_icon、consume_pending_icon_action、图标点击设 action、桌面空白点击清 focus
 - ☑ Kernel 测试 `kernel/test/test_desktop.cpp`：WM 初始化 + 图标 hit test + composite 不崩溃
+
+### `034_process_fork_exec`
+**效果**：实现 sys_fork + sys_execve + PID 管理，CoW 页表复制，使内核具备多进程创建与执行能力
+
+### 子迭代 1：PID 管理 + TCB 扩展
+- ☑ `kernel/proc/pid.hpp/cpp`（新建）：PidAllocator 类，从 1 开始递增分配，上限 PID_MAX=256，支持 alloc/free/reuse
+- ☑ `kernel/proc/process.hpp`：TCB 新增 `pid_`、`ppid_`、`state_`（新增 `Zombie` 状态）、`exit_status_`、`children_` 列表指针、`parent_` 指针
+- ☑ `kernel/syscall/` 新增 `sys_getpid`、`sys_getppid` 系统调用及分发表注册
+- ☑ Host 单元测试 `test/unit/test_fork_exec.cpp`：PID 分配/释放/复用/耗尽、TCB 字段默认值、Zombie 状态
+- ☑ Kernel 测试 `kernel/test/test_fork_exec.cpp`：getpid/getppid 返回值正确性
+
+### 子迭代 2：fork() + CoW 页表
+- ☑ `kernel/proc/process.cpp` 新增 `Process::fork()`：复制当前 TCB → 分配新 PID → CoW 复制页表（标记所有 PTE 只读）→ 继承文件描述符表 → 子进程返回 0、父进程返回 child PID
+- ☑ `kernel/mm/` CoW 缺页处理：page fault handler 检测只读 PTE + CoW 标记 → 分配新物理页 → 复制内容 → 更新 PTE 为可写 → 清除 CoW 标记
+- ☑ `kernel/proc/syscall.cpp` 新增 `sys_fork` 系统调用
+- ☑ Host 单元测试补充：fork 返回值语义、CoW 写时触发页复制
+- ☑ Kernel 测试补充：fork 后父子进程独立执行、CoW 页面隔离
+
+### 子迭代 3：execve()
+- ☑ `kernel/proc/process.cpp` 新增 `Process::execve()`：从 VFS 读取 ELF 文件 → 解析 program headers → 加载到地址空间 → 设置入口点 → 清理旧映射
+- ☑ `kernel/proc/syscall.cpp` 新增 `sys_execve` 系统调用
+- ☑ Host 单元测试补充：ELF 解析、program header 加载、入口点设置
+- ☑ Kernel 测试补充：execve 加载简单程序并执行
+
+### 子迭代 4：waitpid() + 集成
+- ☑ `kernel/proc/process.cpp` 新增 `sys_waitpid` 实现：父进程阻塞等待指定子进程退出 → 收集 exit_status → 清理子进程 TCB（防 zombie）
+- ☑ `kernel/proc/syscall.cpp` 新增 `sys_waitpid` 系统调用
+- ☑ Host 单元测试补充：waitpid 退出状态收集、zombie 清理、错误码
+- ☑ Kernel 测试补充：fork → exec → wait 完整流程

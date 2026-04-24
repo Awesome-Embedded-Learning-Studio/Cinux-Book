@@ -35,9 +35,15 @@ Terminal::Terminal(uint32_t x, uint32_t y, const char* title)
 // ============================================================
 
 Terminal::~Terminal() {
-    // Pipes are owned externally (by the process that created them).
-    // Just clear our references — do NOT close the pipe endpoints,
-    // since multiple terminals may share the same pipe pair.
+    // Close our pipe endpoints so the shell detects EOF / write failure.
+    // The Terminal "owns" the write end of stdin_pipe (keyboard -> shell)
+    // and the read end of stdout_pipe (shell output -> terminal display).
+    if (stdin_pipe_ != nullptr) {
+        stdin_pipe_->close_writer();
+    }
+    if (stdout_pipe_ != nullptr) {
+        stdout_pipe_->close_reader();
+    }
     stdin_pipe_  = nullptr;
     stdout_pipe_ = nullptr;
 }

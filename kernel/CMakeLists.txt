@@ -68,9 +68,11 @@ add_library(big_kernel_common OBJECT
     mm/heap.cpp
     mm/address_space.cpp
     proc/process.cpp
+    proc/elf_types.cpp
     proc/scheduler.cpp
     proc/sync.cpp
     proc/init.cpp
+    proc/pid.cpp
     arch/x86_64/context_switch.S
     arch/x86_64/usermode.S
     arch/x86_64/usermode.cpp
@@ -94,6 +96,11 @@ add_library(big_kernel_common OBJECT
     ipc/pipe.cpp
     ipc/pipe_ops.cpp
     syscall/sys_pipe.cpp
+    syscall/sys_getpid.cpp
+    syscall/sys_getppid.cpp
+    syscall/sys_fork.cpp
+    syscall/sys_execve.cpp
+    syscall/sys_waitpid.cpp
 )
 
 target_compile_options(big_kernel_common PUBLIC ${BIG_KERNEL_COMPILE_OPTIONS})
@@ -202,6 +209,7 @@ add_executable(big_kernel_test
     test/test_pipe.cpp
     test/test_sys_pipe.cpp
     test/test_terminal_shell.cpp
+    test/test_fork_exec.cpp
 )
 
 target_sources(big_kernel_test PRIVATE $<TARGET_OBJECTS:big_kernel_common>)

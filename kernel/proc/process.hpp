@@ -29,6 +29,8 @@
 #include <stddef.h>
 
 #include "kernel/mm/address_space.hpp"
+#include "kernel/proc/elf_types.hpp"
+#include "kernel/proc/pid.hpp"
 
 namespace cinux::proc {
 
@@ -42,6 +44,7 @@ enum class TaskState : uint8_t {
     Running,
     Ready,
     Blocked,
+    Zombie,
     Dead
 };
 
@@ -114,6 +117,21 @@ struct Task {
 
     /** Human-readable task name (static storage, not owned). */
     const char* name;
+
+    /** Process ID (assigned by PidAllocator; 0 = uninitialised). */
+    int pid;
+
+    /** Parent process ID (0 for the kernel init task). */
+    int ppid;
+
+    /** Exit status code (valid when state == Zombie). */
+    int exit_status;
+
+    /** Singly-linked list of child tasks (head pointer). */
+    Task* children;
+
+    /** Pointer to the parent task (nullptr for the kernel init task). */
+    Task* parent;
 
     /** Scheduling class this task belongs to. */
     SchedulingClass* sched_class;
@@ -190,6 +208,151 @@ private:
     cinux::mm::AddressSpace* addr_space_ = nullptr;
     SchedulingClass* sched_class_ = nullptr;
 };
+
+// ============================================================
+// Fork
+// ============================================================
+
+/**
+ * @brief Fork the current task (Copy-On-Write semantics)
+ *
+ * Creates a near-identical copy of the calling task:
+ *   - Allocates a new PID from the global PidAllocator
+ *   - Copies the TCB (pid, ppid, state, etc.)
+ *   - If the parent has an AddressSpace, creates a CoW copy of
+ *     the user-space page tables (all writable PTEs are marked
+ *     read-only with FLAG_COW set)
+ *   - Links the child into the parent's children list
+ *   - Adds the child task to the scheduler's run queue
+ *
+ * Return value semantics (set in the child's TCB via ctx.rax):
+ *   - Parent: returns child PID (> 0)
+ *   - Child:  returns 0
+ *
+ * @param pid_alloc  Reference to the global PID allocator
+ * @return Child PID on success (parent perspective), or -1 on failure
+ */
+int fork(PidAllocator& pid_alloc);
+
+// ============================================================
+// CoW page fault handling
+// ============================================================
+
+/**
+ * @brief Attempt to resolve a page fault as a Copy-On-Write trigger
+ *
+ * Called from the page fault handler when a write to a read-only page
+ * is detected.  If the PTE has the FLAG_COW bit set, this function:
+ *   1. Allocates a new physical page
+ *   2. Copies the contents from the shared page to the new page
+ *   3. Updates the PTE to point to the new page with write permission
+ *   4. Clears FLAG_COW from the PTE
+ *
+ * @param fault_vaddr  Virtual address that triggered the fault
+ * @return true if the fault was handled as CoW, false otherwise
+ */
+bool handle_cow_fault(uint64_t fault_vaddr);
+
+// ============================================================
+// Execve
+// ============================================================
+
+namespace errno_values {
+    constexpr int EPERM   = 1;   ///< Operation not permitted
+    constexpr int ENOENT  = 2;   ///< No such file or directory
+    constexpr int ESRCH   = 3;   ///< No such process
+    constexpr int EIO     = 5;   ///< I/O error
+    constexpr int ENOEXEC = 8;   ///< Exec format error
+    constexpr int ENOMEM  = 12;  ///< Out of memory
+    constexpr int EACCES  = 13;  ///< Permission denied
+    constexpr int EFAULT  = 14;  ///< Bad address
+    constexpr int ECHILD  = 10;  ///< No child processes
+    constexpr int EISDIR  = 21;  ///< Is a directory
+    constexpr int EINVAL  = 22;  ///< Invalid argument
+}
+
+/**
+ * @brief Result codes from execve() loading
+ *
+ * Values follow Linux errno conventions so that sys_execve can
+ * return the negated value directly (e.g. -ENOENT, -ENOEXEC).
+ */
+enum class ExecveResult : int {
+    Ok = 0,                      ///< Successfully loaded the new executable
+    BadPath       = -22,         ///< Path is null or empty (EINVAL)
+    FileNotFound  = -2,          ///< VFS could not resolve the path (ENOENT)
+    FileNotRegular = -21,        ///< Path resolves to a non-regular file (EISDIR)
+    ReadFailed    = -5,          ///< Failed to read the ELF data from the inode (EIO)
+    BadElfMagic   = -8,          ///< ELF magic number mismatch (ENOEXEC)
+    BadElfClass   = -8,          ///< Not a 64-bit ELF (ENOEXEC)
+    BadElfEndian  = -8,          ///< Not little-endian (ENOEXEC)
+    BadElfMachine = -8,          ///< Not x86-64 (ENOEXEC)
+    BadElfType    = -8,          ///< Not an executable (ENOEXEC)
+    BadElfHeaders = -8,          ///< Program header offset/size invalid (ENOEXEC)
+    NoLoadSegments = -8,         ///< No PT_LOAD segments found (ENOEXEC)
+    MapFailed     = -12,         ///< Address space map() failed for a segment (ENOMEM)
+    NoAddressSpace = -12,        ///< Task has no address space (ENOMEM)
+    NoCurrentTask = -3,          ///< No current task in the scheduler (ESRCH)
+};
+
+/**
+ * @brief Replace the current process image with a new ELF executable
+ *
+ * Reads the ELF binary from the VFS, validates the header, unmaps
+ * existing user-space pages, loads PT_LOAD segments into the task's
+ * address space, and sets the entry point.  The old process image is
+ * destroyed but the PID, parent, and scheduler linkage are preserved.
+ *
+ * After a successful execve(), the caller is responsible for jumping
+ * to the new entry point (typically via jump_to_usermode).
+ *
+ * @param path  Null-terminated path to the ELF executable
+ * @param argv  Array of argument strings (may be nullptr)
+ * @param envp  Array of environment strings (may be nullptr)
+ * @return ExecveResult::Ok on success, or an error code
+ */
+ExecveResult execve(const char* path, const char* const argv[],
+                    const char* const envp[]);
+
+// ============================================================
+// Waitpid
+// ============================================================
+
+/**
+ * @brief Result codes from waitpid()
+ *
+ * Values follow Linux errno conventions so that sys_waitpid can
+ * return the negated value directly.
+ */
+enum class WaitpidResult : int {
+    Ok          = 0,                   ///< Successfully reaped a child
+    NoChildren  = -10,                 ///< Caller has no children (ECHILD)
+    NotFound    = -3,                  ///< Specified PID is not a child (ESRCH)
+    InvalidPid  = -22,                 ///< PID argument is invalid (EINVAL)
+    NotExited   = -1,                  ///< Child exists but has not exited yet
+};
+
+/**
+ * @brief Wait for a child process to change state
+ *
+ * If pid > 0, waits for the specific child with that PID.
+ * If pid == -1, waits for any child.
+ *
+ * When the target child is in Zombie state, this function:
+ *   1. Collects the child's exit_status into *status
+ *   2. Unlinks the child from the parent's children list
+ *   3. Frees the child's PID via the PidAllocator
+ *   4. Marks the child TCB as Dead
+ *
+ * If the child has not yet exited (state != Zombie), returns
+ * WaitpidResult::NotExited.
+ *
+ * @param pid        PID of the child to wait for, or -1 for any child
+ * @param status     Pointer to store the child's exit status (may be nullptr)
+ * @param pid_alloc  Reference to the global PID allocator
+ * @return WaitpidResult::Ok on success, or an error code
+ */
+WaitpidResult waitpid(int pid, int* status, PidAllocator& pid_alloc);
 
 // ============================================================
 // Assembly entry point (C linkage)

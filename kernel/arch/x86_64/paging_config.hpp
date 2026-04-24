@@ -38,6 +38,7 @@ constexpr uint64_t FLAG_ACCESSED = 1ULL << 5;
 constexpr uint64_t FLAG_DIRTY    = 1ULL << 6;
 constexpr uint64_t FLAG_HUGE     = 1ULL << 7;
 constexpr uint64_t FLAG_GLOBAL   = 1ULL << 8;
+constexpr uint64_t FLAG_COW      = 1ULL << 9;   // Available bit 9: Copy-On-Write marker
 constexpr uint64_t FLAG_NX       = 1ULL << 63;
 
 // Index extraction for each paging level

@@ -35,7 +35,18 @@
 
 ## Phase 9 · GUI 桌面环境
 
-### `034_gui_calculator`
+### `035_multi_terminal`
+**效果**：每个终端绑定独立 shell 进程，支持多终端并发交互
+
+- ☐ `kernel/gui/gui_init.cpp` `create_shell_terminal()` 重构：每次调用动态创建新 pipe 对（`sys_pipe`）→ `fork()` → 子进程 `execve("/bin/sh")` → 父进程将 pipe fd 绑定到新 Terminal → add_window
+- ☐ `kernel/gui/terminal.cpp` 析构函数恢复 pipe 清理：终端销毁时 close pipe writer/reader → `waitpid` 回收 shell 子进程 → 防止 zombie
+- ☐ `kernel/proc/init.cpp`：移除全局 pipe 创建逻辑，pipe 创建责任下沉到 `create_shell_terminal()`
+- ☐ `kernel/gui/gui_init.cpp`：移除 `set_shell_pipes()` 接口（不再需要全局 pipe）
+- ☐ `kernel/gui/gui_init.cpp` `gui_tick_callback`：遍历所有窗口，对每个 `is_terminal()` 的窗口执行 `poll_output()` + `render_to_canvas()`（而非只 poll focused）
+- ☐ Host 单元测试 `test/unit/test_multi_terminal.cpp`：动态 pipe 创建、多终端独立 pipe 绑定、终端销毁后 pipe 清理、多 shell 并发不干扰
+- ☐ Kernel 测试 `kernel/test/test_multi_terminal.cpp`：创建两个终端 → 各自独立 shell 输出 → 关闭一个不影响另一个
+
+### `036_gui_calculator`
 **效果**：点击 Calculator 图标弹出计算器窗口，支持 `+−×÷` 基本运算
 
 - ☐ `kernel/gui/calculator.hpp/cpp`（新建）：Calculator 继承 Window
