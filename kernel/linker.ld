@@ -90,7 +90,18 @@ SECTIONS
     PROVIDE(__kernel_size = __kernel_end - (KERNEL_VMA + KERNEL_LMA));
 
     /* ----------------------------------------------------------
-     * Stack (16 KB, placed after BSS)
+     * Boot stack guard region (64 KB, unmapped at runtime)
+     * Placed between BSS and the boot stack so that a stack
+     * overflow triggers a page fault instead of silent corruption.
+     * ---------------------------------------------------------- */
+    .boot_guard (NOLOAD) : ALIGN(4096) {
+        __boot_guard_start = .;
+        . = . + 0x10000;          /* 64 KB guard region (16 pages) */
+        __boot_guard_end = .;
+    }
+
+    /* ----------------------------------------------------------
+     * Stack (16 KB, placed after guard region)
      * ---------------------------------------------------------- */
     .stack (NOLOAD) : ALIGN(4096) {
         . = . + 0x4000;          /* 16 KB stack */

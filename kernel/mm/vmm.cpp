@@ -59,7 +59,7 @@ PageEntry* walk_level(PageEntry* table, uint64_t index, bool should_alloc, uint6
 			uint64_t big_phys  = entry.phys_addr();
 			uint64_t big_flags = entry.raw & ~ADDR_MASK;
 
-			uint64_t new_page = cinux::mm::g_pmm.alloc_page();
+			uint64_t new_page = cinux::mm::g_pmm.alloc_page_locked();
 			if (new_page == 0) {
 				return nullptr;
 			}
@@ -79,7 +79,7 @@ PageEntry* walk_level(PageEntry* table, uint64_t index, bool should_alloc, uint6
 		return nullptr;
 	}
 
-	uint64_t new_page = cinux::mm::g_pmm.alloc_page();
+	uint64_t new_page = cinux::mm::g_pmm.alloc_page_locked();
 	if (new_page == 0) {
 		return nullptr;
 	}
@@ -105,10 +105,30 @@ void VMM::init() {
 						reinterpret_cast<void*>(kernel_pml4_));
 }
 
-bool VMM::map(uint64_t virt, uint64_t phys, uint64_t flags, uint64_t* pml4) {
+bool VMM::split_2mb_page(uint64_t virt) {
 	auto g = lock_.guard();
 	(void)g;
 
+	uint64_t pml4_phys = kernel_pml4_;
+	auto*	 pml4_table = phys_to_virt(pml4_phys);
+
+	auto* pdpt = walk_level(pml4_table, PML4_INDEX(virt), true, 0);
+	if (!pdpt) return false;
+
+	auto* pd = walk_level(pdpt, PDPT_INDEX(virt), true, 0);
+	if (!pd) return false;
+
+	auto* pt = walk_level(pd, PD_INDEX(virt), true, 0);
+	return pt != nullptr;
+}
+
+bool VMM::map(uint64_t virt, uint64_t phys, uint64_t flags, uint64_t* pml4) {
+	auto g = lock_.guard();
+	(void)g;
+	return map_nolock(virt, phys, flags, pml4);
+}
+
+bool VMM::map_nolock(uint64_t virt, uint64_t phys, uint64_t flags, uint64_t* pml4) {
 	uint64_t pml4_phys	= pml4 ? *pml4 : kernel_pml4_;
 	auto*	 pml4_table = phys_to_virt(pml4_phys);
 	uint64_t user_flag	= flags & FLAG_USER;
@@ -127,6 +147,28 @@ bool VMM::map(uint64_t virt, uint64_t phys, uint64_t flags, uint64_t* pml4) {
 
 	uint64_t pt_idx = PT_INDEX(virt);
 	pt[pt_idx].raw	= (phys & ADDR_MASK) | (flags & ~ADDR_MASK);
+
+	cinux::arch::flush_tlb(virt);
+	return true;
+}
+
+bool VMM::map_2mb(uint64_t virt, uint64_t phys, uint64_t flags, uint64_t* pml4) {
+	auto g = lock_.guard();
+	(void)g;
+
+	uint64_t pml4_phys	= pml4 ? *pml4 : kernel_pml4_;
+	auto*	 pml4_table = phys_to_virt(pml4_phys);
+
+	auto* pdpt = walk_level(pml4_table, PML4_INDEX(virt), true, 0);
+	if (!pdpt)
+		return false;
+
+	auto* pd = walk_level(pdpt, PDPT_INDEX(virt), true, 0);
+	if (!pd)
+		return false;
+
+	uint64_t pd_idx = PD_INDEX(virt);
+	pd[pd_idx].raw	 = (phys & ADDR_MASK) | (flags & ~ADDR_MASK) | FLAG_HUGE;
 
 	cinux::arch::flush_tlb(virt);
 	return true;

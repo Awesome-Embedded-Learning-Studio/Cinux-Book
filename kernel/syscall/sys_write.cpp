@@ -38,7 +38,8 @@ int64_t sys_write(uint64_t fd, uint64_t buf_virt, uint64_t count,
 
     // Check FDTable first -- if the fd has a valid VFS entry (e.g. pipe),
     // use the VFS write path regardless of fd number.
-    cinux::fs::File* file = cinux::fs::g_global_fd_table().get(static_cast<int>(fd));
+    cinux::fs::FDTable& tbl = cinux::fs::current_fd_table();
+    cinux::fs::File* file = tbl.get(static_cast<int>(fd));
     if (file != nullptr && file->inode != nullptr && file->inode->ops != nullptr) {
         const auto* buf = reinterpret_cast<const void*>(buf_virt);
         auto g = file->offset_lock_.guard();

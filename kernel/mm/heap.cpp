@@ -120,8 +120,6 @@ void* Heap::alloc_locked(size_t size, size_t align) {
 
     while (curr != nullptr) {
         if (curr->magic != HEAP_MAGIC) {
-            cinux::lib::kprintf("[HEAP] Corrupt block at 0x%p (magic=0x%x)\n",
-                                reinterpret_cast<void*>(curr), curr->magic);
             return nullptr;
         }
 
@@ -230,7 +228,6 @@ void Heap::free(void* ptr) {
     }
 
     if (block->free) {
-        cinux::lib::kprintf("[HEAP] Double-free detected at 0x%p\n", ptr);
         return;
     }
 
@@ -274,7 +271,6 @@ bool Heap::expand(size_t min_bytes) {
     for (uint64_t offset = 0; offset < expand_size; offset += cinux::arch::PAGE_SIZE) {
         uint64_t phys = g_pmm.alloc_page();
         if (phys == 0) {
-            cinux::lib::kprintf("[HEAP] OOM during expansion at offset %u\n", offset);
             return false;
         }
         g_vmm.map(base_ + size_ + offset, phys, PAGE_FLAGS);

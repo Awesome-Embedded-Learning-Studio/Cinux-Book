@@ -67,12 +67,21 @@ public:
     /** Total number of pages managed. */
     uint64_t total_page_count() const;
 
+    /**
+     * @brief Lock-free page allocation (caller must guarantee exclusion)
+     *
+     * Does NOT acquire the internal spinlock.  Safe only from contexts
+     * where interrupts are disabled and no concurrent PMM access is
+     * possible (e.g. page fault handler under Interrupt gate).
+     */
+    uint64_t alloc_page_locked();
+
+    /** Lock-free page free (caller must guarantee exclusion). */
+    void free_page_locked(uint64_t phys);
+
 private:
     void mark_region_used(uint64_t phys, uint64_t length);
     void mark_region_free(uint64_t phys, uint64_t length);
-
-    uint64_t alloc_page_locked();
-    void free_page_locked(uint64_t phys);
 
     cinux::proc::Spinlock lock_;
     uint8_t* bitmap_{};

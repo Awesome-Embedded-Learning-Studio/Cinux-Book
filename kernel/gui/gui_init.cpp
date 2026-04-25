@@ -9,17 +9,33 @@
 
 #include "gui_init.hpp"
 
+#include <atomic>
+
+#include "kernel/arch/x86_64/paging.hpp"
+#include "kernel/arch/x86_64/paging_config.hpp"
+#include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/drivers/canvas.hpp"
 #include "kernel/drivers/mouse.hpp"
 #include "kernel/drivers/pit/pit.hpp"
 #include "kernel/drivers/video/font.hpp"
+#include "kernel/fs/file.hpp"
+#include "kernel/fs/inode.hpp"
+#include "kernel/fs/vfs_mount.hpp"
 #include "kernel/gui/desktop_icon.hpp"
 #include "kernel/gui/event.hpp"
 #include "kernel/gui/icon.hpp"
 #include "kernel/gui/terminal.hpp"
 #include "kernel/gui/window_manager.hpp"
 #include "kernel/ipc/pipe.hpp"
+#include "kernel/ipc/pipe_ops.hpp"
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/lib/string.hpp"
+#include "kernel/mm/address_space.hpp"
+#include "kernel/mm/pmm.hpp"
+#include "kernel/proc/pid.hpp"
+#include "kernel/proc/per_cpu.hpp"
+#include "kernel/proc/process.hpp"
+#include "kernel/proc/scheduler.hpp"
 
 namespace cinux::gui {
 
@@ -31,9 +47,11 @@ namespace {
 cinux::drivers::Canvas*	 g_screen = nullptr;
 cinux::drivers::PSFFont* g_font	  = nullptr;
 
-// Shell pipe pointers set by set_shell_pipes() before gui_start()
-cinux::ipc::Pipe* g_stdin_pipe  = nullptr;
-cinux::ipc::Pipe* g_stdout_pipe = nullptr;
+/// Counter for generating unique terminal titles
+uint32_t g_terminal_counter = 0;
+
+/// Deferred work queue: ISR enqueues, gui_worker thread drains.
+std::atomic<IconAction> g_pending_action{IconAction::None};
 
 }  // anonymous namespace
 
@@ -79,18 +97,6 @@ void gui_init(cinux::drivers::Canvas& screen, cinux::drivers::PSFFont& font) {
 }
 
 // ============================================================
-// set_shell_pipes() -- store pipe pointers for terminal creation
-// ============================================================
-
-void set_shell_pipes(cinux::ipc::Pipe* stdin_pipe, cinux::ipc::Pipe* stdout_pipe) {
-	g_stdin_pipe  = stdin_pipe;
-	g_stdout_pipe = stdout_pipe;
-	cinux::lib::kprintf("[GUI] Shell pipes stored: stdin=%p stdout=%p\n",
-	                    reinterpret_cast<void*>(stdin_pipe),
-	                    reinterpret_cast<void*>(stdout_pipe));
-}
-
-// ============================================================
 // Internal helper: create a shell terminal window
 // ============================================================
 
@@ -98,6 +104,12 @@ namespace {
 
 void create_shell_terminal() {
 	auto& wm = WindowManager::instance();
+
+	// Generate a unique title for this terminal instance
+	g_terminal_counter++;
+	char title_buf[64];
+	strcpy(title_buf, "Shell #");
+	utoa(title_buf + strlen(title_buf), g_terminal_counter);
 
 	// Calculate terminal dimensions
 	uint32_t term_w = Terminal::COLS * 8;	// 80 * 8 = 640
@@ -118,19 +130,123 @@ void create_shell_terminal() {
 		}
 	}
 
-	auto* term = new Terminal(term_x, term_y, "Cinux Terminal");
+	auto* term = new Terminal(term_x, term_y, title_buf);
 	term->set_font(g_font);
 
-	// Connect shell pipes if available
-	if (g_stdin_pipe != nullptr) {
-		term->set_stdin_pipe(g_stdin_pipe);
-	}
-	if (g_stdout_pipe != nullptr) {
-		term->set_stdout_pipe(g_stdout_pipe);
+	// --- Create per-terminal pipes ---
+
+	// stdin pipe: Terminal.on_key() writes -> shell reads from fd 0
+	auto* stdin_pipe	   = new cinux::ipc::Pipe();
+	auto* stdin_read_ops   = new cinux::ipc::PipeReadOps(stdin_pipe);
+	auto* stdin_read_inode = new cinux::fs::Inode();
+	stdin_read_inode->ops  = stdin_read_ops;
+	stdin_read_inode->type = cinux::fs::InodeType::Regular;
+
+	// stdout pipe: shell writes to fd 1 -> Terminal.poll_output() reads
+	auto* stdout_pipe		 = new cinux::ipc::Pipe();
+	auto* stdout_write_ops	 = new cinux::ipc::PipeWriteOps(stdout_pipe);
+	auto* stdout_write_inode = new cinux::fs::Inode();
+	stdout_write_inode->ops	 = stdout_write_ops;
+	stdout_write_inode->type = cinux::fs::InodeType::Regular;
+
+	// Bind pipe pointers to the terminal (kernel-side direct access)
+	term->set_stdin_pipe(stdin_pipe);
+	term->set_stdout_pipe(stdout_pipe);
+
+	// --- Fork and exec shell ---
+	int child_pid = cinux::proc::fork(cinux::proc::g_pid_alloc);
+	if (child_pid > 0) {
+		// Parent: record the shell PID
+		term->set_shell_pid(child_pid);
+		cinux::lib::kprintf("[GUI] Terminal '%s': shell spawned pid=%d\n", title_buf, child_pid);
+	} else if (child_pid == 0) {
+		// ---- Child path ----
+		// The parent (gui_worker) is a kernel thread with no address space.
+		// Create a fresh AddressSpace so execve() can map the ELF segments.
+		__asm__ volatile("cli");
+
+		auto* task = cinux::proc::Scheduler::current();
+		task->addr_space = new cinux::mm::AddressSpace();
+
+		// Set up a private FDTable so this shell reads/writes through
+		// its own terminal's pipes -- independent of the global table.
+		task->fd_table = new cinux::fs::FDTable();
+		task->fd_table->set(0,
+			new cinux::fs::File(stdin_read_inode, 0, cinux::fs::OpenFlags::RDONLY));
+		task->fd_table->set(1,
+			new cinux::fs::File(stdout_write_inode, 0, cinux::fs::OpenFlags::WRONLY));
+
+		// execve the shell
+		const char* path   = "/bin/sh";
+		const char* argv[] = {path, nullptr};
+		const char* envp[] = {nullptr};
+
+		auto result = cinux::proc::execve(path, argv, envp);
+		if (result != cinux::proc::ExecveResult::Ok) {
+			cinux::lib::kprintf("[GUI] execve(%s) failed: %d\n", path, static_cast<int>(result));
+			cinux::proc::Scheduler::exit_current();
+		}
+
+		// execve succeeded: set up user stack
+		uint64_t entry = task->ctx.rip;
+
+		constexpr uint64_t kUserPageFlags =
+			cinux::arch::FLAG_PRESENT | cinux::arch::FLAG_WRITABLE | cinux::arch::FLAG_USER;
+		uint64_t stack_base =
+			cinux::arch::USER_STACK_TOP - cinux::arch::USER_STACK_PAGES * cinux::arch::PAGE_SIZE;
+
+		for (uint64_t i = 0; i < cinux::arch::USER_STACK_PAGES; i++) {
+			uint64_t phys = cinux::mm::g_pmm.alloc_page();
+			if (phys == 0) {
+				cinux::lib::kprintf("[GUI] user stack alloc failed\n");
+				cinux::proc::Scheduler::exit_current();
+			}
+			uint64_t virt = stack_base + i * cinux::arch::PAGE_SIZE;
+			if (!task->addr_space->map(virt, phys, kUserPageFlags)) {
+				cinux::lib::kprintf("[GUI] user stack map failed at %p\n",
+									reinterpret_cast<void*>(virt));
+				cinux::proc::Scheduler::exit_current();
+			}
+		}
+
+		cinux::lib::kprintf("[GUI] Shell child jumping to user mode: entry=%p\n",
+							reinterpret_cast<void*>(entry));
+
+		// Activate the child's address space -- now fully populated
+		task->addr_space->activate();
+
+		// Update the per-CPU syscall kernel stack so syscall_entry
+		// loads the child's kernel stack (not the parent's or the
+		// boot task's).
+		cinux::proc::g_per_cpu.update_syscall_stack(task->kernel_stack_top);
+
+		// Do NOT sti here.  SYSRETQ restores R11 into RFLAGS, and R11
+		// already has IF=1 (set in jump_to_usermode), so interrupts
+		// are enabled atomically upon entering Ring 3.  An explicit
+		// sti before SYSRETQ opens a window where the PIT fires on
+		// the child's CR3, causing gui_tick_callback to composite
+		// with incomplete identity mappings -- demand-paging zero
+		// pages over the framebuffer MMIO region.
+
+		jump_to_usermode(entry, cinux::arch::USER_STACK_TOP - cinux::arch::USER_ABI_RSP_OFFSET, 0);
+
+		cinux::proc::Scheduler::exit_current();
+	} else {
+		cinux::lib::kprintf("[GUI] fork() failed: %d\n", child_pid);
+		// Clean up all allocated resources on fork failure
+		delete stdin_read_ops;
+		delete stdin_read_inode;
+		delete stdout_write_ops;
+		delete stdout_write_inode;
+		delete stdin_pipe;
+		delete stdout_pipe;
+		delete term;
+		return;
 	}
 
 	wm.add_window(term);
-	cinux::lib::kprintf("[GUI] Shell terminal created and connected.\n");
+	cinux::lib::kprintf("[GUI] Terminal '%s' created with pipes stdin=%p stdout=%p\n", title_buf,
+						reinterpret_cast<void*>(stdin_pipe), reinterpret_cast<void*>(stdout_pipe));
 }
 
 }  // anonymous namespace
@@ -178,18 +294,21 @@ void gui_tick_callback(void* /*ctx*/) {
 		}
 	}
 
-	// Check if a desktop icon was clicked
+	// Check if a desktop icon was clicked -- enqueue for deferred processing
 	IconAction action = wm.consume_pending_icon_action();
-	if (action == IconAction::OpenShell) {
-		create_shell_terminal();
+	if (action != IconAction::None) {
+		g_pending_action.store(action, std::memory_order_release);
 	}
 
-	// Poll the focused terminal for shell output (if it has a stdout pipe)
-	auto* focused = wm.focused();
-	if (focused != nullptr && focused->is_terminal()) {
-		auto* term = static_cast<Terminal*>(focused);
-		term->poll_output();
-		term->render_to_canvas();
+	// Poll all terminal windows for shell output (not just the focused one)
+	// so that multiple concurrent shell sessions all update their displays.
+	for (uint32_t i = 0; i < wm.window_count(); i++) {
+		auto* win = wm.window_at(i);
+		if (win != nullptr && win->is_terminal()) {
+			auto* term = static_cast<Terminal*>(win);
+			term->poll_output();
+			term->render_to_canvas();
+		}
 	}
 
 	// Composite all windows onto the screen
@@ -217,22 +336,22 @@ void gui_start() {
 	auto& wm = WindowManager::instance();
 
 	DesktopIcon shell_icon{
-		.x      = 40,
-		.y      = 40,
+		.x		= 40,
+		.y		= 40,
 		.bitmap = icons::data::k_shell_icon.data(),
-		.label  = "Shell",
-		.width  = icons::ICON_SIZE,
+		.label	= "Shell",
+		.width	= icons::ICON_SIZE,
 		.height = icons::ICON_SIZE,
 		.action = IconAction::OpenShell,
 	};
 	wm.add_desktop_icon(shell_icon);
 
 	DesktopIcon calc_icon{
-		.x      = 40,
-		.y      = 120,
+		.x		= 40,
+		.y		= 120,
 		.bitmap = icons::data::k_calc_icon.data(),
-		.label  = "Calculator",
-		.width  = icons::ICON_SIZE,
+		.label	= "Calculator",
+		.width	= icons::ICON_SIZE,
 		.height = icons::ICON_SIZE,
 		.action = IconAction::OpenCalculator,
 	};
@@ -243,6 +362,17 @@ void gui_start() {
 	// Register the GUI tick callback for event processing + compositing
 	cinux::drivers::PIT::set_tick_callback(gui_tick_callback, nullptr);
 	cinux::lib::kprintf("[GUI] GUI tick callback registered on PIT.\n");
+}
+
+// ============================================================
+// gui_process_pending() -- drain deferred work from ISR
+// ============================================================
+
+void gui_process_pending() {
+	IconAction action = g_pending_action.exchange(IconAction::None, std::memory_order_acq_rel);
+	if (action == IconAction::OpenShell) {
+		create_shell_terminal();
+	}
 }
 
 }  // namespace cinux::gui

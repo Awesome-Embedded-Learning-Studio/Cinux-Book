@@ -15,6 +15,8 @@
  *   Offset 40: rbx
  *   Offset 48: rsp
  *   Offset 56: rip
+ *   Offset 64: gs_base      (MSR_GS_BASE)
+ *   Offset 72: kgs_base     (MSR_KERNEL_GS_BASE)
  *
  * Calling convention (System V AMD64 ABI):
  *   %rdi = from (CpuContext* of outgoing task)
@@ -55,6 +57,17 @@ context_switch:
     leaq .restore(%rip), %rax        # .restore address→%rax: compute return point
     movq %rax, 56(%rdi)              # %rax→from+56: save resume RIP
 
+    /* Save GS MSRs (swapgs state must be preserved across switches) */
+    movq $0xC0000101, %rcx           # MSR_GS_BASE→%rcx
+    rdmsr                             # %edx:%eax = MSR_GS_BASE
+    movl %eax, 64(%rdi)             # from+64: gs_base low 32
+    movl %edx, 68(%rdi)             # from+68: gs_base high 32
+
+    movq $0xC0000102, %rcx           # MSR_KERNEL_GS_BASE→%rcx
+    rdmsr                             # %edx:%eax = MSR_KERNEL_GS_BASE
+    movl %eax, 72(%rdi)             # from+72: kgs_base low 32
+    movl %edx, 76(%rdi)             # from+76: kgs_base high 32
+
     /* ---- Restore callee-saved registers from `to` ---- */
 
     movq 0(%rsi), %r15               # to+0→%r15: restore R15
@@ -67,6 +80,17 @@ context_switch:
     /* Switch to the new task's stack */
     movq 48(%rsi), %rsp              # to+48→%rsp: switch stack pointer
 
+    /* Restore GS MSRs */
+    movl 64(%rsi), %eax              # to+64→%eax: gs_base low 32
+    movl 68(%rsi), %edx              # to+68→%edx: gs_base high 32
+    movq $0xC0000101, %rcx           # MSR_GS_BASE→%rcx
+    wrmsr                             # write MSR_GS_BASE
+
+    movl 72(%rsi), %eax              # to+72→%eax: kgs_base low 32
+    movl 76(%rsi), %edx              # to+76→%edx: kgs_base high 32
+    movq $0xC0000102, %rcx           # MSR_KERNEL_GS_BASE→%rcx
+    wrmsr                             # write MSR_KERNEL_GS_BASE
+
     /* Re-enable interrupts -- we may have entered from ISR context (IF=0).
        New tasks must start with interrupts on; resumed tasks will restore
        their original RFLAGS via IRETQ unwinding regardless. */
@@ -78,3 +102,20 @@ context_switch:
 .restore:
     /* Execution resumes here when this task is switched back in */
     ret                               # return to caller of context_switch
+
+# ============================================================
+# Trampoline: fork child entry point
+# ============================================================
+# Sets rax=0 (child PID convention) and returns to the caller of
+# fork().  Used by fork() to make the child resume at the fork()
+# return site with the correct return value.
+#
+# The child's ctx.rip is set to this address, and ctx.rsp points
+# to the fork() return address on the child's stack.
+# ============================================================
+.global fork_child_trampoline
+.type fork_child_trampoline, @function
+fork_child_trampoline:
+    xorq %rax, %rax                   # rax = 0 (child sees fork() return 0)
+    ret                                # return to caller
+.size fork_child_trampoline, . - fork_child_trampoline

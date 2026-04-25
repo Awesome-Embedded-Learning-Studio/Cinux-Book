@@ -101,4 +101,14 @@ FileSystem* vfs_resolve(const char* path, const char** rel_path);
 class FDTable;
 FDTable& g_global_fd_table();
 
+/**
+ * @brief Get the FDTable for the currently running task
+ *
+ * Returns the per-task FDTable if the current task has one,
+ * otherwise falls back to the global FDTable.
+ *
+ * @return Reference to the appropriate FDTable
+ */
+FDTable& current_fd_table();
+
 }  // namespace cinux::fs

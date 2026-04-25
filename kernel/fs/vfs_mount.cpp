@@ -11,6 +11,7 @@
 
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/fs/file.hpp"
+#include "kernel/proc/scheduler.hpp"
 
 #include "kernel/lib/string.hpp"
 #include "kernel/proc/sync.hpp"
@@ -156,6 +157,16 @@ FileSystem* vfs_resolve(const char* path, const char** rel_path) {
 FDTable& g_global_fd_table() {
     static FDTable s_global_fd_table;
     return s_global_fd_table;
+}
+
+FDTable& current_fd_table() {
+#ifndef CINUX_HOST_TEST
+    auto* task = cinux::proc::Scheduler::current();
+    if (task != nullptr && task->fd_table != nullptr) {
+        return *task->fd_table;
+    }
+#endif
+    return g_global_fd_table();
 }
 
 }  // namespace cinux::fs

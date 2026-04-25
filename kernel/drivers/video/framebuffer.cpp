@@ -8,7 +8,9 @@
 #include <stdint.h>
 
 #include "boot/boot_info.h"
-#include "kernel/arch/x86_64/paging.hpp"
+#include "kernel/arch/x86_64/memory_layout.hpp"
+#include "kernel/arch/x86_64/paging_config.hpp"
+#include "kernel/mm/vmm.hpp"
 
 namespace cinux::drivers {
 
@@ -19,12 +21,23 @@ void Framebuffer::init(const BootInfo& bi) {
 	pitch_			 = bi.fb_pitch;
 	bpp_			 = bi.fb_bpp;
 
-	// Map the framebuffer MMIO region into virtual address space
+	// Map the framebuffer into higher-half kernel page tables via 2 MB
+	// huge pages, so fork can safely drop PML4[0] identity mappings.
 	uint64_t fb_size = static_cast<uint64_t>(pitch_) * height_;
-	arch::map_mmio(fb_phys, fb_size);
+	constexpr uint64_t PAGE_2MB = 0x200000ULL;
+	uint64_t num_pages = (fb_size + PAGE_2MB - 1) / PAGE_2MB;
+	constexpr uint64_t mmio_flags =
+		arch::FLAG_PRESENT | arch::FLAG_WRITABLE;
 
-	// Identity-mapped: physical address is directly accessible
-	addr_ = reinterpret_cast<volatile uint32_t*>(fb_phys);
+	for (uint64_t i = 0; i < num_pages; i++) {
+		uint64_t phys = (fb_phys & ~(PAGE_2MB - 1)) + i * PAGE_2MB;
+		uint64_t virt = arch::KMEM_FB_BASE + i * PAGE_2MB;
+		mm::g_vmm.map_2mb(virt, phys, mmio_flags);
+	}
+
+	// Adjust for the difference between 2MB-aligned base and actual fb_phys
+	uint64_t offset = fb_phys & (PAGE_2MB - 1);
+	addr_ = reinterpret_cast<volatile uint32_t*>(arch::KMEM_FB_BASE + offset);
 }
 
 void Framebuffer::put_pixel(uint32_t x, uint32_t y, uint32_t argb) {

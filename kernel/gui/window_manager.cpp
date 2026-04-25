@@ -142,6 +142,13 @@ void WindowManager::raise(uint32_t id) {
 // Desktop icon management
 // ============================================================
 
+Window* WindowManager::window_at(uint32_t index) const {
+	if (index >= count_) {
+		return nullptr;
+	}
+	return windows_[index];
+}
+
 bool WindowManager::add_desktop_icon(const DesktopIcon& icon) {
 	if (icon_count_ >= MAX_ICONS) {
 		return false;

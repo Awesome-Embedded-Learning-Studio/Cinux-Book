@@ -73,8 +73,8 @@ int64_t sys_pipe(uint64_t pipefd_virt,
     write_inode->ops = write_ops;
     write_inode->type = cinux::fs::InodeType::Regular;
 
-    // Step 5: Allocate two fd slots in the global FDTable
-    auto& table = cinux::fs::g_global_fd_table();
+    // Step 5: Allocate two fd slots in the current task's FDTable
+    auto& table = cinux::fs::current_fd_table();
 
     int read_fd  = table.alloc(read_inode, cinux::fs::OpenFlags::RDONLY);
     if (read_fd < 0) {

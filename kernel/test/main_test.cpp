@@ -12,19 +12,18 @@
 
 #include <stdint.h>
 
-#include "kernel/lib/kprintf.hpp"
+#include "big_kernel_test.h"
+#include "boot/boot_info.h"
 #include "kernel/arch/x86_64/gdt.hpp"
 #include "kernel/arch/x86_64/idt.hpp"
-#include "kernel/arch/x86_64/usermode.hpp"
+#include "kernel/arch/x86_64/memory_layout.hpp"
 #include "kernel/arch/x86_64/syscall.hpp"
-
-#include "boot/boot_info.h"
-#include "kernel/mm/pmm.hpp"
-#include "kernel/mm/vmm.hpp"
+#include "kernel/arch/x86_64/usermode.hpp"
+#include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/heap.hpp"
-
-#include "big_kernel_test.h"
+#include "kernel/mm/pmm.hpp"
+#include "kernel/mm/vmm.hpp"
 
 extern "C" {
 void run_gdt_idt_tests();
@@ -65,165 +64,134 @@ void run_pipe_tests();
 void run_sys_pipe_tests();
 void run_terminal_shell_tests();
 void run_fork_exec_tests();
+void run_multi_terminal_tests();
+void run_kprintf_format_tests();
 }
 
 static constexpr uintptr_t BOOT_INFO_PHYS = 0x7000;
 
 extern "C" void kernel_main() {
-    // Step 1: Initialise serial port for test output
-    cinux::lib::kprintf_init();
-    cinux::lib::kprintf("[TEST] Big Kernel Test Suite starting...\n");
+	// Step 1: Initialise serial port for test output
+	cinux::lib::kprintf_init();
+	cinux::lib::kprintf("[TEST] Big Kernel Test Suite starting...\n");
 
-    // Step 2: Initialise GDT (must come before IDT)
-    cinux::arch::g_gdt.init();
-    cinux::lib::kprintf("[TEST] GDT loaded.\n");
+	// Step 2: Initialise GDT (must come before IDT)
+	cinux::arch::g_gdt.init();
+	cinux::lib::kprintf("[TEST] GDT loaded.\n");
 
-    // Step 3: Initialise IDT (depends on GDT selectors)
-    cinux::arch::g_idt.init();
-    cinux::lib::kprintf("[TEST] IDT loaded.\n");
+	// Step 3: Initialise IDT (depends on GDT selectors)
+	cinux::arch::g_idt.init();
+	cinux::lib::kprintf("[TEST] IDT loaded.\n");
 
-    // Step 4: Run test suites
-    run_gdt_idt_tests();
+	// kprintf format tests run early — only need serial + kprintf
+	run_kprintf_format_tests();
 
-    // PIC/PIT/IRQ tests handle their own init (PIC, PIT, irq_init, STI/CLI)
-    // so we run them after the basic GDT/IDT tests.
-    run_pic_pit_tests();
+	// Step 4: Run test suites (hardware only)
+	run_gdt_idt_tests();
+	run_pic_pit_tests();
+	run_keyboard_tests();
 
-    // Video tests use real VBE framebuffer (set up by bootloader)
-    run_video_tests();
+	// PMM tests: initialise with real BootInfo, then run tests
+	auto* boot_info = reinterpret_cast<const BootInfo*>(BOOT_INFO_PHYS);
+	cinux::mm::g_pmm.init(*boot_info);
+	run_pmm_tests();
 
-    // Keyboard tests use PS/2 controller (QEMU emulated)
-    run_keyboard_tests();
+	// VMM tests: initialise VMM after PMM, then run tests
+	cinux::mm::g_vmm.init();
+	run_vmm_tests();
 
-    // PMM tests: initialise with real BootInfo, then run tests
-    auto* boot_info = reinterpret_cast<const BootInfo*>(BOOT_INFO_PHYS);
-    cinux::mm::g_pmm.init(*boot_info);
-    run_pmm_tests();
+	// Video tests require VMM (framebuffer maps via map_2mb)
+	run_video_tests();
 
-    // VMM tests: initialise VMM after PMM, then run tests
-    cinux::mm::g_vmm.init();
-    run_vmm_tests();
+	// Heap tests: initialise Heap after VMM, then run tests
+	constexpr uint64_t HEAP_VIRT_BASE = cinux::arch::KMEM_HEAP_BASE;
+	constexpr uint64_t HEAP_INIT_SIZE = 64 * 1024;	// 64 KB
+	cinux::mm::g_heap.init(HEAP_VIRT_BASE, HEAP_INIT_SIZE);
+	run_heap_tests();
+	run_heap_lock_stress_tests();
 
-    // Heap tests: initialise Heap after VMM, then run tests
-    constexpr uint64_t HEAP_VIRT_BASE = 0xFFFFFFFF80100000ULL;
-    constexpr uint64_t HEAP_INIT_SIZE  = 64 * 1024;  // 64 KB
-    cinux::mm::g_heap.init(HEAP_VIRT_BASE, HEAP_INIT_SIZE);
-    run_heap_tests();
-    run_heap_lock_stress_tests();
+	run_pipe_tests();
+	run_sys_pipe_tests();
+	run_canvas_tests();
+	run_mouse_event_tests();
+	run_window_tests();
+	run_window_manager_tests();
+	run_gui_integration_tests();
+	run_bitmap_icon_tests();
+	run_desktop_tests();
+	run_terminal_tests();
+#ifdef CINUX_GUI
+	run_terminal_shell_tests();
+#endif
+	cinux::mm::AddressSpace::init_kernel();
+	run_address_space_tests();
 
-    // Pipe tests (031 Phase 1): ring-buffer IPC, close semantics, PipeOps
-    run_pipe_tests();
+	run_scheduler_tests();
+	run_sync_tests();
+	run_sync_concurrent_tests();
 
-    // Sys pipe tests (031 Phase 2): FDTable::set(), Pipe+InodeOps integration,
-    // sys_pipe address validation
-    run_sys_pipe_tests();
+	cinux::arch::usermode_init();
+	run_usermode_tests();
 
-    // Canvas tests (029): GUI double-buffered rendering (uses Framebuffer + PSFFont + Heap)
-    run_canvas_tests();
+	cinux::arch::syscall_init();
+	run_syscall_tests();
 
-    // Mouse & Event tests (030): EventQueue, MouseEvent/KeyEvent structs, button parsing
-    run_mouse_event_tests();
+	run_fork_exec_tests();
+#ifdef CINUX_GUI
+	// Multi-terminal tests (035): multiple concurrent terminals with
+	// independent pipes, destructor cleanup, WM iteration, tick callback
+	run_multi_terminal_tests();
+#endif
+	// Shell tests (024): verifies kernel-side infrastructure for user shell
+	run_shell_tests();
 
-    // Window tests (030): Window class construction, drawing, hit testing, blit
-    run_window_tests();
+	// AHCI tests (025): requires PMM and VMM for BAR5 mapping and DMA buffers
+	run_ahci_tests();
 
-    // WindowManager tests (030): init, create, destroy, raise, composite, drag
-    run_window_manager_tests();
+	// Ramdisk tests (026): verifies ustar parsing of embedded initrd
+	run_ramdisk_tests();
 
-    // GUI integration tests (030D): gui_init wiring, keyboard dual-path,
-    // PIT tick callback, mouse event flow through EventQueue -> WM
-    run_gui_integration_tests();
+	// VFS syscall integration tests (027): sys_open/read/write/close via VFS
+	run_vfs_syscall_tests();
 
-    // Bitmap icon tests (032): draw_bitmap pixel rendering, transparency,
-    // clipping, icon_data constants, DesktopIcon::contains hit testing
-    run_bitmap_icon_tests();
+	// Ext2 filesystem tests (028): mount, lookup, read, readdir, VFS integration
+	run_ext2_tests();
 
-    // Desktop tests (033): WM init + add_desktop_icon + hit_test_icon +
-    // consume_pending_icon_action + composite with icons
-    run_desktop_tests();
+	// AHCI write + ext2 write_block tests (028b): write round-trip, write_block
+	run_ahci_write_tests();
 
-    // Terminal tests (031): character buffer, cursor, write, ANSI, scroll
-    run_terminal_tests();
+	// Ext2 allocator tests (028b): alloc_block, free_block, alloc_inode, free_inode
+	run_ext2_allocator_tests();
 
-    // Terminal-Shell integration tests (Phase 5): pipe redirection,
-    // on_key -> stdin pipe, stdout pipe -> poll_output, fd binding
-    run_terminal_shell_tests();
+	// Ext2 write/create/mkdir/unlink tests (028b)
+	run_ext2_ops_tests();
 
-    // AddressSpace tests: init kernel PML4 after VMM, then run tests
-    cinux::mm::AddressSpace::init_kernel();
-    run_address_space_tests();
+	// Ext2 InodeOps virtual class tests (028b)
+	run_ext2_inode_ops_tests();
 
-    // Scheduler/Process tests: uses Heap, PMM, VMM -- all already initialised
-    run_scheduler_tests();
+	// Syscall ext2 integration tests (028b): sys_creat/mkdir/unlink/rmdir
+	run_syscall_ext2_tests();
 
-    // Sync tests (021): uses Scheduler block/unblock, Mutex, Semaphore
-    run_sync_tests();
+	// Shell write command tests (028b): touch/mkdir/rm/rmdir/echo redirect
+	run_shell_write_tests();
 
-    // Sync concurrent tests (028d): InterruptGuard, IrqSpinlockGuard
-    run_sync_concurrent_tests();
+	// CWD/stat tests (028c): chdir/getcwd/stat/fstat/path canonicalize
+	run_cwd_stat_tests();
 
-    // Usermode tests (022): requires usermode_init() for MSR setup
-    cinux::arch::usermode_init();
-    run_usermode_tests();
+	// Step 5: Report and exit
+	int exit_code = (test::get_total_failed() > 0) ? 1 : 0;
 
-    // Syscall tests (023): requires syscall_init() after usermode_init
-    cinux::arch::syscall_init();
-    run_syscall_tests();
+	if (exit_code != 0) {
+		cinux::lib::kprintf("\n[TEST] TESTS FAILED (exit code %d)\n", exit_code);
+	} else {
+		cinux::lib::kprintf("\n[TEST] ALL TESTS PASSED (exit code %d)\n", exit_code);
+	}
 
-    // Fork/exec tests (034 sub-1): PID allocator, TCB fields,
-    // sys_getpid/sys_getppid -- requires scheduler and syscall_init
-    run_fork_exec_tests();
+	// Exit via QEMU isa-debug-exit device (port 0xf4)
+	__asm__ volatile("outl %0, $0xf4" : : "a"(exit_code));
 
-    // Shell tests (024): verifies kernel-side infrastructure for user shell
-    run_shell_tests();
-
-    // AHCI tests (025): requires PMM and VMM for BAR5 mapping and DMA buffers
-    run_ahci_tests();
-
-    // Ramdisk tests (026): verifies ustar parsing of embedded initrd
-    run_ramdisk_tests();
-
-    // VFS syscall integration tests (027): sys_open/read/write/close via VFS
-    run_vfs_syscall_tests();
-
-    // Ext2 filesystem tests (028): mount, lookup, read, readdir, VFS integration
-    run_ext2_tests();
-
-    // AHCI write + ext2 write_block tests (028b): write round-trip, write_block
-    run_ahci_write_tests();
-
-    // Ext2 allocator tests (028b): alloc_block, free_block, alloc_inode, free_inode
-    run_ext2_allocator_tests();
-
-    // Ext2 write/create/mkdir/unlink tests (028b)
-    run_ext2_ops_tests();
-
-    // Ext2 InodeOps virtual class tests (028b)
-    run_ext2_inode_ops_tests();
-
-    // Syscall ext2 integration tests (028b): sys_creat/mkdir/unlink/rmdir
-    run_syscall_ext2_tests();
-
-    // Shell write command tests (028b): touch/mkdir/rm/rmdir/echo redirect
-    run_shell_write_tests();
-
-    // CWD/stat tests (028c): chdir/getcwd/stat/fstat/path canonicalize
-    run_cwd_stat_tests();
-
-    // Step 5: Report and exit
-    int exit_code = (test::get_total_failed() > 0) ? 1 : 0;
-
-    if (exit_code != 0) {
-        cinux::lib::kprintf("\n[TEST] TESTS FAILED (exit code %d)\n", exit_code);
-    } else {
-        cinux::lib::kprintf("\n[TEST] ALL TESTS PASSED (exit code %d)\n", exit_code);
-    }
-
-    // Exit via QEMU isa-debug-exit device (port 0xf4)
-    __asm__ volatile("outl %0, $0xf4" : : "a"(exit_code));
-
-    // Fallback halt if isa-debug-exit is not available
-    while (1) {
-        __asm__ volatile("cli; hlt");
-    }
+	// Fallback halt if isa-debug-exit is not available
+	while (1) {
+		__asm__ volatile("cli; hlt");
+	}
 }

@@ -19,8 +19,6 @@ class Canvas;
 class PSFFont;
 }  // namespace cinux::drivers
 
-namespace cinux::ipc { class Pipe; }
-
 namespace cinux::gui {
 
 /**
@@ -36,18 +34,6 @@ namespace cinux::gui {
 void gui_init(cinux::drivers::Canvas& screen, cinux::drivers::PSFFont& font);
 
 /**
- * @brief Store the shell pipe pointers for later terminal creation
- *
- * Must be called before gui_start().  The stored pointers are used
- * when the user clicks the Shell desktop icon to create a Terminal
- * window with connected stdin/stdout pipes.
- *
- * @param stdin_pipe   Pointer to the stdin Pipe (Terminal writes to it)
- * @param stdout_pipe  Pointer to the stdout Pipe (Terminal reads from it)
- */
-void set_shell_pipes(cinux::ipc::Pipe* stdin_pipe, cinux::ipc::Pipe* stdout_pipe);
-
-/**
  * @brief Register the GUI tick callback on the PIT (call from kernel_init_thread)
  *
  * After calling this, every PIT tick will drain the event queue,
@@ -55,5 +41,15 @@ void set_shell_pipes(cinux::ipc::Pipe* stdin_pipe, cinux::ipc::Pipe* stdout_pipe
  * Registers desktop icons (Shell, Calculator) on the desktop.
  */
 void gui_start();
+
+/**
+ * @brief Process deferred GUI work enqueued by the PIT tick callback
+ *
+ * Drains the pending action queue and executes any heavy operations
+ * (e.g. creating a new terminal window via fork/execve) that cannot
+ * safely run in interrupt context.  Should be called in a loop by a
+ * dedicated kernel worker thread.
+ */
+void gui_process_pending();
 
 }  // namespace cinux::gui

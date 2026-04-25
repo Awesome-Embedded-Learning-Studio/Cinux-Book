@@ -47,4 +47,8 @@ constexpr uint64_t PDPT_INDEX(uint64_t virt) { return (virt >> PDPT_SHIFT) & 0x1
 constexpr uint64_t PD_INDEX(uint64_t virt)   { return (virt >> PD_SHIFT) & 0x1FF; }
 constexpr uint64_t PT_INDEX(uint64_t virt)   { return (virt >> PT_SHIFT) & 0x1FF; }
 
+// True if the virtual address falls in the canonical lower half (user space).
+// x86_48 user space: bit 47 = 0, i.e. 0x0000000000000000 .. 0x00007FFFFFFFFFFF.
+constexpr bool is_user_vaddr(uint64_t virt) { return !(virt & (1ULL << 47)); }
+
 }  // namespace cinux::arch

@@ -234,6 +234,17 @@ public:
      */
     Window* focused() const { return focused_; }
 
+    /**
+     * @brief Get a window by its Z-order index
+     *
+     * Index 0 is the bottom-most window, index (count_ - 1) is the
+     * top-most (focused) window.
+     *
+     * @param index  Z-order index (must be < window_count())
+     * @return Pointer to the window, or nullptr if index is out of range
+     */
+    Window* window_at(uint32_t index) const;
+
     int32_t mouse_x() const { return mouse_x_; }
     int32_t mouse_y() const { return mouse_y_; }
 

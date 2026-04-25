@@ -1,7 +1,9 @@
 #include "kernel/proc/scheduler.hpp"
 
 #include "kernel/arch/x86_64/gdt.hpp"
+#include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/mm/address_space.hpp"
 #include "kernel/proc/per_cpu.hpp"
 
 namespace cinux::proc {
@@ -76,7 +78,26 @@ const char* RoundRobin::name() const {
 // PerCPU global
 // ============================================================
 
-PerCPU g_per_cpu{nullptr, 0};
+PerCPU g_per_cpu{nullptr, 0, 0};
+
+// ============================================================
+// Address space switch (Linux switch_mm style)
+// ============================================================
+
+namespace {
+
+void switch_addr_space(Task* prev, Task* next) {
+    if (prev->addr_space == next->addr_space) {
+        return;
+    }
+    if (next->addr_space) {
+        next->addr_space->activate();
+    } else {
+        cinux::arch::write_cr3(cinux::mm::AddressSpace::kernel_pml4());
+    }
+}
+
+}  // namespace
 
 // ============================================================
 // Scheduler static state
@@ -185,8 +206,10 @@ void Scheduler::exit_current() {
     g_per_cpu.current = next;
     if (next != idle_task_) {
         cinux::arch::GDT::tss_set_rsp0(next->kernel_stack_top);
+        g_per_cpu.update_syscall_stack(next->kernel_stack_top);
     }
     __asm__ volatile("fxsave %0" : : "m"(prev->fpu_state));
+    switch_addr_space(prev, next);
     context_switch(&prev->ctx, &next->ctx);
     __asm__ volatile("fxrstor %0" : : "m"(current_->fpu_state));
 }
@@ -205,7 +228,9 @@ void Scheduler::run_first(Task* boot_task) {
     current_ = next;
     g_per_cpu.current = next;
     cinux::arch::GDT::tss_set_rsp0(next->kernel_stack_top);
+    g_per_cpu.update_syscall_stack(next->kernel_stack_top);
     __asm__ volatile("fxsave %0" : : "m"(boot_task->fpu_state));
+    switch_addr_space(boot_task, next);
     context_switch(&boot_task->ctx, &next->ctx);
     __asm__ volatile("fxrstor %0" : : "m"(current_->fpu_state));
 }
@@ -269,9 +294,11 @@ void Scheduler::schedule() {
 
     if (next != idle_task_) {
         cinux::arch::GDT::tss_set_rsp0(next->kernel_stack_top);
+        g_per_cpu.update_syscall_stack(next->kernel_stack_top);
     }
 
     __asm__ volatile("fxsave %0" : : "m"(prev->fpu_state));
+    switch_addr_space(prev, next);
     context_switch(&prev->ctx, &next->ctx);
     __asm__ volatile("fxrstor %0" : : "m"(current_->fpu_state));
 }

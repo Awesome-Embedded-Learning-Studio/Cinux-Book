@@ -4,6 +4,10 @@
 
 namespace cinux::arch {
 
+// Higher-half direct mapping: physaddr + KERNEL_VMA = canonical virtual address.
+// Must match the offset used in linker.ld.
+constexpr uint64_t KERNEL_VMA = 0xFFFFFFFF80000000ULL;
+
 // ============================================================
 // Kernel virtual memory layout (0xFFFF8000_00000000+)
 // ============================================================
@@ -18,11 +22,15 @@ constexpr uint64_t KMEM_HEAP_SIZE  = 0x8000000ULL;      // 128 MB
 constexpr uint64_t KMEM_HEAP_BASE  = KMEM_BASE;
 
 // MMIO: memory-mapped I/O (AHCI BAR5, etc.)
-constexpr uint64_t KMEM_MMIO_SIZE  = 0x40000ULL;       // 256 KB
+constexpr uint64_t KMEM_MMIO_SIZE  = 0x200000ULL;       // 2 MB
 constexpr uint64_t KMEM_MMIO_BASE  = KMEM_HEAP_BASE + KMEM_HEAP_SIZE;
 
+// Framebuffer: linear framebuffer MMIO (2 MB-aligned for huge page mapping)
+constexpr uint64_t KMEM_FB_SIZE    = 0x1000000ULL;      // 16 MB
+constexpr uint64_t KMEM_FB_BASE    = KMEM_MMIO_BASE + KMEM_MMIO_SIZE;
+
 // Stacks: per-task kernel stacks (allocated upward)
-constexpr uint64_t KMEM_STACK_BASE = KMEM_MMIO_BASE + KMEM_MMIO_SIZE;
+constexpr uint64_t KMEM_STACK_BASE = KMEM_FB_BASE + KMEM_FB_SIZE;
 
 // DMA: ad-hoc DMA buffers (sector reads, etc.)
 constexpr uint64_t KMEM_DMA_SIZE   = 0x100000ULL;       // 1 MB

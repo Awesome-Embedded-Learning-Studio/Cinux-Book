@@ -2,19 +2,17 @@
  * @file kernel/arch/x86_64/usermode.hpp
  * @brief User-mode (Ring 3) transition support
  *
- * Provides functions to initialise the SYSRET/SYSCALL infrastructure,
- * set up a minimal user address space, and jump from kernel mode (Ring 0)
- * to user mode (Ring 3).
+ * Provides functions to initialise the SYSRET/SYSCALL infrastructure
+ * and jump from kernel mode (Ring 0) to user mode (Ring 3).
  *
- * usermode_init() configures the STAR and EFER MSRs so that SYSRET
- * can transition to Ring 3.  launch_first_user() creates a minimal
- * user program page and user stack, then performs the SYSRET jump.
+ * usermode_init() configures the STAR/EFER MSRs and allocates the
+ * per-CPU GS data page used by syscall_entry for kernel stack access.
  *
  * Dependencies:
- *   - GDT must be initialised (user code/data selectors at 0x1B/0x23)
+ *   - GDT must be initialised (user code/data selectors)
  *   - TSS must be loaded (RSP0 used on privilege level switches)
  *   - IDT must be set up (exceptions like #GP handled in Ring 0)
- *   - PMM must be initialised (for user page allocation)
+ *   - PMM must be initialised (for per-CPU GS page allocation)
  *   - AddressSpace must be initialised (for per-process page tables)
  *
  * Namespace: cinux::arch
@@ -23,10 +21,6 @@
 #pragma once
 
 #include <stdint.h>
-
-namespace cinux::mm {
-class AddressSpace;
-}
 
 namespace cinux::arch {
 
@@ -53,30 +47,13 @@ static_assert((USER_STACK_TOP - USER_ABI_RSP_OFFSET) % 16 == 8,
 // ============================================================
 
 /**
- * @brief Initialise the STAR / EFER MSRs for SYSRET transitions
+ * @brief Initialise the SYSCALL/SYSRET infrastructure
  *
- * Must be called once during boot, after GDT and IDT are initialised.
- * Configures the STAR MSR with kernel CS = 0x08 so that SYSRET
- * computes user CS = 0x1B (Ring 3 code) and user SS = 0x23 (Ring 3 data).
+ * Must be called once during boot, after GDT, IDT, and PMM are initialised.
+ * Configures the STAR/EFER MSRs and allocates the per-CPU GS data page
+ * used by syscall_entry for kernel stack access (gs:0).
  */
 void usermode_init();
-
-/**
- * @brief Set up user pages and launch the first user-mode program
- *
- * Creates an AddressSpace with:
- *   - One code page at USER_ENTRY_BASE containing a CLI instruction
- *   - USER_STACK_PAGES stack pages below USER_STACK_TOP
- * Activates the address space, sets TSS.RSP0 to the current kernel
- * stack, and performs SYSRET to enter Ring 3.
- *
- * The user program executes CLI (privileged), triggering #GP which
- * proves privilege isolation works.
- *
- * @note This function does not return in the normal sense.  Once
- *       SYSRET fires, execution continues at Ring 3.
- */
-void launch_first_user();
 
 }  // namespace cinux::arch
 

@@ -376,22 +376,24 @@ void test_non_cow_readonly_not_handled() {
 namespace test_sys_fork_dispatch {
 
 void test_dispatch_sys_fork() {
-    // The test environment does not run the scheduler loop, so
-    // Scheduler::current() is nullptr.  sys_fork should return -1.
     Task tmp{};
     tmp.pid = 42;
     tmp.ppid = 1;
+    // kernel_stack_top must be set above the current RSP so fork()'s
+    // stack usage calculation (kernel_stack_top - current_rsp) doesn't
+    // underflow.
+    uint64_t rsp;
+    __asm__ volatile("movq %%rsp, %0" : "=r"(rsp));
+    tmp.kernel_stack_top = rsp + 16384;
     Task* prev = cinux::proc::Scheduler::current();
     cinux::proc::Scheduler::set_current(&tmp);
 
     // sys_fork will try to allocate from g_pid_alloc and call fork()
     // which depends on Scheduler::add_task etc.  In the test harness
     // the scheduler is initialised but not running, so we verify
-    // that the dispatch path is reachable.  The actual fork will
-    // fail gracefully and return -1.
+    // that the dispatch path is reachable.
     int64_t ret = sys_fork(0, 0, 0, 0, 0, 0);
-    // fork() requires Scheduler::add_task which needs initialised
-    // scheduling class.  In test context it may return -1.
+    // fork may succeed (return child_pid) or fail (return -1)
     TEST_ASSERT_TRUE(ret == -1 || ret >= 0);
 
     cinux::proc::Scheduler::set_current(prev);
@@ -401,6 +403,9 @@ void test_dispatch_sys_fork_via_table() {
     Task tmp{};
     tmp.pid = 42;
     tmp.ppid = 1;
+    uint64_t rsp;
+    __asm__ volatile("movq %%rsp, %0" : "=r"(rsp));
+    tmp.kernel_stack_top = rsp + 16384;
     Task* prev = cinux::proc::Scheduler::current();
     cinux::proc::Scheduler::set_current(&tmp);
 

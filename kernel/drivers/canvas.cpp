@@ -52,13 +52,22 @@ void memfill32(uint32_t* dst, uint32_t value, uint32_t count) {
 // ============================================================
 
 void Canvas::init(Framebuffer& fb) {
+    if (back_buf_ != nullptr) {
+        delete[] back_buf_;
+        back_buf_ = nullptr;
+    }
+
     front_buf_ = &fb;
     width_     = fb.width();
     height_    = fb.height();
     pitch_     = fb.pitch();
 
-    // Allocate back buffer: width * height * 4 bytes (32-bit pixels)
-    uint32_t total_pixels = width_ * height_;
+    // Allocate back buffer sized to the actual pitch, not just width.
+    // Drawing functions access back_buf_[row * (pitch/4) + col], so
+    // the buffer must be pitch/4 * height elements to avoid overflow when
+    // the framebuffer pitch is larger than width * 4 (VBE line alignment).
+    uint32_t stride      = pitch_ / 4;
+    uint32_t total_pixels = stride * height_;
     back_buf_ = new uint32_t[total_pixels];
 
     // Clear back buffer to black

@@ -1,9 +1,10 @@
 #!/bin/bash
 # Create a small ext2 disk image for QEMU AHCI port 1
 #
-# Usage: ./create_ext2_disk.sh <output_image>
+# Usage: ./create_ext2_disk.sh <output_image> [shell_elf]
 #
-# Creates a 4 MB ext2 filesystem image with test files:
+# Creates a 4 MB ext2 filesystem image with:
+#   /bin/sh         - Shell executable (from shell_elf argument)
 #   /etc/motd       - Welcome message
 #   /hello.txt      - Simple text file
 #
@@ -13,9 +14,10 @@
 set -e
 
 OUTPUT="$1"
+SHELL_ELF="$2"
 
 if [ -z "$OUTPUT" ]; then
-    echo "Usage: $0 <output_image>" >&2
+    echo "Usage: $0 <output_image> [shell_elf]" >&2
     exit 1
 fi
 
@@ -55,11 +57,17 @@ Hello from ext2!
 Cinux can read files from a real filesystem now.
 HELLO_EOF
 
-# Use debugfs to populate the image
-debugfs -w -f - "$OUTPUT" <<DEBUGFS_EOF
-mkdir etc
-write $TMPDIR/etc/motd etc/motd
-write $TMPDIR/hello.txt hello.txt
-DEBUGFS_EOF
+# Build the debugfs command script
+DEBUGFS_CMDS=""
+DEBUGFS_CMDS+="mkdir etc\n"
+DEBUGFS_CMDS+="write $TMPDIR/etc/motd etc/motd\n"
+DEBUGFS_CMDS+="write $TMPDIR/hello.txt hello.txt\n"
+
+if [ -n "$SHELL_ELF" ] && [ -f "$SHELL_ELF" ]; then
+    DEBUGFS_CMDS+="mkdir bin\n"
+    DEBUGFS_CMDS+="write $SHELL_ELF bin/sh\n"
+fi
+
+printf "$DEBUGFS_CMDS" | debugfs -w "$OUTPUT" >/dev/null 2>&1
 
 echo "Created ext2 image: $OUTPUT ($IMAGE_SIZE MB, block_size=$BLOCK_SIZE)"

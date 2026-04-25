@@ -50,56 +50,65 @@ using cinux::fs::OpenFlags;
 
 /// Verify that on_key forwards characters to stdin pipe
 void test_terminal_on_key_writes_to_stdin_pipe() {
-    Terminal term(0, 0);
-    Pipe stdin_pipe;
+    auto* term = new Terminal(0, 0);
+    auto* stdin_pipe = new Pipe();
 
-    term.set_stdin_pipe(&stdin_pipe);
+    term->set_stdin_pipe(stdin_pipe);
 
     // Simulate a key press
     cinux::gui::KeyEvent ev;
     ev.pressed = true;
     ev.ascii = 'A';
-    term.on_key(ev);
+    term->on_key(ev);
 
     // Verify character was written to stdin pipe
-    TEST_ASSERT_EQ(stdin_pipe.available(), 1u);
+    TEST_ASSERT_EQ(stdin_pipe->available(), 1u);
     char buf[4] = {};
-    stdin_pipe.try_read(buf, 1);
+    stdin_pipe->try_read(buf, 1);
     TEST_ASSERT_EQ(buf[0], 'A');
+
+    delete term;
+    delete stdin_pipe;
 }
 
 /// Verify that on_key converts CR to LF
 void test_terminal_on_key_converts_cr_to_lf() {
-    Terminal term(0, 0);
-    Pipe stdin_pipe;
+    auto* term = new Terminal(0, 0);
+    auto* stdin_pipe = new Pipe();
 
-    term.set_stdin_pipe(&stdin_pipe);
+    term->set_stdin_pipe(stdin_pipe);
 
     cinux::gui::KeyEvent ev;
     ev.pressed = true;
     ev.ascii = '\r';  // Enter key sends CR
-    term.on_key(ev);
+    term->on_key(ev);
 
     char buf[4] = {};
-    stdin_pipe.try_read(buf, 1);
+    stdin_pipe->try_read(buf, 1);
     TEST_ASSERT_EQ(buf[0], '\n');  // Should be converted to LF
+
+    delete term;
+    delete stdin_pipe;
 }
 
 /// Verify that on_key does not write to screen when stdin pipe is set
 void test_terminal_on_key_no_screen_write_with_pipe() {
-    Terminal term(0, 0);
-    Pipe stdin_pipe;
+    auto* term = new Terminal(0, 0);
+    auto* stdin_pipe = new Pipe();
 
-    term.set_stdin_pipe(&stdin_pipe);
+    term->set_stdin_pipe(stdin_pipe);
 
     cinux::gui::KeyEvent ev;
     ev.pressed = true;
     ev.ascii = 'X';
-    term.on_key(ev);
+    term->on_key(ev);
 
     // Screen buffer should still be empty (echo comes from stdout pipe)
-    TEST_ASSERT_EQ(term.cell(0, 0).ch, ' ');
-    TEST_ASSERT_EQ(term.cursor_x(), 0u);
+    TEST_ASSERT_EQ(term->cell(0, 0).ch, ' ');
+    TEST_ASSERT_EQ(term->cursor_x(), 0u);
+
+    delete term;
+    delete stdin_pipe;
 }
 
 // ============================================================
@@ -108,67 +117,78 @@ void test_terminal_on_key_no_screen_write_with_pipe() {
 
 /// Verify that poll_output reads data from stdout pipe into screen buffer
 void test_terminal_poll_output_reads_stdout() {
-    Terminal term(0, 0);
-    Pipe stdout_pipe;
+    auto* term = new Terminal(0, 0);
+    auto* stdout_pipe = new Pipe();
 
-    term.set_stdout_pipe(&stdout_pipe);
+    term->set_stdout_pipe(stdout_pipe);
 
     // Write shell output to stdout pipe
     const char msg[] = "Hi";
-    stdout_pipe.try_write(msg, 2);
+    stdout_pipe->try_write(msg, 2);
 
     // Poll should transfer data to screen buffer
-    term.poll_output();
+    term->poll_output();
 
-    TEST_ASSERT_EQ(term.cell(0, 0).ch, 'H');
-    TEST_ASSERT_EQ(term.cell(0, 1).ch, 'i');
-    TEST_ASSERT_EQ(term.cursor_x(), 2u);
-    TEST_ASSERT_EQ(term.cursor_y(), 0u);
+    TEST_ASSERT_EQ(term->cell(0, 0).ch, 'H');
+    TEST_ASSERT_EQ(term->cell(0, 1).ch, 'i');
+    TEST_ASSERT_EQ(term->cursor_x(), 2u);
+    TEST_ASSERT_EQ(term->cursor_y(), 0u);
+
+    delete term;
+    delete stdout_pipe;
 }
 
 /// Verify that poll_output on empty pipe does nothing
 void test_terminal_poll_output_empty_pipe() {
-    Terminal term(0, 0);
-    Pipe stdout_pipe;
+    auto* term = new Terminal(0, 0);
+    auto* stdout_pipe = new Pipe();
 
-    term.set_stdout_pipe(&stdout_pipe);
+    term->set_stdout_pipe(stdout_pipe);
 
     // Poll empty pipe -- should not crash or change state
-    term.poll_output();
+    term->poll_output();
 
-    TEST_ASSERT_EQ(term.cell(0, 0).ch, ' ');
-    TEST_ASSERT_EQ(term.cursor_x(), 0u);
+    TEST_ASSERT_EQ(term->cell(0, 0).ch, ' ');
+    TEST_ASSERT_EQ(term->cursor_x(), 0u);
+
+    delete term;
+    delete stdout_pipe;
 }
 
 /// Verify that poll_output handles newline correctly
 void test_terminal_poll_output_with_newline() {
-    Terminal term(0, 0);
-    Pipe stdout_pipe;
+    auto* term = new Terminal(0, 0);
+    auto* stdout_pipe = new Pipe();
 
-    term.set_stdout_pipe(&stdout_pipe);
+    term->set_stdout_pipe(stdout_pipe);
 
     const char msg[] = "AB\nCD";
-    stdout_pipe.try_write(msg, 5);
+    stdout_pipe->try_write(msg, 5);
 
-    term.poll_output();
+    term->poll_output();
 
-    TEST_ASSERT_EQ(term.cell(0, 0).ch, 'A');
-    TEST_ASSERT_EQ(term.cell(0, 1).ch, 'B');
-    TEST_ASSERT_EQ(term.cell(1, 0).ch, 'C');
-    TEST_ASSERT_EQ(term.cell(1, 1).ch, 'D');
-    TEST_ASSERT_EQ(term.cursor_x(), 2u);
-    TEST_ASSERT_EQ(term.cursor_y(), 1u);
+    TEST_ASSERT_EQ(term->cell(0, 0).ch, 'A');
+    TEST_ASSERT_EQ(term->cell(0, 1).ch, 'B');
+    TEST_ASSERT_EQ(term->cell(1, 0).ch, 'C');
+    TEST_ASSERT_EQ(term->cell(1, 1).ch, 'D');
+    TEST_ASSERT_EQ(term->cursor_x(), 2u);
+    TEST_ASSERT_EQ(term->cursor_y(), 1u);
+
+    delete term;
+    delete stdout_pipe;
 }
 
 /// Verify poll_output with no stdout pipe set does nothing
 void test_terminal_poll_output_no_pipe() {
-    Terminal term(0, 0);
+    auto* term = new Terminal(0, 0);
 
     // No pipe set -- should not crash
-    term.poll_output();
+    term->poll_output();
 
-    TEST_ASSERT_EQ(term.cursor_x(), 0u);
-    TEST_ASSERT_EQ(term.cursor_y(), 0u);
+    TEST_ASSERT_EQ(term->cursor_x(), 0u);
+    TEST_ASSERT_EQ(term->cursor_y(), 0u);
+
+    delete term;
 }
 
 // ============================================================
@@ -177,34 +197,38 @@ void test_terminal_poll_output_no_pipe() {
 
 /// Simulate full Terminal-Shell data flow using pipes
 void test_terminal_shell_full_roundtrip() {
-    Terminal term(0, 0);
-    Pipe stdin_pipe;
-    Pipe stdout_pipe;
+    auto* term = new Terminal(0, 0);
+    auto* stdin_pipe = new Pipe();
+    auto* stdout_pipe = new Pipe();
 
-    term.set_stdin_pipe(&stdin_pipe);
-    term.set_stdout_pipe(&stdout_pipe);
+    term->set_stdin_pipe(stdin_pipe);
+    term->set_stdout_pipe(stdout_pipe);
 
     // Simulate: Terminal receives key 'H'
     cinux::gui::KeyEvent ev;
     ev.pressed = true;
     ev.ascii = 'H';
-    term.on_key(ev);
+    term->on_key(ev);
 
     // Shell reads from stdin pipe
     char read_buf[16] = {};
-    int64_t r = stdin_pipe.try_read(read_buf, 16);
+    int64_t r = stdin_pipe->try_read(read_buf, 16);
     TEST_ASSERT_EQ(r, 1);
     TEST_ASSERT_EQ(read_buf[0], 'H');
 
     // Shell echoes back to stdout pipe
-    stdout_pipe.try_write("H", 1);
+    stdout_pipe->try_write("H", 1);
 
     // Terminal polls stdout pipe
-    term.poll_output();
+    term->poll_output();
 
     // Screen should show 'H'
-    TEST_ASSERT_EQ(term.cell(0, 0).ch, 'H');
-    TEST_ASSERT_EQ(term.cursor_x(), 1u);
+    TEST_ASSERT_EQ(term->cell(0, 0).ch, 'H');
+    TEST_ASSERT_EQ(term->cursor_x(), 1u);
+
+    delete term;
+    delete stdin_pipe;
+    delete stdout_pipe;
 }
 
 // ============================================================
@@ -256,11 +280,9 @@ void test_terminal_pipe_fd_table_binding() {
     TEST_ASSERT_EQ(buf[0], 'o');
     TEST_ASSERT_EQ(buf[1], 'k');
 
-    // Cleanup
+    // Cleanup (close() already deletes the File objects)
     cinux::fs::g_global_fd_table().close(0);
     cinux::fs::g_global_fd_table().close(1);
-    delete stdout_file;
-    delete stdin_file;
     delete stdout_inode;
     delete stdin_inode;
     delete stdout_ops;
@@ -274,36 +296,40 @@ void test_terminal_pipe_fd_table_binding() {
 /// Verify that when both pipes are connected, on_key does not echo
 /// and poll_output is needed to display shell output
 void test_terminal_both_pipes_no_direct_echo() {
-    Terminal term(0, 0);
-    Pipe stdin_pipe;
-    Pipe stdout_pipe;
+    auto* term = new Terminal(0, 0);
+    auto* stdin_pipe = new Pipe();
+    auto* stdout_pipe = new Pipe();
 
-    term.set_stdin_pipe(&stdin_pipe);
-    term.set_stdout_pipe(&stdout_pipe);
+    term->set_stdin_pipe(stdin_pipe);
+    term->set_stdout_pipe(stdout_pipe);
 
     // Simulate typing "AB"
     cinux::gui::KeyEvent ev;
     ev.pressed = true;
     ev.ascii = 'A';
-    term.on_key(ev);
+    term->on_key(ev);
     ev.ascii = 'B';
-    term.on_key(ev);
+    term->on_key(ev);
 
     // Screen should still be empty (no direct echo)
-    TEST_ASSERT_EQ(term.cell(0, 0).ch, ' ');
-    TEST_ASSERT_EQ(term.cursor_x(), 0u);
+    TEST_ASSERT_EQ(term->cell(0, 0).ch, ' ');
+    TEST_ASSERT_EQ(term->cursor_x(), 0u);
 
     // Read from stdin pipe and echo back via stdout pipe (as shell would)
     char in_buf[8] = {};
-    stdin_pipe.try_read(in_buf, 2);
+    stdin_pipe->try_read(in_buf, 2);
 
-    stdout_pipe.try_write("AB", 2);
+    stdout_pipe->try_write("AB", 2);
 
     // Now poll_output should display the echoed text
-    term.poll_output();
-    TEST_ASSERT_EQ(term.cell(0, 0).ch, 'A');
-    TEST_ASSERT_EQ(term.cell(0, 1).ch, 'B');
-    TEST_ASSERT_EQ(term.cursor_x(), 2u);
+    term->poll_output();
+    TEST_ASSERT_EQ(term->cell(0, 0).ch, 'A');
+    TEST_ASSERT_EQ(term->cell(0, 1).ch, 'B');
+    TEST_ASSERT_EQ(term->cursor_x(), 2u);
+
+    delete term;
+    delete stdin_pipe;
+    delete stdout_pipe;
 }
 
 // ============================================================
@@ -312,85 +338,98 @@ void test_terminal_both_pipes_no_direct_echo() {
 
 /// Verify Terminal destructor closes stdin pipe write end (EOF to shell)
 void test_terminal_destructor_closes_stdin_pipe() {
-    Pipe stdin_pipe;
-    Pipe stdout_pipe;
+    auto* stdin_pipe = new Pipe();
+    auto* stdout_pipe = new Pipe();
 
     {
-        Terminal term(0, 0);
-        term.set_stdin_pipe(&stdin_pipe);
-        term.set_stdout_pipe(&stdout_pipe);
+        auto* term = new Terminal(0, 0);
+        term->set_stdin_pipe(stdin_pipe);
+        term->set_stdout_pipe(stdout_pipe);
 
         // Pipes should be alive before destruction
-        TEST_ASSERT_TRUE(stdin_pipe.writer_alive());
-        TEST_ASSERT_TRUE(stdout_pipe.reader_alive());
+        TEST_ASSERT_TRUE(stdin_pipe->writer_alive());
+        TEST_ASSERT_TRUE(stdout_pipe->reader_alive());
+        delete term;
     }
     // Terminal destroyed -- pipes should be closed on the Terminal side
-    TEST_ASSERT_FALSE(stdin_pipe.writer_alive());
-    TEST_ASSERT_FALSE(stdout_pipe.reader_alive());
+    TEST_ASSERT_FALSE(stdin_pipe->writer_alive());
+    TEST_ASSERT_FALSE(stdout_pipe->reader_alive());
 
     // Reader end of stdin pipe should still be open (shell side)
-    TEST_ASSERT_TRUE(stdin_pipe.reader_alive());
+    TEST_ASSERT_TRUE(stdin_pipe->reader_alive());
     // Writer end of stdout pipe should still be open (shell side)
-    TEST_ASSERT_TRUE(stdout_pipe.writer_alive());
+    TEST_ASSERT_TRUE(stdout_pipe->writer_alive());
+
+    delete stdin_pipe;
+    delete stdout_pipe;
 }
 
 /// Verify that after Terminal destruction, shell read returns 0 (EOF)
 void test_terminal_eof_propagation_to_shell() {
-    Pipe stdin_pipe;
-    Pipe stdout_pipe;
+    auto* stdin_pipe = new Pipe();
+    auto* stdout_pipe = new Pipe();
 
     {
-        Terminal term(0, 0);
-        term.set_stdin_pipe(&stdin_pipe);
-        term.set_stdout_pipe(&stdout_pipe);
+        auto* term = new Terminal(0, 0);
+        term->set_stdin_pipe(stdin_pipe);
+        term->set_stdout_pipe(stdout_pipe);
+        delete term;
     }
 
     // Shell tries to read from stdin -- should get 0 (EOF) immediately
     char buf[16] = {};
-    int64_t r = stdin_pipe.try_read(buf, 16);
+    int64_t r = stdin_pipe->try_read(buf, 16);
     TEST_ASSERT_EQ(r, 0);  // EOF: writer closed, buffer empty
+
+    delete stdin_pipe;
+    delete stdout_pipe;
 }
 
 /// Verify that after Terminal destruction, shell write to stdout returns -1
 void test_terminal_destructor_shell_write_fails() {
-    Pipe stdin_pipe;
-    Pipe stdout_pipe;
+    auto* stdin_pipe = new Pipe();
+    auto* stdout_pipe = new Pipe();
 
     {
-        Terminal term(0, 0);
-        term.set_stdin_pipe(&stdin_pipe);
-        term.set_stdout_pipe(&stdout_pipe);
+        auto* term = new Terminal(0, 0);
+        term->set_stdin_pipe(stdin_pipe);
+        term->set_stdout_pipe(stdout_pipe);
+        delete term;
     }
 
     // Shell tries to write to stdout -- reader is closed, should return -1
     const char msg[] = "test";
-    int64_t w = stdout_pipe.try_write(msg, 4);
+    int64_t w = stdout_pipe->try_write(msg, 4);
     TEST_ASSERT_EQ(w, -1);  // Reader closed
+
+    delete stdin_pipe;
+    delete stdout_pipe;
 }
 
 /// Verify Terminal destructor with no pipes set does not crash
 void test_terminal_destructor_no_pipes_no_crash() {
-    Terminal term(0, 0);
+    auto* term = new Terminal(0, 0);
     // No pipes set -- destructor should be a safe no-op (besides default cleanup)
     // This test just verifies no crash
     TEST_ASSERT_TRUE(true);
+    delete term;
 }
 
 /// Verify close button flow: WM destroy -> Terminal dtor -> pipes closed
 void test_wm_close_button_closes_terminal_pipes() {
-    cinux::drivers::Framebuffer fb;
-    cinux::drivers::PSFFont font;
-    cinux::drivers::Canvas screen;
+    auto* fb = new cinux::drivers::Framebuffer();
+    auto* font = new cinux::drivers::PSFFont();
+    auto* screen = new cinux::drivers::Canvas();
 
     static constexpr uintptr_t BOOT_INFO_PHYS = 0x7000;
     auto* bi = reinterpret_cast<const BootInfo*>(BOOT_INFO_PHYS);
-    fb.init(*bi);
-    font.init();
-    fb.clear(0);
-    screen.init(fb);
+    fb->init(*bi);
+    font->init();
+    fb->clear(0);
+    screen->init(*fb);
 
-    cinux::gui::WindowManager wm;
-    wm.init(&screen, &font);
+    auto* wm = new cinux::gui::WindowManager();
+    wm->init(screen, font);
 
     // Create pipes for the terminal
     auto* stdin_pipe = new Pipe();
@@ -401,16 +440,16 @@ void test_wm_close_button_closes_terminal_pipes() {
     term->set_stdin_pipe(stdin_pipe);
     term->set_stdout_pipe(stdout_pipe);
 
-    uint32_t id = wm.add_window(term);
+    uint32_t id = wm->add_window(term);
     TEST_ASSERT_NE(id, 0u);
-    TEST_ASSERT_EQ(wm.window_count(), 1u);
+    TEST_ASSERT_EQ(wm->window_count(), 1u);
 
     // Simulate close button click
-    wm.destroy(id);
+    wm->destroy(id);
 
     // Window should be destroyed
-    TEST_ASSERT_EQ(wm.window_count(), 0u);
-    TEST_ASSERT_NULL(wm.focused());
+    TEST_ASSERT_EQ(wm->window_count(), 0u);
+    TEST_ASSERT_NULL(wm->focused());
 
     // Pipes should be closed on the Terminal side
     TEST_ASSERT_FALSE(stdin_pipe->writer_alive());
@@ -419,6 +458,10 @@ void test_wm_close_button_closes_terminal_pipes() {
     // Cleanup
     delete stdin_pipe;
     delete stdout_pipe;
+    delete wm;
+    delete screen;
+    delete font;
+    delete fb;
 }
 
 // ============================================================

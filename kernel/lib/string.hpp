@@ -50,4 +50,23 @@ int strncmp(const char* a, const char* b, size_t n);
  */
 size_t strlen(const char* s);
 
+/**
+ * @brief Copy a null-terminated string from src to dest
+ *
+ * dest must have enough space. Returns dest.
+ */
+char* strcpy(char* __restrict__ dest, const char* __restrict__ src);
+
+/**
+ * @brief Convert an unsigned integer to a null-terminated string
+ *
+ * Writes the decimal representation of @p value into @p buf.
+ * @p buf must have space for at least 11 bytes (uint32_t max = 10 digits + NUL).
+ *
+ * @param buf    Output buffer
+ * @param value  Value to convert
+ * @return       Number of characters written (excluding NUL)
+ */
+int utoa(char* buf, uint32_t value);
+
 }  // extern "C"

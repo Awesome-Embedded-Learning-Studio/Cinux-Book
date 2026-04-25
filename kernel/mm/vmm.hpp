@@ -48,6 +48,21 @@ public:
              uint64_t* pml4 = nullptr);
 
     /**
+     * @brief Map a single 2 MB huge page
+     *
+     * Walks PML4 → PDPT → PD and writes a 2 MB huge page entry.
+     * Intermediate tables (PDPT, PD) are allocated from the PMM as needed.
+     *
+     * @param virt   Virtual address to map (must be 2 MB-aligned)
+     * @param phys   Physical address to map to (must be 2 MB-aligned)
+     * @param flags  Combination of FLAG_PRESENT, FLAG_WRITABLE, etc.
+     * @param pml4   Optional PML4 physical address; nullptr = use kernel PML4
+     * @return true on success, false if PMM allocation failed
+     */
+    bool map_2mb(uint64_t virt, uint64_t phys, uint64_t flags,
+                 uint64_t* pml4 = nullptr);
+
+    /**
      * @brief Unmap a single 4 KB virtual page
      *
      * Clears the PT entry for @p virt and flushes the TLB for that page.
@@ -58,6 +73,19 @@ public:
      * @param pml4  Optional PML4 physical address; nullptr = use kernel PML4
      */
     void unmap(uint64_t virt, uint64_t* pml4 = nullptr);
+
+    /**
+     * @brief Split a 2 MB huge page into 512 × 4 KB pages
+     *
+     * If the PD entry for @p virt is a 2 MB huge page, allocate a new PT
+     * and rewrite it as 512 individual 4 KB entries (preserving flags).
+     * After this call, VMM::unmap() works on individual pages in the range.
+     * If the entry is already 4 KB pages, this is a no-op.
+     *
+     * @param virt  Any virtual address within the 2 MB page to split
+     * @return true on success (or already split), false on allocation failure
+     */
+    bool split_2mb_page(uint64_t virt);
 
     /**
      * @brief Translate a virtual address to its physical counterpart
@@ -71,6 +99,22 @@ public:
      * @return Physical address, or 0 if not present
      */
     uint64_t translate(uint64_t virt, uint64_t* pml4 = nullptr);
+
+    /**
+     * @brief Map a page without acquiring the internal spinlock
+     *
+     * Same semantics as map() but does NOT acquire the VMM spinlock.
+     * Safe to call from contexts where interrupts are already disabled
+     * (e.g. page fault handler) and no concurrent VMM access is possible.
+     *
+     * @param virt   Virtual address to map (page-aligned)
+     * @param phys   Physical address to map to (page-aligned)
+     * @param flags  PTE flags
+     * @param pml4   Optional PML4 physical address; nullptr = use kernel PML4
+     * @return true on success
+     */
+    bool map_nolock(uint64_t virt, uint64_t phys, uint64_t flags,
+                    uint64_t* pml4 = nullptr);
 
     /** Get the saved kernel PML4 physical address. */
     uint64_t kernel_pml4() const;

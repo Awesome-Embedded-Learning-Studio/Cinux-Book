@@ -29,11 +29,12 @@ add_custom_command(
 
 # ext2 filesystem disk image (4 MB, mounted at AHCI port 1)
 set(EXT2_IMAGE "${CMAKE_BINARY_DIR}/ext2.img")
+set(USER_SHELL_ELF "${CMAKE_BINARY_DIR}/user/shell")
 add_custom_command(
     OUTPUT ${EXT2_IMAGE}
-    COMMAND ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh ${EXT2_IMAGE}
-    DEPENDS ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh
-    COMMENT "Creating ext2 filesystem image"
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh ${EXT2_IMAGE} ${USER_SHELL_ELF}
+    DEPENDS ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh user_shell
+    COMMENT "Creating ext2 filesystem image with /bin/sh"
     VERBATIM
 )
 
@@ -239,8 +240,8 @@ add_custom_target(run-stress-test
 # 每次 run-kernel-test 前强制重建 ext2.img，确保磁盘状态干净
 add_custom_target(regenerate-ext2-image
     COMMAND ${CMAKE_COMMAND} -E remove -f ${EXT2_IMAGE}
-    COMMAND ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh ${EXT2_IMAGE}
-    DEPENDS ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh ${EXT2_IMAGE} ${USER_SHELL_ELF}
+    DEPENDS ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh user_shell
     COMMENT "Regenerating ext2 disk image for clean test state"
     VERBATIM
 )

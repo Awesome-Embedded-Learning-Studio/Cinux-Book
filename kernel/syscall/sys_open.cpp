@@ -53,7 +53,7 @@ int64_t sys_open(uint64_t path_virt, uint64_t flags, uint64_t,
     }
 
     // Step 4: Allocate a file descriptor
-    int fd = cinux::fs::g_global_fd_table().alloc(inode, open_flags);
+    int fd = cinux::fs::current_fd_table().alloc(inode, open_flags);
 
     if (fd == cinux::fs::FD_NONE) {
         cinux::lib::kprintf("[SYS_OPEN] FD table full, cannot open '%s'\n", resolved);

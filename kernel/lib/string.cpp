@@ -85,4 +85,33 @@ size_t strlen(const char* s) {
     return len;
 }
 
+char* strcpy(char* __restrict__ dest, const char* __restrict__ src) {
+    size_t i = 0;
+    while (src[i] != '\0') {
+        dest[i] = src[i];
+        ++i;
+    }
+    dest[i] = '\0';
+    return dest;
+}
+
+int utoa(char* buf, uint32_t value) {
+    if (value == 0) {
+        buf[0] = '0';
+        buf[1] = '\0';
+        return 1;
+    }
+    char tmp[10];
+    int len = 0;
+    while (value > 0) {
+        tmp[len++] = '0' + static_cast<char>(value % 10);
+        value /= 10;
+    }
+    for (int i = 0; i < len; i++) {
+        buf[i] = tmp[len - 1 - i];
+    }
+    buf[len] = '\0';
+    return len;
+}
+
 }  // extern "C"

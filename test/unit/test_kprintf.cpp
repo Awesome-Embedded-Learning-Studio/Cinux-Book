@@ -119,6 +119,50 @@ TEST("kprintf: unknown specifier passes through") {
     ASSERT_EQ(do_fmt("%q"), std::string("%q"));
 }
 
+// ============================================================
+// Length modifiers: %l and %ll
+// ============================================================
+
+TEST("kprintf: %lu unsigned long") {
+    ASSERT_EQ(do_fmt("%lu", 4294967295UL), std::string("4294967295"));
+}
+
+TEST("kprintf: %llu unsigned long long") {
+    ASSERT_EQ(do_fmt("%llu", 18446744073709551615ULL), std::string("18446744073709551615"));
+}
+
+TEST("kprintf: %ld signed long positive") {
+    ASSERT_EQ(do_fmt("%ld", 9223372036854775807L), std::string("9223372036854775807"));
+}
+
+TEST("kprintf: %ld signed long negative") {
+    ASSERT_EQ(do_fmt("%ld", -42L), std::string("-42"));
+}
+
+TEST("kprintf: %lld signed long long") {
+    ASSERT_EQ(do_fmt("%lld", -1234567890123LL), std::string("-1234567890123"));
+}
+
+TEST("kprintf: %lx unsigned long hex") {
+    ASSERT_EQ(do_fmt("%lx", 0xDEADBEEFUL), std::string("deadbeef"));
+}
+
+TEST("kprintf: %llX unsigned long long hex") {
+    ASSERT_EQ(do_fmt("%llX", 0xCAFEBABEDEADBEEFULL), std::string("CAFEBABEDEADBEEF"));
+}
+
+TEST("kprintf: %08lx zero-padded long hex") {
+    ASSERT_EQ(do_fmt("%08lx", 0xFFUL), std::string("000000ff"));
+}
+
+TEST("kprintf: %10llu width-padded") {
+    ASSERT_EQ(do_fmt("%10llu", 42ULL), std::string("        42"));
+}
+
+TEST("kprintf: %lu zero value") {
+    ASSERT_EQ(do_fmt("%lu", 0UL), std::string("0"));
+}
+
 TEST("kprintf: empty format") {
     ASSERT_EQ(do_fmt(""), std::string(""));
 }

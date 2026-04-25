@@ -13,7 +13,6 @@
 #include "kernel/drivers/keyboard/keyboard.hpp"
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/vfs_mount.hpp"
-#include "kernel/lib/kprintf.hpp"
 
 namespace cinux::syscall {
 
@@ -39,7 +38,8 @@ int64_t sys_read(uint64_t fd, uint64_t buf_virt, uint64_t count, uint64_t, uint6
 
 	// Check FDTable first -- if the fd has a valid VFS entry (e.g. pipe),
 	// use the VFS read path regardless of fd number.
-	cinux::fs::File* file = cinux::fs::g_global_fd_table().get(static_cast<int>(fd));
+	cinux::fs::FDTable& tbl = cinux::fs::current_fd_table();
+	cinux::fs::File* file = tbl.get(static_cast<int>(fd));
 	if (file != nullptr && file->inode != nullptr && file->inode->ops != nullptr) {
 		auto* buf = reinterpret_cast<void*>(buf_virt);
 		auto  g	  = file->offset_lock_.guard();

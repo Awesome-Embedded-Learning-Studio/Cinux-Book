@@ -210,22 +210,22 @@ constexpr uint64_t BIG_KERNEL_LOAD_ADDR  = 0x1000000;   // 16MB
 ### `010_big_kernel_gdt_idt`
 **效果**：触发除零异常后串口打印寄存器 dump，不死机
 
-- ☐ `kernel/arch/x86_64/gdt.hpp`：`GDTEntry [[gnu::packed]]`，`constexpr make_null/make_code64/make_data64/make_tss`；选择子常量 `GDT_KERNEL_CODE=0x08`，`GDT_KERNEL_DATA=0x10`，`GDT_USER_CODE=0x1B`，`GDT_USER_DATA=0x23`，`GDT_TSS=0x28`
-- ☐ `kernel/arch/x86_64/gdt.cpp`：全局 GDT 数组含 null/kernel_code64/kernel_data64/user_code64/user_data64/TSS（16字节双槽），`gdt_init()` 填充 + `lgdt` + `ltr $GDT_TSS`
-- ☐ `kernel/arch/x86_64/idt.hpp`：`IDTEntry [[gnu::packed]]`，`InterruptFrame` 结构（`r15..rax + vector + error_code + rip/cs/rflags/rsp/ss`），`using IRQHandler = void(*)(InterruptFrame*)`，`idt_set_handler(vector, handler)`，`idt_init()`
-- ☐ `kernel/arch/x86_64/interrupts.S`：`.macro isr_noerr` 推 `$0` + vec，`.macro isr_err` 推 vec；`isr_common` 保存 r15..rax，`movq %rsp,%rdi`，`call isr_dispatch`，恢复寄存器，`addq $16,%rsp`，`iretq`；用宏批量生成 256 个 stub（8/10/11/12/13/14/17/21 有 error code）
-- ☐ `kernel/arch/x86_64/exception_handlers.cpp`：`dump_registers(InterruptFrame*)` 格式化输出所有寄存器；`handle_pf`（读 `%cr2`）、`handle_gp`、`handle_df [[noreturn]]`；在 `idt_init()` 中注册
-- ☐ `kernel_main` 中 `asm volatile("int $3")` 触发 `#BP` 验证 dump 输出
+- ☑ `kernel/arch/x86_64/gdt.hpp`：`GDTEntry [[gnu::packed]]`，`constexpr make_null/make_code64/make_data64/make_tss`；选择子常量 `GDT_KERNEL_CODE=0x08`，`GDT_KERNEL_DATA=0x10`，`GDT_USER_CODE=0x1B`，`GDT_USER_DATA=0x23`，`GDT_TSS=0x28`
+- ☑ `kernel/arch/x86_64/gdt.cpp`：全局 GDT 数组含 null/kernel_code64/kernel_data64/user_code64/user_data64/TSS（16字节双槽），`gdt_init()` 填充 + `lgdt` + `ltr $GDT_TSS`
+- ☑ `kernel/arch/x86_64/idt.hpp`：`IDTEntry [[gnu::packed]]`，`InterruptFrame` 结构（`r15..rax + vector + error_code + rip/cs/rflags/rsp/ss`），`using IRQHandler = void(*)(InterruptFrame*)`，`idt_set_handler(vector, handler)`，`idt_init()`
+- ☑ `kernel/arch/x86_64/interrupts.S`：`.macro isr_noerr` 推 `$0` + vec，`.macro isr_err` 推 vec；`isr_common` 保存 r15..rax，`movq %rsp,%rdi`，`call isr_dispatch`，恢复寄存器，`addq $16,%rsp`，`iretq`；用宏批量生成 256 个 stub（8/10/11/12/13/14/17/21 有 error code）
+- ☑ `kernel/arch/x86_64/exception_handlers.cpp`：`dump_registers(InterruptFrame*)` 格式化输出所有寄存器；`handle_pf`（读 `%cr2`）、`handle_gp`、`handle_df [[noreturn]]`；在 `idt_init()` 中注册
+- ☑ `kernel_main` 中 `asm volatile("int $3")` 触发 `#BP` 验证 dump 输出
 
 ---
 
 ### `011_big_kernel_pic_irq`
 **效果**：串口每秒输出 `[TICK] uptime: Ns`
 
-- ☐ `kernel/arch/x86_64/pic.hpp/cpp`：`PIC::init(master_offset=0x20, slave_offset=0x28)` 发 ICW1–ICW4（含 `io_wait()`），重映射 IRQ0-7→0x20-0x27，IRQ8-15→0x28-0x2F；`PIC::send_eoi(irq)`，`PIC::mask(irq)`，`PIC::unmask(irq)`，`PIC::disable_all()`
-- ☐ `kernel/drivers/pit.hpp/cpp`：`PIT::init(freq_hz=100)` 写 CMD `0x43=0x36`，写 divisor=`1193182/freq_hz` 低/高字节到 `0x40`；全局 `tick_count`；`PIT::get_ticks()`，`PIT::get_uptime_ms()`
-- ☐ `PIT::irq0_handler(InterruptFrame*)` 递增 `tick_count`，每 `freq_hz` tick 调 `kprintf("[TICK] uptime: %us\n", ...)`;末尾 `PIC::send_eoi(0)`
-- ☐ `idt_init()` 注册 `irq0_handler` 到 vector `0x20`；`kernel_main` 末尾 `PIC::init()`，`PIC::unmask(0)`，`sti`，死循环
+- ☑ `kernel/arch/x86_64/pic.hpp/cpp`：`PIC::init(master_offset=0x20, slave_offset=0x28)` 发 ICW1–ICW4（含 `io_wait()`），重映射 IRQ0-7→0x20-0x27，IRQ8-15→0x28-0x2F；`PIC::send_eoi(irq)`，`PIC::mask(irq)`，`PIC::unmask(irq)`，`PIC::disable_all()`
+- ☑ `kernel/drivers/pit.hpp/cpp`：`PIT::init(freq_hz=100)` 写 CMD `0x43=0x36`，写 divisor=`1193182/freq_hz` 低/高字节到 `0x40`；全局 `tick_count`；`PIT::get_ticks()`，`PIT::get_uptime_ms()`
+- ☑ `PIT::irq0_handler(InterruptFrame*)` 递增 `tick_count`，每 `freq_hz` tick 调 `kprintf("[TICK] uptime: %us\n", ...)`;末尾 `PIC::send_eoi(0)`
+- ☑ `idt_init()` 注册 `irq0_handler` 到 vector `0x20`；`kernel_main` 末尾 `PIC::init()`，`PIC::unmask(0)`，`sti`，死循环
 
 ---
 
@@ -357,12 +357,12 @@ constexpr uint64_t BIG_KERNEL_LOAD_ADDR  = 0x1000000;   // 16MB
 
 **前置条件（023 已完成）**：用户态编译基础设施、syscall 封装、`launch_first_user()` 启动机制、FPU/SSE 支持
 
-- ☐ `user/libc/syscall.h` 添加 `sys_read(fd,buf,len)` 封装
-- ☐ `user/shell/main.cpp`：`_start()` 主循环 `print_prompt → read_line(sys_read) → tokenize → dispatch → repeat`
-- ☐ tokenizer：按空格切割，返回 `argc/argv`
-- ☐ builtin 表：`{"echo",cmd_echo},{"help",cmd_help},{"clear",cmd_clear},{nullptr,nullptr}`
-- ☐ `cmd_echo`：`write(1, argv[1..], ...)`；`cmd_clear`：`write(1, "\033[2J\033[H", 7)`（ANSI 清屏）；`cmd_help`：打印命令列表
-- ☐ CMake 切换嵌入 binary 从 `hello` 到 `shell`（`user/CMakeLists.txt`）
+- ☑ `user/libc/syscall.h` 添加 `sys_read(fd,buf,len)` 封装
+- ☑ `user/shell/main.cpp`：`_start()` 主循环 `print_prompt → read_line(sys_read) → tokenize → dispatch → repeat`
+- ☑ tokenizer：按空格切割，返回 `argc/argv`
+- ☑ builtin 表：`{"echo",cmd_echo},{"help",cmd_help},{"clear",cmd_clear},{nullptr,nullptr}`
+- ☑ `cmd_echo`：`write(1, argv[1..], ...)`；`cmd_clear`：`write(1, "\033[2J\033[H", 7)`（ANSI 清屏）；`cmd_help`：打印命令列表
+- ☑ CMake 切换嵌入 binary 从 `hello` 到 `shell`（`user/CMakeLists.txt`）
 
 ## Phase 8 · 存储与文件系统
 
@@ -668,3 +668,14 @@ constexpr uint64_t BIG_KERNEL_LOAD_ADDR  = 0x1000000;   // 16MB
 - ☑ `kernel/proc/syscall.cpp` 新增 `sys_waitpid` 系统调用
 - ☑ Host 单元测试补充：waitpid 退出状态收集、zombie 清理、错误码
 - ☑ Kernel 测试补充：fork → exec → wait 完整流程
+
+### `035_multi_terminal`
+**效果**：每个终端绑定独立 shell 进程，支持多终端并发交互
+
+- ☑ `kernel/gui/gui_init.cpp` `create_shell_terminal()` 重构：每次调用动态创建新 pipe 对（`sys_pipe`）→ `fork()` → 子进程 `execve("/bin/sh")` → 父进程将 pipe fd 绑定到新 Terminal → add_window
+- ☑ `kernel/gui/terminal.cpp` 析构函数恢复 pipe 清理：终端销毁时 close pipe writer/reader → `waitpid` 回收 shell 子进程 → 防止 zombie
+- ☑ `kernel/proc/init.cpp`：移除全局 pipe 创建逻辑，pipe 创建责任下沉到 `create_shell_terminal()`
+- ☑ `kernel/gui/gui_init.cpp`：移除 `set_shell_pipes()` 接口（不再需要全局 pipe）
+- ☑ `kernel/gui/gui_init.cpp` `gui_tick_callback`：遍历所有窗口，对每个 `is_terminal()` 的窗口执行 `poll_output()` + `render_to_canvas()`（而非只 poll focused）
+- ☑ Host 单元测试 `test/unit/test_multi_terminal.cpp`：动态 pipe 创建、多终端独立 pipe 绑定、终端销毁后 pipe 清理、多 shell 并发不干扰
+- ☑ Kernel 测试 `kernel/test/test_multi_terminal.cpp`：创建两个终端 → 各自独立 shell 输出 → 关闭一个不影响另一个

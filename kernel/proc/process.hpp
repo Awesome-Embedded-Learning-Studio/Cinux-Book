@@ -32,6 +32,10 @@
 #include "kernel/proc/elf_types.hpp"
 #include "kernel/proc/pid.hpp"
 
+namespace cinux::fs {
+class FDTable;
+}  // namespace cinux::fs
+
 namespace cinux::proc {
 
 class SchedulingClass;
@@ -70,6 +74,8 @@ struct alignas(16) CpuContext {
     uint64_t rbx;
     uint64_t rsp;
     uint64_t rip;
+    uint64_t gs_base;
+    uint64_t kgs_base;
 };
 
 static_assert(offsetof(CpuContext, r15) == 0,  "r15 at offset 0");
@@ -80,7 +86,9 @@ static_assert(offsetof(CpuContext, rbp) == 32, "rbp at offset 32");
 static_assert(offsetof(CpuContext, rbx) == 40, "rbx at offset 40");
 static_assert(offsetof(CpuContext, rsp) == 48, "rsp at offset 48");
 static_assert(offsetof(CpuContext, rip) == 56, "rip at offset 56");
-static_assert(sizeof(CpuContext) == 64, "CpuContext must be 64 bytes");
+static_assert(offsetof(CpuContext, gs_base) == 64, "gs_base at offset 64");
+static_assert(offsetof(CpuContext, kgs_base) == 72, "kgs_base at offset 72");
+static_assert(sizeof(CpuContext) == 80, "CpuContext must be 80 bytes");
 
 // ============================================================
 // Task Control Block
@@ -112,8 +120,19 @@ struct Task {
     /** Top of the kernel stack (initial rsp). */
     uint64_t kernel_stack_top;
 
+    /**
+     * Virtual address of the guard page below the kernel stack.
+     * This page is intentionally left unmapped; a fault here
+     * indicates a kernel stack overflow.
+     * Zero means no guard page (e.g. the boot task).
+     */
+    uint64_t kernel_stack_guard_page;
+
     /** Per-process page tables (nullptr for kernel-only threads). */
     cinux::mm::AddressSpace* addr_space;
+
+    /** Per-process file descriptor table (nullptr = use global). */
+    cinux::fs::FDTable* fd_table;
 
     /** Human-readable task name (static storage, not owned). */
     const char* name;
@@ -369,5 +388,14 @@ WaitpidResult waitpid(int pid, int* status, PidAllocator& pid_alloc);
  * @param to    Pointer to the incoming task's CpuContext
  */
 extern "C" void context_switch(CpuContext* from, CpuContext* to);
+
+/**
+ * @brief Fork child trampoline (assembly, sets rax=0 and returns)
+ *
+ * Called by the scheduler when the child task is first switched in.
+ * Sets rax to 0 so that the child sees fork() return 0, then
+ * returns to the fork() call site on the child's stack.
+ */
+extern "C" void fork_child_trampoline();
 
 }  // namespace cinux::proc

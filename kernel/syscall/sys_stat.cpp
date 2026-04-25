@@ -81,7 +81,7 @@ int64_t sys_fstat(uint64_t fd, uint64_t st_virt, uint64_t,
     }
 
     // Step 1: Look up the FD
-    cinux::fs::File* file = cinux::fs::g_global_fd_table().get(
+    cinux::fs::File* file = cinux::fs::current_fd_table().get(
         static_cast<int>(fd));
 
     if (file == nullptr || file->inode == nullptr) {

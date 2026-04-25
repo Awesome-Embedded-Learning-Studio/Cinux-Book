@@ -345,9 +345,6 @@ public:
     uint32_t cursor_x() const { return cursor_x_; }
     uint32_t cursor_y() const { return cursor_y_; }
 
-    void set_pipe_write_fd(int fd) { pipe_write_fd_ = fd; }
-    int pipe_write_fd() const { return pipe_write_fd_; }
-
     void clear() {
         for (uint32_t r = 0; r < ROWS; r++) {
             for (uint32_t c = 0; c < COLS; c++) {
@@ -459,7 +456,6 @@ private:
     uint32_t cursor_y_ = 0;
     uint32_t fg_ = 0x00FFFFFF;
     uint32_t bg_ = 0x00000000;
-    int pipe_write_fd_ = -1;
 };
 
 // ============================================================
@@ -491,21 +487,6 @@ TEST("terminal: construction sets window size from COLS/ROWS") {
     ASSERT_EQ(t.height(), 400u);
     ASSERT_EQ(t.x(), 100);
     ASSERT_EQ(t.y(), 200);
-}
-
-TEST("terminal: pipe_write_fd defaults to -1") {
-    MockWindow::reset_id();
-    MockTerminal t;
-
-    ASSERT_EQ(t.pipe_write_fd(), -1);
-}
-
-TEST("terminal: set_pipe_write_fd stores value") {
-    MockWindow::reset_id();
-    MockTerminal t;
-
-    t.set_pipe_write_fd(42);
-    ASSERT_EQ(t.pipe_write_fd(), 42);
 }
 
 // ============================================================
