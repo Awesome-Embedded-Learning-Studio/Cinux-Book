@@ -24,7 +24,7 @@ void            run_interrupt_tests();   // GDT/IDT/interrupt tests from test_in
 void            run_ata_tests();         // ATA PIO tests from test_ata.cpp (008)
 void            run_elf_loader_tests();  // ELF loader tests from test_elf_loader.cpp (008)
 uint64_t
-run_big_kernel_load_tests();         // Big kernel loading tests from test_big_kernel_load.cpp (009)
+     run_big_kernel_load_tests();    // Big kernel loading tests from test_big_kernel_load.cpp (009)
 void run_stress_big_kernel_tests();  // Stress test: large kernel load
 }
 

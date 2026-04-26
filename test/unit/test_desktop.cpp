@@ -1106,13 +1106,13 @@ TEST("desktop: composite renders icon bitmap") {
     uint32_t              icon_color = 0xFF00FF00;
     std::vector<uint32_t> bmp(32 * 32, icon_color);
     DesktopIcon           icon{
-        .x      = 10,
-        .y      = 10,
-        .bitmap = bmp.data(),
-        .label  = "Test",
-        .width  = 32,
-        .height = 32,
-        .action = IconAction::None,
+                  .x      = 10,
+                  .y      = 10,
+                  .bitmap = bmp.data(),
+                  .label  = "Test",
+                  .width  = 32,
+                  .height = 32,
+                  .action = IconAction::None,
     };
     wm.add_desktop_icon(icon);
 

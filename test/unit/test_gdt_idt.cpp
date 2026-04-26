@@ -219,9 +219,9 @@ TEST("gdt: SegmentAccess OR operator") {
 
 /// Verify kernel code access byte composition via scoped enums
 TEST("gdt: kernel code access from scoped enums") {
-    auto    access = SegmentAccess::Present | SegmentAccess::CodeData | SegmentAccess::Executable |
-                     SegmentAccess::ReadWrite;
-    uint8_t val    = static_cast<uint8_t>(access);
+    auto access = SegmentAccess::Present | SegmentAccess::CodeData | SegmentAccess::Executable |
+                  SegmentAccess::ReadWrite;
+    uint8_t val = static_cast<uint8_t>(access);
     // P=1, DPL=00, S=1, E=1, DC=0, RW=1, A=0 => 0x9A
     ASSERT_EQ(static_cast<unsigned>(val), 0x9Au);
     ASSERT_TRUE(val & 0x80);       // P=1
@@ -244,9 +244,9 @@ TEST("gdt: kernel data access from scoped enums") {
 
 /// Verify user code access byte composition
 TEST("gdt: user code access from scoped enums") {
-    auto    access = SegmentAccess::Present | SegmentAccess::Ring3 | SegmentAccess::CodeData |
-                     SegmentAccess::Executable | SegmentAccess::ReadWrite;
-    uint8_t val    = static_cast<uint8_t>(access);
+    auto access = SegmentAccess::Present | SegmentAccess::Ring3 | SegmentAccess::CodeData |
+                  SegmentAccess::Executable | SegmentAccess::ReadWrite;
+    uint8_t val = static_cast<uint8_t>(access);
     // P=1, DPL=11, S=1, E=1, DC=0, RW=1, A=0 => 0xFA
     ASSERT_EQ(static_cast<unsigned>(val), 0xFAu);
     ASSERT_EQ((val >> 5) & 3, 3);  // DPL=11 (ring 3)
@@ -254,9 +254,9 @@ TEST("gdt: user code access from scoped enums") {
 
 /// Verify user data access byte composition
 TEST("gdt: user data access from scoped enums") {
-    auto    access = SegmentAccess::Present | SegmentAccess::Ring3 | SegmentAccess::CodeData |
-                     SegmentAccess::ReadWrite;
-    uint8_t val    = static_cast<uint8_t>(access);
+    auto access = SegmentAccess::Present | SegmentAccess::Ring3 | SegmentAccess::CodeData |
+                  SegmentAccess::ReadWrite;
+    uint8_t val = static_cast<uint8_t>(access);
     // P=1, DPL=11, S=1, E=0, DC=0, RW=1, A=0 => 0xF2
     ASSERT_EQ(static_cast<unsigned>(val), 0xF2u);
     ASSERT_EQ((val >> 5) & 3, 3);  // DPL=11
@@ -305,8 +305,8 @@ TEST("gdt: null_entry is all zeros") {
 TEST("gdt: segment_entry kernel code encoding") {
     auto access = SegmentAccess::Present | SegmentAccess::CodeData | SegmentAccess::Executable |
                   SegmentAccess::ReadWrite;
-    auto flags  = SegmentFlags::Granularity4K | SegmentFlags::LongMode;
-    auto entry  = test_segment_entry(access, flags);
+    auto flags = SegmentFlags::Granularity4K | SegmentFlags::LongMode;
+    auto entry = test_segment_entry(access, flags);
 
     ASSERT_EQ(entry.limit_low, 0xFFFF);
     ASSERT_EQ(entry.base_low, 0);
@@ -332,8 +332,8 @@ TEST("gdt: segment_entry kernel data encoding") {
 TEST("gdt: segment_entry user code encoding") {
     auto access = SegmentAccess::Present | SegmentAccess::Ring3 | SegmentAccess::CodeData |
                   SegmentAccess::Executable | SegmentAccess::ReadWrite;
-    auto flags  = SegmentFlags::Granularity4K | SegmentFlags::LongMode;
-    auto entry  = test_segment_entry(access, flags);
+    auto flags = SegmentFlags::Granularity4K | SegmentFlags::LongMode;
+    auto entry = test_segment_entry(access, flags);
 
     ASSERT_EQ(entry.access, 0xFA);
     ASSERT_EQ(entry.flags_limit_high, 0xAF);
@@ -343,8 +343,8 @@ TEST("gdt: segment_entry user code encoding") {
 TEST("gdt: segment_entry user data encoding") {
     auto access = SegmentAccess::Present | SegmentAccess::Ring3 | SegmentAccess::CodeData |
                   SegmentAccess::ReadWrite;
-    auto flags  = SegmentFlags::Granularity4K | SegmentFlags::Size32;
-    auto entry  = test_segment_entry(access, flags);
+    auto flags = SegmentFlags::Granularity4K | SegmentFlags::Size32;
+    auto entry = test_segment_entry(access, flags);
 
     ASSERT_EQ(entry.access, 0xF2);
     ASSERT_EQ(entry.flags_limit_high, 0xCF);

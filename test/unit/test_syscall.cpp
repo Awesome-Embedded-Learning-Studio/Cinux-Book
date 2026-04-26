@@ -362,14 +362,14 @@ TEST("syscall: STAR value with kernel CS 0x08") {
     // From syscall.cpp: star_val = (GDT_KERNEL_CODE << 32) | (GDT_KERNEL_CODE << 48)
     constexpr uint16_t GDT_KERNEL_CODE = 0x08;
     uint64_t           star_val        = (static_cast<uint64_t>(GDT_KERNEL_CODE) << 32) |
-                                         (static_cast<uint64_t>(GDT_KERNEL_CODE) << 48);
+                        (static_cast<uint64_t>(GDT_KERNEL_CODE) << 48);
     ASSERT_EQ(star_val, 0x0008000800000000ULL);
 }
 
 TEST("syscall: STAR high 32 bits encode SYSRET and SYSCALL CS") {
     constexpr uint16_t GDT_KERNEL_CODE = 0x08;
     uint64_t           star_val        = (static_cast<uint64_t>(GDT_KERNEL_CODE) << 32) |
-                                         (static_cast<uint64_t>(GDT_KERNEL_CODE) << 48);
+                        (static_cast<uint64_t>(GDT_KERNEL_CODE) << 48);
 
     // STAR[47:32] = SYSCALL CS base = 0x08
     uint16_t syscall_cs = static_cast<uint16_t>((star_val >> 32) & 0xFFFF);
