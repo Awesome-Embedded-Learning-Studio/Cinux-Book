@@ -5,13 +5,25 @@ if(NOT QEMU_EXECUTABLE)
     message(WARNING "qemu-system-x86_64 not found in PATH, using default name")
 endif()
 
+# Detect KVM — skip -accel kvm when /dev/kvm is absent (e.g. CI runners)
+if(EXISTS "/dev/kvm")
+    set(QEMU_ACCEL -accel kvm -cpu max)
+endif()
+
+# Reduce QEMU memory in CI to fit within runner RAM limits
+if(DEFINED ENV{CI})
+    set(QEMU_MEMORY "1G")
+else()
+    set(QEMU_MEMORY "8G")
+endif()
+
 set(QEMU_COMMON_FLAGS
-    -m 8G
+    -m ${QEMU_MEMORY}
     -serial stdio
     -no-reboot
     -debugcon file:debug.log
     -global isa-debugcon.iobase=0xe9
-    -accel kvm -cpu max
+    ${QEMU_ACCEL}
     -usb -device usb-tablet
 )
 
