@@ -5,12 +5,13 @@
 ### 从零手搓 x86_64 操作系统 · 中文教程 · 现代 C++ 实现
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)]()
-[![GCC](https://img.shields.io/badge/GCC-11.0%2B-blue)]()
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)]()
+[![GCC](https://img.shields.io/badge/GCC-15.0%2B-blue)]()
 [![QEMU](https://img.shields.io/badge/QEMU-8.0%2B-orange)]()
+[![Milestones](https://img.shields.io/badge/milestones-35%2F35-brightgreen)]()
 
-一个"手把手"教你从 MBR 开始写操作系统的教程项目
+一个"手把手"教你从 MBR 开始写操作系统的教程项目——从 Bootloader 到 GUI 桌面，全链路完成。
+> TODO: 有一些教程赶工还在编写，请各位稍作等待~
 
 </div>
 
@@ -18,18 +19,96 @@
 
 ## ✨ 项目简介
 
-**Cinux** 是一个从零开始的 x86_64 操作系统开发教程，采用现代 C++23 编写，完全不依赖标准库。
+**Cinux** 是一个从零开始的 x86_64 操作系统开发教程，采用现代 C++ 编写。
 
-> 💡 **为什么叫 Cinux？** 
+> 💡 **为什么叫 Cinux？**
 > C/C++'s Linux, 也就是尝试重新再写一个基于C/C++的Linux
 > CharlieChen's *nux（逃）
 
-与大多数 OS 教程不同，Cinux 强调：
+---
 
-- 🎓 **三轨教程**：动手版（跟着敲）+ 通读版（看完整代码）+ 发布教程
-- 🧪 **测试驱动**：轻量测试框架，Host 端 mock + QEMU 集成测试
-- 🏗️ **现代工具链**：CMake + GNU 工具链，开箱即用
-- 📖 **中文文档**：全中文讲解，降低学习门槛
+## 🖼️ Screenshots
+
+<p align="center">
+  <img src="assets/README/static_gui.png" width="45%" alt="GUI Desktop">
+  <img src="assets/README/static_cli.png" width="45%" alt="Shell">
+</p>
+<p align="center">
+  <em>GUI 桌面环境（左） · CLI 终端环境（右）</em>
+</p>
+
+<p align="center">
+  <img src="assets/README/run_example.gif" width="45%" alt="Boot to Shell">
+  <img src="assets/README/multi_shell.gif" width="45%" alt="Multi Terminal">
+</p>
+<p align="center">
+  <em>从启动到 Shell（左） · 多终端窗口（右）</em>
+</p>
+
+<p align="center">
+  <img src="assets/README/parallel_work.gif" width="45%" alt="Parallel Work">
+  <img src="assets/README/filesystem.gif" width="45%" alt="Filesystem">
+</p>
+<p align="center">
+  <em>多终端并发执行（左） · Ext2 文件操作（右）</em>
+</p>
+
+---
+
+## 🌟 特性亮点
+
+<table>
+<tr>
+<td width="50%">
+
+🧠 **完整 x86_64 内核**
+Bootloader → Mini Kernel → Big Kernel → User Space → GUI 桌面，全链路打通
+
+</td>
+<td width="50%">
+
+📁 **Ext2 文件系统读写**
+VFS 抽象层 + AHCI SATA 驱动，支持 touch/mkdir/rm/cat/ls/cd/stat
+
+</td>
+</tr>
+<tr>
+<td>
+
+🖥️ **GUI 桌面环境**
+Canvas 双缓冲 + 窗口管理器 + PS/2 鼠标驱动，支持拖动 / Z-order / 桌面图标
+
+</td>
+<td>
+
+⚡ **多进程 & 多终端**
+fork/execve/CoW 页表复制 + Pipe IPC，每个终端绑定独立 shell 进程
+
+</td>
+</tr>
+<tr>
+<td>
+
+👨‍💻 **Ring 3 用户态 Shell**
+22 个系统调用，内置 echo / help / clear / ls / cat / cd / pwd / stat / mkdir / rm / touch
+
+</td>
+<td>
+
+🧪 **测试驱动开发**
+自研轻量测试框架，Host 端 mock 测试 + QEMU 集成内核测试双轨并行
+
+</td>
+</tr>
+<tr>
+<td>
+
+🔧 **现代 C++23 实现**
+`constexpr` 编译期生成 GDT/IDT / `concepts` 类型约束 / RAII 锁管理 / `enum class` 驱动接口 / 支持用户态内核态 SSE （故支持-O2 Release构建）
+
+</td>
+</tr>
+</table>
 
 ---
 
@@ -37,16 +116,18 @@
 
 完成整个教程后，你将深入理解：
 
-| 阶段 | 核心内容 | 关键技术 |
-|:---:|:---------|:---------|
-| 🔧 **Phase 1** | Bootloader | 实模式 → 保护模式 → 长模式，ELF 加载 |
-| 🏗️ **Phase 2** | 内核基础设施 | GDT/IDT，中断处理，串口驱动 |
-| 🖥️ **Phase 3** | 驱动三件套 | VGA 文本模式，PS/2 键盘，PIT 时钟 |
-| 🧠 **Phase 4** | 内存管理 | 物理页分配，虚拟内存，内核堆 |
-| ⚙️ **Phase 5** | 进程与调度 | 上下文切换，Round-Robin 调度器 |
-| 👤 **Phase 6** | 用户态与系统调用 | Ring 3，syscall，Shell |
-| 💾 **Phase 7** | 文件系统 | AHCI 驱动，VFS，Ext2 支持 |
-| 🖼️ **Phase 8** | GUI（长期目标） | 窗口管理器，图形化应用 |
+| 阶段 | 内容 | 关键技术 |
+|:---:|:------|:---------|
+| Phase 1 | Bootloader | 实模式 → 保护模式 → 长模式，ELF 加载，VESA 图形模式，E820 内存探测 |
+| Phase 2 | 小内核（Bootstrap） | 串口 / kprintf，PMM，IDT / 异常处理，ATA PIO 磁盘，ELF 加载 |
+| Phase 3 | 大内核基础设施 | GDT / IDT / 256 向量中断，PIC 重映射，PIT 时钟 |
+| Phase 4 | 驱动三件套 | VGA Framebuffer + PSF2 字体，PS/2 键盘驱动，串口完善 |
+| Phase 5 | 内存管理 | PMM bitmap，VMM 4 级页表，内核堆（first-fit + coalesce），独立地址空间 |
+| Phase 6 | 进程与调度 | context_switch，Round-Robin 调度器，Spinlock / Mutex / Semaphore |
+| Phase 7 | 用户态与系统调用 | Ring 3 切换，syscall / sysret，22 个系统调用，用户态 Shell |
+| Phase 8 | 文件系统 | AHCI SATA，VFS 抽象，Ext2 读写 + 目录操作 + stat，ramdisk |
+| Phase 9 | GUI 桌面环境 | Canvas 双缓冲，窗口管理器，PS/2 鼠标，拖动 / Z-order，桌面图标 |
+| Phase 10 | 多进程与高级特性 | fork / execve / CoW / waitpid，Pipe IPC，多终端并发 |
 
 ---
 
@@ -54,29 +135,44 @@
 
 ### 前置要求
 
+本项目支持最新的 g++ 15.2编译，使用CMake构建项目，您需要安装的是
+
 ```bash
 # Ubuntu/Debian
 sudo apt install -y gcc g++ binutils qemu-system-x86_64 cmake
-
-# 验证工具链
-./scripts/check_toolchain.sh
 ```
 
-### 三步启动
+### 构建 & 运行
+
+🚀🚀🚀 在WSL 或者任何您喜欢的发行版中跑起来它们！🚀🚀🚀
+
+> Feature Help: 不知道有没有好心人愿意移植到Windows上可编译，如果有所变动欢迎提交您的PR！
+
+#### Step 1: 配置
 
 ```bash
-# 1️⃣ 配置构建
-mkdir build && cd build
-cmake -DCMAKE_BUILD_TYPE=Debug ..
+# 1️⃣ 配置为GUI（默认）（Release 模式）
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DCINUX_BUILD_TESTS=ON -S .
 
-# 2️⃣ 编译并运行测试
-make test
 
-# 3️⃣ 启动 QEMU
-make run
 ```
 
-就这么简单！🎉
+
+```bash
+# 1️⃣ 配置（Release 模式）
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DCINUX_BUILD_TESTS=ON -S .
+
+# 2️⃣ 编译
+cmake --build build -j$(nproc)
+
+# 3️⃣ 测试
+cd build
+make test_host           # Host 端单元测试（CTest）
+make run-kernel-test     # QEMU 内核测试（自动退出）
+
+# 4️⃣ 启动！
+make run                 # QEMU 启动 Cinux
+```
 
 ### 调试模式
 
@@ -96,17 +192,18 @@ gdb build/kernel.elf
 ## 🛠️ 技术栈亮点
 
 <details>
-<summary><b>🔍 现代C++ 内核开发（点击展开）</b></summary>
+<summary><b>🔍 现代 C++ 内核开发</b></summary>
 
-- ✅ **C++23 特性**：`constexpr`/`concepts`/`requires`/`modules`（计划）
-- ✅ **编译期魔法**：GDT/IDT 描述符编译期生成
-- ✅ **类型安全**：Concepts 约束驱动接口
-- ✅ **RAII 资源管理**：锁、内存自动管理
+- ✅ **C++23 特性**：`constexpr` / `concepts` / `requires`
+- ✅ **编译期魔法**：GDT/IDT 描述符 `constexpr` 生成，桌面图标 `constexpr` 像素数据
+- ✅ **类型安全**：`enum class` 作为 API 一等公民，`concepts` 约束驱动接口
+- ✅ **RAII 资源管理**：Spinlock::guard、InterruptGuard、锁自动释放
+- ✅ **零标准库依赖**：完全 freestanding，自实现 memset/memcpy/string
 
 </details>
 
 <details>
-<summary><b>🧪 自研测试框架（点击展开）</b></summary>
+<summary><b>🧪 自研测试框架</b></summary>
 
 ```cpp
 // 极简 API
@@ -115,27 +212,30 @@ TEST("测试名称") {
     ASSERT_TRUE(condition);
 }
 
-// Host 端 mock 测试
-#ifdef CINUX_HOST_TEST
-    // 使用 mock 实现
-#else
-    // 真实硬件代码
-#endif
+// 双轨测试策略
+// Host 端：mock 硬件，验证逻辑正确性（快速迭代）
+// Kernel 端：QEMU 运行，验证真实硬件行为（端到端）
 ```
 
 </details>
 
 <details>
-<summary><b>📁 Git Tag 规范（点击展开）</b></summary>
+<summary><b>📁 42 个 Git Tags 覆盖全旅程</b></summary>
 
 每个 Milestone 完成后打 tag：`编号_大主题_小阶段`
 
 ```
-000_env_toolchain     → 环境搭建完成
-001_boot_real_mode    → 实模式启动完成
-005_kernel_entry      → 内核入口完成
-019_syscall           → 系统调用完成
+000_env_toolchain          → 环境搭建
+001_boot_real_mode         → 实模式启动 + VESA 图形
+009_large_kernel_entry     → 大内核入口
+022_ring3_usermode         → Ring 3 用户态
+028_fs_ext2                → Ext2 文件系统
+033_gui_desktop            → GUI 桌面环境
+035_multi_terminal         → 多终端并发
+...
 ```
+
+共 42 个 tag，覆盖从环境搭建到多终端的完整开发历程。
 
 </details>
 
@@ -144,49 +244,121 @@ TEST("测试名称") {
 ## 📊 开发进度
 
 <details>
-<summary><b>Phase 1 · Bootloader</b></summary>
+<summary><b>Phase 1 · Bootloader — 100% ✅</b></summary>
 
 ```
-[████████████████████████████████████████████████████] 100%
-✅ 001_boot_real_mode    实模式启动 + 磁盘读取
-✅ 002_boot_gdt_protected 保护模式 + 串口驱动
-✅ 003_boot_long_mode    长模式 + 页表初始化
-✅ 004_boot_load_kernel  ELF 加载 + BootInfo
-```
-
-</details>
-
-<details>
-<summary><b>Phase 2 · 内核基础设施</b></summary>
-
-```
-[████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 25%
-✅ 005_kernel_entry      内核入口 + kprintf
-🔄 006_kernel_gdt_idt    GDT/IDT + 异常处理（进行中）
-⬜ 007_pic_irq           PIC 重映射 + PIT 驱动
+✅ 000_env_toolchain         环境搭建 + 工具链
+✅ 001_boot_real_mode        实模式启动 + VESA 图形模式
+✅ 002_boot_gdt_protected    保护模式 + 串口驱动
+✅ 003_boot_long_mode        长模式 + 页表初始化
+✅ 004_boot_load_mini_kernel ELF 加载 + BootInfo（A/B/C 三个子阶段）
 ```
 
 </details>
 
 <details>
-<summary><b>Phase 3 · 驱动三件套</b></summary>
+<summary><b>Phase 2 · 小内核（Bootstrap Kernel）— 100% ✅</b></summary>
 
 ```
-[░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   0%
-⬜ 008_driver_serial     串口驱动完善
-⬜ 009_driver_vga_fb     VGA 文本模式 + PSF2 字体
-⬜ 010_driver_keyboard   PS/2 键盘驱动
+✅ 005_mini_kernel_entry     内核入口 + kprintf
+✅ 006_mini_kernel_pmm       物理内存分配器
+✅ 007_mini_kernel_intr      IDT + 异常处理
+✅ 008_load_large_kernel     ATA 磁盘驱动 + ELF 加载器
 ```
 
 </details>
 
 <details>
-<summary><b>Phase 4-8 · 更多内容...</b></summary>
+<summary><b>Phase 3 · 大内核基础设施 — 100% ✅</b></summary>
 
 ```
-Phase 4: 内存管理  [░░░░░] 0%   |  Phase 5: 进程调度  [░░░░░] 0%
-Phase 6: 用户态    [░░░░░] 0%   |  Phase 7: 文件系统  [░░░░░] 0%
-Phase 8: GUI       [░░░░░] 0%
+✅ 009_large_kernel_entry    大内核入口 + 串口 + kprintf + 测试框架
+✅ 010_big_kernel_gdt_idt    GDT/IDT + 256 向量中断 + 寄存器 dump
+✅ 011_big_kernel_pic_irq    PIC 重映射 + PIT 时钟 + tick 计数
+```
+
+</details>
+
+<details>
+<summary><b>Phase 4 · 驱动三件套 — 100% ✅</b></summary>
+
+```
+✅ 012_driver_serial         串口驱动完善 + kprintf 格式化补全
+✅ 013_driver_vga_fb         VGA Framebuffer + PSF2 字体 + Console
+✅ 014_driver_keyboard       PS/2 键盘驱动 + 扫描码 + 环形队列
+```
+
+</details>
+
+<details>
+<summary><b>Phase 5 · 内存管理 — 100% ✅</b></summary>
+
+```
+✅ 015_mm_pmm                Bitmap 物理内存分配器
+✅ 016_mm_vmm                4 级页表虚拟内存管理
+✅ 017_mm_heap               内核堆 + kmalloc/kfree + new/delete
+✅ 018_mm_address_space      独立地址空间 + 用户区隔离
+```
+
+</details>
+
+<details>
+<summary><b>Phase 6 · 进程与调度 — 100% ✅</b></summary>
+
+```
+✅ 019_proc_context          上下文切换 + 内核线程
+✅ 020_proc_scheduler        Round-Robin 调度器 + idle task
+✅ 021_proc_sync             Spinlock / Mutex / Semaphore
+```
+
+</details>
+
+<details>
+<summary><b>Phase 7 · 用户态与系统调用 — 100% ✅</b></summary>
+
+```
+✅ 022_ring3_usermode        Ring 3 切换 + TSS + sysret
+✅ 023_syscall               syscall/sysret + 22 个系统调用
+✅ 024_shell                 用户态 Shell（echo/help/clear）
+```
+
+</details>
+
+<details>
+<summary><b>Phase 8 · 文件系统 — 100% ✅</b></summary>
+
+```
+✅ 025_driver_ahci           AHCI SATA 驱动 + PCI 枚举
+✅ 026_fs_ramdisk            ustar ramdisk 解析
+✅ 027_fs_vfs                VFS 抽象层 + FDTable + ramdisk 文件系统
+✅ 028_fs_ext2               Ext2 只读挂载
+✅ 028b_fs_ext2_write        Ext2 写入 + touch/mkdir/rm/echo >
+✅ 028c_fs_cwd_stat          cd/pwd/stat 系统调用
+✅ 028d_sync_safety          全局并发安全审计 + 加锁
+✅ 028e_activate_init_thread init 线程重构 + 统一虚拟内存布局
+```
+
+</details>
+
+<details>
+<summary><b>Phase 9 · GUI 桌面环境 — 100% ✅</b></summary>
+
+```
+✅ 029_gui_canvas            Canvas 双缓冲 + Bresenham 画线
+✅ 030_gui_wm_basic          窗口管理器 + PS/2 鼠标 + 拖动
+✅ 031_gui_native_app        Pipe IPC + Terminal 窗口 + Shell 集成
+✅ 032_gui_bitmap_icon       32×32 位图图标 + constexpr 像素数据
+✅ 033_gui_desktop           桌面背景 + 可点击图标 + 延迟创建终端
+```
+
+</details>
+
+<details>
+<summary><b>Phase 10 · 多进程与高级特性 — 100% ✅</b></summary>
+
+```
+✅ 034_process_fork_exec     fork/execve/CoW/waitpid + PID 管理
+✅ 035_multi_terminal        每终端独立 shell 进程 + 多终端并发
 ```
 
 </details>
@@ -197,13 +369,15 @@ Phase 8: GUI       [░░░░░] 0%
 
 ```
 document/
-├── hands-on/          📝 动手版教程（跟着敲代码）
-│   ├── 000-env-toolchain.md       ✅ 环境搭建
-│   ├── 001-boot-real-mode.md      🔨 实模式启动
+├── hands-on/          📝 22 篇动手教程（跟着敲代码）
+│   ├── 000-env-toolchain.md           ✅ 环境搭建
+│   ├── 001-boot-real-mode.md          🔨 实模式启动
+│   ├── 005-mini-kernel-entry.md       🔨 小内核入口
+│   ├── 009A-big-kernel-boot.md        🔨 大内核启动
 │   └── ...
-└── read-through/      📖 通读版教程（看完整代码）
-    ├── 001-boot-real-mode/        📂 完整代码 + 注释
-    └── ...
+├── read-through/      📖 通读版教程（完整代码 + 注释）
+├── tutorial/          📚 教学材料
+└── notes/             📋 调试笔记 & 开发记录
 ```
 
 ---

@@ -8,7 +8,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <atomic>
 #include <cstring>
 #include <new>
 
@@ -35,13 +34,13 @@ namespace cinux::proc {
 
 namespace {
 
-std::atomic<uint64_t> next_tid{1};
+cinux::lib::Atomic<uint64_t> next_tid{1};
 
-std::atomic<uint64_t> next_stack_vaddr{cinux::arch::KMEM_STACK_BASE};
+cinux::lib::Atomic<uint64_t> next_stack_vaddr{cinux::arch::KMEM_STACK_BASE};
 
 uint64_t alloc_stack_vaddr(uint64_t pages) {
 	uint64_t vaddr =
-		next_stack_vaddr.fetch_add(pages * cinux::arch::PAGE_SIZE, std::memory_order_relaxed);
+		next_stack_vaddr.fetch_add(pages * cinux::arch::PAGE_SIZE, cinux::lib::MemoryOrder::Relaxed);
 	return vaddr;
 }
 
@@ -154,7 +153,7 @@ Task* TaskBuilder::build() {
 
 	// Step 7: Fill in the remaining task fields
 	task->state					  = TaskState::Ready;
-	task->tid					  = next_tid.fetch_add(1, std::memory_order_relaxed);
+	task->tid					  = next_tid.fetch_add(1, cinux::lib::MemoryOrder::Relaxed);
 	task->priority				  = priority_;
 	task->kernel_stack			  = stack_virt;
 	task->kernel_stack_top		  = stack_virt + stack_size;
@@ -318,7 +317,7 @@ __attribute__((optimize("no-omit-frame-pointer"), noinline)) int fork(PidAllocat
 	std::memcpy(child, parent, sizeof(Task));
 
 	// Step 4: Fix up child-specific fields
-	child->tid		   = next_tid.fetch_add(1, std::memory_order_relaxed);
+	child->tid		   = next_tid.fetch_add(1, cinux::lib::MemoryOrder::Relaxed);
 	child->pid		   = child_pid;
 	child->ppid		   = parent->pid;
 	child->state	   = TaskState::Ready;

@@ -10,7 +10,6 @@
 #include "pit.hpp"
 
 #include <stdint.h>
-#include <atomic>
 
 #include "kernel/arch/x86_64/idt.hpp"
 #include "kernel/arch/x86_64/io.hpp"
@@ -29,7 +28,7 @@ namespace cinux::drivers {
 // Static storage
 // ============================================================
 
-std::atomic<uint64_t> PIT::tick_count_{0};
+lib::Atomic<uint64_t> PIT::tick_count_{0};
 uint32_t PIT::freq_hz_	  = 100;
 
 #ifdef CINUX_GUI
@@ -79,7 +78,7 @@ void PIT::init(uint32_t freq_hz) {
 
 void PIT::irq0_handler(InterruptFrame* /*frame*/) {
 	// Increment the global tick counter
-	tick_count_.fetch_add(1, std::memory_order_relaxed);
+	tick_count_.fetch_add(1, lib::MemoryOrder::Relaxed);
 
 	// Signal End-Of-Interrupt to the PIC so the next IRQ can arrive
 	PIC::send_eoi(0);
@@ -96,7 +95,7 @@ void PIT::irq0_handler(InterruptFrame* /*frame*/) {
 // ============================================================
 
 uint64_t PIT::get_ticks() {
-	return tick_count_.load(std::memory_order_relaxed);
+	return tick_count_.load(lib::MemoryOrder::Relaxed);
 }
 
 // ============================================================
@@ -105,7 +104,7 @@ uint64_t PIT::get_ticks() {
 
 uint64_t PIT::get_uptime_ms() {
 	// (tick_count * 1000) / freq_hz gives milliseconds
-	return (tick_count_.load(std::memory_order_relaxed) * 1000) / freq_hz_;
+	return (tick_count_.load(lib::MemoryOrder::Relaxed) * 1000) / freq_hz_;
 }
 
 // ============================================================

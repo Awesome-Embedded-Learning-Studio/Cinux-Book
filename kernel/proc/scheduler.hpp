@@ -2,8 +2,8 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include <atomic>
 
+#include "kernel/lib/atomic.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/sync.hpp"
 
@@ -68,8 +68,8 @@ private:
     static RoundRobin default_rr_;
     static Task* idle_task_;
     static bool initialized_;
-    static std::atomic<int> tick_count_;
-    static std::atomic<int> current_slice_;
+    static lib::Atomic<int> tick_count_;
+    static lib::Atomic<int> current_slice_;
 };
 
 }  // namespace cinux::proc

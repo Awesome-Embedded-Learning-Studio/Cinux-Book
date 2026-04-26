@@ -9,7 +9,7 @@
 
 #include "gui_init.hpp"
 
-#include <atomic>
+#include "kernel/lib/atomic.hpp"
 
 #include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
@@ -51,7 +51,7 @@ cinux::drivers::PSFFont* g_font	  = nullptr;
 uint32_t g_terminal_counter = 0;
 
 /// Deferred work queue: ISR enqueues, gui_worker thread drains.
-std::atomic<IconAction> g_pending_action{IconAction::None};
+cinux::lib::Atomic<IconAction> g_pending_action{IconAction::None};
 
 }  // anonymous namespace
 
@@ -297,7 +297,7 @@ void gui_tick_callback(void* /*ctx*/) {
 	// Check if a desktop icon was clicked -- enqueue for deferred processing
 	IconAction action = wm.consume_pending_icon_action();
 	if (action != IconAction::None) {
-		g_pending_action.store(action, std::memory_order_release);
+		g_pending_action.store(action, cinux::lib::MemoryOrder::Release);
 	}
 
 	// Poll all terminal windows for shell output (not just the focused one)
@@ -369,7 +369,7 @@ void gui_start() {
 // ============================================================
 
 void gui_process_pending() {
-	IconAction action = g_pending_action.exchange(IconAction::None, std::memory_order_acq_rel);
+	IconAction action = g_pending_action.exchange(IconAction::None, cinux::lib::MemoryOrder::AcqRel);
 	if (action == IconAction::OpenShell) {
 		create_shell_terminal();
 	}
