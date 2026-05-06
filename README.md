@@ -8,10 +8,8 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)]()
 [![GCC](https://img.shields.io/badge/GCC-15.0%2B-blue)]()
 [![QEMU](https://img.shields.io/badge/QEMU-8.0%2B-orange)]()
-[![Milestones](https://img.shields.io/badge/milestones-35%2F35-brightgreen)]()
 
 一个"手把手"教你从 MBR 开始写操作系统的教程项目——从 Bootloader 到 GUI 桌面，全链路完成。
-> TODO: 有一些教程赶工还在编写，请各位稍作等待~
 
 </div>
 
