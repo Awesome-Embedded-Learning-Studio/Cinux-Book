@@ -101,6 +101,68 @@ void gui_init(cinux::drivers::Canvas& screen, cinux::drivers::PSFFont& font) {
 
 namespace {
 
+/// Launch info passed from the parent (gui_worker) to the shell child task.
+struct ShellLaunchInfo {
+    cinux::fs::Inode* stdin_read;
+    cinux::fs::Inode* stdout_write;
+    const char* path;
+};
+
+/// Entry function for shell child tasks.  Runs on a clean kernel stack
+/// allocated by TaskBuilder (no inherited parent frames), so the full
+/// 16 KB stack is available from the start.
+static void shell_child_entry() {
+    auto* task = cinux::proc::Scheduler::current();
+    auto* info = static_cast<ShellLaunchInfo*>(task->private_data);
+
+    __asm__ volatile("cli");
+
+    task->addr_space = new cinux::mm::AddressSpace();
+
+    task->fd_table = new cinux::fs::FDTable();
+    task->fd_table->set(0, new cinux::fs::File(info->stdin_read, 0, cinux::fs::OpenFlags::RDONLY));
+    task->fd_table->set(1, new cinux::fs::File(info->stdout_write, 0, cinux::fs::OpenFlags::WRONLY));
+
+    const char* argv[] = {info->path, nullptr};
+    const char* envp[] = {nullptr};
+    auto result = cinux::proc::execve(info->path, argv, envp);
+    if (result != cinux::proc::ExecveResult::Ok) {
+        cinux::lib::kprintf("[GUI] execve(%s) failed: %d\n", info->path,
+                            static_cast<int>(result));
+        cinux::proc::Scheduler::exit_current();
+    }
+
+    uint64_t entry = task->ctx.rip;
+
+    constexpr uint64_t kUserPageFlags =
+        cinux::arch::FLAG_PRESENT | cinux::arch::FLAG_WRITABLE | cinux::arch::FLAG_USER;
+    uint64_t stack_base =
+        cinux::arch::USER_STACK_TOP - cinux::arch::USER_STACK_PAGES * cinux::arch::PAGE_SIZE;
+
+    for (uint64_t i = 0; i < cinux::arch::USER_STACK_PAGES; i++) {
+        uint64_t phys = cinux::mm::g_pmm.alloc_page();
+        if (phys == 0) {
+            cinux::lib::kprintf("[GUI] user stack alloc failed\n");
+            cinux::proc::Scheduler::exit_current();
+        }
+        uint64_t virt = stack_base + i * cinux::arch::PAGE_SIZE;
+        if (!task->addr_space->map(virt, phys, kUserPageFlags)) {
+            cinux::lib::kprintf("[GUI] user stack map failed at %p\n",
+                                reinterpret_cast<void*>(virt));
+            cinux::proc::Scheduler::exit_current();
+        }
+    }
+
+    cinux::lib::kprintf("[GUI] Shell child jumping to user mode: entry=%p\n",
+                        reinterpret_cast<void*>(entry));
+
+    task->addr_space->activate();
+    cinux::proc::g_per_cpu.update_syscall_stack(task->kernel_stack_top);
+
+    jump_to_usermode(entry, cinux::arch::USER_STACK_TOP - cinux::arch::USER_ABI_RSP_OFFSET, 0);
+    cinux::proc::Scheduler::exit_current();
+}
+
 void create_shell_terminal() {
     auto& wm = WindowManager::instance();
 
@@ -134,105 +196,30 @@ void create_shell_terminal() {
 
     // --- Create per-terminal pipes ---
 
-    // stdin pipe: Terminal.on_key() writes -> shell reads from fd 0
     auto* stdin_pipe       = new cinux::ipc::Pipe();
     auto* stdin_read_ops   = new cinux::ipc::PipeReadOps(stdin_pipe);
     auto* stdin_read_inode = new cinux::fs::Inode();
     stdin_read_inode->ops  = stdin_read_ops;
     stdin_read_inode->type = cinux::fs::InodeType::Regular;
 
-    // stdout pipe: shell writes to fd 1 -> Terminal.poll_output() reads
     auto* stdout_pipe        = new cinux::ipc::Pipe();
     auto* stdout_write_ops   = new cinux::ipc::PipeWriteOps(stdout_pipe);
     auto* stdout_write_inode = new cinux::fs::Inode();
     stdout_write_inode->ops  = stdout_write_ops;
     stdout_write_inode->type = cinux::fs::InodeType::Regular;
 
-    // Bind pipe pointers to the terminal (kernel-side direct access)
     term->set_stdin_pipe(stdin_pipe);
     term->set_stdout_pipe(stdout_pipe);
 
-    // --- Fork and exec shell ---
-    int child_pid = cinux::proc::fork(cinux::proc::g_pid_alloc);
-    if (child_pid > 0) {
-        // Parent: record the shell PID
-        term->set_shell_pid(child_pid);
-        cinux::lib::kprintf("[GUI] Terminal '%s': shell spawned pid=%d\n", title_buf, child_pid);
-    } else if (child_pid == 0) {
-        // ---- Child path ----
-        // The parent (gui_worker) is a kernel thread with no address space.
-        // Create a fresh AddressSpace so execve() can map the ELF segments.
-        __asm__ volatile("cli");
+    // --- Spawn shell via TaskBuilder (clean stack, no fork) ---
+    auto* info = new ShellLaunchInfo{stdin_read_inode, stdout_write_inode, "/bin/sh"};
 
-        auto* task       = cinux::proc::Scheduler::current();
-        task->addr_space = new cinux::mm::AddressSpace();
-
-        // Set up a private FDTable so this shell reads/writes through
-        // its own terminal's pipes -- independent of the global table.
-        task->fd_table = new cinux::fs::FDTable();
-        task->fd_table->set(0,
-                            new cinux::fs::File(stdin_read_inode, 0, cinux::fs::OpenFlags::RDONLY));
-        task->fd_table->set(
-            1, new cinux::fs::File(stdout_write_inode, 0, cinux::fs::OpenFlags::WRONLY));
-
-        // execve the shell
-        const char* path   = "/bin/sh";
-        const char* argv[] = {path, nullptr};
-        const char* envp[] = {nullptr};
-
-        auto result = cinux::proc::execve(path, argv, envp);
-        if (result != cinux::proc::ExecveResult::Ok) {
-            cinux::lib::kprintf("[GUI] execve(%s) failed: %d\n", path, static_cast<int>(result));
-            cinux::proc::Scheduler::exit_current();
-        }
-
-        // execve succeeded: set up user stack
-        uint64_t entry = task->ctx.rip;
-
-        constexpr uint64_t kUserPageFlags =
-            cinux::arch::FLAG_PRESENT | cinux::arch::FLAG_WRITABLE | cinux::arch::FLAG_USER;
-        uint64_t stack_base =
-            cinux::arch::USER_STACK_TOP - cinux::arch::USER_STACK_PAGES * cinux::arch::PAGE_SIZE;
-
-        for (uint64_t i = 0; i < cinux::arch::USER_STACK_PAGES; i++) {
-            uint64_t phys = cinux::mm::g_pmm.alloc_page();
-            if (phys == 0) {
-                cinux::lib::kprintf("[GUI] user stack alloc failed\n");
-                cinux::proc::Scheduler::exit_current();
-            }
-            uint64_t virt = stack_base + i * cinux::arch::PAGE_SIZE;
-            if (!task->addr_space->map(virt, phys, kUserPageFlags)) {
-                cinux::lib::kprintf("[GUI] user stack map failed at %p\n",
-                                    reinterpret_cast<void*>(virt));
-                cinux::proc::Scheduler::exit_current();
-            }
-        }
-
-        cinux::lib::kprintf("[GUI] Shell child jumping to user mode: entry=%p\n",
-                            reinterpret_cast<void*>(entry));
-
-        // Activate the child's address space -- now fully populated
-        task->addr_space->activate();
-
-        // Update the per-CPU syscall kernel stack so syscall_entry
-        // loads the child's kernel stack (not the parent's or the
-        // boot task's).
-        cinux::proc::g_per_cpu.update_syscall_stack(task->kernel_stack_top);
-
-        // Do NOT sti here.  SYSRETQ restores R11 into RFLAGS, and R11
-        // already has IF=1 (set in jump_to_usermode), so interrupts
-        // are enabled atomically upon entering Ring 3.  An explicit
-        // sti before SYSRETQ opens a window where the PIT fires on
-        // the child's CR3, causing gui_tick_callback to composite
-        // with incomplete identity mappings -- demand-paging zero
-        // pages over the framebuffer MMIO region.
-
-        jump_to_usermode(entry, cinux::arch::USER_STACK_TOP - cinux::arch::USER_ABI_RSP_OFFSET, 0);
-
-        cinux::proc::Scheduler::exit_current();
-    } else {
-        cinux::lib::kprintf("[GUI] fork() failed: %d\n", child_pid);
-        // Clean up all allocated resources on fork failure
+    cinux::proc::TaskBuilder builder;
+    builder.set_entry(shell_child_entry).set_name("shell");
+    auto* child = builder.build();
+    if (child == nullptr) {
+        cinux::lib::kprintf("[GUI] TaskBuilder::build failed for shell\n");
+        delete info;
         delete stdin_read_ops;
         delete stdin_read_inode;
         delete stdout_write_ops;
@@ -242,6 +229,20 @@ void create_shell_terminal() {
         delete term;
         return;
     }
+
+    // PID + parent/child linkage (TaskBuilder handles TCB + stack only)
+    child->pid       = cinux::proc::g_pid_alloc.alloc();
+    child->private_data = info;
+    auto* parent     = cinux::proc::Scheduler::current();
+    child->ppid      = parent->pid;
+    child->parent    = parent;
+    child->wait_next = parent->children;
+    parent->children = child;
+
+    cinux::proc::Scheduler::add_task(child);
+
+    term->set_shell_pid(child->pid);
+    cinux::lib::kprintf("[GUI] Terminal '%s': shell spawned pid=%d\n", title_buf, child->pid);
 
     wm.add_window(term);
     cinux::lib::kprintf("[GUI] Terminal '%s' created with pipes stdin=%p stdout=%p\n", title_buf,

@@ -158,6 +158,9 @@ struct Task {
     /** Intrusive link for wait-queue linked lists (Mutex / Semaphore). */
     Task* wait_next;
 
+    /** Generic per-task private data (set before first schedule). */
+    void* private_data;
+
     /** FPU/SSE state (512 bytes, 16-byte aligned for fxsave/fxrstor). */
     alignas(16) uint8_t fpu_state[512];
 
