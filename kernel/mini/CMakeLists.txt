@@ -51,6 +51,7 @@ target_compile_options(mini_kernel_common PUBLIC ${MINI_KERNEL_COMMON_COMPILE_OP
 target_include_directories(mini_kernel_common PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/boot
+    ${CMAKE_SOURCE_DIR}/third_party/Cinux-Base/include
 )
 
 # ==============================================================

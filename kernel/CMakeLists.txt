@@ -48,6 +48,9 @@ target_include_directories(big_kernel_common PUBLIC
     ${CMAKE_SOURCE_DIR}
 )
 
+# Third-party libraries (Cinux-Base etc.)
+add_subdirectory(${CMAKE_SOURCE_DIR}/third_party ${CMAKE_BINARY_DIR}/third_party)
+
 # Sub-modules (each adds its sources to big_kernel_common)
 add_subdirectory(arch)
 add_subdirectory(drivers)

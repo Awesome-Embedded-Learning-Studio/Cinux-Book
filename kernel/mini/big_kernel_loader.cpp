@@ -16,6 +16,7 @@
 #include "driver/ata.hpp"
 #include "elf_loader.hpp"
 #include "lib/kprintf.h"
+#include "mm/mm_defines.h"
 
 using cinux::mini::arch::identity_map_up_to;
 using cinux::mini::driver::ata::read;
@@ -25,16 +26,13 @@ using cinux::mini::elf_loader::Elf64_Ehdr;
 using cinux::mini::elf_loader::Elf64_Phdr;
 using cinux::mini::elf_loader::PT_LOAD;
 using cinux::mini::lib::kprintf;
+using cinux::mini::mm::align_up;
 
 namespace cinux::mini::loader {
 
 // ============================================================
-// Helper: align up
+// Memory Overlap Checker
 // ============================================================
-
-static uint64_t align_up(uint64_t val, uint64_t align) {
-    return (val + align - 1) & ~(align - 1);
-}
 
 // ============================================================
 // Memory Overlap Checker

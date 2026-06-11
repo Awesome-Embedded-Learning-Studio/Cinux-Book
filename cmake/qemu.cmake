@@ -16,6 +16,7 @@ if(DEFINED ENV{CI})
     set(QEMU_DISPLAY -vnc :0)
 else()
     set(QEMU_MEMORY "8G")
+    set(QEMU_DISPLAY -vnc :0)
 endif()
 
 set(QEMU_COMMON_FLAGS

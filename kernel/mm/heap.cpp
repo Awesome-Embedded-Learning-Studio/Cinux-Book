@@ -8,6 +8,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <cinux/numeric.hpp>
+
 #include "kernel/arch/x86_64/memory_layout.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -38,10 +40,7 @@ Heap g_heap;
 
 namespace {
 
-/** Align value up to the given power-of-2 alignment. */
-uint64_t align_up(uint64_t value, uint64_t align) {
-    return (value + align - 1) & ~(align - 1);
-}
+using cinux::lib::align_up;
 
 /** Get the BlockHeader that precedes a user payload pointer. */
 BlockHeader* header_from_ptr(void* ptr) {

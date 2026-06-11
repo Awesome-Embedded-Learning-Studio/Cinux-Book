@@ -92,8 +92,8 @@ public:
         height_    = fb.height();
         pitch_     = fb.pitch();
 
-        uint32_t total_pixels = width_ * height_;
-        back_buf_.resize(total_pixels, 0);
+        uint32_t pixels_per_row = pitch_ / 4;
+        back_buf_.resize(static_cast<size_t>(pixels_per_row) * height_, 0);
     }
 
     void draw_pixel(uint32_t x, uint32_t y, uint32_t color) {
