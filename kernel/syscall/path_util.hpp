@@ -50,4 +50,22 @@ inline bool validate_user_ptr(uint64_t ptr) {
  */
 bool resolve_user_path(uint64_t path_virt, char* out);
 
+/**
+ * @brief Split a path into parent directory path and leaf name
+ *
+ * For example, "foo/bar/baz" -> parent="foo/bar", name="baz".
+ * Edge case: "baz" -> parent="" (root), name="baz".
+ *
+ * @p name_out points into @p path (not copied); @p parent_out receives a
+ * NUL-terminated copy suitable for VFS lookup().
+ *
+ * @param path         Full path (NUL-terminated, relative to FS root)
+ * @param parent_out   Buffer for the parent path (>= cinux::fs::PATH_MAX bytes)
+ * @param name_out     Set to the start of the leaf name within @p path
+ * @param namelen_out  Set to the length of the leaf name
+ * @return true on success, false if @p path is empty or ends with '/'
+ */
+bool split_pathname(const char* path, char* parent_out,
+                    const char** name_out, uint32_t* namelen_out);
+
 }  // namespace cinux::syscall

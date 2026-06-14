@@ -83,6 +83,14 @@ add_cinux_test(desktop)
 add_cinux_test(terminal)
 add_cinux_test(multi_terminal)
 
+# Cinux-Base leaf types (header-only) — proves the submodule is usable from the
+# host test build before any kernel migration relies on it. Only the include
+# path is added here so Cinux-Base's compile flags never leak into other tests.
+add_cinux_test(cinux_base_types)
+target_include_directories(test_cinux_base_types PRIVATE
+    ${CMAKE_SOURCE_DIR}/third_party/Cinux-Base/include
+)
+
 # ============================================================
 # Tests with threading support
 # ============================================================
@@ -185,6 +193,7 @@ set(ALL_HOST_TESTS
     test_canvas test_bitmap_icon test_mouse test_event_queue test_window
     test_window_manager test_desktop test_terminal test_pipe test_sys_pipe
     test_shell_redirect test_fork_exec test_multi_terminal
+    test_cinux_base_types
 )
 
 add_custom_target(test_host
