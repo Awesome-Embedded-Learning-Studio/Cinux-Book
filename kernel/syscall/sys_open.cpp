@@ -35,12 +35,12 @@ int64_t sys_open(uint64_t path_virt, uint64_t flags, uint64_t, uint64_t, uint64_
     }
 
     // Step 3: Look up the Inode in the backend filesystem
-    cinux::fs::Inode* inode = fs->lookup(rel_path);
-
-    if (inode == nullptr) {
+    auto inode_result = fs->lookup(rel_path);
+    if (!inode_result.ok()) {
         cinux::lib::kprintf("[SYS_OPEN] File not found: '%s'\n", resolved);
         return -1;
     }
+    cinux::fs::Inode* inode = inode_result.value();
 
     // Step 3: Convert flags to OpenFlags
     cinux::fs::OpenFlags open_flags;

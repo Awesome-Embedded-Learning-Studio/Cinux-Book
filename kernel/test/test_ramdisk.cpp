@@ -96,8 +96,8 @@ void test_ramdisk_size_nonzero() {
 
 void test_ramdisk_mount_returns_true() {
     Ramdisk rd;
-    bool    result = rd.mount();
-    TEST_ASSERT_TRUE(result);
+    auto    result = rd.mount();
+    TEST_ASSERT_TRUE(result.ok());
 }
 
 void test_ramdisk_mount_finds_files() {
@@ -118,7 +118,7 @@ void test_lookup_hello_txt() {
     Ramdisk rd;
     rd.mount();
 
-    auto* inode = rd.lookup("hello.txt");
+    auto* inode = lookup_or_null(&rd, "hello.txt");
     TEST_ASSERT_NOT_NULL(inode);
     TEST_ASSERT_EQ(static_cast<uint32_t>(inode->type), static_cast<uint32_t>(InodeType::Regular));
 }
@@ -127,7 +127,7 @@ void test_lookup_readme_txt() {
     Ramdisk rd;
     rd.mount();
 
-    auto* inode = rd.lookup("readme.txt");
+    auto* inode = lookup_or_null(&rd, "readme.txt");
     TEST_ASSERT_NOT_NULL(inode);
 }
 
@@ -135,7 +135,7 @@ void test_lookup_etc_passwd() {
     Ramdisk rd;
     rd.mount();
 
-    auto* inode = rd.lookup("etc/passwd");
+    auto* inode = lookup_or_null(&rd, "etc/passwd");
     TEST_ASSERT_NOT_NULL(inode);
 }
 
@@ -143,7 +143,7 @@ void test_lookup_nonexistent() {
     Ramdisk rd;
     rd.mount();
 
-    auto* inode = rd.lookup("nonexistent.txt");
+    auto* inode = lookup_or_null(&rd, "nonexistent.txt");
     TEST_ASSERT_NULL(inode);
 }
 
@@ -151,7 +151,7 @@ void test_lookup_null_path() {
     Ramdisk rd;
     rd.mount();
 
-    auto* inode = rd.lookup(nullptr);
+    auto* inode = lookup_or_null(&rd, nullptr);
     TEST_ASSERT_NULL(inode);
 }
 
@@ -159,7 +159,7 @@ void test_lookup_root_returns_dir_inode() {
     Ramdisk rd;
     rd.mount();
 
-    auto* inode = rd.lookup("");
+    auto* inode = lookup_or_null(&rd, "");
     TEST_ASSERT_NOT_NULL(inode);
     TEST_ASSERT_EQ(static_cast<uint32_t>(inode->type), static_cast<uint32_t>(InodeType::Directory));
 }
@@ -168,7 +168,7 @@ void test_lookup_root_slash_returns_dir_inode() {
     Ramdisk rd;
     rd.mount();
 
-    auto* inode = rd.lookup("/");
+    auto* inode = lookup_or_null(&rd, "/");
     TEST_ASSERT_NOT_NULL(inode);
     TEST_ASSERT_EQ(static_cast<uint32_t>(inode->type), static_cast<uint32_t>(InodeType::Directory));
 }
@@ -185,7 +185,7 @@ void test_read_hello_content() {
     Ramdisk rd;
     rd.mount();
 
-    auto* inode = rd.lookup("hello.txt");
+    auto* inode = lookup_or_null(&rd, "hello.txt");
     TEST_ASSERT_NOT_NULL(inode);
     TEST_ASSERT_NOT_NULL(inode->ops);
 
@@ -203,7 +203,7 @@ void test_read_with_offset() {
     Ramdisk rd;
     rd.mount();
 
-    auto* inode = rd.lookup("hello.txt");
+    auto* inode = lookup_or_null(&rd, "hello.txt");
     TEST_ASSERT_NOT_NULL(inode);
 
     char    buf[8] = {};
@@ -216,7 +216,7 @@ void test_read_past_end_returns_zero() {
     Ramdisk rd;
     rd.mount();
 
-    auto* inode = rd.lookup("hello.txt");
+    auto* inode = lookup_or_null(&rd, "hello.txt");
     TEST_ASSERT_NOT_NULL(inode);
 
     char    buf[8] = {};
@@ -228,7 +228,7 @@ void test_write_returns_error() {
     Ramdisk rd;
     rd.mount();
 
-    auto* inode = rd.lookup("hello.txt");
+    auto* inode = lookup_or_null(&rd, "hello.txt");
     TEST_ASSERT_NOT_NULL(inode);
 
     const char data[] = "test";
@@ -254,7 +254,7 @@ void test_vfs_mount_and_resolve() {
     cinux::fs::vfs_mount_init();
 
     Ramdisk* rd = new Ramdisk();
-    TEST_ASSERT_TRUE(rd->mount());
+    TEST_ASSERT_TRUE(rd->mount().ok());
 
     bool added = cinux::fs::vfs_mount_add("/", rd);
     TEST_ASSERT_TRUE(added);
@@ -282,7 +282,7 @@ void test_vfs_open_read_close() {
     cinux::fs::FileSystem* fs       = cinux::fs::vfs_resolve("/hello.txt", &rel_path);
     TEST_ASSERT_NOT_NULL(fs);
 
-    cinux::fs::Inode* inode = fs->lookup(rel_path);
+    cinux::fs::Inode* inode = lookup_or_null(fs, rel_path);
     TEST_ASSERT_NOT_NULL(inode);
 
     int fd = cinux::fs::g_global_fd_table().alloc(inode, cinux::fs::OpenFlags::RDONLY);
@@ -328,7 +328,7 @@ void test_vfs_open_nonexistent_fails() {
     cinux::fs::FileSystem* fs       = cinux::fs::vfs_resolve("/nonexistent.txt", &rel_path);
     TEST_ASSERT_NOT_NULL(fs);
 
-    cinux::fs::Inode* inode = fs->lookup(rel_path);
+    cinux::fs::Inode* inode = lookup_or_null(fs, rel_path);
     TEST_ASSERT_NULL(inode);
 
     cinux::fs::vfs_mount_remove("/");
@@ -353,7 +353,7 @@ void test_vfs_open_multiple_files() {
     const char*            rel1 = nullptr;
     cinux::fs::FileSystem* fs1  = cinux::fs::vfs_resolve("/hello.txt", &rel1);
     TEST_ASSERT_NOT_NULL(fs1);
-    cinux::fs::Inode* ino1 = fs1->lookup(rel1);
+    cinux::fs::Inode* ino1 = lookup_or_null(fs1, rel1);
     TEST_ASSERT_NOT_NULL(ino1);
     int fd1 = cinux::fs::g_global_fd_table().alloc(ino1, cinux::fs::OpenFlags::RDONLY);
     TEST_ASSERT_GE(fd1, 0);
@@ -361,7 +361,7 @@ void test_vfs_open_multiple_files() {
     const char*            rel2 = nullptr;
     cinux::fs::FileSystem* fs2  = cinux::fs::vfs_resolve("/readme.txt", &rel2);
     TEST_ASSERT_NOT_NULL(fs2);
-    cinux::fs::Inode* ino2 = fs2->lookup(rel2);
+    cinux::fs::Inode* ino2 = lookup_or_null(fs2, rel2);
     TEST_ASSERT_NOT_NULL(ino2);
     int fd2 = cinux::fs::g_global_fd_table().alloc(ino2, cinux::fs::OpenFlags::RDONLY);
     TEST_ASSERT_GE(fd2, 0);

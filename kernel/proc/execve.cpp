@@ -143,11 +143,12 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
         return ExecveResult::FileNotFound;
     }
 
-    auto* inode = fs->lookup(rel_path);
-    if (inode == nullptr) {
+    auto lookup_result = fs->lookup(rel_path);
+    if (!lookup_result.ok()) {
         cinux::lib::kprintf("[EXECVE] inode not found: %s\n", rel_path);
         return ExecveResult::FileNotFound;
     }
+    auto* inode = lookup_result.value();
 
     if (inode->type != cinux::fs::InodeType::Regular) {
         cinux::lib::kprintf("[EXECVE] not a regular file: %s\n", path);

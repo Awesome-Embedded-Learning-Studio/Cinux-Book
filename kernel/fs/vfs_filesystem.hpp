@@ -16,6 +16,8 @@
 
 #include "kernel/fs/inode.hpp"
 
+#include <cinux/expected.hpp>
+
 namespace cinux::fs {
 
 /**
@@ -36,9 +38,10 @@ public:
      * The backend should locate its on-disk / in-memory data structures
      * and prepare for subsequent lookup() calls.
      *
-     * @return true on success, false on failure
+     * @return ErrorOr<void> — Error::Ok on success, otherwise an Error code
+     *         (e.g. Error::IOError) describing the failure
      */
-    virtual bool mount() = 0;
+    virtual cinux::lib::ErrorOr<void> mount() = 0;
 
     /**
      * @brief Look up a file by its path within this filesystem
@@ -47,9 +50,10 @@ public:
      * the mount prefix before calling this).
      *
      * @param path  Null-terminated path relative to the filesystem root
-     * @return Pointer to the found Inode, or nullptr if not found
+     * @return ErrorOr<Inode*> — the found Inode on success; Error::NotFound if
+     *         no entry matches, Error::InvalidArgument for a null path
      */
-    virtual Inode* lookup(const char* path) = 0;
+    virtual cinux::lib::ErrorOr<Inode*> lookup(const char* path) = 0;
 };
 
 }  // namespace cinux::fs

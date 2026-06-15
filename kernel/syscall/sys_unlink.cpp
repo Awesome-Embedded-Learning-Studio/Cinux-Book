@@ -50,12 +50,12 @@ int64_t sys_unlink(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, u
     }
 
     // Step 4: Look up the parent directory inode
-    cinux::fs::Inode* parent = fs->lookup(parent_buf);
-
-    if (parent == nullptr) {
+    auto parent_result = fs->lookup(parent_buf);
+    if (!parent_result.ok()) {
         kprintf("[SYS_UNLINK] Parent directory not found for '%s'\n", resolved);
         return -1;
     }
+    cinux::fs::Inode* parent = parent_result.value();
 
     if (parent->ops == nullptr) {
         kprintf("[SYS_UNLINK] Parent inode has no ops\n");
@@ -63,9 +63,8 @@ int64_t sys_unlink(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, u
     }
 
     // Step 5: Call unlink() on the parent directory
-    int64_t result = parent->ops->unlink(parent, leaf_name, name_len);
-
-    if (result != 0) {
+    auto unlink_result = parent->ops->unlink(parent, leaf_name, name_len);
+    if (!unlink_result.ok()) {
         kprintf("[SYS_UNLINK] Failed to unlink '%s'\n", resolved);
         return -1;
     }

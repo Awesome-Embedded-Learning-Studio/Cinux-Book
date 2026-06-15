@@ -178,7 +178,7 @@ uint64_t octal_to_uint(const char* s, size_t len) {
     return result;
 }
 
-bool Ramdisk::mount() {
+cinux::lib::ErrorOr<void> Ramdisk::mount() {
     // Allocate ops instances
     file_ops_ = new RamdiskFileOps();
     dir_ops_  = new RamdiskDirOps();
@@ -189,7 +189,7 @@ bool Ramdisk::mount() {
 
     if (base_ == nullptr || size_ == 0) {
         cinux::lib::kprintf("[RAMDISK] No initrd archive found.\n");
-        return false;
+        return cinux::lib::Error::IOError;
     }
 
     cinux::lib::kprintf("[RAMDISK] Archive at 0x%p, size %u bytes\n", base_, size_);
@@ -271,12 +271,16 @@ bool Ramdisk::mount() {
     root_inode_.ops        = dir_ops_;
     root_inode_.fs_private = &root_ctx_;
 
-    return entry_count_ > 0;
+    if (entry_count_ == 0) {
+        cinux::lib::kprintf("[RAMDISK] No file entries found in initrd.\n");
+        return cinux::lib::Error::NotFound;
+    }
+    return {};
 }
 
-Inode* Ramdisk::lookup(const char* path) {
+cinux::lib::ErrorOr<Inode*> Ramdisk::lookup(const char* path) {
     if (path == nullptr) {
-        return nullptr;
+        return cinux::lib::Error::InvalidArgument;
     }
 
     // Special case: root directory lookup
@@ -305,7 +309,7 @@ Inode* Ramdisk::lookup(const char* path) {
         }
     }
 
-    return nullptr;
+    return cinux::lib::Error::NotFound;
 }
 
 const void* Ramdisk::base() const {

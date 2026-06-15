@@ -21,20 +21,20 @@ int64_t InodeOps::readdir(const Inode*, uint64_t, char*, uint64_t) {
     return -1;
 }
 
-Inode* InodeOps::create(Inode*, const char*, uint32_t) {
-    return nullptr;
+cinux::lib::ErrorOr<Inode*> InodeOps::create(Inode*, const char*, uint32_t) {
+    return cinux::lib::Error::NotImplemented;
 }
 
-Inode* InodeOps::mkdir(Inode*, const char*, uint32_t) {
-    return nullptr;
+cinux::lib::ErrorOr<Inode*> InodeOps::mkdir(Inode*, const char*, uint32_t) {
+    return cinux::lib::Error::NotImplemented;
 }
 
-int64_t InodeOps::unlink(Inode*, const char*, uint32_t) {
-    return -1;
+cinux::lib::ErrorOr<void> InodeOps::unlink(Inode*, const char*, uint32_t) {
+    return cinux::lib::Error::NotImplemented;
 }
 
-int64_t InodeOps::stat(const Inode*, struct stat*) {
-    return -1;
+cinux::lib::ErrorOr<void> InodeOps::stat(const Inode*, struct stat*) {
+    return cinux::lib::Error::NotImplemented;
 }
 
 }  // namespace cinux::fs

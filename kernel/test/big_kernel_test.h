@@ -19,6 +19,7 @@
 #pragma once
 
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/fs/vfs_filesystem.hpp"
 
 using cinux::lib::kprintf;
 
@@ -47,6 +48,51 @@ inline int get_total_failed() {
     return tests_failed;
 }
 }  // namespace test
+
+// ============================================================
+// Filesystem test helper
+// ============================================================
+
+/**
+ * @brief Run a VFS lookup and collapse the result to a raw pointer.
+ *
+ * FileSystem::lookup() now returns ErrorOr<Inode*>.  Many integration tests
+ * only care about found vs. not-found and keep their TEST_ASSERT_NOT_NULL /
+ * null-fallback style unchanged — this helper adapts the ErrorOr result back
+ * to a nullable pointer so those tests need no logic changes.
+ *
+ * @return The found Inode, or nullptr on any lookup error.
+ */
+inline cinux::fs::Inode* lookup_or_null(cinux::fs::FileSystem* fs, const char* path) {
+    auto result = fs->lookup(path);
+    return result.ok() ? result.value() : nullptr;
+}
+
+/**
+ * @brief Run InodeOps::create and collapse ErrorOr<Inode*> to a nullable pointer.
+ *
+ * Lets legacy tests keep TEST_ASSERT_NULL / TEST_ASSERT_NOT_NULL style after
+ * create() moved to ErrorOr<Inode*>.
+ */
+inline cinux::fs::Inode* create_or_null(cinux::fs::Inode* dir, const char* name, uint32_t len) {
+    auto r = dir->ops->create(dir, name, len);
+    return r.ok() ? r.value() : nullptr;
+}
+
+/** @brief Same as create_or_null but for InodeOps::mkdir. */
+inline cinux::fs::Inode* mkdir_or_null(cinux::fs::Inode* dir, const char* name, uint32_t len) {
+    auto r = dir->ops->mkdir(dir, name, len);
+    return r.ok() ? r.value() : nullptr;
+}
+
+/**
+ * @brief Run InodeOps::unlink and return a POSIX-style result code.
+ *
+ * @return 0 on success, -1 on any error — keeps TEST_ASSERT_EQ(rc, 0/-1) style.
+ */
+inline int64_t unlink_rc(cinux::fs::Inode* dir, const char* name, uint32_t len) {
+    return dir->ops->unlink(dir, name, len).ok() ? 0 : -1;
+}
 
 // ============================================================
 // Assertion Macros

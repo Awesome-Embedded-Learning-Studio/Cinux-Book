@@ -91,9 +91,10 @@ public:
      * entry (magic == "ustar"), builds a RamdiskEntry with the file
      * name, data pointer, size, and a pre-allocated Inode.
      *
-     * @return true if at least one entry was parsed, false otherwise
+     * @return ErrorOr<void> — Error::Ok if at least one entry was parsed,
+     *         Error::IOError if no archive is present, Error::NotFound if empty
      */
-    bool mount() override;
+    cinux::lib::ErrorOr<void> mount() override;
 
     /**
      * @brief Look up a file by its path within the ramdisk
@@ -103,9 +104,10 @@ public:
      * (e.g. "hello.txt" or "etc/passwd").
      *
      * @param path  Null-terminated path relative to the ramdisk root
-     * @return Pointer to the found Inode, or nullptr if not found
+     * @return ErrorOr<Inode*> — the found Inode on success,
+     *         Error::NotFound if no entry matches the path
      */
-    Inode* lookup(const char* path) override;
+    cinux::lib::ErrorOr<Inode*> lookup(const char* path) override;
 
     /**
      * @brief Get the base address of the ramdisk archive

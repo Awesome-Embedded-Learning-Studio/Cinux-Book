@@ -171,9 +171,9 @@ int64_t Ext2FileOps::write(Inode* inode, uint64_t offset, const void* buf, uint6
     return static_cast<int64_t>(total_written);
 }
 
-int64_t Ext2FileOps::stat(const Inode* inode, struct stat* st) {
+cinux::lib::ErrorOr<void> Ext2FileOps::stat(const Inode* inode, struct stat* st) {
     if (inode == nullptr || inode->fs_private == nullptr || st == nullptr) {
-        return -1;
+        return cinux::lib::Error::InvalidArgument;
     }
 
     auto*            cached = static_cast<const Ext2CachedInode*>(inode->fs_private);
@@ -193,7 +193,7 @@ int64_t Ext2FileOps::stat(const Inode* inode, struct stat* st) {
     st->st_mtime   = disk.i_mtime;
     st->st_ctime   = disk.i_ctime;
 
-    return 0;
+    return {};
 }
 
 // ============================================================
@@ -297,33 +297,44 @@ int64_t Ext2DirOps::readdir(const Inode* inode, uint64_t index, char* name, uint
     return 0;
 }
 
-Inode* Ext2DirOps::create(Inode* dir, const char* name, uint32_t namelen) {
+cinux::lib::ErrorOr<Inode*> Ext2DirOps::create(Inode* dir, const char* name, uint32_t namelen) {
     if (dir == nullptr || name == nullptr || namelen == 0) {
-        return nullptr;
+        return cinux::lib::Error::InvalidArgument;
     }
 
-    return ext2_.create(static_cast<uint32_t>(dir->ino), name, namelen);
+    Inode* result = ext2_.create(static_cast<uint32_t>(dir->ino), name, namelen);
+    if (result == nullptr) {
+        return cinux::lib::Error::AlreadyExists;
+    }
+    return result;
 }
 
-Inode* Ext2DirOps::mkdir(Inode* dir, const char* name, uint32_t namelen) {
+cinux::lib::ErrorOr<Inode*> Ext2DirOps::mkdir(Inode* dir, const char* name, uint32_t namelen) {
     if (dir == nullptr || name == nullptr || namelen == 0) {
-        return nullptr;
+        return cinux::lib::Error::InvalidArgument;
     }
 
-    return ext2_.mkdir(static_cast<uint32_t>(dir->ino), name, namelen);
+    Inode* result = ext2_.mkdir(static_cast<uint32_t>(dir->ino), name, namelen);
+    if (result == nullptr) {
+        return cinux::lib::Error::AlreadyExists;
+    }
+    return result;
 }
 
-int64_t Ext2DirOps::unlink(Inode* dir, const char* name, uint32_t namelen) {
+cinux::lib::ErrorOr<void> Ext2DirOps::unlink(Inode* dir, const char* name, uint32_t namelen) {
     if (dir == nullptr || name == nullptr || namelen == 0) {
-        return -1;
+        return cinux::lib::Error::InvalidArgument;
     }
 
-    return ext2_.unlink(static_cast<uint32_t>(dir->ino), name, namelen);
+    if (ext2_.unlink(static_cast<uint32_t>(dir->ino), name, namelen) != 0) {
+        return cinux::lib::Error::IOError;
+    }
+    return {};
 }
 
-int64_t Ext2DirOps::stat(const Inode* inode, struct stat* st) {
+cinux::lib::ErrorOr<void> Ext2DirOps::stat(const Inode* inode, struct stat* st) {
     if (inode == nullptr || inode->fs_private == nullptr || st == nullptr) {
-        return -1;
+        return cinux::lib::Error::InvalidArgument;
     }
 
     auto*            cached = static_cast<const Ext2CachedInode*>(inode->fs_private);
@@ -343,7 +354,7 @@ int64_t Ext2DirOps::stat(const Inode* inode, struct stat* st) {
     st->st_mtime   = disk.i_mtime;
     st->st_ctime   = disk.i_ctime;
 
-    return 0;
+    return {};
 }
 
 }  // namespace cinux::fs

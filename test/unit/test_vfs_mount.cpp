@@ -42,8 +42,10 @@ using namespace cinux::fs;
 
 class MockFileSystem : public FileSystem {
 public:
-    bool   mount() override { return true; }
-    Inode* lookup(const char* /*path*/) override { return nullptr; }
+    cinux::lib::ErrorOr<void> mount() override { return {}; }
+    cinux::lib::ErrorOr<Inode*> lookup(const char* /*path*/) override {
+        return cinux::lib::Error::NotFound;
+    }
 };
 
 // ============================================================

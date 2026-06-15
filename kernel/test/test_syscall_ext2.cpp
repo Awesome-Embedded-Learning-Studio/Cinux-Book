@@ -154,7 +154,7 @@ void test_creat_creates_file() {
     TEST_ASSERT_EQ(result, 0);
 
     // Verify the file exists via lookup
-    Inode* found = pair.ext2->lookup(name);
+    Inode* found = lookup_or_null(pair.ext2, name);
     TEST_ASSERT_NOT_NULL(found);
     TEST_ASSERT_EQ(static_cast<uint32_t>(found->type), static_cast<uint32_t>(InodeType::Regular));
 
@@ -198,7 +198,7 @@ void test_mkdir_creates_directory() {
     TEST_ASSERT_EQ(result, 0);
 
     // Verify the directory exists via lookup
-    Inode* found = pair.ext2->lookup(name);
+    Inode* found = lookup_or_null(pair.ext2, name);
     TEST_ASSERT_NOT_NULL(found);
     TEST_ASSERT_EQ(static_cast<uint32_t>(found->type), static_cast<uint32_t>(InodeType::Directory));
 
@@ -244,7 +244,7 @@ void test_unlink_removes_file() {
     TEST_ASSERT_EQ(creat_result, 0);
 
     // Confirm it exists
-    Inode* found = pair.ext2->lookup(name);
+    Inode* found = lookup_or_null(pair.ext2, name);
     TEST_ASSERT_NOT_NULL(found);
 
     cinux::lib::kprintf("[SYSCALL_EXT2] unlink: file created (ino=%lu)\n", found->ino);
@@ -254,7 +254,7 @@ void test_unlink_removes_file() {
     TEST_ASSERT_EQ(unlink_result, 0);
 
     // Verify the file is gone
-    Inode* gone = pair.ext2->lookup(name);
+    Inode* gone = lookup_or_null(pair.ext2, name);
     TEST_ASSERT_NULL(gone);
 
     cinux::lib::kprintf("[SYSCALL_EXT2] unlink /%s OK (file gone)\n", name);
@@ -295,7 +295,7 @@ void test_rmdir_removes_directory() {
     TEST_ASSERT_EQ(mkdir_result, 0);
 
     // Confirm it exists
-    Inode* found = pair.ext2->lookup(name);
+    Inode* found = lookup_or_null(pair.ext2, name);
     TEST_ASSERT_NOT_NULL(found);
 
     cinux::lib::kprintf("[SYSCALL_EXT2] rmdir: dir created (ino=%lu)\n", found->ino);
@@ -305,7 +305,7 @@ void test_rmdir_removes_directory() {
     TEST_ASSERT_EQ(rmdir_result, 0);
 
     // Verify the directory is gone from parent's listing
-    Inode* gone = pair.ext2->lookup(name);
+    Inode* gone = lookup_or_null(pair.ext2, name);
     // After rmdir, the directory entry is removed from parent
     TEST_ASSERT_NULL(gone);
 
@@ -347,7 +347,7 @@ void test_full_syscall_flow() {
     int64_t mkdir_result = cinux::syscall::sys_mkdir(dir_addr, 0, 0, 0, 0, 0);
     TEST_ASSERT_EQ(mkdir_result, 0);
 
-    Inode* dir = pair.ext2->lookup(dirname);
+    Inode* dir = lookup_or_null(pair.ext2, dirname);
     TEST_ASSERT_NOT_NULL(dir);
     TEST_ASSERT_EQ(static_cast<uint32_t>(dir->type), static_cast<uint32_t>(InodeType::Directory));
 
@@ -418,7 +418,7 @@ void test_creat_duplicate_name() {
     TEST_ASSERT_EQ(r1, 0);
 
     // 验证文件存在
-    Inode* found = pair.ext2->lookup(name);
+    Inode* found = lookup_or_null(pair.ext2, name);
     TEST_ASSERT_NOT_NULL(found);
     uint64_t first_ino = found->ino;
 
@@ -428,7 +428,7 @@ void test_creat_duplicate_name() {
     // 关键是不应该崩溃
 
     // 验证原文件仍在
-    Inode* still = pair.ext2->lookup(name);
+    Inode* still = lookup_or_null(pair.ext2, name);
     TEST_ASSERT_NOT_NULL(still);
 
     // 清理

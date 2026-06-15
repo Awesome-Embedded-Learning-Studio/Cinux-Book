@@ -122,11 +122,11 @@ uint64_t Ext2::dma_buf_virt() const {
 // mount()
 // ============================================================
 
-bool Ext2::mount() {
+cinux::lib::ErrorOr<void> Ext2::mount() {
     cinux::lib::kprintf("[EXT2] Mounting ext2 filesystem on AHCI port %u\n", port_index_);
 
     if (!ensure_dma_buffer()) {
-        return false;
+        return cinux::lib::Error::IOError;
     }
 
     // Read the superblock (byte offset 1024 = LBA 2, 2 sectors)
@@ -135,7 +135,7 @@ bool Ext2::mount() {
 
     if (!ahci_.read(port_index_, SB_LBA, SB_SECTORS, dma_buf_phys_)) {
         cinux::lib::kprintf("[EXT2] Failed to read superblock\n");
-        return false;
+        return cinux::lib::Error::IOError;
     }
 
     auto* dma = reinterpret_cast<const uint8_t*>(dma_buf_virt_);
@@ -144,7 +144,7 @@ bool Ext2::mount() {
     if (sb_.s_magic != EXT2_SUPER_MAGIC) {
         cinux::lib::kprintf("[EXT2] Invalid magic: 0x%x (expected 0x%x)\n", sb_.s_magic,
                             EXT2_SUPER_MAGIC);
-        return false;
+        return cinux::lib::Error::IOError;
     }
 
     // Compute filesystem parameters
@@ -177,7 +177,7 @@ bool Ext2::mount() {
     for (uint32_t i = 0; i < bgdt_blocks_needed; ++i) {
         if (!read_block(bgdt_block + i)) {
             cinux::lib::kprintf("[EXT2] Failed to read BGDT block %u\n", bgdt_block + i);
-            return false;
+            return cinux::lib::Error::IOError;
         }
 
         auto*    src                   = reinterpret_cast<const uint8_t*>(dma_buf_virt_);
@@ -198,7 +198,7 @@ bool Ext2::mount() {
     Ext2Inode root_disk;
     if (!read_disk_inode(2, root_disk)) {
         cinux::lib::kprintf("[EXT2] Failed to read root inode (ino=2)\n");
-        return false;
+        return cinux::lib::Error::IOError;
     }
 
     inode_cache_[0].ino        = 2;
@@ -211,7 +211,7 @@ bool Ext2::mount() {
                         root_disk.i_mode);
 
     mounted_ = true;
-    return true;
+    return {};
 }
 
 // ============================================================
@@ -324,9 +324,9 @@ uint32_t Ext2::lookup_in_dir(uint32_t dir_ino, const char* name, uint32_t name_l
     return 0;
 }
 
-Inode* Ext2::lookup(const char* path) {
+cinux::lib::ErrorOr<Inode*> Ext2::lookup(const char* path) {
     if (path == nullptr) {
-        return nullptr;
+        return cinux::lib::Error::InvalidArgument;
     }
 
     if (path[0] == '\0' || (path[0] == '/' && path[1] == '\0')) {
@@ -352,7 +352,7 @@ Inode* Ext2::lookup(const char* path) {
 
         uint32_t found_ino = lookup_in_dir(current_ino, path, comp_len);
         if (found_ino == 0) {
-            return nullptr;
+            return cinux::lib::Error::NotFound;
         }
 
         path += comp_len;
@@ -363,17 +363,21 @@ Inode* Ext2::lookup(const char* path) {
         if (path[0] != '\0') {
             Ext2Inode check;
             if (!read_disk_inode(found_ino, check)) {
-                return nullptr;
+                return cinux::lib::Error::IOError;
             }
             if ((check.i_mode & EXT2_S_IFMT) != EXT2_S_IFDIR) {
-                return nullptr;
+                return cinux::lib::Error::NotFound;
             }
         }
 
         current_ino = found_ino;
     }
 
-    return get_cached_inode(current_ino);
+    Inode* result = get_cached_inode(current_ino);
+    if (result == nullptr) {
+        return cinux::lib::Error::IOError;
+    }
+    return result;
 }
 
 }  // namespace cinux::fs

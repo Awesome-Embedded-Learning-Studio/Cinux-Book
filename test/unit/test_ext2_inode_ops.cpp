@@ -85,19 +85,19 @@ public:
         return -1;  // no more entries
     }
 
-    Inode* create(Inode* /*dir*/, const char* /*name*/, uint32_t /*namelen*/) override {
+    cinux::lib::ErrorOr<Inode*> create(Inode* /*dir*/, const char* /*name*/, uint32_t /*namelen*/) override {
         // Return a pointer to a static Inode to simulate creation
         static Inode fake{42, 0, InodeType::Regular, nullptr, nullptr};
         return &fake;
     }
 
-    Inode* mkdir(Inode* /*dir*/, const char* /*name*/, uint32_t /*namelen*/) override {
+    cinux::lib::ErrorOr<Inode*> mkdir(Inode* /*dir*/, const char* /*name*/, uint32_t /*namelen*/) override {
         static Inode fake{99, 1024, InodeType::Directory, nullptr, nullptr};
         return &fake;
     }
 
-    int64_t unlink(Inode* /*dir*/, const char* /*name*/, uint32_t /*namelen*/) override {
-        return 0;  // success
+    cinux::lib::ErrorOr<void> unlink(Inode* /*dir*/, const char* /*name*/, uint32_t /*namelen*/) override {
+        return {};  // success
     }
 };
 
@@ -132,22 +132,19 @@ TEST("inode_ops_defaults: base readdir returns -1") {
 TEST("inode_ops_defaults: base create returns nullptr") {
     InodeOps base;
     Inode    dummy{1, 0, InodeType::Directory, &base, nullptr};
-    Inode*   result = base.create(&dummy, "file", 4);
-    ASSERT_NULL(result);
+    ASSERT_TRUE(!base.create(&dummy, "file", 4).ok());
 }
 
 TEST("inode_ops_defaults: base mkdir returns nullptr") {
     InodeOps base;
     Inode    dummy{1, 0, InodeType::Directory, &base, nullptr};
-    Inode*   result = base.mkdir(&dummy, "dir", 3);
-    ASSERT_NULL(result);
+    ASSERT_TRUE(!base.mkdir(&dummy, "dir", 3).ok());
 }
 
 TEST("inode_ops_defaults: base unlink returns -1") {
     InodeOps base;
     Inode    dummy{1, 0, InodeType::Directory, &base, nullptr};
-    int64_t  result = base.unlink(&dummy, "file", 4);
-    ASSERT_EQ(result, static_cast<int64_t>(-1));
+    ASSERT_TRUE(!base.unlink(&dummy, "file", 4).ok());
 }
 
 // ============================================================
@@ -194,24 +191,21 @@ TEST("mock_file_ops: create falls back to default (nullptr)") {
     MockFileOps file_ops;
     Inode       file{10, 100, InodeType::Regular, &file_ops, nullptr};
 
-    Inode* result = file_ops.create(&file, "newfile", 7);
-    ASSERT_NULL(result);
+    ASSERT_TRUE(!file_ops.create(&file, "newfile", 7).ok());
 }
 
 TEST("mock_file_ops: mkdir falls back to default (nullptr)") {
     MockFileOps file_ops;
     Inode       file{10, 100, InodeType::Regular, &file_ops, nullptr};
 
-    Inode* result = file_ops.mkdir(&file, "newdir", 6);
-    ASSERT_NULL(result);
+    ASSERT_TRUE(!file_ops.mkdir(&file, "newdir", 6).ok());
 }
 
 TEST("mock_file_ops: unlink falls back to default (-1)") {
     MockFileOps file_ops;
     Inode       file{10, 100, InodeType::Regular, &file_ops, nullptr};
 
-    int64_t result = file_ops.unlink(&file, "somefile", 8);
-    ASSERT_EQ(result, static_cast<int64_t>(-1));
+    ASSERT_TRUE(!file_ops.unlink(&file, "somefile", 8).ok());
 }
 
 // ============================================================
@@ -248,28 +242,28 @@ TEST("mock_dir_ops: create override returns non-null Inode") {
     MockDirOps dir_ops;
     Inode      dir{2, 1024, InodeType::Directory, &dir_ops, nullptr};
 
-    Inode* result = dir_ops.create(&dir, "newfile", 7);
-    ASSERT_NOT_NULL(result);
-    ASSERT_EQ(result->ino, 42u);
-    ASSERT_EQ(result->type, InodeType::Regular);
+    auto create_res = dir_ops.create(&dir, "newfile", 7);
+    ASSERT_TRUE(create_res.ok());
+    ASSERT_EQ(create_res.value()->ino, 42u);
+    ASSERT_EQ(create_res.value()->type, InodeType::Regular);
 }
 
 TEST("mock_dir_ops: mkdir override returns non-null Inode") {
     MockDirOps dir_ops;
     Inode      dir{2, 1024, InodeType::Directory, &dir_ops, nullptr};
 
-    Inode* result = dir_ops.mkdir(&dir, "newdir", 6);
-    ASSERT_NOT_NULL(result);
-    ASSERT_EQ(result->ino, 99u);
-    ASSERT_EQ(result->type, InodeType::Directory);
+    auto mkdir_res = dir_ops.mkdir(&dir, "newdir", 6);
+    ASSERT_TRUE(mkdir_res.ok());
+    ASSERT_EQ(mkdir_res.value()->ino, 99u);
+    ASSERT_EQ(mkdir_res.value()->type, InodeType::Directory);
 }
 
 TEST("mock_dir_ops: unlink override returns 0 (success)") {
     MockDirOps dir_ops;
     Inode      dir{2, 1024, InodeType::Directory, &dir_ops, nullptr};
 
-    int64_t result = dir_ops.unlink(&dir, "somefile", 8);
-    ASSERT_EQ(result, static_cast<int64_t>(0));
+    auto unlink_res = dir_ops.unlink(&dir, "somefile", 8);
+    ASSERT_TRUE(unlink_res.ok());
 }
 
 // ============================================================
@@ -335,8 +329,7 @@ TEST("virtual_dispatch: dir ops via base pointer calls create override") {
     InodeOps*  base_ptr = &dir_ops;
     Inode      dir{2, 1024, InodeType::Directory, base_ptr, nullptr};
 
-    Inode* result = base_ptr->create(&dir, "file", 4);
-    ASSERT_NOT_NULL(result);
+    ASSERT_TRUE(base_ptr->create(&dir, "file", 4).ok());
 }
 
 TEST("virtual_dispatch: dir ops via base pointer calls mkdir override") {
@@ -344,8 +337,7 @@ TEST("virtual_dispatch: dir ops via base pointer calls mkdir override") {
     InodeOps*  base_ptr = &dir_ops;
     Inode      dir{2, 1024, InodeType::Directory, base_ptr, nullptr};
 
-    Inode* result = base_ptr->mkdir(&dir, "dir", 3);
-    ASSERT_NOT_NULL(result);
+    ASSERT_TRUE(base_ptr->mkdir(&dir, "dir", 3).ok());
 }
 
 TEST("virtual_dispatch: dir ops via base pointer calls unlink override") {
@@ -353,8 +345,7 @@ TEST("virtual_dispatch: dir ops via base pointer calls unlink override") {
     InodeOps*  base_ptr = &dir_ops;
     Inode      dir{2, 1024, InodeType::Directory, base_ptr, nullptr};
 
-    int64_t result = base_ptr->unlink(&dir, "file", 4);
-    ASSERT_EQ(result, 0);
+    ASSERT_TRUE(base_ptr->unlink(&dir, "file", 4).ok());
 }
 
 // ============================================================
@@ -379,9 +370,9 @@ TEST("inode_ops_assignment: file inode gets file ops") {
     // File ops should NOT handle dir operations
     char name[64];
     ASSERT_EQ(file_inode.ops->readdir(&file_inode, 0, name, 64), static_cast<int64_t>(-1));
-    ASSERT_NULL(file_inode.ops->create(&file_inode, "f", 1));
-    ASSERT_NULL(file_inode.ops->mkdir(&file_inode, "d", 1));
-    ASSERT_EQ(file_inode.ops->unlink(&file_inode, "f", 1), static_cast<int64_t>(-1));
+    ASSERT_TRUE(!file_inode.ops->create(&file_inode, "f", 1).ok());
+    ASSERT_TRUE(!file_inode.ops->mkdir(&file_inode, "d", 1).ok());
+    ASSERT_TRUE(!file_inode.ops->unlink(&file_inode, "f", 1).ok());
 }
 
 TEST("inode_ops_assignment: dir inode gets dir ops") {
@@ -396,9 +387,9 @@ TEST("inode_ops_assignment: dir inode gets dir ops") {
     // Dir ops should handle readdir/create/mkdir/unlink
     char name[64] = {};
     ASSERT_EQ(dir_inode.ops->readdir(&dir_inode, 0, name, 64), 0);
-    ASSERT_NOT_NULL(dir_inode.ops->create(&dir_inode, "f", 1));
-    ASSERT_NOT_NULL(dir_inode.ops->mkdir(&dir_inode, "d", 1));
-    ASSERT_EQ(dir_inode.ops->unlink(&dir_inode, "f", 1), static_cast<int64_t>(0));
+    ASSERT_TRUE(dir_inode.ops->create(&dir_inode, "f", 1).ok());
+    ASSERT_TRUE(dir_inode.ops->mkdir(&dir_inode, "d", 1).ok());
+    ASSERT_TRUE(dir_inode.ops->unlink(&dir_inode, "f", 1).ok());
 
     // Dir ops should NOT handle file read/write
     char buf[16];
@@ -477,10 +468,10 @@ TEST("shared_ops: file and dir inodes use different ops instances") {
     ASSERT_EQ(dir.ops->read(&dir, 0, buf, 4), static_cast<int64_t>(-1));
 
     // Dir create succeeds
-    ASSERT_NOT_NULL(dir.ops->create(&dir, "f", 1));
+    ASSERT_TRUE(dir.ops->create(&dir, "f", 1).ok());
 
     // File create returns nullptr (default)
-    ASSERT_NULL(file.ops->create(&file, "f", 1));
+    ASSERT_TRUE(!file.ops->create(&file, "f", 1).ok());
 }
 
 // ============================================================

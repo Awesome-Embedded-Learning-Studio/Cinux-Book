@@ -50,12 +50,12 @@ int64_t sys_creat(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, ui
     }
 
     // Step 4: Look up the parent directory inode
-    cinux::fs::Inode* parent = fs->lookup(parent_buf);
-
-    if (parent == nullptr) {
+    auto parent_result = fs->lookup(parent_buf);
+    if (!parent_result.ok()) {
         kprintf("[SYS_CREAT] Parent directory not found for '%s'\n", resolved);
         return -1;
     }
+    cinux::fs::Inode* parent = parent_result.value();
 
     if (parent->ops == nullptr) {
         kprintf("[SYS_CREAT] Parent inode has no ops\n");
@@ -63,19 +63,19 @@ int64_t sys_creat(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, ui
     }
 
     // Step 5: Try to create the file
-    cinux::fs::Inode* new_inode = parent->ops->create(parent, leaf_name, name_len);
-
-    if (new_inode != nullptr) {
+    auto create_result = parent->ops->create(parent, leaf_name, name_len);
+    if (create_result.ok()) {
         return 0;  // new file created successfully
     }
 
     // Step 6: create() returned nullptr -- file may already exist.
     // Truncate it to 0 bytes (POSIX creat semantics).
-    cinux::fs::Inode* existing = fs->lookup(rel_path);
-    if (existing == nullptr || existing->ops == nullptr) {
+    auto existing_result = fs->lookup(rel_path);
+    if (!existing_result.ok() || existing_result.value()->ops == nullptr) {
         kprintf("[SYS_CREAT] Failed to create or truncate '%s'\n", resolved);
         return -1;
     }
+    cinux::fs::Inode* existing = existing_result.value();
 
     if (existing->size > 0) {
         existing->size = 0;

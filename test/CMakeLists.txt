@@ -13,6 +13,7 @@ set(TEST_INCLUDE_DIRS
     ${CMAKE_SOURCE_DIR}/test/framework
     ${CMAKE_SOURCE_DIR}/kernel
     ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/third_party/Cinux-Base/include
 )
 
 enable_testing()
@@ -38,6 +39,7 @@ function(add_cinux_integration_test name)
         ${CMAKE_SOURCE_DIR}/test/framework
         ${CMAKE_SOURCE_DIR}/kernel
         ${CMAKE_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/third_party/Cinux-Base/include
     )
     add_test(NAME ${name} COMMAND test_${name})
     set_tests_properties(${name} PROPERTIES LABELS "${name}")

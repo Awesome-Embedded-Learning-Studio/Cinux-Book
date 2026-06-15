@@ -48,12 +48,12 @@ int64_t sys_stat(uint64_t path_virt, uint64_t st_virt, uint64_t, uint64_t, uint6
     }
 
     // Step 3: Look up the inode
-    cinux::fs::Inode* inode = fs->lookup(rel_path);
-
-    if (inode == nullptr) {
+    auto inode_result = fs->lookup(rel_path);
+    if (!inode_result.ok()) {
         kprintf("[SYS_STAT] File not found: '%s'\n", resolved);
         return -1;
     }
+    cinux::fs::Inode* inode = inode_result.value();
 
     // Step 4: Call stat()
     if (inode->ops == nullptr) {
@@ -61,8 +61,8 @@ int64_t sys_stat(uint64_t path_virt, uint64_t st_virt, uint64_t, uint64_t, uint6
     }
 
     cinux::fs::stat kst;
-    int64_t         ret = inode->ops->stat(inode, &kst);
-    if (ret < 0) {
+    auto stat_result = inode->ops->stat(inode, &kst);
+    if (!stat_result.ok()) {
         return -1;
     }
 
@@ -93,8 +93,8 @@ int64_t sys_fstat(uint64_t fd, uint64_t st_virt, uint64_t, uint64_t, uint64_t, u
     }
 
     cinux::fs::stat kst;
-    int64_t         ret = inode->ops->stat(inode, &kst);
-    if (ret < 0) {
+    auto stat_result = inode->ops->stat(inode, &kst);
+    if (!stat_result.ok()) {
         return -1;
     }
 

@@ -20,6 +20,7 @@
 #include <new>
 
 #include "kernel/mm/heap.hpp"
+#include "kernel/lib/kprintf.hpp"
 
 extern "C" {
 
@@ -57,6 +58,28 @@ extern "C" {
     while (1) {
         __asm__ volatile("cli; hlt");
     }
+}
+
+// ============================================================
+// C assert() failure handler
+// ============================================================
+
+/**
+ * @brief Invoked by the assert() macro (<cassert>) when a check fails
+ *
+ * Cinux-Base's header-only types (e.g. ErrorOr::value()) use assert().  In a
+ * freestanding kernel there is no libc __assert_fail, so we provide one that
+ * reports the failure site via kpanic and halts.
+ *
+ * @param assertion  The expression text that failed
+ * @param file       Source file name
+ * @param line       Source line number
+ * @param function   Enclosing function name (may be null)
+ */
+[[noreturn]] void __assert_fail(const char* assertion, const char* file, unsigned int line,
+                                const char* function) {
+    cinux::lib::kpanic("Assertion failed: %s (%s:%u: %s)\n", assertion, file, line,
+                       function != nullptr ? function : "");
 }
 
 // ============================================================

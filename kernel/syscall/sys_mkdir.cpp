@@ -50,12 +50,12 @@ int64_t sys_mkdir(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, ui
     }
 
     // Step 4: Look up the parent directory inode
-    cinux::fs::Inode* parent = fs->lookup(parent_buf);
-
-    if (parent == nullptr) {
+    auto parent_result = fs->lookup(parent_buf);
+    if (!parent_result.ok()) {
         kprintf("[SYS_MKDIR] Parent directory not found for '%s'\n", resolved);
         return -1;
     }
+    cinux::fs::Inode* parent = parent_result.value();
 
     if (parent->ops == nullptr) {
         kprintf("[SYS_MKDIR] Parent inode has no ops\n");
@@ -63,9 +63,8 @@ int64_t sys_mkdir(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, ui
     }
 
     // Step 5: Call mkdir() on the parent directory
-    cinux::fs::Inode* new_inode = parent->ops->mkdir(parent, leaf_name, name_len);
-
-    if (new_inode == nullptr) {
+    auto mkdir_result = parent->ops->mkdir(parent, leaf_name, name_len);
+    if (!mkdir_result.ok()) {
         kprintf("[SYS_MKDIR] Failed to mkdir '%s'\n", resolved);
         return -1;
     }

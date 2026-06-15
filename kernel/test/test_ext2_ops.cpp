@@ -130,7 +130,7 @@ void test_create_and_unlink_file() {
     TEST_ASSERT_EQ(ino->size, 0u);
 
     // Verify we can look up the file
-    Inode* found = pair.ext2->lookup(name);
+    Inode* found = lookup_or_null(pair.ext2, name);
     TEST_ASSERT_NOT_NULL(found);
     TEST_ASSERT_EQ(found->ino, ino->ino);
 
@@ -141,7 +141,7 @@ void test_create_and_unlink_file() {
     TEST_ASSERT_EQ(rc, 0);
 
     // Verify the file is gone
-    Inode* gone = pair.ext2->lookup(name);
+    Inode* gone = lookup_or_null(pair.ext2, name);
     TEST_ASSERT_NULL(gone);
 
     cinux::lib::kprintf("[EXT2_OPS] create+unlink file OK\n");
@@ -270,7 +270,7 @@ void test_recreate_same_name() {
     TEST_ASSERT_EQ(result, 0);
 
     // Lookup should fail
-    Inode* gone = pair.ext2->lookup(name);
+    Inode* gone = lookup_or_null(pair.ext2, name);
     TEST_ASSERT_NULL(gone);
 
     // Recreate with same name
@@ -334,7 +334,7 @@ void test_full_flow() {
     TEST_ASSERT_EQ(result, 0);
 
     // 5. Verify the file is gone
-    Inode* gone = pair.ext2->lookup(filename);
+    Inode* gone = lookup_or_null(pair.ext2, filename);
     TEST_ASSERT_NULL(gone);
 
     cinux::lib::kprintf("[EXT2_OPS] Full flow: complete OK\n");

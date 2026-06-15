@@ -34,7 +34,7 @@ public:
 
     int64_t read(const Inode* inode, uint64_t offset, void* buf, uint64_t count) override;
     int64_t write(Inode* inode, uint64_t offset, const void* buf, uint64_t count) override;
-    int64_t stat(const Inode* inode, struct stat* st) override;
+    cinux::lib::ErrorOr<void> stat(const Inode* inode, struct stat* st) override;
 
 private:
     Ext2& ext2_;
@@ -51,10 +51,10 @@ public:
     explicit Ext2DirOps(Ext2& ext2);
 
     int64_t readdir(const Inode* inode, uint64_t index, char* name, uint64_t name_max) override;
-    Inode*  create(Inode* dir, const char* name, uint32_t namelen) override;
-    Inode*  mkdir(Inode* dir, const char* name, uint32_t namelen) override;
-    int64_t unlink(Inode* dir, const char* name, uint32_t namelen) override;
-    int64_t stat(const Inode* inode, struct stat* st) override;
+    cinux::lib::ErrorOr<Inode*> create(Inode* dir, const char* name, uint32_t namelen) override;
+    cinux::lib::ErrorOr<Inode*> mkdir(Inode* dir, const char* name, uint32_t namelen) override;
+    cinux::lib::ErrorOr<void>   unlink(Inode* dir, const char* name, uint32_t namelen) override;
+    cinux::lib::ErrorOr<void> stat(const Inode* inode, struct stat* st) override;
 
 private:
     Ext2& ext2_;

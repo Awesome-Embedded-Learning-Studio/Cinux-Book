@@ -152,7 +152,7 @@ void test_touch_creates_and_cleanup() {
     TEST_ASSERT_EQ(creat_result, 0);
 
     // lookup verifies file exists
-    Inode* found = pair.ext2->lookup(name);
+    Inode* found = lookup_or_null(pair.ext2, name);
     TEST_ASSERT_NOT_NULL(found);
     TEST_ASSERT_EQ(static_cast<uint32_t>(found->type), static_cast<uint32_t>(InodeType::Regular));
 
@@ -162,7 +162,7 @@ void test_touch_creates_and_cleanup() {
     int64_t unlink_result = cinux::syscall::sys_unlink(path_addr, 0, 0, 0, 0, 0);
     TEST_ASSERT_EQ(unlink_result, 0);
 
-    Inode* gone = pair.ext2->lookup(name);
+    Inode* gone = lookup_or_null(pair.ext2, name);
     TEST_ASSERT_NULL(gone);
 
     cinux::lib::kprintf("[SHELL_WRITE] touch cleanup /%s OK\n", name);
@@ -194,7 +194,7 @@ void test_mkdir_creates_and_cleanup() {
     TEST_ASSERT_EQ(mkdir_result, 0);
 
     // lookup verifies directory exists
-    Inode* found = pair.ext2->lookup(name);
+    Inode* found = lookup_or_null(pair.ext2, name);
     TEST_ASSERT_NOT_NULL(found);
     TEST_ASSERT_EQ(static_cast<uint32_t>(found->type), static_cast<uint32_t>(InodeType::Directory));
 
@@ -204,7 +204,7 @@ void test_mkdir_creates_and_cleanup() {
     int64_t rmdir_result = cinux::syscall::sys_rmdir(path_addr, 0, 0, 0, 0, 0);
     TEST_ASSERT_EQ(rmdir_result, 0);
 
-    Inode* gone = pair.ext2->lookup(name);
+    Inode* gone = lookup_or_null(pair.ext2, name);
     TEST_ASSERT_NULL(gone);
 
     cinux::lib::kprintf("[SHELL_WRITE] mkdir cleanup /%s OK\n", name);
@@ -309,7 +309,7 @@ void test_full_shell_write_flow() {
     int64_t mkdir_result = cinux::syscall::sys_mkdir(dir_addr, 0, 0, 0, 0, 0);
     TEST_ASSERT_EQ(mkdir_result, 0);
 
-    Inode* dir = pair.ext2->lookup(dirname);
+    Inode* dir = lookup_or_null(pair.ext2, dirname);
     TEST_ASSERT_NOT_NULL(dir);
     TEST_ASSERT_EQ(static_cast<uint32_t>(dir->type), static_cast<uint32_t>(InodeType::Directory));
 

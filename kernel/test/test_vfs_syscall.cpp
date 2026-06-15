@@ -87,7 +87,7 @@ void test_mount_init_add_resolve() {
     cinux::fs::vfs_mount_init();
 
     auto* rd = new Ramdisk();
-    TEST_ASSERT_TRUE(rd->mount());
+    TEST_ASSERT_TRUE(rd->mount().ok());
     TEST_ASSERT_TRUE(cinux::fs::vfs_mount_add(MOUNT_PATH, rd));
 
     // Resolve should find the ramdisk for any "/"-prefixed path
@@ -97,7 +97,7 @@ void test_mount_init_add_resolve() {
     TEST_ASSERT_NOT_NULL(rel_path);
 
     // The Ramdisk should be able to look up the file
-    cinux::fs::Inode* inode = fs->lookup(rel_path);
+    cinux::fs::Inode* inode = lookup_or_null(fs, rel_path);
     TEST_ASSERT_NOT_NULL(inode);
 
     teardown_vfs(rd);

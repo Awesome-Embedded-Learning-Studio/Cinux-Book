@@ -42,12 +42,12 @@ int64_t sys_chdir(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, ui
     }
 
     // Step 3: Look up the inode
-    cinux::fs::Inode* inode = fs->lookup(rel_path);
-
-    if (inode == nullptr) {
+    auto inode_result = fs->lookup(rel_path);
+    if (!inode_result.ok()) {
         kprintf("[SYS_CHDIR] Path not found: '%s'\n", resolved);
         return -1;
     }
+    cinux::fs::Inode* inode = inode_result.value();
 
     // Step 4: Verify it is a directory
     if (inode->type != cinux::fs::InodeType::Directory) {

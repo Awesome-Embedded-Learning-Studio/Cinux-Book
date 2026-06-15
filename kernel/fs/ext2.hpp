@@ -61,9 +61,10 @@ public:
      * reads the block group descriptor table, and prepares the
      * root directory inode for VFS lookup.
      *
-     * @return true on success, false if superblock is invalid or I/O fails
+     * @return ErrorOr<void> — Error::Ok on success, Error::IOError if the
+     *         superblock is invalid or I/O fails
      */
-    bool mount() override;
+    cinux::lib::ErrorOr<void> mount() override;
 
     /**
      * @brief Look up a file or directory by path
@@ -73,9 +74,10 @@ public:
      * traversal through directory entries.
      *
      * @param path  Null-terminated path relative to filesystem root
-     * @return Pointer to a cached Inode, or nullptr if not found
+     * @return ErrorOr<Inode*> — a cached Inode on success, Error::NotFound if
+     *         the path does not resolve, Error::IOError on read failure
      */
-    Inode* lookup(const char* path) override;
+    cinux::lib::ErrorOr<Inode*> lookup(const char* path) override;
 
     /**
      * @brief Get the resolved block size in bytes
