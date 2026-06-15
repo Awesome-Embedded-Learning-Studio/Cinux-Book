@@ -9,16 +9,16 @@
 
 namespace cinux::fs {
 
-int64_t InodeOps::read(const Inode*, uint64_t, void*, uint64_t) {
-    return -1;
+cinux::lib::ErrorOr<int64_t> InodeOps::read(const Inode*, uint64_t, void*, uint64_t) {
+    return cinux::lib::Error::NotImplemented;
 }
 
-int64_t InodeOps::write(Inode*, uint64_t, const void*, uint64_t) {
-    return -1;
+cinux::lib::ErrorOr<int64_t> InodeOps::write(Inode*, uint64_t, const void*, uint64_t) {
+    return cinux::lib::Error::NotImplemented;
 }
 
-int64_t InodeOps::readdir(const Inode*, uint64_t, char*, uint64_t) {
-    return -1;
+cinux::lib::ErrorOr<int64_t> InodeOps::readdir(const Inode*, uint64_t, char*, uint64_t) {
+    return cinux::lib::Error::NotImplemented;
 }
 
 cinux::lib::ErrorOr<Inode*> InodeOps::create(Inode*, const char*, uint32_t) {

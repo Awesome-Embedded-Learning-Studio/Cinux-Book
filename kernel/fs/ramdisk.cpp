@@ -38,13 +38,13 @@ namespace {
 
 class RamdiskFileOps : public InodeOps {
 public:
-    int64_t read(const Inode* inode, uint64_t offset, void* buf, uint64_t count) override;
-    int64_t write(Inode*, uint64_t, const void*, uint64_t) override;
+    cinux::lib::ErrorOr<int64_t> read(const Inode* inode, uint64_t offset, void* buf, uint64_t count) override;
+    cinux::lib::ErrorOr<int64_t> write(Inode*, uint64_t, const void*, uint64_t) override;
 };
 
-int64_t RamdiskFileOps::read(const Inode* inode, uint64_t offset, void* buf, uint64_t count) {
+cinux::lib::ErrorOr<int64_t> RamdiskFileOps::read(const Inode* inode, uint64_t offset, void* buf, uint64_t count) {
     if (inode == nullptr || inode->fs_private == nullptr || buf == nullptr) {
-        return -1;
+        return cinux::lib::Error::InvalidArgument;
     }
 
     auto* entry = static_cast<const RamdiskEntry*>(inode->fs_private);
@@ -62,30 +62,30 @@ int64_t RamdiskFileOps::read(const Inode* inode, uint64_t offset, void* buf, uin
     return static_cast<int64_t>(to_read);
 }
 
-int64_t RamdiskFileOps::write(Inode*, uint64_t, const void*, uint64_t) {
-    return -1;
+cinux::lib::ErrorOr<int64_t> RamdiskFileOps::write(Inode*, uint64_t, const void*, uint64_t) {
+    return cinux::lib::Error::NotImplemented;
 }
 
 class RamdiskDirOps : public InodeOps {
 public:
-    int64_t write(Inode*, uint64_t, const void*, uint64_t) override;
-    int64_t readdir(const Inode* inode, uint64_t index, char* name, uint64_t name_max) override;
+    cinux::lib::ErrorOr<int64_t> write(Inode*, uint64_t, const void*, uint64_t) override;
+    cinux::lib::ErrorOr<int64_t> readdir(const Inode* inode, uint64_t index, char* name, uint64_t name_max) override;
 };
 
-int64_t RamdiskDirOps::write(Inode*, uint64_t, const void*, uint64_t) {
-    return -1;
+cinux::lib::ErrorOr<int64_t> RamdiskDirOps::write(Inode*, uint64_t, const void*, uint64_t) {
+    return cinux::lib::Error::NotImplemented;
 }
 
-int64_t RamdiskDirOps::readdir(const Inode* inode, uint64_t index, char* name, uint64_t name_max) {
+cinux::lib::ErrorOr<int64_t> RamdiskDirOps::readdir(const Inode* inode, uint64_t index, char* name, uint64_t name_max) {
     if (inode == nullptr || inode->fs_private == nullptr || name == nullptr || name_max == 0) {
-        return -1;
+        return cinux::lib::Error::InvalidArgument;
     }
 
     auto* ctx = static_cast<const RamdiskDirContext*>(inode->fs_private);
 
     if (index == 0) {
         if (name_max < 2) {
-            return -1;
+            return cinux::lib::Error::InvalidArgument;
         }
         name[0] = '.';
         name[1] = '\0';
@@ -94,7 +94,7 @@ int64_t RamdiskDirOps::readdir(const Inode* inode, uint64_t index, char* name, u
 
     if (index == 1) {
         if (name_max < 3) {
-            return -1;
+            return cinux::lib::Error::InvalidArgument;
         }
         name[0] = '.';
         name[1] = '.';

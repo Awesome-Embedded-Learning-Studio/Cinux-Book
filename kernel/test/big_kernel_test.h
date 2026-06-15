@@ -94,6 +94,34 @@ inline int64_t unlink_rc(cinux::fs::Inode* dir, const char* name, uint32_t len) 
     return dir->ops->unlink(dir, name, len).ok() ? 0 : -1;
 }
 
+/**
+ * @brief Run InodeOps::read and collapse ErrorOr<int64_t> to a raw code.
+ *
+ * @return The byte count (0 = EOF) on success, or -1 on any error — keeps
+ * TEST_ASSERT_EQ(n, <count>) / TEST_ASSERT_GE(n, 0) style unchanged.
+ */
+inline int64_t read_or_neg1(const cinux::fs::Inode* inode, uint64_t offset, void* buf, uint64_t count) {
+    auto r = inode->ops->read(inode, offset, buf, count);
+    return r.ok() ? r.value() : -1;
+}
+
+/** @brief Same as read_or_neg1 but for InodeOps::write. */
+inline int64_t write_or_neg1(cinux::fs::Inode* inode, uint64_t offset, const void* buf, uint64_t count) {
+    auto r = inode->ops->write(inode, offset, buf, count);
+    return r.ok() ? r.value() : -1;
+}
+
+/**
+ * @brief Same as read_or_neg1 but for InodeOps::readdir.
+ *
+ * @return 1 when an entry was filled, 0 when the directory is exhausted, or
+ * -1 on any error — preserves the pre-ErrorOr call-site semantics.
+ */
+inline int64_t readdir_or_neg1(const cinux::fs::Inode* inode, uint64_t index, char* name, uint64_t name_max) {
+    auto r = inode->ops->readdir(inode, index, name, name_max);
+    return r.ok() ? r.value() : -1;
+}
+
 // ============================================================
 // Assertion Macros
 // ============================================================

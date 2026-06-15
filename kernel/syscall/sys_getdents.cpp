@@ -41,9 +41,13 @@ int64_t sys_getdents(uint64_t fd, uint64_t buf_virt, uint64_t count, uint64_t, u
     {
         auto g = file->offset_lock_.guard();
         (void)g;
-        int64_t result = file->inode->ops->readdir(file->inode, file->offset, name_buf, count);
+        auto dir_result = file->inode->ops->readdir(file->inode, file->offset, name_buf, count);
 
-        if (result == 1) {
+        if (!dir_result.ok()) {
+            return -1;
+        }
+
+        if (dir_result.value() == 1) {
             file->offset++;
             uint64_t len = 0;
             while (len < count && name_buf[len] != '\0') {
@@ -52,7 +56,7 @@ int64_t sys_getdents(uint64_t fd, uint64_t buf_virt, uint64_t count, uint64_t, u
             return static_cast<int64_t>(len);
         }
 
-        return result;
+        return dir_result.value();
     }
 }
 

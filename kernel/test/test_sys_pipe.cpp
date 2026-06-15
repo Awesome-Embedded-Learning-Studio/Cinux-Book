@@ -117,12 +117,12 @@ void test_sys_pipe_write_read_roundtrip() {
 
     // Write data through write inode's ops
     const char msg[] = "KernelPipe";
-    int64_t    w     = write_inode->ops->write(write_inode, 0, msg, 10);
+    int64_t    w     = write_or_neg1(write_inode, 0, msg, 10);
     TEST_ASSERT_EQ(w, 10);
 
     // Read data through read inode's ops
     char    buf[16] = {};
-    int64_t r       = read_inode->ops->read(read_inode, 0, buf, 10);
+    int64_t r       = read_or_neg1(read_inode, 0, buf, 10);
     TEST_ASSERT_EQ(r, 10);
 
     // Verify content
@@ -174,7 +174,7 @@ void test_sys_pipe_write_after_close_reader() {
     pipe->close_reader();
 
     // Write should fail
-    int64_t w = write_inode->ops->write(write_inode, 0, "data", 4);
+    int64_t w = write_or_neg1(write_inode, 0, "data", 4);
     TEST_ASSERT_EQ(w, -1);
 
     delete write_file;
@@ -214,7 +214,7 @@ void test_sys_pipe_read_eof_after_close_writer() {
 
     // Read should return 0 (EOF)
     char    buf[16] = {};
-    int64_t r       = read_inode->ops->read(read_inode, 0, buf, 8);
+    int64_t r       = read_or_neg1(read_inode, 0, buf, 8);
     TEST_ASSERT_EQ(r, 0);
 
     delete write_file;
@@ -250,7 +250,7 @@ void test_sys_pipe_drain_then_eof() {
     table.set(1, write_file);
 
     // Write data
-    int64_t w = write_inode->ops->write(write_inode, 0, "AB", 2);
+    int64_t w = write_or_neg1(write_inode, 0, "AB", 2);
     TEST_ASSERT_EQ(w, 2);
 
     // Close writer
@@ -258,13 +258,13 @@ void test_sys_pipe_drain_then_eof() {
 
     // Drain remaining data
     char    buf[16] = {};
-    int64_t r       = read_inode->ops->read(read_inode, 0, buf, 8);
+    int64_t r       = read_or_neg1(read_inode, 0, buf, 8);
     TEST_ASSERT_EQ(r, 2);
     TEST_ASSERT_EQ(buf[0], 'A');
     TEST_ASSERT_EQ(buf[1], 'B');
 
     // Now EOF
-    r = read_inode->ops->read(read_inode, 0, buf, 8);
+    r = read_or_neg1(read_inode, 0, buf, 8);
     TEST_ASSERT_EQ(r, 0);
 
     delete write_file;
@@ -300,15 +300,15 @@ void test_sys_pipe_multiple_cycles() {
     table.set(1, write_file);
 
     // First cycle
-    TEST_ASSERT_EQ(write_inode->ops->write(write_inode, 0, "AB", 2), 2);
+    TEST_ASSERT_EQ(write_or_neg1(write_inode, 0, "AB", 2), 2);
     char buf[8] = {};
-    TEST_ASSERT_EQ(read_inode->ops->read(read_inode, 0, buf, 2), 2);
+    TEST_ASSERT_EQ(read_or_neg1(read_inode, 0, buf, 2), 2);
     TEST_ASSERT_EQ(buf[0], 'A');
     TEST_ASSERT_EQ(buf[1], 'B');
 
     // Second cycle
-    TEST_ASSERT_EQ(write_inode->ops->write(write_inode, 0, "CDEF", 4), 4);
-    TEST_ASSERT_EQ(read_inode->ops->read(read_inode, 0, buf, 4), 4);
+    TEST_ASSERT_EQ(write_or_neg1(write_inode, 0, "CDEF", 4), 4);
+    TEST_ASSERT_EQ(read_or_neg1(read_inode, 0, buf, 4), 4);
     TEST_ASSERT_EQ(buf[0], 'C');
     TEST_ASSERT_EQ(buf[1], 'D');
     TEST_ASSERT_EQ(buf[2], 'E');

@@ -201,13 +201,13 @@ void test_lookup_file_has_read_ops() {
 
     // Read the file content
     char    buf[256] = {};
-    int64_t n        = ino->ops->read(ino, 0, buf, sizeof(buf) - 1);
+    int64_t n        = read_or_neg1(ino, 0, buf, sizeof(buf) - 1);
     TEST_ASSERT_GT(n, 0);
 
     cinux::lib::kprintf("[EXT2] Read %ld bytes from file\n", n);
 
     // Write should succeed now that write path is implemented
-    int64_t w = ino->ops->write(ino, 0, "x", 1);
+    int64_t w = write_or_neg1(ino, 0, "x", 1);
     TEST_ASSERT_EQ(w, 1);
 
     teardown_ext2(pair);
@@ -230,12 +230,12 @@ void test_read_with_offset() {
 
     // Read first 4 bytes
     char    buf1[8] = {};
-    int64_t n1      = ino->ops->read(ino, 0, buf1, 4);
+    int64_t n1      = read_or_neg1(ino, 0, buf1, 4);
     TEST_ASSERT_EQ(n1, 4);
 
     // Read next 4 bytes at offset 4
     char    buf2[8] = {};
-    int64_t n2      = ino->ops->read(ino, 4, buf2, 4);
+    int64_t n2      = read_or_neg1(ino, 4, buf2, 4);
     TEST_ASSERT_EQ(n2, 4);
 
     // The two reads should give different content (unless the file
@@ -262,7 +262,7 @@ void test_read_past_end_returns_zero() {
 
     // Read past end
     char    buf[16] = {};
-    int64_t n       = ino->ops->read(ino, ino->size + 100, buf, sizeof(buf));
+    int64_t n       = read_or_neg1(ino, ino->size + 100, buf, sizeof(buf));
     TEST_ASSERT_EQ(n, 0);
 
     teardown_ext2(pair);
@@ -286,12 +286,12 @@ void test_readdir_dot_and_dotdot() {
     char name[256] = {};
 
     // Index 0: "."
-    int64_t n0 = root->ops->readdir(root, 0, name, sizeof(name));
+    int64_t n0 = readdir_or_neg1(root, 0, name, sizeof(name));
     TEST_ASSERT_EQ(n0, 1);
     TEST_ASSERT_TRUE(strcmp(name, ".") == 0);
 
     // Index 1: ".."
-    int64_t n1 = root->ops->readdir(root, 1, name, sizeof(name));
+    int64_t n1 = readdir_or_neg1(root, 1, name, sizeof(name));
     TEST_ASSERT_EQ(n1, 1);
     TEST_ASSERT_TRUE(strcmp(name, "..") == 0);
 
@@ -308,7 +308,7 @@ void test_readdir_finds_real_entries() {
     char name[256] = {};
 
     // Index 2+: should find at least one real entry
-    int64_t n2 = root->ops->readdir(root, 2, name, sizeof(name));
+    int64_t n2 = readdir_or_neg1(root, 2, name, sizeof(name));
     if (n2 == 1) {
         cinux::lib::kprintf("[EXT2] Readdir entry: %s\n", name);
         // Name should not be empty
@@ -330,7 +330,7 @@ void test_readdir_returns_zero_when_exhausted() {
     // Drain all entries
     bool hit_end = false;
     for (uint64_t i = 0; i < 256; ++i) {
-        int64_t n = root->ops->readdir(root, i, name, sizeof(name));
+        int64_t n = readdir_or_neg1(root, i, name, sizeof(name));
         if (n == 0) {
             hit_end = true;
             break;
@@ -435,7 +435,7 @@ void test_vfs_open_read_close() {
     TEST_ASSERT_NOT_NULL(file->inode);
     TEST_ASSERT_NOT_NULL(file->inode->ops);
     char    buf[256] = {};
-    int64_t n        = file->inode->ops->read(file->inode, file->offset, buf, sizeof(buf) - 1);
+    int64_t n        = read_or_neg1(file->inode, file->offset, buf, sizeof(buf) - 1);
     TEST_ASSERT_GT(n, 0);
 
     cinux::lib::kprintf("[EXT2] VFS read %ld bytes\n", n);

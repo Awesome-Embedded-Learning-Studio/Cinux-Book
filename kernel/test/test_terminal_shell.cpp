@@ -270,7 +270,7 @@ void test_terminal_pipe_fd_table_binding() {
 
     // Write through stdout fd
     const char msg[] = "ok";
-    int64_t    w     = f1->inode->ops->write(f1->inode, 0, msg, 2);
+    int64_t    w     = write_or_neg1(f1->inode, 0, msg, 2);
     TEST_ASSERT_EQ(w, 2);
 
     // Read back from stdout pipe directly

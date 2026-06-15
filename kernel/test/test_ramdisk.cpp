@@ -190,7 +190,7 @@ void test_read_hello_content() {
     TEST_ASSERT_NOT_NULL(inode->ops);
 
     char    buf[64] = {};
-    int64_t n       = inode->ops->read(inode, 0, buf, sizeof(buf) - 1);
+    int64_t n       = read_or_neg1(inode, 0, buf, sizeof(buf) - 1);
     TEST_ASSERT_GT(n, 0);
 
     const char expected[]   = "Hello from Cinux!\n";
@@ -207,7 +207,7 @@ void test_read_with_offset() {
     TEST_ASSERT_NOT_NULL(inode);
 
     char    buf[8] = {};
-    int64_t n      = inode->ops->read(inode, 6, buf, 4);
+    int64_t n      = read_or_neg1(inode, 6, buf, 4);
     TEST_ASSERT_EQ(n, 4);
     TEST_ASSERT_TRUE(memcmp(buf, "from", 4) == 0);
 }
@@ -220,7 +220,7 @@ void test_read_past_end_returns_zero() {
     TEST_ASSERT_NOT_NULL(inode);
 
     char    buf[8] = {};
-    int64_t n      = inode->ops->read(inode, 10000, buf, 4);
+    int64_t n      = read_or_neg1(inode, 10000, buf, 4);
     TEST_ASSERT_EQ(n, 0);
 }
 
@@ -232,7 +232,7 @@ void test_write_returns_error() {
     TEST_ASSERT_NOT_NULL(inode);
 
     const char data[] = "test";
-    int64_t    n      = inode->ops->write(inode, 0, data, 4);
+    int64_t    n      = write_or_neg1(inode, 0, data, 4);
     TEST_ASSERT_EQ(n, -1);
 }
 
@@ -294,7 +294,7 @@ void test_vfs_open_read_close() {
     TEST_ASSERT_NOT_NULL(file->inode->ops);
 
     char    buf[64] = {};
-    int64_t n       = file->inode->ops->read(file->inode, file->offset, buf, sizeof(buf) - 1);
+    int64_t n       = read_or_neg1(file->inode, file->offset, buf, sizeof(buf) - 1);
     TEST_ASSERT_GT(n, 0);
 
     const char expected[] = "Hello from Cinux!\n";
@@ -303,7 +303,7 @@ void test_vfs_open_read_close() {
     file->offset += static_cast<uint64_t>(n);
 
     char    buf2[16] = {};
-    int64_t n2       = file->inode->ops->read(file->inode, file->offset, buf2, sizeof(buf2));
+    int64_t n2       = read_or_neg1(file->inode, file->offset, buf2, sizeof(buf2));
     TEST_ASSERT_EQ(n2, 0);
 
     int close_result = cinux::fs::g_global_fd_table().close(fd);
@@ -371,7 +371,7 @@ void test_vfs_open_multiple_files() {
     cinux::fs::File* f1 = cinux::fs::g_global_fd_table().get(fd1);
     TEST_ASSERT_NOT_NULL(f1);
     char    buf1[64] = {};
-    int64_t n1       = f1->inode->ops->read(f1->inode, 0, buf1, sizeof(buf1) - 1);
+    int64_t n1       = read_or_neg1(f1->inode, 0, buf1, sizeof(buf1) - 1);
     TEST_ASSERT_GT(n1, 0);
 
     TEST_ASSERT_EQ(cinux::fs::g_global_fd_table().close(fd1), 0);

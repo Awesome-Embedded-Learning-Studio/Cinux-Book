@@ -44,11 +44,14 @@ int64_t sys_read(uint64_t fd, uint64_t buf_virt, uint64_t count, uint64_t, uint6
         auto* buf = reinterpret_cast<void*>(buf_virt);
         auto  g   = file->offset_lock_.guard();
         (void)g;
-        int64_t result = file->inode->ops->read(file->inode, file->offset, buf, count);
-        if (result > 0) {
-            file->offset += static_cast<uint64_t>(result);
+        auto read_result = file->inode->ops->read(file->inode, file->offset, buf, count);
+        if (!read_result.ok()) {
+            return -1;
         }
-        return result;
+        if (read_result.value() > 0) {
+            file->offset += static_cast<uint64_t>(read_result.value());
+        }
+        return read_result.value();
     }
 
     // fd=0 (stdin): legacy keyboard read path when no VFS entry is present

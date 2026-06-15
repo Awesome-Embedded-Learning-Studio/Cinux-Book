@@ -79,9 +79,13 @@ int64_t sys_rmdir(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, ui
     // Check directory is empty: try readdir index 2 (index 0=".", 1="..")
     // If there's a 3rd entry, the directory is not empty
     if (target->ops != nullptr) {
-        char    check_name[16];
-        int64_t rc = target->ops->readdir(target, 2, check_name, sizeof(check_name));
-        if (rc > 0) {
+        char check_name[16];
+        auto dir_check = target->ops->readdir(target, 2, check_name, sizeof(check_name));
+        if (!dir_check.ok()) {
+            kprintf("[SYS_RMDIR] failed to check whether '%s' is empty\n", resolved);
+            return -1;
+        }
+        if (dir_check.value() > 0) {
             kprintf("[SYS_RMDIR] '%s' is not empty\n", resolved);
             return -1;
         }

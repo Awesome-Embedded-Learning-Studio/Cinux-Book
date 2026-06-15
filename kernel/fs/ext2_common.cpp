@@ -21,9 +21,9 @@ namespace cinux::fs {
 
 Ext2FileOps::Ext2FileOps(Ext2& ext2) : ext2_(ext2) {}
 
-int64_t Ext2FileOps::read(const Inode* inode, uint64_t offset, void* buf, uint64_t count) {
+cinux::lib::ErrorOr<int64_t> Ext2FileOps::read(const Inode* inode, uint64_t offset, void* buf, uint64_t count) {
     if (inode == nullptr || inode->fs_private == nullptr || buf == nullptr) {
-        return -1;
+        return cinux::lib::Error::InvalidArgument;
     }
 
     auto*            cached = static_cast<const Ext2CachedInode*>(inode->fs_private);
@@ -95,9 +95,9 @@ int64_t Ext2FileOps::read(const Inode* inode, uint64_t offset, void* buf, uint64
     return static_cast<int64_t>(total_read);
 }
 
-int64_t Ext2FileOps::write(Inode* inode, uint64_t offset, const void* buf, uint64_t count) {
+cinux::lib::ErrorOr<int64_t> Ext2FileOps::write(Inode* inode, uint64_t offset, const void* buf, uint64_t count) {
     if (inode == nullptr || inode->fs_private == nullptr || buf == nullptr) {
-        return -1;
+        return cinux::lib::Error::InvalidArgument;
     }
 
     if (count == 0) {
@@ -202,9 +202,9 @@ cinux::lib::ErrorOr<void> Ext2FileOps::stat(const Inode* inode, struct stat* st)
 
 Ext2DirOps::Ext2DirOps(Ext2& ext2) : ext2_(ext2) {}
 
-int64_t Ext2DirOps::readdir(const Inode* inode, uint64_t index, char* name, uint64_t name_max) {
+cinux::lib::ErrorOr<int64_t> Ext2DirOps::readdir(const Inode* inode, uint64_t index, char* name, uint64_t name_max) {
     if (inode == nullptr || inode->fs_private == nullptr || name == nullptr || name_max == 0) {
-        return -1;
+        return cinux::lib::Error::InvalidArgument;
     }
 
     auto*            cached = static_cast<const Ext2CachedInode*>(inode->fs_private);
@@ -214,7 +214,7 @@ int64_t Ext2DirOps::readdir(const Inode* inode, uint64_t index, char* name, uint
 
     if (index == 0) {
         if (name_max < 2) {
-            return -1;
+            return cinux::lib::Error::InvalidArgument;
         }
         name[0] = '.';
         name[1] = '\0';
@@ -222,7 +222,7 @@ int64_t Ext2DirOps::readdir(const Inode* inode, uint64_t index, char* name, uint
     }
     if (index == 1) {
         if (name_max < 3) {
-            return -1;
+            return cinux::lib::Error::InvalidArgument;
         }
         name[0] = '.';
         name[1] = '.';
@@ -246,7 +246,7 @@ int64_t Ext2DirOps::readdir(const Inode* inode, uint64_t index, char* name, uint
         }
 
         if (!ext2_.read_block(blk)) {
-            return -1;
+            return cinux::lib::Error::IOError;
         }
 
         auto*    block_data = reinterpret_cast<const uint8_t*>(ext2_.dma_buf_virt());

@@ -132,12 +132,12 @@ void test_file_inode_read_write() {
     const char write_data[] = "InodeOps virtual dispatch";
     uint32_t   len          = sizeof(write_data) - 1;
 
-    int64_t written = ino->ops->write(ino, 0, write_data, len);
+    int64_t written = write_or_neg1(ino, 0, write_data, len);
     TEST_ASSERT_EQ(written, static_cast<int64_t>(len));
 
     // Read data back through ops
     char    read_buf[64] = {};
-    int64_t read_back    = ino->ops->read(ino, 0, read_buf, len);
+    int64_t read_back    = read_or_neg1(ino, 0, read_buf, len);
     TEST_ASSERT_EQ(read_back, static_cast<int64_t>(len));
 
     for (uint32_t i = 0; i < len; ++i) {
@@ -224,7 +224,7 @@ void test_dir_inode_readdir() {
 
         // readdir on the new directory should at least find "." and ".."
         char    rname[256] = {};
-        int64_t rc         = dir_ino->ops->readdir(dir_ino, 0, rname, 256);
+        int64_t rc         = readdir_or_neg1(dir_ino, 0, rname, 256);
         TEST_ASSERT_GT(rc, 0);  // readdir returns 1 on success, -1 on failure
         TEST_ASSERT_EQ(rname[0], '.');
 
@@ -238,7 +238,7 @@ void test_dir_inode_readdir() {
     TEST_ASSERT_NOT_NULL(root->ops);
 
     char    rname[256] = {};
-    int64_t rc         = root->ops->readdir(root, 0, rname, 256);
+    int64_t rc         = readdir_or_neg1(root, 0, rname, 256);
     // At least one entry should be readable (readdir returns 1 on success)
     TEST_ASSERT_GT(rc, 0);
 
@@ -430,11 +430,11 @@ void test_dir_ops_file_defaults() {
     TEST_ASSERT_NOT_NULL(dir->ops);
 
     char    buf[16] = {};
-    int64_t read_rc = dir->ops->read(dir, 0, buf, 16);
+    int64_t read_rc = read_or_neg1(dir, 0, buf, 16);
     TEST_ASSERT_EQ(read_rc, static_cast<int64_t>(-1));
 
     const char data[]   = "x";
-    int64_t    write_rc = dir->ops->write(dir, 0, data, 1);
+    int64_t    write_rc = write_or_neg1(dir, 0, data, 1);
     TEST_ASSERT_EQ(write_rc, static_cast<int64_t>(-1));
 
     cinux::lib::kprintf("[INODE_OPS] Dir ops read/write defaults OK\n");
@@ -475,16 +475,16 @@ void test_ops_type_dispatch() {
 
     // File read should succeed (not return -1)
     const char wdata[] = "hello";
-    int64_t    written = file->ops->write(file, 0, wdata, 5);
+    int64_t    written = write_or_neg1(file, 0, wdata, 5);
     TEST_ASSERT_EQ(written, static_cast<int64_t>(5));
 
     char    rbuf[16]  = {};
-    int64_t read_back = file->ops->read(file, 0, rbuf, 5);
+    int64_t read_back = read_or_neg1(file, 0, rbuf, 5);
     TEST_ASSERT_EQ(read_back, static_cast<int64_t>(5));
 
     // Dir read should fail (return -1 default)
     char    dbuf[16] = {};
-    int64_t dir_read = dir->ops->read(dir, 0, dbuf, 16);
+    int64_t dir_read = read_or_neg1(dir, 0, dbuf, 16);
     TEST_ASSERT_EQ(dir_read, static_cast<int64_t>(-1));
 
     // Dir create should succeed (not return nullptr)

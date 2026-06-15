@@ -175,12 +175,12 @@ void test_write_then_read() {
     const char write_data[] = "Hello from ext2 write!";
     uint32_t   len          = sizeof(write_data) - 1;
 
-    int64_t written = ino->ops->write(ino, 0, write_data, len);
+    int64_t written = write_or_neg1(ino, 0, write_data, len);
     TEST_ASSERT_EQ(written, static_cast<int64_t>(len));
 
     // Read data back
     char    read_buf[64] = {};
-    int64_t read_back    = ino->ops->read(ino, 0, read_buf, len);
+    int64_t read_back    = read_or_neg1(ino, 0, read_buf, len);
     TEST_ASSERT_EQ(read_back, static_cast<int64_t>(len));
 
     // Verify data integrity
@@ -219,12 +219,12 @@ void test_write_cross_block() {
         write_data[i] = static_cast<uint8_t>('A' + i);
     }
 
-    int64_t written = ino->ops->write(ino, bs - 10, write_data, 20);
+    int64_t written = write_or_neg1(ino, bs - 10, write_data, 20);
     TEST_ASSERT_EQ(written, 20);
 
     // Read back
     uint8_t read_buf[20] = {};
-    int64_t read_back    = ino->ops->read(ino, bs - 10, read_buf, 20);
+    int64_t read_back    = read_or_neg1(ino, bs - 10, read_buf, 20);
     TEST_ASSERT_EQ(read_back, 20);
 
     for (int i = 0; i < 20; ++i) {
@@ -263,7 +263,7 @@ void test_recreate_same_name() {
 
     // Write some data
     const char data[] = "version1";
-    file1->ops->write(file1, 0, data, 8);
+    write_or_neg1(file1, 0, data, 8);
 
     // Unlink
     int result = pair.ext2->unlink(2, name, name_len(name));
@@ -315,12 +315,12 @@ void test_full_flow() {
     // 2. Write data
     const char write_data[] = "Cinux ext2 full flow test data!";
     uint32_t   len          = sizeof(write_data) - 1;
-    int64_t    written      = file->ops->write(file, 0, write_data, len);
+    int64_t    written      = write_or_neg1(file, 0, write_data, len);
     TEST_ASSERT_EQ(written, static_cast<int64_t>(len));
 
     // 3. Read data back
     char    read_buf[64] = {};
-    int64_t read_back    = file->ops->read(file, 0, read_buf, len);
+    int64_t read_back    = read_or_neg1(file, 0, read_buf, len);
     TEST_ASSERT_EQ(read_back, static_cast<int64_t>(len));
 
     for (uint32_t i = 0; i < len; ++i) {

@@ -168,8 +168,8 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
         return ExecveResult::ReadFailed;
     }
 
-    int64_t nread = inode->ops->read(inode, 0, ehdr_buf, ELF_HEADER_SIZE);
-    if (nread < static_cast<int64_t>(ELF_HEADER_SIZE)) {
+    auto nread = inode->ops->read(inode, 0, ehdr_buf, ELF_HEADER_SIZE);
+    if (!nread.ok() || nread.value() < static_cast<int64_t>(ELF_HEADER_SIZE)) {
         cinux::lib::kprintf("[EXECVE] failed to read ELF header\n");
         return ExecveResult::ReadFailed;
     }
@@ -192,7 +192,7 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
     }
 
     nread = inode->ops->read(inode, phdr_offset, phdrs, phdr_bytes);
-    if (nread < static_cast<int64_t>(phdr_bytes)) {
+    if (!nread.ok() || nread.value() < static_cast<int64_t>(phdr_bytes)) {
         cinux::lib::kprintf("[EXECVE] failed to read program headers\n");
         delete[] phdrs;
         return ExecveResult::ReadFailed;
@@ -247,9 +247,9 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
                     copy_len = avail;
                 }
 
-                int64_t bread = inode->ops->read(inode, phdr.p_offset + seg_offset,
-                                                 dst + in_page_off, copy_len);
-                if (bread < static_cast<int64_t>(copy_len)) {
+                auto bread = inode->ops->read(inode, phdr.p_offset + seg_offset,
+                                              dst + in_page_off, copy_len);
+                if (!bread.ok() || bread.value() < static_cast<int64_t>(copy_len)) {
                     cinux::lib::kprintf("[EXECVE] segment read failed at offset %lu\n",
                                         static_cast<unsigned long>(phdr.p_offset + seg_offset));
                     cinux::mm::g_pmm.free_page(phys);

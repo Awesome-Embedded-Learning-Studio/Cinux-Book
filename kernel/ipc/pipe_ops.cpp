@@ -19,11 +19,15 @@ namespace cinux::ipc {
 
 PipeReadOps::PipeReadOps(Pipe* pipe) : pipe_(pipe) {}
 
-int64_t PipeReadOps::read(const cinux::fs::Inode*, uint64_t, void* buf, uint64_t count) {
+cinux::lib::ErrorOr<int64_t> PipeReadOps::read(const cinux::fs::Inode*, uint64_t, void* buf, uint64_t count) {
     if (pipe_ == nullptr || buf == nullptr) {
-        return -1;
+        return cinux::lib::Error::InvalidArgument;
     }
-    return pipe_->read(static_cast<char*>(buf), count);
+    int64_t n = pipe_->read(static_cast<char*>(buf), count);
+    if (n < 0) {
+        return cinux::lib::Error::IOError;
+    }
+    return n;
 }
 
 // ============================================================
@@ -32,11 +36,15 @@ int64_t PipeReadOps::read(const cinux::fs::Inode*, uint64_t, void* buf, uint64_t
 
 PipeWriteOps::PipeWriteOps(Pipe* pipe) : pipe_(pipe) {}
 
-int64_t PipeWriteOps::write(cinux::fs::Inode*, uint64_t, const void* buf, uint64_t count) {
+cinux::lib::ErrorOr<int64_t> PipeWriteOps::write(cinux::fs::Inode*, uint64_t, const void* buf, uint64_t count) {
     if (pipe_ == nullptr || buf == nullptr) {
-        return -1;
+        return cinux::lib::Error::InvalidArgument;
     }
-    return pipe_->write(static_cast<const char*>(buf), count);
+    int64_t n = pipe_->write(static_cast<const char*>(buf), count);
+    if (n < 0) {
+        return cinux::lib::Error::IOError;
+    }
+    return n;
 }
 
 }  // namespace cinux::ipc
