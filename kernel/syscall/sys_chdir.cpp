@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 
+#include "kernel/errno.hpp"
 #include "kernel/fs/path.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -29,7 +30,7 @@ int64_t sys_chdir(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, ui
     // Step 1: Resolve the path (cwd-aware)
     char resolved[cinux::fs::PATH_MAX];
     if (!resolve_user_path(path_virt, resolved)) {
-        return -1;
+        return -kEfault;
     }
 
     // Step 2: Resolve through the VFS mount table
@@ -38,27 +39,27 @@ int64_t sys_chdir(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, ui
 
     if (fs == nullptr) {
         kprintf("[SYS_CHDIR] No filesystem mounted for '%s'\n", resolved);
-        return -1;
+        return -kEnoent;
     }
 
     // Step 3: Look up the inode
     auto inode_result = fs->lookup(rel_path);
     if (!inode_result.ok()) {
         kprintf("[SYS_CHDIR] Path not found: '%s'\n", resolved);
-        return -1;
+        return -to_errno(inode_result.error());
     }
     cinux::fs::Inode* inode = inode_result.value();
 
     // Step 4: Verify it is a directory
     if (inode->type != cinux::fs::InodeType::Directory) {
         kprintf("[SYS_CHDIR] Not a directory: '%s'\n", resolved);
-        return -1;
+        return -kEnotdir;
     }
 
     // Step 5: Update cwd
     cinux::proc::Task* current = cinux::proc::Scheduler::current();
     if (current == nullptr) {
-        return -1;
+        return -kEio;
     }
 
     uint32_t i = 0;

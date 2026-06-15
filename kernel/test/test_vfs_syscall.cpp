@@ -156,7 +156,7 @@ void test_open_nonexistent_returns_error() {
     auto        path_addr = reinterpret_cast<uint64_t>(path);
 
     int64_t fd = cinux::syscall::sys_open(path_addr, 0, 0, 0, 0, 0);
-    TEST_ASSERT_EQ(fd, -1);
+    TEST_ASSERT_LT(fd, 0);
 
     teardown_vfs(rd);
 }
@@ -165,7 +165,7 @@ void test_open_null_path_returns_error() {
     Ramdisk* rd = setup_vfs();
 
     int64_t fd = cinux::syscall::sys_open(0, 0, 0, 0, 0, 0);
-    TEST_ASSERT_EQ(fd, -1);
+    TEST_ASSERT_LT(fd, 0);
 
     teardown_vfs(rd);
 }
@@ -177,7 +177,7 @@ void test_open_empty_path_returns_error() {
     auto        path_addr = reinterpret_cast<uint64_t>(path);
 
     int64_t fd = cinux::syscall::sys_open(path_addr, 0, 0, 0, 0, 0);
-    TEST_ASSERT_EQ(fd, -1);
+    TEST_ASSERT_LT(fd, 0);
 
     teardown_vfs(rd);
 }
@@ -189,7 +189,7 @@ void test_open_invalid_addr_returns_error() {
     uint64_t bad_addr = 0x800000000001ULL;
 
     int64_t fd = cinux::syscall::sys_open(bad_addr, 0, 0, 0, 0, 0);
-    TEST_ASSERT_EQ(fd, -1);
+    TEST_ASSERT_LT(fd, 0);
 
     teardown_vfs(rd);
 }
@@ -202,7 +202,7 @@ void test_open_no_mount_returns_error() {
     auto        path_addr = reinterpret_cast<uint64_t>(path);
 
     int64_t fd = cinux::syscall::sys_open(path_addr, 0, 0, 0, 0, 0);
-    TEST_ASSERT_EQ(fd, -1);
+    TEST_ASSERT_LT(fd, 0);
 }
 
 }  // namespace test_sys_open
@@ -293,7 +293,7 @@ void test_read_past_end_returns_zero() {
 
 void test_read_invalid_fd_returns_error() {
     int64_t n = cinux::syscall::sys_read(99, 0, 10, 0, 0, 0);
-    TEST_ASSERT_EQ(n, -1);
+    TEST_ASSERT_LT(n, 0);
 }
 
 void test_read_after_close_returns_error() {
@@ -312,7 +312,7 @@ void test_read_after_close_returns_error() {
     char    buf[8]   = {};
     auto    buf_addr = reinterpret_cast<uint64_t>(buf);
     int64_t n = cinux::syscall::sys_read(static_cast<uint64_t>(fd), buf_addr, sizeof(buf), 0, 0, 0);
-    TEST_ASSERT_EQ(n, -1);
+    TEST_ASSERT_LT(n, 0);
 
     teardown_vfs(rd);
 }
@@ -337,7 +337,7 @@ void test_write_to_ramdisk_returns_error() {
     auto       data_addr = reinterpret_cast<uint64_t>(data);
     int64_t    n =
         cinux::syscall::sys_write(static_cast<uint64_t>(fd), data_addr, sizeof(data) - 1, 0, 0, 0);
-    TEST_ASSERT_EQ(n, -1);
+    TEST_ASSERT_LT(n, 0);
 
     cinux::syscall::sys_close(static_cast<uint64_t>(fd), 0, 0, 0, 0, 0);
     teardown_vfs(rd);
@@ -347,7 +347,7 @@ void test_write_invalid_fd_returns_error() {
     const char data[]    = "test";
     auto       data_addr = reinterpret_cast<uint64_t>(data);
     int64_t    n         = cinux::syscall::sys_write(99, data_addr, 4, 0, 0, 0);
-    TEST_ASSERT_EQ(n, -1);
+    TEST_ASSERT_LT(n, 0);
 }
 
 void test_write_after_close_returns_error() {
@@ -363,7 +363,7 @@ void test_write_after_close_returns_error() {
     const char data[]    = "test";
     auto       data_addr = reinterpret_cast<uint64_t>(data);
     int64_t    n = cinux::syscall::sys_write(static_cast<uint64_t>(fd), data_addr, 4, 0, 0, 0);
-    TEST_ASSERT_EQ(n, -1);
+    TEST_ASSERT_LT(n, 0);
 
     teardown_vfs(rd);
 }
@@ -431,7 +431,7 @@ void test_open_read_close_lifecycle() {
     auto       data_addr = reinterpret_cast<uint64_t>(data);
     int64_t    write_n =
         cinux::syscall::sys_write(static_cast<uint64_t>(fd), data_addr, sizeof(data) - 1, 0, 0, 0);
-    TEST_ASSERT_EQ(write_n, -1);
+    TEST_ASSERT_LT(write_n, 0);
 
     // Close the fd
     int64_t close_result = cinux::syscall::sys_close(static_cast<uint64_t>(fd), 0, 0, 0, 0, 0);
@@ -442,7 +442,7 @@ void test_open_read_close_lifecycle() {
     auto    buf2_addr = reinterpret_cast<uint64_t>(buf2);
     int64_t n2 =
         cinux::syscall::sys_read(static_cast<uint64_t>(fd), buf2_addr, sizeof(buf2), 0, 0, 0);
-    TEST_ASSERT_EQ(n2, -1);
+    TEST_ASSERT_LT(n2, 0);
 
     teardown_vfs(rd);
 }
@@ -486,8 +486,8 @@ void test_open_multiple_files_interleaved() {
     TEST_ASSERT_EQ(cinux::syscall::sys_close(static_cast<uint64_t>(fd2), 0, 0, 0, 0, 0), 0);
 
     // Both fds should now be invalid
-    TEST_ASSERT_EQ(cinux::syscall::sys_read(static_cast<uint64_t>(fd1), buf1_addr, 4, 0, 0, 0), -1);
-    TEST_ASSERT_EQ(cinux::syscall::sys_read(static_cast<uint64_t>(fd2), buf2_addr, 4, 0, 0, 0), -1);
+    TEST_ASSERT_LT(cinux::syscall::sys_read(static_cast<uint64_t>(fd1), buf1_addr, 4, 0, 0, 0), 0);
+    TEST_ASSERT_LT(cinux::syscall::sys_read(static_cast<uint64_t>(fd2), buf2_addr, 4, 0, 0, 0), 0);
 
     teardown_vfs(rd);
 }
@@ -563,7 +563,7 @@ void test_getdents_invalid_fd_returns_error() {
     char    buf[64]  = {};
     auto    buf_addr = reinterpret_cast<uint64_t>(buf);
     int64_t n        = cinux::syscall::sys_getdents(99, buf_addr, sizeof(buf), 0, 0, 0);
-    TEST_ASSERT_EQ(n, -1);
+    TEST_ASSERT_LT(n, 0);
 }
 
 void test_getdents_after_close_returns_error() {
@@ -580,7 +580,7 @@ void test_getdents_after_close_returns_error() {
     auto    buf_addr = reinterpret_cast<uint64_t>(buf);
     int64_t n =
         cinux::syscall::sys_getdents(static_cast<uint64_t>(fd), buf_addr, sizeof(buf), 0, 0, 0);
-    TEST_ASSERT_EQ(n, -1);
+    TEST_ASSERT_LT(n, 0);
 
     teardown_vfs(rd);
 }
@@ -595,7 +595,7 @@ void test_getdents_null_buf_returns_error() {
 
     // buf_virt == 0 should be rejected
     int64_t n = cinux::syscall::sys_getdents(static_cast<uint64_t>(fd), 0, 64, 0, 0, 0);
-    TEST_ASSERT_EQ(n, -1);
+    TEST_ASSERT_LT(n, 0);
 
     cinux::syscall::sys_close(static_cast<uint64_t>(fd), 0, 0, 0, 0, 0);
     teardown_vfs(rd);
@@ -612,7 +612,7 @@ void test_getdents_noncanonical_addr_returns_error() {
     // Address above USER_ADDR_MAX should be rejected
     uint64_t bad_addr = 0x800000000001ULL;
     int64_t  n = cinux::syscall::sys_getdents(static_cast<uint64_t>(fd), bad_addr, 64, 0, 0, 0);
-    TEST_ASSERT_EQ(n, -1);
+    TEST_ASSERT_LT(n, 0);
 
     cinux::syscall::sys_close(static_cast<uint64_t>(fd), 0, 0, 0, 0, 0);
     teardown_vfs(rd);

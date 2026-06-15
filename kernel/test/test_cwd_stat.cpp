@@ -348,7 +348,7 @@ void test_chdir_nonexistent_fails() {
     auto path_addr = reinterpret_cast<uint64_t>(path);
 
     int64_t result = cinux::syscall::sys_chdir(path_addr, 0, 0, 0, 0, 0);
-    TEST_ASSERT_EQ(result, -1);
+    TEST_ASSERT_LT(result, 0);
 
     // cwd should still be "/"
     cinux::proc::Task* cur = cinux::proc::Scheduler::current();
@@ -375,7 +375,7 @@ void test_chdir_file_fails() {
 
     // chdir to a regular file should fail
     int64_t chdir_result = cinux::syscall::sys_chdir(fpath_addr, 0, 0, 0, 0, 0);
-    TEST_ASSERT_EQ(chdir_result, -1);
+    TEST_ASSERT_LT(chdir_result, 0);
 
     // cwd should still be "/"
     cinux::proc::Task* cur = cinux::proc::Scheduler::current();
@@ -516,7 +516,7 @@ void test_stat_nonexistent_fails() {
     auto            st_addr = reinterpret_cast<uint64_t>(&st);
 
     int64_t result = cinux::syscall::sys_stat(path_addr, st_addr, 0, 0, 0, 0);
-    TEST_ASSERT_EQ(result, -1);
+    TEST_ASSERT_LT(result, 0);
 
     teardown_cwd_stat(pair);
 }
@@ -678,7 +678,7 @@ void test_fstat_bad_fd_fails() {
 
     // fd 99 should not be open
     int64_t result = cinux::syscall::sys_fstat(99, st_addr, 0, 0, 0, 0);
-    TEST_ASSERT_EQ(result, -1);
+    TEST_ASSERT_LT(result, 0);
 
     teardown_cwd_stat(pair);
 }

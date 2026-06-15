@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 
+#include "kernel/errno.hpp"
 #include "kernel/fs/path.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -27,7 +28,7 @@ int64_t sys_unlink(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, u
     // Step 1: Resolve the path (cwd-aware)
     char resolved[cinux::fs::PATH_MAX];
     if (!resolve_user_path(path_virt, resolved)) {
-        return -1;
+        return -kEfault;
     }
 
     // Step 2: Resolve through the VFS mount table
@@ -36,7 +37,7 @@ int64_t sys_unlink(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, u
 
     if (fs == nullptr) {
         kprintf("[SYS_UNLINK] No filesystem mounted for '%s'\n", resolved);
-        return -1;
+        return -kEnoent;
     }
 
     // Step 3: Split relative path into parent dir and leaf name
@@ -46,27 +47,27 @@ int64_t sys_unlink(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, u
 
     if (!split_pathname(rel_path, parent_buf, &leaf_name, &name_len)) {
         kprintf("[SYS_UNLINK] Invalid path: '%s'\n", resolved);
-        return -1;
+        return -kEinval;
     }
 
     // Step 4: Look up the parent directory inode
     auto parent_result = fs->lookup(parent_buf);
     if (!parent_result.ok()) {
         kprintf("[SYS_UNLINK] Parent directory not found for '%s'\n", resolved);
-        return -1;
+        return -to_errno(parent_result.error());
     }
     cinux::fs::Inode* parent = parent_result.value();
 
     if (parent->ops == nullptr) {
         kprintf("[SYS_UNLINK] Parent inode has no ops\n");
-        return -1;
+        return -kEio;
     }
 
     // Step 5: Call unlink() on the parent directory
     auto unlink_result = parent->ops->unlink(parent, leaf_name, name_len);
     if (!unlink_result.ok()) {
         kprintf("[SYS_UNLINK] Failed to unlink '%s'\n", resolved);
-        return -1;
+        return -to_errno(unlink_result.error());
     }
 
     return 0;

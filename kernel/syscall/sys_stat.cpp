@@ -11,6 +11,7 @@
 
 #include <stdint.h>
 
+#include "kernel/errno.hpp"
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/path.hpp"
 #include "kernel/fs/stat.hpp"
@@ -29,13 +30,13 @@ using cinux::lib::kprintf;
 
 int64_t sys_stat(uint64_t path_virt, uint64_t st_virt, uint64_t, uint64_t, uint64_t, uint64_t) {
     if (!validate_user_ptr(st_virt)) {
-        return -1;
+        return -kEfault;
     }
 
     // Step 1: Resolve the path (cwd-aware)
     char resolved[cinux::fs::PATH_MAX];
     if (!resolve_user_path(path_virt, resolved)) {
-        return -1;
+        return -kEfault;
     }
 
     // Step 2: Resolve through the VFS mount table
@@ -44,26 +45,26 @@ int64_t sys_stat(uint64_t path_virt, uint64_t st_virt, uint64_t, uint64_t, uint6
 
     if (fs == nullptr) {
         kprintf("[SYS_STAT] No filesystem mounted for '%s'\n", resolved);
-        return -1;
+        return -kEnoent;
     }
 
     // Step 3: Look up the inode
     auto inode_result = fs->lookup(rel_path);
     if (!inode_result.ok()) {
         kprintf("[SYS_STAT] File not found: '%s'\n", resolved);
-        return -1;
+        return -to_errno(inode_result.error());
     }
     cinux::fs::Inode* inode = inode_result.value();
 
     // Step 4: Call stat()
     if (inode->ops == nullptr) {
-        return -1;
+        return -kEio;
     }
 
     cinux::fs::stat kst;
-    auto stat_result = inode->ops->stat(inode, &kst);
+    auto            stat_result = inode->ops->stat(inode, &kst);
     if (!stat_result.ok()) {
-        return -1;
+        return -to_errno(stat_result.error());
     }
 
     // Step 5: Copy to user buffer
@@ -75,27 +76,27 @@ int64_t sys_stat(uint64_t path_virt, uint64_t st_virt, uint64_t, uint64_t, uint6
 
 int64_t sys_fstat(uint64_t fd, uint64_t st_virt, uint64_t, uint64_t, uint64_t, uint64_t) {
     if (!validate_user_ptr(st_virt)) {
-        return -1;
+        return -kEfault;
     }
 
     // Step 1: Look up the FD
     cinux::fs::File* file = cinux::fs::current_fd_table().get(static_cast<int>(fd));
 
     if (file == nullptr || file->inode == nullptr) {
-        return -1;
+        return -kEbadf;
     }
 
     cinux::fs::Inode* inode = file->inode;
 
     // Step 2: Call stat()
     if (inode->ops == nullptr) {
-        return -1;
+        return -kEio;
     }
 
     cinux::fs::stat kst;
-    auto stat_result = inode->ops->stat(inode, &kst);
+    auto            stat_result = inode->ops->stat(inode, &kst);
     if (!stat_result.ok()) {
-        return -1;
+        return -to_errno(stat_result.error());
     }
 
     // Step 3: Copy to user buffer

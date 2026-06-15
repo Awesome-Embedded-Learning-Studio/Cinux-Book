@@ -11,6 +11,7 @@
 
 #include <stdint.h>
 
+#include "kernel/errno.hpp"
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -20,21 +21,21 @@ namespace cinux::syscall {
 int64_t sys_getdents(uint64_t fd, uint64_t buf_virt, uint64_t count, uint64_t, uint64_t, uint64_t) {
     // Validate user buffer address
     if (buf_virt == 0 || count == 0) {
-        return -1;
+        return -kEfault;
     }
     uint64_t bit47 = (buf_virt >> 47) & 1;
     uint64_t upper = buf_virt >> 48;
     if (bit47 == 0 && upper != 0) {
-        return -1;
+        return -kEfault;
     }
     if (bit47 == 1 && upper != 0xFFFF) {
-        return -1;
+        return -kEfault;
     }
 
     // Look up the file descriptor
     cinux::fs::File* file = cinux::fs::current_fd_table().get(static_cast<int>(fd));
     if (file == nullptr || file->inode == nullptr || file->inode->ops == nullptr) {
-        return -1;
+        return -kEbadf;
     }
 
     auto* name_buf = reinterpret_cast<char*>(buf_virt);
@@ -44,7 +45,7 @@ int64_t sys_getdents(uint64_t fd, uint64_t buf_virt, uint64_t count, uint64_t, u
         auto dir_result = file->inode->ops->readdir(file->inode, file->offset, name_buf, count);
 
         if (!dir_result.ok()) {
-            return -1;
+            return -to_errno(dir_result.error());
         }
 
         if (dir_result.value() == 1) {

@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 
+#include "kernel/errno.hpp"
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/path.hpp"
 #include "kernel/fs/vfs_mount.hpp"
@@ -22,7 +23,7 @@ int64_t sys_open(uint64_t path_virt, uint64_t flags, uint64_t, uint64_t, uint64_
     // Step 1: Resolve the path (cwd-aware)
     char resolved[cinux::fs::PATH_MAX];
     if (!resolve_user_path(path_virt, resolved)) {
-        return -1;
+        return -kEfault;
     }
 
     // Step 2: Resolve through the VFS mount table
@@ -31,14 +32,14 @@ int64_t sys_open(uint64_t path_virt, uint64_t flags, uint64_t, uint64_t, uint64_
 
     if (fs == nullptr) {
         cinux::lib::kprintf("[SYS_OPEN] No filesystem mounted for '%s'\n", resolved);
-        return -1;
+        return -kEnoent;
     }
 
     // Step 3: Look up the Inode in the backend filesystem
     auto inode_result = fs->lookup(rel_path);
     if (!inode_result.ok()) {
         cinux::lib::kprintf("[SYS_OPEN] File not found: '%s'\n", resolved);
-        return -1;
+        return -to_errno(inode_result.error());
     }
     cinux::fs::Inode* inode = inode_result.value();
 
@@ -64,7 +65,7 @@ int64_t sys_open(uint64_t path_virt, uint64_t flags, uint64_t, uint64_t, uint64_
 
     if (fd == cinux::fs::FD_NONE) {
         cinux::lib::kprintf("[SYS_OPEN] FD table full, cannot open '%s'\n", resolved);
-        return -1;
+        return -kEmfile;
     }
 
     return static_cast<int64_t>(fd);

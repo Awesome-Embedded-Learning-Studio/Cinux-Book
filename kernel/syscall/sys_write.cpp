@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 
+#include "kernel/errno.hpp"
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -24,15 +25,15 @@ using cinux::lib::kprintf;
 
 int64_t sys_write(uint64_t fd, uint64_t buf_virt, uint64_t count, uint64_t, uint64_t, uint64_t) {
     if (buf_virt == 0) {
-        return -1;
+        return -kEfault;
     }
     uint64_t bit47 = (buf_virt >> 47) & 1;
     uint64_t upper = buf_virt >> 48;
     if (bit47 == 0 && upper != 0) {
-        return -1;
+        return -kEfault;
     }
     if (bit47 == 1 && upper != 0xFFFF) {
-        return -1;
+        return -kEfault;
     }
 
     // Check FDTable first -- if the fd has a valid VFS entry (e.g. pipe),
@@ -45,7 +46,7 @@ int64_t sys_write(uint64_t fd, uint64_t buf_virt, uint64_t count, uint64_t, uint
         (void)g;
         auto write_result = file->inode->ops->write(file->inode, file->offset, buf, count);
         if (!write_result.ok()) {
-            return -1;
+            return -to_errno(write_result.error());
         }
         if (write_result.value() > 0) {
             file->offset += static_cast<uint64_t>(write_result.value());
@@ -64,7 +65,7 @@ int64_t sys_write(uint64_t fd, uint64_t buf_virt, uint64_t count, uint64_t, uint
     }
 
     // No VFS entry and not a legacy fd -- fail
-    return -1;
+    return -kEbadf;
 }
 
 }  // namespace cinux::syscall

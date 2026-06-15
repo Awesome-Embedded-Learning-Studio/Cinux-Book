@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 
+#include "kernel/errno.hpp"
 #include "kernel/fs/path.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -27,7 +28,7 @@ int64_t sys_creat(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, ui
     // Step 1: Resolve the path (cwd-aware)
     char resolved[cinux::fs::PATH_MAX];
     if (!resolve_user_path(path_virt, resolved)) {
-        return -1;
+        return -kEfault;
     }
 
     // Step 2: Resolve through the VFS mount table
@@ -36,7 +37,7 @@ int64_t sys_creat(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, ui
 
     if (fs == nullptr) {
         kprintf("[SYS_CREAT] No filesystem mounted for '%s'\n", resolved);
-        return -1;
+        return -kEnoent;
     }
 
     // Step 3: Split relative path into parent dir and leaf name
@@ -46,20 +47,20 @@ int64_t sys_creat(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, ui
 
     if (!split_pathname(rel_path, parent_buf, &leaf_name, &name_len)) {
         kprintf("[SYS_CREAT] Invalid path: '%s'\n", resolved);
-        return -1;
+        return -kEinval;
     }
 
     // Step 4: Look up the parent directory inode
     auto parent_result = fs->lookup(parent_buf);
     if (!parent_result.ok()) {
         kprintf("[SYS_CREAT] Parent directory not found for '%s'\n", resolved);
-        return -1;
+        return -to_errno(parent_result.error());
     }
     cinux::fs::Inode* parent = parent_result.value();
 
     if (parent->ops == nullptr) {
         kprintf("[SYS_CREAT] Parent inode has no ops\n");
-        return -1;
+        return -kEio;
     }
 
     // Step 5: Try to create the file
@@ -73,7 +74,10 @@ int64_t sys_creat(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, ui
     auto existing_result = fs->lookup(rel_path);
     if (!existing_result.ok() || existing_result.value()->ops == nullptr) {
         kprintf("[SYS_CREAT] Failed to create or truncate '%s'\n", resolved);
-        return -1;
+        if (!existing_result.ok()) {
+            return -to_errno(existing_result.error());
+        }
+        return -kEio;
     }
     cinux::fs::Inode* existing = existing_result.value();
 
