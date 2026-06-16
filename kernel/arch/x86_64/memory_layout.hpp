@@ -43,4 +43,22 @@ constexpr uint64_t KMEM_DMA_BASE = KMEM_STACK_BASE + 0x100000ULL;
 constexpr uint64_t KMEM_EXT2_DMA_SIZE = 0x100000ULL;  // 1 MB
 constexpr uint64_t KMEM_EXT2_DMA_BASE = KMEM_DMA_BASE + KMEM_DMA_SIZE;
 
+// ============================================================
+// User-space virtual memory layout (lower half)
+// ============================================================
+// The ELF image loads at USER_ENTRY_BASE (see usermode.hpp); the heap, mmap
+// region and stack all live below USER_STACK_TOP.  Cinux's user space tops out
+// near 32 GB (USER_STACK_TOP = 0x7FFFFF000), far below the canonical 128 TB, so
+// the mmap window is sized to leave a guard gap below the stack.  These are
+// consumed by mmap (F2-M2) and brk (F2-M3); F2-M1 only defines them.
+
+/// Heap start, just past the ELF image (USER_ENTRY_BASE = 0x400000).
+constexpr uint64_t USER_BRK_BASE  = 0x600000ULL;  // 6 MB
+/// Heap ceiling for brk growth.
+constexpr uint64_t USER_BRK_MAX   = 0x4000000ULL;  // 64 MB
+/// Start of the mmap region (above the heap ceiling).
+constexpr uint64_t USER_MMAP_BASE = 0x100000000ULL;  // 4 GB
+/// End of the mmap region -- 8 GB below USER_STACK_TOP as a guard gap.
+constexpr uint64_t USER_MMAP_END  = 0x600000000ULL;  // 24 GB
+
 }  // namespace cinux::arch

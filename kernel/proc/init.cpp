@@ -116,6 +116,16 @@ void kernel_init_thread() {
             }
         }
 
+        // Record the user stack as a grows-down VMA (batch 4 auto-expands it).
+        constexpr cinux::mm::VmaFlags kStackVma =
+            cinux::mm::VmaFlags::Read | cinux::mm::VmaFlags::Write | cinux::mm::VmaFlags::Stack;
+        if (!task->addr_space->vmas()
+                 .insert(stack_base, cinux::arch::USER_STACK_TOP, kStackVma)
+                 .ok()) {
+            cinux::lib::kprintf("[INIT] stack VMA record failed\n");
+            cinux::proc::Scheduler::exit_current();
+        }
+
         cinux::lib::kprintf("[INIT] Shell jumping to user mode: entry=%p\n",
                             reinterpret_cast<void*>(entry));
 

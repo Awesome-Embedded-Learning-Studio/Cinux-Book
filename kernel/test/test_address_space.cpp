@@ -20,11 +20,14 @@
 
 #include <stdint.h>
 
+#include <utility>
+
 #include "big_kernel_test.h"
 #include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/mm/vma.hpp"
 #include "kernel/mm/vmm.hpp"
 
 using cinux::arch::FLAG_PRESENT;
@@ -281,6 +284,53 @@ void test_destroy_no_kernel_corruption() {
 }  // namespace test_as_destroy_safe
 
 // ============================================================
+// Test 12: AddressSpace owns a VMA store; insert/find/remove flow through it
+// ============================================================
+
+namespace test_as_vma {
+
+void test_vma_store_integration() {
+    cinux::mm::AddressSpace as;
+    // A fresh address space has an empty VMA store.
+    TEST_ASSERT_TRUE(as.vmas().count() == 0);
+
+    using cinux::mm::VmaFlags;
+    constexpr VmaFlags kRw    = VmaFlags::Read | VmaFlags::Write;
+    constexpr uint64_t kStart = 0x10000000ULL;
+    constexpr uint64_t kEnd   = 0x10010000ULL;
+
+    TEST_ASSERT_TRUE(as.vmas().insert(kStart, kEnd, kRw).ok());
+    TEST_ASSERT_TRUE(as.vmas().count() == 1);
+
+    cinux::mm::VMA* m = as.vmas().find(kStart + 0x8000);
+    TEST_ASSERT_NOT_NULL(m);
+    TEST_ASSERT_TRUE(m->start == kStart && m->end == kEnd);
+
+    TEST_ASSERT_TRUE(as.vmas().remove(kStart, kEnd).ok());
+    TEST_ASSERT_TRUE(as.vmas().count() == 0);
+}
+
+void test_vma_store_moves_with_address_space() {
+    // AddressSpace is move-constructible; the VMA store travels with it and the
+    // source is left empty (PML4 stolen, store moved out).
+    using cinux::mm::VmaFlags;
+    constexpr VmaFlags kRw    = VmaFlags::Read | VmaFlags::Write;
+    constexpr uint64_t kStart = 0x20000000ULL;
+    constexpr uint64_t kEnd   = 0x20001000ULL;
+
+    cinux::mm::AddressSpace src;
+    TEST_ASSERT_TRUE(src.vmas().insert(kStart, kEnd, kRw).ok());
+    TEST_ASSERT_TRUE(src.vmas().count() == 1);
+
+    cinux::mm::AddressSpace dst(std::move(src));
+    TEST_ASSERT_EQ(src.pml4_phys(), 0u);
+    TEST_ASSERT_TRUE(dst.vmas().count() == 1);
+    TEST_ASSERT_NOT_NULL(dst.vmas().find(kStart + 0x800));
+}
+
+}  // namespace test_as_vma
+
+// ============================================================
 // Entry point
 // ============================================================
 
@@ -298,6 +348,8 @@ extern "C" void run_address_space_tests() {
     RUN_TEST(test_as_activate_map::test_activate_map_translate);
     RUN_TEST(test_as_two_pages::test_two_pages);
     RUN_TEST(test_as_destroy_safe::test_destroy_no_kernel_corruption);
+    RUN_TEST(test_as_vma::test_vma_store_integration);
+    RUN_TEST(test_as_vma::test_vma_store_moves_with_address_space);
 
     TEST_SUMMARY();
 }

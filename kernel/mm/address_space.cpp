@@ -8,6 +8,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <utility>
+
 #include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -113,7 +115,8 @@ AddressSpace::~AddressSpace() {
 // Move operations
 // ============================================================
 
-AddressSpace::AddressSpace(AddressSpace&& other) noexcept : pml4_phys_(other.pml4_phys_) {
+AddressSpace::AddressSpace(AddressSpace&& other) noexcept
+    : pml4_phys_(other.pml4_phys_), vma_store_(std::move(other.vma_store_)) {
     other.pml4_phys_ = 0;
 }
 
@@ -130,9 +133,10 @@ AddressSpace& AddressSpace::operator=(AddressSpace&& other) noexcept {
             g_pmm.free_page(pml4_phys_);
         }
 
-        // Take ownership of the other's PML4
+        // Take ownership of the other's PML4 and VMA store
         pml4_phys_       = other.pml4_phys_;
         other.pml4_phys_ = 0;
+        vma_store_       = std::move(other.vma_store_);
     }
     return *this;
 }

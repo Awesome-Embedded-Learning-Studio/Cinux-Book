@@ -266,6 +266,25 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
                 return ExecveResult::MapFailed;
             }
         }
+
+        // Record this loadable segment as a VMA -- the single source of truth
+        // the page-fault handler checks (batch 4).  Segment ranges are page-
+        // aligned and non-overlapping by ELF construction, so insert only fails
+        // on OOM; treat that as a load failure to keep the VMA set complete.
+        cinux::mm::VmaFlags seg_vma = cinux::mm::VmaFlags::Read;
+        if (phdr.p_flags & elf::PF_W) {
+            seg_vma |= cinux::mm::VmaFlags::Write;
+        }
+        if (phdr.p_flags & elf::PF_X) {
+            seg_vma |= cinux::mm::VmaFlags::Exec;
+        }
+        if (!task->addr_space->vmas().insert(seg_start, seg_end, seg_vma).ok()) {
+            cinux::lib::kprintf("[EXECVE] VMA record failed for %p-%p\n",
+                                reinterpret_cast<void*>(seg_start),
+                                reinterpret_cast<void*>(seg_end));
+            delete[] phdrs;
+            return ExecveResult::MapFailed;
+        }
     }
 
     delete[] phdrs;

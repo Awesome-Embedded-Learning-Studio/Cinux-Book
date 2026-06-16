@@ -20,6 +20,9 @@
 
 #include <stdint.h>
 
+#include "kernel/mm/vma.hpp"
+#include "kernel/proc/sync.hpp"
+
 namespace cinux::mm {
 
 class AddressSpace {
@@ -117,6 +120,12 @@ public:
     /** Get the saved kernel PML4 physical address. */
     static uint64_t kernel_pml4();
 
+    /** Borrow this space's VMA store (the sorted record of user mappings). */
+    IVMAStore& vmas() { return vma_store_; }
+
+    /** Borrow the lock that serialises VMA store access for this space. */
+    cinux::proc::Spinlock& vma_lock() { return vma_lock_; }
+
 private:
     // ============================================================
     // Internal helpers
@@ -136,6 +145,12 @@ private:
 
     /** Physical address of this address space's PML4 root. */
     uint64_t pml4_phys_{};
+
+    /// VMA bookkeeping: the sorted set of user-space mappings in this space.
+    LinkedListVMAStore vma_store_;
+
+    /// Serialises access to vma_store_ (page-fault path, mmap, etc.).
+    cinux::proc::Spinlock vma_lock_;
 
     /** Saved kernel PML4 physical address (populated by init_kernel). */
     static uint64_t kernel_pml4_;

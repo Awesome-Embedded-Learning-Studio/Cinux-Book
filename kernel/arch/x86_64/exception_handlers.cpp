@@ -22,6 +22,7 @@
 #include "kernel/arch/x86_64/paging_config.hpp"
 #include "kernel/lib/klog.hpp"
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/mm/address_space.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vmm.hpp"
 #include "kernel/proc/process.hpp"
@@ -246,6 +247,24 @@ void handle_pf(InterruptFrame* frame) {
         uint64_t map_flags = cinux::arch::FLAG_PRESENT | cinux::arch::FLAG_WRITABLE;
         if (cinux::arch::is_user_vaddr(fault_addr)) {
             map_flags |= cinux::arch::FLAG_USER;
+
+            // VMA bookkeeping cross-check (F2-M1 batch 4, diagnostic only).
+            // We do NOT gate demand paging on the VMA set yet: the existing
+            // handler auto-pages any not-present user address (stack growth,
+            // bss), and turning that into a hard segfault needs the demand-
+            // paging rework planned for M5.  Here we only log when a fault
+            // lands outside every recorded VMA -- expected for legitimate
+            // stack growth below the initial stack pages, a probable bug
+            // otherwise.  Read unlocked: PF runs with IF=0 on this single CPU,
+            // so no syscall/execve can mutate the store concurrently.
+            auto* task = cinux::proc::Scheduler::current();
+            if (task != nullptr && task->addr_space != nullptr &&
+                task->addr_space->vmas().find(fault_addr) == nullptr) {
+                klog_warn(
+                    "demand-paged user addr %p has no VMA (stack growth ok; "
+                    "hard segfault deferred to M5)",
+                    reinterpret_cast<void*>(fault_addr));
+            }
         }
         uint64_t phys = cinux::mm::g_pmm.alloc_page_locked();
         if (phys != 0) {
