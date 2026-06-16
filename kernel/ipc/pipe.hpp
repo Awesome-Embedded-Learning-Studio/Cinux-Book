@@ -11,12 +11,18 @@
  * matching the existing sys_read pattern.  True scheduler-based blocking
  * will be added in a future milestone.
  *
+ * The backing store is cinux::lib::RingBuffer (Cinux-Base); the ring buffer
+ * itself is not thread-safe, so all access is guarded by lock_ plus
+ * irq_save/restore.
+ *
  * Namespace: cinux::ipc
  */
 
 #pragma once
 
 #include <stdint.h>
+
+#include <cinux/ring_buffer.hpp>
 
 #include "kernel/proc/sync.hpp"
 
@@ -156,17 +162,10 @@ public:
 private:
     // -- Ring buffer state -------------------------------------------------
 
-    /// Circular byte buffer
-    char buffer_[PIPE_BUFFER_SIZE];
-
-    /// Index of the next byte to read
-    uint32_t head_;
-
-    /// Index of the next free slot to write
-    uint32_t tail_;
-
-    /// Number of bytes currently in the buffer (0 .. PIPE_BUFFER_SIZE)
-    uint32_t count_;
+    /// Circular byte storage.  SPSC ring buffer from Cinux-Base; protected
+    /// externally by lock_ plus irq_save/restore (the ring buffer itself is
+    /// not thread-safe).
+    cinux::lib::RingBuffer<char, PIPE_BUFFER_SIZE> buf_;
 
     // -- Endpoint state ----------------------------------------------------
 
@@ -175,7 +174,7 @@ private:
 
     // -- Synchronisation ---------------------------------------------------
 
-    /// Protects all mutable state (head_, tail_, count_, open flags)
+    /// Protects all mutable state (buf_, open flags)
     cinux::proc::Spinlock lock_;
 };
 

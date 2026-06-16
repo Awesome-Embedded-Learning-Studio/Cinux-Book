@@ -27,6 +27,8 @@
 
 #include <stdint.h>
 
+#include <cinux/ring_buffer.hpp>
+
 // Forward declaration -- InterruptFrame is defined in idt.hpp
 namespace cinux::arch {
 struct InterruptFrame;
@@ -104,10 +106,10 @@ private:
 
     static void enqueue(const KeyEvent& ev);
 
-    // Ring buffer storage
-    static KeyEvent queue_[KEY_QUEUE_SIZE];
-    static uint32_t head_;
-    static uint32_t tail_;
+    // Ring buffer storage.  SPSC ring buffer from Cinux-Base; access is
+    // serialised between the IRQ1 context (enqueue) and poll()'s
+    // InterruptGuard, so the ring buffer itself need not be thread-safe.
+    static cinux::lib::RingBuffer<KeyEvent, KEY_QUEUE_SIZE> buf_;
 
     // Modifier tracking state
     static bool shift_held_;

@@ -70,7 +70,6 @@ constexpr uint8_t EXTENDED = 0xE0;
 // Ring Buffer Constants (internal)
 // ============================================================
 
-static constexpr uint32_t KEY_QUEUE_SIZE  = 64;
 static constexpr uint32_t SCAN_TABLE_SIZE = 128;
 
 // ============================================================
@@ -127,9 +126,7 @@ static constexpr char kScToUpper[SCAN_TABLE_SIZE] = {
 // Static storage
 // ============================================================
 
-KeyEvent Keyboard::queue_[KEY_QUEUE_SIZE] = {};
-uint32_t Keyboard::head_                  = 0;
-uint32_t Keyboard::tail_                  = 0;
+cinux::lib::RingBuffer<KeyEvent, Keyboard::KEY_QUEUE_SIZE> Keyboard::buf_;
 
 bool Keyboard::shift_held_ = false;
 bool Keyboard::ctrl_held_  = false;
@@ -214,8 +211,7 @@ void Keyboard::init() {
     send_command(Ps2Cmd::ENABLE_PORT1);
 
     // Step 7: Reset internal state
-    head_       = 0;
-    tail_       = 0;
+    buf_.clear();
     shift_held_ = false;
     ctrl_held_  = false;
     alt_held_   = false;
@@ -298,13 +294,7 @@ bool Keyboard::poll(KeyEvent& out) {
     cinux::proc::InterruptGuard guard;
     (void)guard;
 
-    if (head_ == tail_) {
-        return false;
-    }
-
-    out   = queue_[head_];
-    head_ = (head_ + 1) % KEY_QUEUE_SIZE;
-    return true;
+    return buf_.pop(out);
 }
 
 // ============================================================
@@ -312,15 +302,9 @@ bool Keyboard::poll(KeyEvent& out) {
 // ============================================================
 
 void Keyboard::enqueue(const KeyEvent& ev) {
-    uint32_t next = (tail_ + 1) % KEY_QUEUE_SIZE;
-
-    // Drop the event if the buffer is full
-    if (next == head_) {
-        return;
-    }
-
-    queue_[tail_] = ev;
-    tail_         = next;
+    // Drop the event if the buffer is full -- RingBuffer::push returns
+    // false when full, matching the previous drop-newest semantics.
+    (void)buf_.push(ev);
 }
 
 }  // namespace cinux::drivers
