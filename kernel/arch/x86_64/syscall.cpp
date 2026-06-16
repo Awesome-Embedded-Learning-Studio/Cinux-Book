@@ -17,6 +17,7 @@
 #include "kernel/syscall/sys_chdir.hpp"
 #include "kernel/syscall/sys_close.hpp"
 #include "kernel/syscall/sys_creat.hpp"
+#include "kernel/syscall/sys_dmesg.hpp"
 #include "kernel/syscall/sys_execve.hpp"
 #include "kernel/syscall/sys_exit.hpp"
 #include "kernel/syscall/sys_fork.hpp"
@@ -82,6 +83,7 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_fork, sys_fork);
     syscall_register(SyscallNr::SYS_execve, sys_execve);
     syscall_register(SyscallNr::SYS_waitpid, sys_waitpid);
+    syscall_register(SyscallNr::SYS_dmesg, sys_dmesg);
 }
 
 }  // anonymous namespace

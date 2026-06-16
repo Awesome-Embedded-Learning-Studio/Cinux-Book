@@ -40,6 +40,7 @@ enum class SyscallNr : uint64_t {
     SYS_fork     = 57,
     SYS_execve   = 59,
     SYS_waitpid  = 61,
+    SYS_dmesg    = 103,  ///< kernel log read (Linux SYS_syslog)
 };
 
 constexpr uint64_t SYSCALL_TABLE_SIZE = 256;

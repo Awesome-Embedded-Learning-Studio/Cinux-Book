@@ -8,6 +8,11 @@
  * Policy:
  *   - Non-fatal exceptions (#BP, #DB): print info and continue via IRETQ
  *   - Fatal exceptions (all others): print register dump, then cli;hlt forever
+ *
+ * Exception-type messages go through klog (klog_error/klog_warn) so they
+ * enter the dmesg ring buffer with a level, while still printing in real
+ * time.  The verbose register dump and kpanic stay on kprintf (real-time
+ * diagnostics; the dump is large and kpanic is the halt path).
  */
 
 #include <stdint.h>
@@ -15,6 +20,7 @@
 #include "arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/idt.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
+#include "kernel/lib/klog.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vmm.hpp"
@@ -74,76 +80,76 @@ extern "C" {
 
 void handle_db(InterruptFrame* frame) {
     dump_registers(frame, "#DB", 1);
-    kprintf("[EXCEPTION] Debug exception, continuing...\n");
+    klog_warn("Debug exception (#DB), continuing");
 }
 
 void handle_bp(InterruptFrame* frame) {
     dump_registers(frame, "#BP", 3);
-    kprintf("[EXCEPTION] Breakpoint at RIP=%p\n", reinterpret_cast<void*>(frame->rip));
-    kprintf("[EXCEPTION] Continuing...\n");
+    klog_warn("Breakpoint (#BP) at RIP=%p", reinterpret_cast<void*>(frame->rip));
+    klog_warn("Continuing");
 }
 
 void handle_de(InterruptFrame* frame) {
     dump_registers(frame, "#DE", 0);
-    kprintf("[FATAL] Divide Error -- halting.\n");
+    klog_error("Divide Error (#DE) -- halting");
     fatal_halt();
 }
 
 void handle_nmi(InterruptFrame* frame) {
     dump_registers(frame, "NMI", 2);
-    kprintf("[FATAL] Non-maskable Interrupt -- halting.\n");
+    klog_error("Non-maskable Interrupt (NMI) -- halting");
     fatal_halt();
 }
 
 void handle_of(InterruptFrame* frame) {
     dump_registers(frame, "#OF", 4);
-    kprintf("[FATAL] Overflow -- halting.\n");
+    klog_error("Overflow (#OF) -- halting");
     fatal_halt();
 }
 
 void handle_br(InterruptFrame* frame) {
     dump_registers(frame, "#BR", 5);
-    kprintf("[FATAL] BOUND Range Exceeded -- halting.\n");
+    klog_error("BOUND Range Exceeded (#BR) -- halting");
     fatal_halt();
 }
 
 void handle_ud(InterruptFrame* frame) {
     dump_registers(frame, "#UD", 6);
-    kprintf("[FATAL] Invalid Opcode -- halting.\n");
+    klog_error("Invalid Opcode (#UD) -- halting");
     fatal_halt();
 }
 
 void handle_nm(InterruptFrame* frame) {
     dump_registers(frame, "#NM", 7);
-    kprintf("[FATAL] Device Not Available -- halting.\n");
+    klog_error("Device Not Available (#NM) -- halting");
     fatal_halt();
 }
 
 void handle_df(InterruptFrame* frame) {
     dump_registers(frame, "#DF", 8);
-    kprintf("[FATAL] Double Fault (error code=%p) -- halting.\n",
-            reinterpret_cast<void*>(frame->error_code));
+    klog_error("Double Fault (#DF, error code=%p) -- halting",
+               reinterpret_cast<void*>(frame->error_code));
     fatal_halt();
 }
 
 void handle_ts(InterruptFrame* frame) {
     dump_registers(frame, "#TS", 10);
-    kprintf("[FATAL] Invalid TSS (error code=%p) -- halting.\n",
-            reinterpret_cast<void*>(frame->error_code));
+    klog_error("Invalid TSS (#TS, error code=%p) -- halting",
+               reinterpret_cast<void*>(frame->error_code));
     fatal_halt();
 }
 
 void handle_np(InterruptFrame* frame) {
     dump_registers(frame, "#NP", 11);
-    kprintf("[FATAL] Segment Not Present (error code=%p) -- halting.\n",
-            reinterpret_cast<void*>(frame->error_code));
+    klog_error("Segment Not Present (#NP, error code=%p) -- halting",
+               reinterpret_cast<void*>(frame->error_code));
     fatal_halt();
 }
 
 void handle_ss(InterruptFrame* frame) {
     dump_registers(frame, "#SS", 12);
-    kprintf("[FATAL] Stack Fault (error code=%p) -- halting.\n",
-            reinterpret_cast<void*>(frame->error_code));
+    klog_error("Stack Fault (#SS, error code=%p) -- halting",
+               reinterpret_cast<void*>(frame->error_code));
     fatal_halt();
 }
 
@@ -153,12 +159,11 @@ void handle_gp(InterruptFrame* frame) {
     bool from_user = (frame->cs & 0x03) != 0;
 
     if (from_user) {
-        kprintf("[EXCEPTION] #GP at RIP=%p from user mode (Ring 3)\n",
-                reinterpret_cast<void*>(frame->rip));
-        kprintf("[EXCEPTION] Privileged instruction executed in Ring 3 -- protection works!\n");
+        klog_warn("#GP at RIP=%p from user mode (Ring 3)", reinterpret_cast<void*>(frame->rip));
+        klog_warn("Privileged instruction executed in Ring 3 -- protection works");
     } else {
-        kprintf("[FATAL] General Protection Fault in kernel mode (error code=%p)\n",
-                reinterpret_cast<void*>(frame->error_code));
+        klog_error("General Protection Fault (#GP) in kernel mode (error code=%p)",
+                   reinterpret_cast<void*>(frame->error_code));
     }
 
     fatal_halt();
@@ -269,9 +274,8 @@ void handle_pf(InterruptFrame* frame) {
     const char* fetch    = (err & 0x10) ? ", instruction fetch" : "";
 
     dump_registers(frame, "#PF", 14);
-    kprintf("[FATAL] Page Fault: %s %s %s%s%s\n", present, access, mode, reserved, fetch);
-    kprintf("[FATAL] Faulting address (CR2) = %p -- halting.\n",
-            reinterpret_cast<void*>(fault_addr));
+    klog_error("Page Fault (#PF): %s %s %s%s%s", present, access, mode, reserved, fetch);
+    klog_error("Faulting address (CR2) = %p -- halting", reinterpret_cast<void*>(fault_addr));
     fatal_halt();
 }
 
