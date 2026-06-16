@@ -21,6 +21,7 @@
 
 #include "big_kernel_test.h"
 #include "kernel/drivers/ahci/ahci.hpp"
+#include "kernel/drivers/ahci/ahci_block_device.hpp"
 #include "kernel/drivers/pci/pci.hpp"
 #include "kernel/fs/ext2.hpp"
 #include "kernel/mm/pmm.hpp"
@@ -351,8 +352,9 @@ namespace test_ext2_write_block {
  * @brief Helper: set up AHCI + Ext2 on port 1 (ext2 disk)
  */
 struct Ext2Pair {
-    AHCI* ahci;
-    Ext2* ext2;
+    AHCI*                                  ahci;
+    Ext2*                                  ext2;
+    cinux::drivers::ahci::AHCIBlockDevice* blk_dev;
 };
 
 Ext2Pair setup_ext2() {
@@ -373,7 +375,10 @@ Ext2Pair setup_ext2() {
     }
 
     // Port 1 is the ext2 test disk
-    result.ext2 = new Ext2(*result.ahci, 1);
+    auto blk = cinux::drivers::ahci::AHCIBlockDevice::create(*result.ahci, 1);
+    result.blk_dev =
+        blk.ok() ? new cinux::drivers::ahci::AHCIBlockDevice(std::move(blk.value())) : nullptr;
+    result.ext2 = new Ext2(result.blk_dev);
     result.ext2->mount();
 
     return result;
@@ -381,6 +386,7 @@ Ext2Pair setup_ext2() {
 
 void teardown_ext2(Ext2Pair& pair) {
     delete pair.ext2;
+    delete pair.blk_dev;
     delete pair.ahci;
     pair.ext2 = nullptr;
     pair.ahci = nullptr;
@@ -412,7 +418,7 @@ void test_ext2_write_block_roundtrip() {
     bool ok = pair.ext2->read_block(test_block);
     TEST_ASSERT_TRUE(ok);
 
-    auto*    dma = reinterpret_cast<uint8_t*>(pair.ext2->dma_buf_virt());
+    auto*    dma = pair.ext2->block_buf();
     uint32_t bs  = pair.ext2->block_size();
 
     // Save original
@@ -468,7 +474,7 @@ void test_ext2_write_block_zero() {
     bool ok = pair.ext2->read_block(0);
     TEST_ASSERT_TRUE(ok);
 
-    auto*    dma = reinterpret_cast<uint8_t*>(pair.ext2->dma_buf_virt());
+    auto*    dma = pair.ext2->block_buf();
     uint32_t bs  = pair.ext2->block_size();
 
     // Save original
@@ -525,7 +531,7 @@ void test_ext2_write_block_persistence() {
     bool ok = pair.ext2->read_block(test_block);
     TEST_ASSERT_TRUE(ok);
 
-    auto*    dma = reinterpret_cast<uint8_t*>(pair.ext2->dma_buf_virt());
+    auto*    dma = pair.ext2->block_buf();
     uint32_t bs  = pair.ext2->block_size();
 
     uint8_t* original = new uint8_t[bs];

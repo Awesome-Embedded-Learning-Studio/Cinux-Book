@@ -23,8 +23,13 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_C_FLAGS_DEBUG "-g -O0")
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
-set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG")
-set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
+# Release enables _FORTIFY_SOURCE=2 explicitly to match CI's Ubuntu gcc spec, so
+# local non-Ubuntu toolchains reproduce CI's fortified <cstring>/<string.h>
+# (catches __memcpy_chk misuse locally, not only in CI; see PLAN GOTCHA #9).
+# Requires the -O2 above; Ubuntu spec would add it implicitly anyway, so this is
+# a no-op on CI but a hardening parity fix everywhere else.
+set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG -D_FORTIFY_SOURCE=2")
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG -D_FORTIFY_SOURCE=2")
 
 enable_testing()
 

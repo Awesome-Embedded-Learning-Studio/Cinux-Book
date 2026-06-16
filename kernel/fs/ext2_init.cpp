@@ -11,95 +11,42 @@
 #include <stdint.h>
 
 #include "ext2.hpp"
-#include "kernel/arch/x86_64/memory_layout.hpp"
-#include "kernel/arch/x86_64/paging_config.hpp"
-#include "kernel/drivers/ahci/ahci.hpp"
+#include "kernel/drivers/block_device.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/lib/string.hpp"
-#include "kernel/mm/pmm.hpp"
-#include "kernel/mm/vmm.hpp"
 
 namespace cinux::fs {
-
-// ============================================================
-// Virtual address for ext2 DMA buffers
-// ============================================================
-
-static constexpr uint64_t EXT2_DMA_VIRT_BASE = cinux::arch::KMEM_EXT2_DMA_BASE;
 
 // ============================================================
 // Constructor
 // ============================================================
 
-Ext2::Ext2(cinux::drivers::ahci::AHCI& ahci, uint8_t port_index)
-    : file_ops_(*this), dir_ops_(*this), ahci_(ahci), port_index_(port_index) {}
-
-// ============================================================
-// DMA buffer management
-// ============================================================
-
-bool Ext2::ensure_dma_buffer() {
-    if (dma_ready_) {
-        return true;
-    }
-
-    dma_buf_phys_ = cinux::mm::g_pmm.alloc_page();
-    if (dma_buf_phys_ == 0) {
-        cinux::lib::kprintf("[EXT2] Failed to allocate DMA page\n");
-        return false;
-    }
-
-    constexpr uint64_t flags = cinux::arch::FLAG_PRESENT | cinux::arch::FLAG_WRITABLE;
-    dma_buf_virt_            = EXT2_DMA_VIRT_BASE;
-
-    if (!cinux::mm::g_vmm.map(dma_buf_virt_, dma_buf_phys_, flags)) {
-        cinux::lib::kprintf("[EXT2] Failed to map DMA page\n");
-        cinux::mm::g_pmm.free_page(dma_buf_phys_);
-        dma_buf_phys_ = 0;
-        return false;
-    }
-
-    auto* buf = reinterpret_cast<uint8_t*>(dma_buf_virt_);
-    for (uint32_t i = 0; i < cinux::arch::PAGE_SIZE; ++i) {
-        buf[i] = 0;
-    }
-
-    dma_ready_ = true;
-    return true;
-}
+Ext2::Ext2(cinux::drivers::IBlockDevice* dev) : file_ops_(*this), dir_ops_(*this), dev_(dev) {}
 
 // ============================================================
 // Block I/O
 // ============================================================
 
 bool Ext2::read_block(uint32_t block_num) {
-    if (!ensure_dma_buffer()) {
-        return false;
-    }
-
     uint64_t lba = static_cast<uint64_t>(block_num) * sectors_per_block_;
 
-    bool ok =
-        ahci_.read(port_index_, lba, static_cast<uint16_t>(sectors_per_block_), dma_buf_phys_);
-    if (!ok) {
+    auto r = dev_->read_blocks(lba, sectors_per_block_, block_buf_);
+    if (!r.ok()) {
         cinux::lib::kprintf("[EXT2] read_block(%u) I/O failed\n", block_num);
+        return false;
     }
-    return ok;
+    return true;
 }
 
 bool Ext2::write_block(uint32_t block_num) {
-    if (!ensure_dma_buffer()) {
-        return false;
-    }
-
     uint64_t lba = static_cast<uint64_t>(block_num) * sectors_per_block_;
 
-    bool ok =
-        ahci_.write(port_index_, lba, static_cast<uint16_t>(sectors_per_block_), dma_buf_phys_);
-    if (!ok) {
+    auto r = dev_->write_blocks(lba, sectors_per_block_, block_buf_);
+    if (!r.ok()) {
         cinux::lib::kprintf("[EXT2] write_block(%u) I/O failed\n", block_num);
+        return false;
     }
-    return ok;
+    return true;
 }
 
 // ============================================================
@@ -114,8 +61,8 @@ bool Ext2::is_mounted() const {
     return mounted_;
 }
 
-uint64_t Ext2::dma_buf_virt() const {
-    return dma_buf_virt_;
+uint8_t* Ext2::block_buf() {
+    return block_buf_;
 }
 
 // ============================================================
@@ -123,23 +70,18 @@ uint64_t Ext2::dma_buf_virt() const {
 // ============================================================
 
 cinux::lib::ErrorOr<void> Ext2::mount() {
-    cinux::lib::kprintf("[EXT2] Mounting ext2 filesystem on AHCI port %u\n", port_index_);
-
-    if (!ensure_dma_buffer()) {
-        return cinux::lib::Error::IOError;
-    }
+    cinux::lib::kprintf("[EXT2] Mounting ext2 filesystem\n");
 
     // Read the superblock (byte offset 1024 = LBA 2, 2 sectors)
     constexpr uint64_t SB_LBA     = EXT2_SUPERBLOCK_OFFSET / EXT2_SECTOR_SIZE;
     constexpr uint16_t SB_SECTORS = EXT2_SUPERBLOCK_SIZE / EXT2_SECTOR_SIZE;
 
-    if (!ahci_.read(port_index_, SB_LBA, SB_SECTORS, dma_buf_phys_)) {
+    if (!dev_->read_blocks(SB_LBA, SB_SECTORS, block_buf_).ok()) {
         cinux::lib::kprintf("[EXT2] Failed to read superblock\n");
         return cinux::lib::Error::IOError;
     }
 
-    auto* dma = reinterpret_cast<const uint8_t*>(dma_buf_virt_);
-    memcpy(&sb_, dma, sizeof(Ext2Superblock));
+    memcpy(&sb_, block_buf_, sizeof(Ext2Superblock));
 
     if (sb_.s_magic != EXT2_SUPER_MAGIC) {
         cinux::lib::kprintf("[EXT2] Invalid magic: 0x%x (expected 0x%x)\n", sb_.s_magic,
@@ -180,7 +122,7 @@ cinux::lib::ErrorOr<void> Ext2::mount() {
             return cinux::lib::Error::IOError;
         }
 
-        auto*    src                   = reinterpret_cast<const uint8_t*>(dma_buf_virt_);
+        auto*    src                   = block_buf_;
         uint32_t entries_in_this_block = block_size_ / sizeof(Ext2BlockGroupDescriptor);
         uint32_t start_entry           = i * entries_in_this_block;
         uint32_t copy_count            = entries_in_this_block;
@@ -222,10 +164,9 @@ bool Ext2::write_superblock() {
     constexpr uint64_t SB_LBA     = EXT2_SUPERBLOCK_OFFSET / EXT2_SECTOR_SIZE;
     constexpr uint16_t SB_SECTORS = EXT2_SUPERBLOCK_SIZE / EXT2_SECTOR_SIZE;
 
-    auto* dma = reinterpret_cast<uint8_t*>(dma_buf_virt_);
-    memcpy(dma, &sb_, sizeof(Ext2Superblock));
+    memcpy(block_buf_, &sb_, sizeof(Ext2Superblock));
 
-    if (!ahci_.write(port_index_, SB_LBA, SB_SECTORS, dma_buf_phys_)) {
+    if (!dev_->write_blocks(SB_LBA, SB_SECTORS, block_buf_).ok()) {
         cinux::lib::kprintf("[EXT2] write_superblock: I/O failed\n");
         return false;
     }
@@ -249,7 +190,7 @@ bool Ext2::write_bgdt(uint32_t group) {
         return false;
     }
 
-    auto* block_data = reinterpret_cast<uint8_t*>(dma_buf_virt_);
+    auto* block_data = block_buf_;
     memcpy(block_data + entry_in_block * sizeof(Ext2BlockGroupDescriptor), &bgdt_[group],
            sizeof(Ext2BlockGroupDescriptor));
 
@@ -289,7 +230,7 @@ uint32_t Ext2::lookup_in_dir(uint32_t dir_ino, const char* name, uint32_t name_l
             return 0;
         }
 
-        auto*    block_data = reinterpret_cast<const uint8_t*>(dma_buf_virt_);
+        auto*    block_data = block_buf_;
         uint32_t pos        = 0;
 
         while (pos < bs) {

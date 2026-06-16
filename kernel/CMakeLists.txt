@@ -139,6 +139,7 @@ add_executable(big_kernel_test
     test/test_vfs_syscall.cpp
     test/test_ext2.cpp
     test/test_ahci_write.cpp
+    test/test_ahci_block_device.cpp
     test/test_ext2_allocator.cpp
     test/test_ext2_ops.cpp
     test/test_ext2_inode_ops.cpp
@@ -165,6 +166,7 @@ add_executable(big_kernel_test
     test/test_dma_buffer.cpp
     test/test_dma_pool.cpp
     test/test_prdt_builder.cpp
+    test/test_block_device.cpp
 )
 
 target_sources(big_kernel_test PRIVATE $<TARGET_OBJECTS:big_kernel_common>)

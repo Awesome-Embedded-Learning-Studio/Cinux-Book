@@ -41,7 +41,7 @@ bool Ext2::add_dir_entry(uint32_t dir_ino, Ext2Inode& dir_disk, uint32_t entry_i
             return false;
         }
 
-        auto*    block_data = reinterpret_cast<uint8_t*>(dma_buf_virt_);
+        auto*    block_data = reinterpret_cast<uint8_t*>(block_buf_);
         uint32_t pos        = 0;
 
         while (pos < bs) {
@@ -97,7 +97,7 @@ bool Ext2::add_dir_entry(uint32_t dir_ino, Ext2Inode& dir_disk, uint32_t entry_i
         return false;
     }
 
-    auto* dma = reinterpret_cast<uint8_t*>(dma_buf_virt_);
+    auto* dma = reinterpret_cast<uint8_t*>(block_buf_);
     for (uint32_t i = 0; i < bs; ++i) {
         dma[i] = 0;
     }
@@ -149,7 +149,7 @@ bool Ext2::remove_dir_entry(uint32_t /*dir_ino*/, const Ext2Inode& dir_disk, con
             return false;
         }
 
-        auto*    block_data = reinterpret_cast<uint8_t*>(dma_buf_virt_);
+        auto*    block_data = reinterpret_cast<uint8_t*>(block_buf_);
         uint32_t pos        = 0;
         uint32_t prev_pos   = 0;
 
@@ -310,7 +310,7 @@ Inode* Ext2::mkdir(uint32_t parent_ino, const char* name, uint32_t name_len) {
     }
 
     // Initialise the data block with "." and ".." entries
-    auto* dma = reinterpret_cast<uint8_t*>(dma_buf_virt_);
+    auto* dma = reinterpret_cast<uint8_t*>(block_buf_);
     for (uint32_t i = 0; i < block_size_; ++i) {
         dma[i] = 0;
     }
@@ -404,7 +404,7 @@ int Ext2::unlink(uint32_t parent_ino, const char* name, uint32_t name_len) {
             uint32_t indirect_blk = target_disk.i_block[EXT2_INDIRECT_BLOCK];
 
             if (read_block(indirect_blk)) {
-                auto*    indirect       = reinterpret_cast<uint32_t*>(dma_buf_virt_);
+                auto*    indirect       = reinterpret_cast<uint32_t*>(block_buf_);
                 uint32_t ptrs_per_block = bs / sizeof(uint32_t);
 
                 for (uint32_t i = 0; i < ptrs_per_block; ++i) {

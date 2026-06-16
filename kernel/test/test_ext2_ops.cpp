@@ -27,6 +27,7 @@
 
 #include "big_kernel_test.h"
 #include "kernel/drivers/ahci/ahci.hpp"
+#include "kernel/drivers/ahci/ahci_block_device.hpp"
 #include "kernel/drivers/pci/pci.hpp"
 #include "kernel/drivers/pit/pit.hpp"
 #include "kernel/fs/ext2.hpp"
@@ -44,12 +45,13 @@ using cinux::fs::Inode;
 namespace {
 
 struct AhciExt2Pair {
-    AHCI* ahci;
-    Ext2* ext2;
+    AHCI*                                  ahci;
+    Ext2*                                  ext2;
+    cinux::drivers::ahci::AHCIBlockDevice* blk_dev;
 };
 
 AhciExt2Pair setup_ext2() {
-    AhciExt2Pair result{nullptr, nullptr};
+    AhciExt2Pair result{nullptr, nullptr, nullptr};
 
     PCI pci;
     pci.init();
@@ -65,7 +67,10 @@ AhciExt2Pair setup_ext2() {
         return result;
     }
 
-    result.ext2 = new Ext2(*result.ahci, 1);
+    auto blk = cinux::drivers::ahci::AHCIBlockDevice::create(*result.ahci, 1);
+    result.blk_dev =
+        blk.ok() ? new cinux::drivers::ahci::AHCIBlockDevice(std::move(blk.value())) : nullptr;
+    result.ext2 = new Ext2(result.blk_dev);
     result.ext2->mount();
 
     return result;
@@ -73,6 +78,7 @@ AhciExt2Pair setup_ext2() {
 
 void teardown_ext2(AhciExt2Pair& pair) {
     delete pair.ext2;
+    delete pair.blk_dev;
     delete pair.ahci;
     pair.ext2 = nullptr;
     pair.ahci = nullptr;

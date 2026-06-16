@@ -39,7 +39,7 @@ uint32_t Ext2::alloc_block() {
             return 0;
         }
 
-        auto* bitmap = reinterpret_cast<uint8_t*>(dma_buf_virt_);
+        auto* bitmap = reinterpret_cast<uint8_t*>(block_buf_);
 
         uint32_t blocks_in_group = blocks_per_group_;
         uint32_t first_block     = group * blocks_per_group_ + first_data_block_;
@@ -119,7 +119,7 @@ bool Ext2::free_block(uint32_t block_num) {
     uint32_t byte_idx = local_block / 8;
     uint32_t bit      = local_block % 8;
 
-    auto* bitmap = reinterpret_cast<uint8_t*>(dma_buf_virt_);
+    auto* bitmap = reinterpret_cast<uint8_t*>(block_buf_);
     bitmap[byte_idx] &= static_cast<uint8_t>(~(1U << bit));
 
     if (!write_block(bitmap_block)) {

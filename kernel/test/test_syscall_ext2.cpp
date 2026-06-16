@@ -26,6 +26,7 @@
 
 #include "big_kernel_test.h"
 #include "kernel/drivers/ahci/ahci.hpp"
+#include "kernel/drivers/ahci/ahci_block_device.hpp"
 #include "kernel/drivers/pci/pci.hpp"
 #include "kernel/drivers/pit/pit.hpp"
 #include "kernel/fs/ext2.hpp"
@@ -50,8 +51,9 @@ using cinux::fs::InodeType;
 namespace {
 
 struct AhciExt2Pair {
-    AHCI* ahci;
-    Ext2* ext2;
+    AHCI*                                  ahci;
+    Ext2*                                  ext2;
+    cinux::drivers::ahci::AHCIBlockDevice* blk_dev;
 };
 
 /**
@@ -59,7 +61,7 @@ struct AhciExt2Pair {
  *        and register it in the VFS mount table at "/"
  */
 AhciExt2Pair setup_syscall_ext2() {
-    AhciExt2Pair result{nullptr, nullptr};
+    AhciExt2Pair result{nullptr, nullptr, nullptr};
 
     // Reset VFS mount table for a clean slate
     cinux::fs::vfs_mount_init();
@@ -78,7 +80,10 @@ AhciExt2Pair setup_syscall_ext2() {
     result.ahci->init(ahci_dev);
 
     // Ext2 mount on port 1 (the ext2 test disk)
-    result.ext2 = new Ext2(*result.ahci, 1);
+    auto blk = cinux::drivers::ahci::AHCIBlockDevice::create(*result.ahci, 1);
+    result.blk_dev =
+        blk.ok() ? new cinux::drivers::ahci::AHCIBlockDevice(std::move(blk.value())) : nullptr;
+    result.ext2 = new Ext2(result.blk_dev);
     result.ext2->mount();
 
     // Register in VFS
@@ -91,6 +96,7 @@ AhciExt2Pair setup_syscall_ext2() {
 void teardown_syscall_ext2(AhciExt2Pair& pair) {
     cinux::fs::vfs_mount_remove("/");
     delete pair.ext2;
+    delete pair.blk_dev;
     delete pair.ahci;
     pair.ext2 = nullptr;
     pair.ahci = nullptr;

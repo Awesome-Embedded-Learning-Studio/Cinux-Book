@@ -3,12 +3,12 @@
  * @brief ext2 filesystem driver (inherits from FileSystem)
  *
  * Implements the VFS FileSystem interface for the ext2 filesystem.
- * Reads blocks from disk via the AHCI driver and DMA buffers
- * allocated through PMM/VMM.  Supports mount(), lookup(), and
- * InodeOps (read, readdir) for files and directories.
+ * Reads blocks from disk through a device-agnostic IBlockDevice (e.g. the
+ * AHCIBlockDevice adapter), which owns any DMA plumbing.  Supports mount(),
+ * lookup(), and InodeOps (read, readdir) for files and directories.
  *
  * Usage:
- *   cinux::fs::Ext2 ext2(ahci, port_index);
+ *   cinux::fs::Ext2 ext2(block_dev);
  *   ext2.mount();
  *   vfs_mount_add("/", &ext2);
  *   Inode* ino = ext2.lookup("etc/motd");
@@ -23,10 +23,7 @@
 #include "fs/ext2_common.hpp"
 #include "fs/ext2_types.hpp"
 #include "fs/vfs_filesystem.hpp"
-
-namespace cinux::drivers::ahci {
-class AHCI;
-}
+#include "kernel/drivers/block_device.hpp"
 
 namespace cinux::fs {
 
@@ -41,18 +38,18 @@ namespace cinux::fs {
  * disk during mount(), then provides path-based lookup() and
  * InodeOps for reading files and listing directories.
  *
- * Block I/O is performed through the AHCI driver using DMA buffers
- * allocated from the PMM and mapped into kernel virtual address space.
+ * Block I/O goes through a device-agnostic IBlockDevice; the backing device
+ * (e.g. AHCIBlockDevice) owns any DMA plumbing.
  */
 class Ext2 : public FileSystem {
 public:
     /**
-     * @brief Construct an ext2 driver bound to an AHCI port
+     * @brief Construct an ext2 driver over a block device
      *
-     * @param ahci         Reference to the initialised AHCI controller
-     * @param port_index   AHCI port number where the ext2 disk resides
+     * @param dev  Block device backing the filesystem (e.g. AHCIBlockDevice).
+     *             Must outlive the Ext2 instance.
      */
-    Ext2(cinux::drivers::ahci::AHCI& ahci, uint8_t port_index);
+    explicit Ext2(cinux::drivers::IBlockDevice* dev);
 
     /**
      * @brief Mount the ext2 filesystem
@@ -92,17 +89,19 @@ public:
     bool is_mounted() const;
 
     /**
-     * @brief Get the virtual address of the DMA buffer (read-only access)
+     * @brief Get the scratch block buffer (populated by read_block())
      *
-     * Used by InodeOps callbacks to access block data after read_block().
-     * @return Virtual address of the DMA buffer
+     * Used by InodeOps callbacks to access block data after read_block(), or
+     * to stage modified data before write_block().
+     * @return Pointer to the block buffer (PAGE_SIZE bytes)
      */
-    uint64_t dma_buf_virt() const;
+    uint8_t* block_buf();
 
     /**
-     * @brief Read an ext2 block from disk into the DMA buffer
+     * @brief Read an ext2 block from disk into the block buffer
      *
-     * Public wrapper used by InodeOps callbacks.
+     * Public wrapper used by InodeOps callbacks.  Afterwards the data is
+     * available via block_buf().
      *
      * @param block_num  ext2 block number (0-based)
      * @return true on success, false on I/O error
@@ -110,11 +109,11 @@ public:
     bool read_block(uint32_t block_num);
 
     /**
-     * @brief Write the DMA buffer contents back to an ext2 block on disk
+     * @brief Write the block buffer contents back to an ext2 block on disk
      *
-     * The caller should first populate the DMA buffer (via dma_buf_virt())
-     * with the modified block data, then call write_block() to flush it
-     * to disk.  This is the counterpart to read_block().
+     * The caller should first populate the block buffer (via block_buf())
+     * with the modified block data, then call write_block() to flush it.
+     * This is the counterpart to read_block().
      *
      * @param block_num  ext2 block number (0-based)
      * @return true on success, false on I/O error
@@ -285,17 +284,6 @@ public:
 
 private:
     // ============================================================
-    // Internal helpers
-    // ============================================================
-
-    /**
-     * @brief Ensure the DMA buffer is allocated and mapped
-     *
-     * @return true if the buffer is ready, false on allocation failure
-     */
-    bool ensure_dma_buffer();
-
-    // ============================================================
     // Metadata write-back helpers
     // ============================================================
 
@@ -371,11 +359,11 @@ private:
     Ext2FileOps file_ops_;
     Ext2DirOps  dir_ops_;
 
-    /// Reference to the AHCI controller
-    cinux::drivers::ahci::AHCI& ahci_;
+    /// Block device backing the filesystem (not owned)
+    cinux::drivers::IBlockDevice* dev_;
 
-    /// AHCI port index where the ext2 disk is attached
-    uint8_t port_index_;
+    /// Scratch block buffer for read_block()/write_block() (max ext2 block = 4096 B)
+    uint8_t block_buf_[4096];
 
     /// Whether mount() has succeeded
     bool mounted_{};
@@ -412,15 +400,6 @@ private:
 
     /// Root directory VFS inode (always at cache slot 0 after mount)
     Inode root_inode_{};
-
-    /// Physical address of the single-block DMA buffer
-    uint64_t dma_buf_phys_{};
-
-    /// Virtual address of the single-block DMA buffer
-    uint64_t dma_buf_virt_{};
-
-    /// Whether the DMA buffer has been allocated and mapped
-    bool dma_ready_{};
 };
 
 }  // namespace cinux::fs

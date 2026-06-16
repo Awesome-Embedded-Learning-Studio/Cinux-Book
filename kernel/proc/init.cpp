@@ -5,6 +5,7 @@
 #include "kernel/arch/x86_64/paging_config.hpp"
 #include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/drivers/ahci/ahci.hpp"
+#include "kernel/drivers/ahci/ahci_block_device.hpp"
 #include "kernel/fs/ext2.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -41,8 +42,10 @@ void kernel_init_thread() {
     cinux::lib::kprintf("[INIT] kernel_init started tid=%u\n", self ? self->tid : 0);
 
     cinux::lib::kprintf("[INIT] ===== Milestone 028: ext2 Filesystem =====\n");
-    static cinux::fs::Ext2 ext2(cinux::drivers::ahci::AHCI::instance(), 1);
-    auto mount_result = ext2.mount();
+    static auto blk_dev =
+        cinux::drivers::ahci::AHCIBlockDevice::create(cinux::drivers::ahci::AHCI::instance(), 1);
+    static cinux::fs::Ext2 ext2(blk_dev.ok() ? &blk_dev.value() : nullptr);
+    auto                   mount_result = ext2.mount();
     if (!mount_result.ok()) {
         cinux::lib::kprintf("[INIT] ext2 mount failed: %s\n",
                             cinux::lib::error_string(mount_result.error()));

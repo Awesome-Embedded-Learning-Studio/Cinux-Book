@@ -46,7 +46,7 @@ bool Ext2::read_disk_inode(uint32_t ino, Ext2Inode& out_inode) {
         return false;
     }
 
-    auto* block_data = reinterpret_cast<const uint8_t*>(dma_buf_virt_);
+    auto* block_data = reinterpret_cast<const uint8_t*>(block_buf_);
 
     if (within_block_offset + sizeof(Ext2Inode) > block_size_) {
         cinux::lib::kprintf("[EXT2] Inode %u crosses block boundary\n", ino);
@@ -86,7 +86,7 @@ bool Ext2::write_disk_inode(uint32_t ino, const Ext2Inode& inode) {
         return false;
     }
 
-    auto* block_data = reinterpret_cast<uint8_t*>(dma_buf_virt_);
+    auto* block_data = reinterpret_cast<uint8_t*>(block_buf_);
     memcpy(block_data + within_block_offset, &inode, sizeof(Ext2Inode));
 
     if (!write_block(target_block)) {
@@ -191,7 +191,7 @@ uint32_t Ext2::alloc_inode() {
             return 0;
         }
 
-        auto*    bitmap          = reinterpret_cast<uint8_t*>(dma_buf_virt_);
+        auto*    bitmap          = reinterpret_cast<uint8_t*>(block_buf_);
         uint32_t inodes_in_group = inodes_per_group_;
         uint32_t bytes_needed    = (inodes_in_group + 7) / 8;
 
@@ -263,7 +263,7 @@ bool Ext2::free_inode(uint32_t ino) {
     uint32_t byte_idx = local_index / 8;
     uint32_t bit      = local_index % 8;
 
-    auto* bitmap = reinterpret_cast<uint8_t*>(dma_buf_virt_);
+    auto* bitmap = reinterpret_cast<uint8_t*>(block_buf_);
     bitmap[byte_idx] &= static_cast<uint8_t>(~(1U << bit));
 
     if (!write_block(bitmap_block)) {
@@ -292,7 +292,7 @@ uint32_t Ext2::get_or_alloc_block(Ext2Inode& disk, uint32_t file_block) {
                 return 0;
             }
 
-            auto* dma = reinterpret_cast<uint8_t*>(dma_buf_virt_);
+            auto* dma = reinterpret_cast<uint8_t*>(block_buf_);
             for (uint32_t i = 0; i < block_size_; ++i) {
                 dma[i] = 0;
             }
@@ -316,7 +316,7 @@ uint32_t Ext2::get_or_alloc_block(Ext2Inode& disk, uint32_t file_block) {
                 return 0;
             }
 
-            auto* dma = reinterpret_cast<uint8_t*>(dma_buf_virt_);
+            auto* dma = reinterpret_cast<uint8_t*>(block_buf_);
             for (uint32_t i = 0; i < block_size_; ++i) {
                 dma[i] = 0;
             }
@@ -334,7 +334,7 @@ uint32_t Ext2::get_or_alloc_block(Ext2Inode& disk, uint32_t file_block) {
             return 0;
         }
 
-        auto* indirect = reinterpret_cast<uint32_t*>(dma_buf_virt_);
+        auto* indirect = reinterpret_cast<uint32_t*>(block_buf_);
 
         if (indirect[indirect_idx] == 0) {
             uint32_t data_blk = alloc_block();
@@ -342,7 +342,7 @@ uint32_t Ext2::get_or_alloc_block(Ext2Inode& disk, uint32_t file_block) {
                 return 0;
             }
 
-            auto* dma = reinterpret_cast<uint8_t*>(dma_buf_virt_);
+            auto* dma = reinterpret_cast<uint8_t*>(block_buf_);
             for (uint32_t i = 0; i < block_size_; ++i) {
                 dma[i] = 0;
             }
@@ -354,7 +354,7 @@ uint32_t Ext2::get_or_alloc_block(Ext2Inode& disk, uint32_t file_block) {
             if (!read_block(indirect_blk)) {
                 return 0;
             }
-            indirect               = reinterpret_cast<uint32_t*>(dma_buf_virt_);
+            indirect               = reinterpret_cast<uint32_t*>(block_buf_);
             indirect[indirect_idx] = data_blk;
             if (!write_block(indirect_blk)) {
                 return 0;
@@ -364,7 +364,7 @@ uint32_t Ext2::get_or_alloc_block(Ext2Inode& disk, uint32_t file_block) {
         if (!read_block(indirect_blk)) {
             return 0;
         }
-        indirect = reinterpret_cast<uint32_t*>(dma_buf_virt_);
+        indirect = reinterpret_cast<uint32_t*>(block_buf_);
         return indirect[indirect_idx];
     }
 

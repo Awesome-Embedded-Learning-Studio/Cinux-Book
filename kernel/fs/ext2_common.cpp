@@ -69,7 +69,7 @@ cinux::lib::ErrorOr<int64_t> Ext2FileOps::read(const Inode* inode, uint64_t offs
             }
 
             uint32_t idx      = static_cast<uint32_t>(file_block - EXT2_DIRECT_BLOCKS);
-            auto*    indirect = reinterpret_cast<uint32_t*>(ext2_.dma_buf_virt());
+            auto*    indirect = reinterpret_cast<uint32_t*>(ext2_.block_buf());
             disk_block        = indirect[idx];
         } else {
             break;
@@ -87,7 +87,7 @@ cinux::lib::ErrorOr<int64_t> Ext2FileOps::read(const Inode* inode, uint64_t offs
             break;
         }
 
-        auto* src = reinterpret_cast<const uint8_t*>(ext2_.dma_buf_virt()) + block_offset;
+        auto* src = reinterpret_cast<const uint8_t*>(ext2_.block_buf()) + block_offset;
         memcpy(dst + total_read, src, chunk);
         total_read += chunk;
     }
@@ -136,13 +136,13 @@ cinux::lib::ErrorOr<int64_t> Ext2FileOps::write(Inode* inode, uint64_t offset, c
                 break;
             }
         } else {
-            auto* dma = reinterpret_cast<uint8_t*>(ext2_.dma_buf_virt());
+            auto* dma = reinterpret_cast<uint8_t*>(ext2_.block_buf());
             for (uint32_t i = 0; i < bs; ++i) {
                 dma[i] = 0;
             }
         }
 
-        auto* dst = reinterpret_cast<uint8_t*>(ext2_.dma_buf_virt()) + block_offset;
+        auto* dst = reinterpret_cast<uint8_t*>(ext2_.block_buf()) + block_offset;
         for (uint64_t i = 0; i < chunk; ++i) {
             dst[i] = src[total_written + i];
         }
@@ -249,7 +249,7 @@ cinux::lib::ErrorOr<int64_t> Ext2DirOps::readdir(const Inode* inode, uint64_t in
             return cinux::lib::Error::IOError;
         }
 
-        auto*    block_data = reinterpret_cast<const uint8_t*>(ext2_.dma_buf_virt());
+        auto*    block_data = reinterpret_cast<const uint8_t*>(ext2_.block_buf());
         uint32_t pos        = 0;
 
         while (pos < bs) {
