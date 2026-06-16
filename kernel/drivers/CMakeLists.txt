@@ -8,6 +8,7 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/video/console.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/pci/pci.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ahci/ahci.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/dma/dma_pool.cpp
 )
 
 if(CINUX_GUI)

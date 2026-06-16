@@ -32,7 +32,10 @@ constexpr uint64_t KMEM_FB_BASE = KMEM_MMIO_BASE + KMEM_MMIO_SIZE;
 // Stacks: per-task kernel stacks (allocated upward)
 constexpr uint64_t KMEM_STACK_BASE = KMEM_FB_BASE + KMEM_FB_SIZE;
 
-// DMA: ad-hoc DMA buffers (sector reads, etc.)
+// DMA: ad-hoc DMA buffers (early-boot sector reads, etc.). Static window for
+// code that runs before the DmaPool is usable (mini loader, main.cpp). The
+// DmaPool (F1-M3) does NOT consume this region: it reuses the higher-half
+// direct map (phys + KERNEL_VMA), so pool allocations need no reserved range.
 constexpr uint64_t KMEM_DMA_SIZE = 0x100000ULL;  // 1 MB
 constexpr uint64_t KMEM_DMA_BASE = KMEM_STACK_BASE + 0x100000ULL;
 
