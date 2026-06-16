@@ -59,8 +59,7 @@ public:
     cinux::lib::ErrorOr<void> read_blocks(uint64_t block, uint64_t count, void* buf) override;
     cinux::lib::ErrorOr<void> write_blocks(uint64_t block, uint64_t count,
                                            const void* buf) override;
-    // flush() is inherited: AHCI exposes no flush command yet (F5-M1), so the
-    // default no-op applies.
+    cinux::lib::ErrorOr<void> flush() override;  // ATA FLUSH CACHE EXT via AHCI
 
     uint64_t block_count() const override { return capacity_blocks_; }
     uint64_t block_size() const override { return SECTOR_SIZE; }

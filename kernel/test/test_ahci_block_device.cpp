@@ -51,6 +51,7 @@ void test_create_and_block_size() {
     auto& blk = r.value();
     TEST_ASSERT_TRUE(blk.block_size() == SECTOR_SIZE);
     TEST_ASSERT_TRUE(blk.block_size() == 512);
+    TEST_ASSERT_TRUE(blk.block_count() > 0);  // ATA IDENTIFY populated capacity
 }
 
 }  // namespace test_ahciblk_create

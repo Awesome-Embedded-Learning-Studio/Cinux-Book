@@ -28,7 +28,13 @@ cinux::lib::ErrorOr<AHCIBlockDevice> AHCIBlockDevice::create(AHCI& ahci, uint8_t
     if (!buf.ok()) {
         return buf.error();
     }
-    return AHCIBlockDevice(&ahci, port_index, capacity_blocks, std::move(buf.value()));
+    // Query device capacity via ATA IDENTIFY when not supplied by the caller.
+    uint64_t capacity = capacity_blocks;
+    if (capacity == 0) {
+        auto cap = ahci.identify(port_index);
+        capacity = cap.ok() ? cap.value() : 0;
+    }
+    return AHCIBlockDevice(&ahci, port_index, capacity, std::move(buf.value()));
 }
 
 AHCIBlockDevice::AHCIBlockDevice(AHCI* ahci, uint8_t port_index, uint64_t capacity_blocks,
@@ -37,6 +43,10 @@ AHCIBlockDevice::AHCIBlockDevice(AHCI* ahci, uint8_t port_index, uint64_t capaci
       port_index_(port_index),
       capacity_blocks_(capacity_blocks),
       dma_buf_(std::move(dma_buf)) {}
+
+cinux::lib::ErrorOr<void> AHCIBlockDevice::flush() {
+    return ahci_->flush(port_index_);
+}
 
 cinux::lib::ErrorOr<void> AHCIBlockDevice::read_blocks(uint64_t block, uint64_t count, void* buf) {
     if (count == 0) {

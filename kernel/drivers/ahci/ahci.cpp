@@ -8,10 +8,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <utility>
+
 #include "kernel/arch/x86_64/memory_layout.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
+#include "kernel/drivers/dma/dma_pool.hpp"
+#include "kernel/drivers/dma/prdt_builder.hpp"
 #include "kernel/lib/kprintf.hpp"
-#include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vmm.hpp"
 
 namespace cinux::drivers::ahci {
@@ -127,44 +130,35 @@ void AHCI::setup_port(uint8_t port_index) {
     // Stop the port engine before reconfiguring
     stop_port(port);
 
-    // Allocate command list: 32 command headers * 32 bytes each = 1024 bytes
-    // Needs to be 1 KB aligned (1024-byte boundary)
-    uint64_t cmd_list_phys = cinux::mm::g_pmm.alloc_pages(1);  // 4 KB page is enough
-    if (cmd_list_phys == 0) {
+    // Allocate command list + command tables (share one 4 KB page via DmaPool).
+    // Layout: 32 command headers (1 KB) followed by the command table area.
+    auto cmd_list = cinux::drivers::dma::g_dma_pool.alloc(cinux::arch::PAGE_SIZE);
+    if (!cmd_list.ok()) {
         cinux::lib::kprintf("[AHCI] Port %u: failed to alloc command list\n", port_index);
         return;
     }
-    cmd_list_phys_[port_index] = cmd_list_phys;
+    cmd_list_buf_[port_index] = std::move(cmd_list.value());
+    uint64_t cmd_list_phys    = cmd_list_buf_[port_index].phys();
+    auto*    cmd_list_virt    = static_cast<uint8_t*>(cmd_list_buf_[port_index].virt());
 
-    // Zero out the command list page
-    auto* cmd_list_virt = reinterpret_cast<uint8_t*>(cmd_list_phys + 0xFFFFFFFF80000000ULL);
+    // Zero the whole page (headers + command table area)
     for (uint32_t i = 0; i < cinux::arch::PAGE_SIZE; ++i) {
         cmd_list_virt[i] = 0;
     }
 
-    // Map the command list page so the kernel can access it
-    uint64_t cmd_list_virt_addr  = MMIO_VIRT_BASE + 0x10000 + port_index * cinux::arch::PAGE_SIZE;
-    constexpr uint64_t cmd_flags = cinux::arch::FLAG_PRESENT | cinux::arch::FLAG_WRITABLE;
-    cinux::mm::g_vmm.map(cmd_list_virt_addr, cmd_list_phys, cmd_flags);
-
-    // Allocate FIS receive buffer: 256 bytes, 256-byte aligned
-    // A full page gives us the alignment
-    uint64_t fis_buf_phys = cinux::mm::g_pmm.alloc_page();
-    if (fis_buf_phys == 0) {
+    // Allocate FIS receive buffer (one page gives the 256-byte alignment)
+    auto fis = cinux::drivers::dma::g_dma_pool.alloc(cinux::arch::PAGE_SIZE);
+    if (!fis.ok()) {
         cinux::lib::kprintf("[AHCI] Port %u: failed to alloc FIS buffer\n", port_index);
         return;
     }
-    fis_buf_phys_[port_index] = fis_buf_phys;
+    fis_buf_[port_index]  = std::move(fis.value());
+    uint64_t fis_buf_phys = fis_buf_[port_index].phys();
+    auto*    fis_buf_virt = static_cast<uint8_t*>(fis_buf_[port_index].virt());
 
-    // Zero out the FIS buffer
-    auto* fis_buf_virt = reinterpret_cast<uint8_t*>(fis_buf_phys + 0xFFFFFFFF80000000ULL);
     for (uint32_t i = 0; i < cinux::arch::PAGE_SIZE; ++i) {
         fis_buf_virt[i] = 0;
     }
-
-    // Map the FIS buffer page
-    uint64_t fis_buf_virt_addr = MMIO_VIRT_BASE + 0x20000 + port_index * cinux::arch::PAGE_SIZE;
-    cinux::mm::g_vmm.map(fis_buf_virt_addr, fis_buf_phys, cmd_flags);
 
     // Write port registers
     port->clb  = static_cast<uint32_t>(cmd_list_phys & 0xFFFFFFFF);
@@ -177,35 +171,28 @@ void AHCI::setup_port(uint8_t port_index) {
     // Enable interrupts
     port->ie = PxIs::DHRS | PxIs::PSS | PxIs::DSS | PxIs::SDBS;
 
-    // Now allocate a command table for slot 0 inside the command list page.
-    // We place it at offset 1024 within the same page (after the 32 headers).
+    // Command table sits after the 32 headers in the same page.
     uint64_t cmd_tbl_phys = cmd_list_phys + CMD_SLOTS * sizeof(HBACommandHeader);
 
-    // Zero the command table area
-    auto* cmd_tbl_raw = reinterpret_cast<uint8_t*>(cmd_tbl_phys + 0xFFFFFFFF80000000ULL);
-    for (uint32_t i = 0; i < CMD_TABLE_TOTAL; ++i) {
-        cmd_tbl_raw[i] = 0;
-    }
-
     // Set up command header for slot 0 to point to the command table
-    auto* headers    = reinterpret_cast<HBACommandHeader*>(cmd_list_phys + 0xFFFFFFFF80000000ULL);
+    auto* headers    = reinterpret_cast<HBACommandHeader*>(cmd_list_virt);
     headers[0].ctba  = static_cast<uint32_t>(cmd_tbl_phys & 0xFFFFFFFF);
     headers[0].ctbau = static_cast<uint32_t>(cmd_tbl_phys >> 32);
 
     // Start the port engine
     start_port(port);
 
-    cinux::lib::kprintf("[AHCI] Port %u set up: cmdlist=0x%p fis=0x%p\n", port_index, cmd_list_phys,
-                        fis_buf_phys);
+    cinux::lib::kprintf("[AHCI] Port %u set up: cmdlist=0x%p fis=0x%p\n", port_index,
+                        (void*)cmd_list_phys, (void*)fis_buf_phys);
 }
 
-void AHCI::build_cfis(HBACommandTable* cmd_tbl, bool write_cmd, uint64_t lba, uint16_t count) {
+void AHCI::build_cfis(HBACommandTable* cmd_tbl, uint8_t command, uint64_t lba, uint16_t count) {
     // Build the Register H2D FIS in the first 20 bytes of cfis[]
     auto* fis = reinterpret_cast<RegH2DFIS*>(cmd_tbl->cfis);
 
     fis->fis_type = FisType::REG_H2D;
     fis->flags    = 0x80;  // Bit 6 set = command, bit 7 = reserved (set to 1 by convention)
-    fis->command  = write_cmd ? AtaCmd::WRITE_DMA_EXT : AtaCmd::READ_DMA_EXT;
+    fis->command  = command;
     fis->feature  = 0;  // Features (low 8 bits)
 
     // 48-bit LBA: LBA0-LBA2 hold low 24 bits, LBA3-LBA5 hold upper 24 bits
@@ -226,24 +213,18 @@ void AHCI::build_cfis(HBACommandTable* cmd_tbl, bool write_cmd, uint64_t lba, ui
     fis->control = 0;
 }
 
-bool AHCI::execute_command(uint8_t port_index, uint8_t slot, bool write_cmd, uint64_t lba,
+bool AHCI::execute_command(uint8_t port_index, uint8_t slot, uint8_t command, uint64_t lba,
                            uint16_t count, uint64_t buf_phys) {
     auto* port = &hba_mem_->ports[port_index];
 
-    // Get command list (we stored the physical address; convert to virt)
-    uint64_t cmd_list_virt = cmd_list_phys_[port_index] + 0xFFFFFFFF80000000ULL;
-    auto*    headers       = reinterpret_cast<HBACommandHeader*>(cmd_list_virt);
+    // Command list + table live in the port's DmaBuffer (direct-map virt).
+    auto* headers = reinterpret_cast<HBACommandHeader*>(cmd_list_buf_[port_index].virt());
 
-    // Get command table for this slot (placed after 32 headers)
-    uint64_t cmd_tbl_phys = cmd_list_phys_[port_index] + slot * CMD_TABLE_TOTAL;
-
-    // If using slot > 0, we would need separate allocation.
-    // For simplicity we reuse slot 0's command table for single-command ops.
-    // For slot 0, cmd_tbl_phys = cmd_list_phys + 32 * 32 = cmd_list_phys + 0x400
-    cmd_tbl_phys = cmd_list_phys_[port_index] + CMD_SLOTS * sizeof(HBACommandHeader);
-
-    auto* cmd_tbl_phys_ptr = reinterpret_cast<uint8_t*>(cmd_tbl_phys + 0xFFFFFFFF80000000ULL);
-    auto* cmd_tbl          = reinterpret_cast<HBACommandTable*>(cmd_tbl_phys_ptr);
+    // Command table sits after the 32 headers in the same page (slot 0 reused).
+    uint64_t cmd_tbl_phys = cmd_list_buf_[port_index].phys() + CMD_SLOTS * sizeof(HBACommandHeader);
+    auto*    cmd_tbl =
+        reinterpret_cast<HBACommandTable*>(static_cast<uint8_t*>(cmd_list_buf_[port_index].virt()) +
+                                           CMD_SLOTS * sizeof(HBACommandHeader));
 
     // Zero the command table
     for (uint32_t i = 0; i < CMD_TABLE_TOTAL; ++i) {
@@ -251,19 +232,27 @@ bool AHCI::execute_command(uint8_t port_index, uint8_t slot, bool write_cmd, uin
     }
 
     // Build the Command FIS
-    build_cfis(cmd_tbl, write_cmd, lba, count);
+    build_cfis(cmd_tbl, command, lba, count);
 
-    // Set up the PRDT (single entry for contiguous buffer)
-    uint32_t byte_count   = static_cast<uint32_t>(count) * SECTOR_SIZE - 1;
-    cmd_tbl->prdt[0].dba  = static_cast<uint32_t>(buf_phys & 0xFFFFFFFF);
-    cmd_tbl->prdt[0].dbau = static_cast<uint32_t>(buf_phys >> 32);
-    cmd_tbl->prdt[0].dbc  = byte_count & 0x3FFFFF;  // 22-bit max
-    cmd_tbl->prdt[0].i    = 1;                      // Interrupt on completion
+    // Build the PRDT via the device-independent PrdtBuilder (splits at the AHCI
+    // 22-bit per-segment cap; a single contiguous buffer yields one entry).
+    constexpr uint64_t kAhciMaxSegment = 0x400000;  // 4 MB (PRDT dbc is 22-bit)
+    cinux::drivers::dma::PrdtBuilder<MAX_PRDT_ENTRIES> prdt;
+    uint64_t transfer_bytes = static_cast<uint64_t>(count) * SECTOR_SIZE;
+    prdt.add(buf_phys, transfer_bytes, kAhciMaxSegment);
+
+    for (uint32_t i = 0; i < prdt.count(); ++i) {
+        const auto& seg       = prdt.segment(i);
+        cmd_tbl->prdt[i].dba  = static_cast<uint32_t>(seg.phys & 0xFFFFFFFF);
+        cmd_tbl->prdt[i].dbau = static_cast<uint32_t>(seg.phys >> 32);
+        cmd_tbl->prdt[i].dbc  = static_cast<uint32_t>((seg.size - 1) & 0x3FFFFF);
+        cmd_tbl->prdt[i].i    = (i + 1 == prdt.count()) ? 1 : 0;  // IRQ on last entry
+    }
 
     // Configure the command header
     headers[slot].cfl   = sizeof(RegH2DFIS) / 4;  // FIS length in dwords
-    headers[slot].prdtl = 1;                      // One PRDT entry
-    headers[slot].write = write_cmd ? 1 : 0;
+    headers[slot].prdtl = static_cast<uint16_t>(prdt.count());
+    headers[slot].write = (command == AtaCmd::WRITE_DMA_EXT) ? 1 : 0;
     headers[slot].ctba  = static_cast<uint32_t>(cmd_tbl_phys & 0xFFFFFFFF);
     headers[slot].ctbau = static_cast<uint32_t>(cmd_tbl_phys >> 32);
     headers[slot].prdbc = 0;
@@ -369,12 +358,12 @@ bool AHCI::read(uint8_t port_index, uint64_t lba, uint16_t count, uint64_t buf) 
         return false;
     }
 
-    if (cmd_list_phys_[port_index] == 0) {
+    if (!cmd_list_buf_[port_index].valid()) {
         cinux::lib::kprintf("[AHCI] Port %u not initialised.\n", port_index);
         return false;
     }
 
-    return execute_command(port_index, 0, false, lba, count, buf);
+    return execute_command(port_index, 0, AtaCmd::READ_DMA_EXT, lba, count, buf);
 }
 
 bool AHCI::write(uint8_t port_index, uint64_t lba, uint16_t count, uint64_t buf) {
@@ -382,12 +371,41 @@ bool AHCI::write(uint8_t port_index, uint64_t lba, uint16_t count, uint64_t buf)
         return false;
     }
 
-    if (cmd_list_phys_[port_index] == 0) {
+    if (!cmd_list_buf_[port_index].valid()) {
         cinux::lib::kprintf("[AHCI] Port %u not initialised.\n", port_index);
         return false;
     }
 
-    return execute_command(port_index, 0, true, lba, count, buf);
+    return execute_command(port_index, 0, AtaCmd::WRITE_DMA_EXT, lba, count, buf);
+}
+
+cinux::lib::ErrorOr<uint64_t> AHCI::identify(uint8_t port_index) {
+    if (hba_mem_ == nullptr || port_index >= MAX_PORTS || !cmd_list_buf_[port_index].valid()) {
+        return cinux::lib::Error::InvalidArgument;
+    }
+    // IDENTIFY DEVICE returns one 512-byte sector of device data.
+    auto buf = cinux::drivers::dma::g_dma_pool.alloc(SECTOR_SIZE);
+    if (!buf.ok()) {
+        return buf.error();
+    }
+    if (!execute_command(port_index, 0, AtaCmd::IDENTIFY, 0, 1, buf.value().phys())) {
+        return cinux::lib::Error::IOError;
+    }
+    // 28-bit capacity: words 60-61 hold max LBA as a 32-bit value.
+    const auto* data    = static_cast<const uint16_t*>(buf.value().virt());
+    uint64_t    max_lba = static_cast<uint64_t>(data[60]) | (static_cast<uint64_t>(data[61]) << 16);
+    return max_lba + 1;
+}
+
+cinux::lib::ErrorOr<void> AHCI::flush(uint8_t port_index) {
+    if (hba_mem_ == nullptr || port_index >= MAX_PORTS || !cmd_list_buf_[port_index].valid()) {
+        return cinux::lib::Error::InvalidArgument;
+    }
+    // FLUSH CACHE EXT carries no data (PRDT stays empty: add(0,0) -> 0 entries).
+    if (!execute_command(port_index, 0, AtaCmd::FLUSH_CACHE_EXT, 0, 0, 0)) {
+        return cinux::lib::Error::IOError;
+    }
+    return {};
 }
 
 HBAMem* AHCI::hba_mem() const {

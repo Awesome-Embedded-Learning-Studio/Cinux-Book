@@ -73,9 +73,10 @@ constexpr uint32_t AE         = (1U << 31);  ///< AHCI Enable
 // ============================================================
 
 namespace AtaCmd {
-constexpr uint8_t READ_DMA_EXT  = 0x25;  ///< Read DMA with FPDMA (NCQ) or DMA
-constexpr uint8_t WRITE_DMA_EXT = 0x35;  ///< Write DMA
-constexpr uint8_t IDENTIFY      = 0xEC;  ///< Identify Device
+constexpr uint8_t READ_DMA_EXT    = 0x25;  ///< Read DMA with FPDMA (NCQ) or DMA
+constexpr uint8_t WRITE_DMA_EXT   = 0x35;  ///< Write DMA
+constexpr uint8_t IDENTIFY        = 0xEC;  ///< Identify Device
+constexpr uint8_t FLUSH_CACHE_EXT = 0xEA;  ///< Flush Cache Ext
 }  // namespace AtaCmd
 
 // ============================================================

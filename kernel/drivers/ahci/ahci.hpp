@@ -26,7 +26,10 @@
 
 #include <stdint.h>
 
+#include <cinux/expected.hpp>
+
 #include "ahci_config.hpp"
+#include "kernel/drivers/dma/dma_buffer.hpp"
 #include "kernel/drivers/pci/pci.hpp"
 
 namespace cinux::drivers::ahci {
@@ -98,6 +101,18 @@ public:
      */
     HBAMem* hba_mem() const;
 
+    /**
+     * @brief Issue ATA IDENTIFY DEVICE and return the device capacity
+     * @return Sector count (max LBA + 1), or Error::IOError / InvalidArgument
+     */
+    cinux::lib::ErrorOr<uint64_t> identify(uint8_t port_index);
+
+    /**
+     * @brief Issue FLUSH CACHE EXT to flush the device write cache
+     * @return Error::Ok on success, Error::IOError / InvalidArgument
+     */
+    cinux::lib::ErrorOr<void> flush(uint8_t port_index);
+
 private:
     /**
      * @brief Map BAR5 into the kernel virtual address space
@@ -143,35 +158,35 @@ private:
      *
      * @param port_index  Port number
      * @param slot        Command slot index (0-31)
-     * @param write       true for write, false for read
+     * @param command     ATA command byte (e.g. AtaCmd::READ_DMA_EXT)
      * @param lba         Starting LBA
      * @param count       Sector count
      * @param buf_phys    Physical address of the data buffer
      * @return            true if the command completed successfully
      */
-    bool execute_command(uint8_t port_index, uint8_t slot, bool write_cmd, uint64_t lba,
+    bool execute_command(uint8_t port_index, uint8_t slot, uint8_t command, uint64_t lba,
                          uint16_t count, uint64_t buf_phys);
 
     /**
      * @brief Build the Command FIS in the command table
      *
      * @param cmd_tbl     Pointer to the command table
-     * @param write       true for write command, false for read
+     * @param command     ATA command byte
      * @param lba         Starting LBA
      * @param count       Sector count
      */
-    static void build_cfis(HBACommandTable* cmd_tbl, bool write_cmd, uint64_t lba, uint16_t count);
+    static void build_cfis(HBACommandTable* cmd_tbl, uint8_t command, uint64_t lba, uint16_t count);
 
     /// MMIO base pointer (virtual address of BAR5)
     HBAMem* hba_mem_{};
 
     static AHCI* s_instance_;
 
-    /// Physical addresses of per-port command lists
-    uint64_t cmd_list_phys_[MAX_PORTS]{};
+    /// Per-port command list + command table DMA (command list + tables share one page)
+    cinux::drivers::dma::DmaBuffer cmd_list_buf_[MAX_PORTS];
 
-    /// Physical addresses of per-port FIS buffers
-    uint64_t fis_buf_phys_[MAX_PORTS]{};
+    /// Per-port FIS receive buffer DMA
+    cinux::drivers::dma::DmaBuffer fis_buf_[MAX_PORTS];
 };
 
 }  // namespace cinux::drivers::ahci
