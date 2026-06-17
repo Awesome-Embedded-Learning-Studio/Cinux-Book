@@ -131,6 +131,13 @@ struct Task {
     /** Per-process page tables (nullptr for kernel-only threads). */
     cinux::mm::AddressSpace* addr_space;
 
+    // Program break (user heap end).  brk is lazy: sys_brk only moves
+    // brk_current; the Heap VMA (created by execve) covers [brk_initial,
+    // USER_BRK_MAX) and pages are demand-paged on first access.
+    uint64_t brk_current{};  ///< Current heap end
+    uint64_t brk_initial{};  ///< Heap start (ELF image end, set by execve)
+    uint64_t brk_max{};      ///< Heap ceiling (USER_BRK_MAX)
+
     /** Per-process file descriptor table (nullptr = use global). */
     cinux::fs::FDTable* fd_table;
 

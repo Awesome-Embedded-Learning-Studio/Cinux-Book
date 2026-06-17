@@ -22,4 +22,5 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_waitpid.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_dmesg.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_mmap.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_brk.cpp
 )

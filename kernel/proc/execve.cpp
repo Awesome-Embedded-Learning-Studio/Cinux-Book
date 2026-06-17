@@ -200,7 +200,8 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
 
     clear_user_mappings(*task->addr_space);
 
-    bool has_load_segment = false;
+    bool     has_load_segment = false;
+    uint64_t max_seg_end      = 0;  ///< highest PT_LOAD end -> brk_initial
 
     for (uint16_t i = 0; i < phnum; i++) {
         const auto& phdr = phdrs[i];
@@ -213,6 +214,9 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
 
         uint64_t seg_start = phdr.p_vaddr & ~(PAGE_SIZE - 1);
         uint64_t seg_end   = (phdr.p_vaddr + phdr.p_memsz + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+        if (seg_end > max_seg_end) {
+            max_seg_end = seg_end;
+        }
 
         uint64_t page_flags = FLAG_PRESENT | FLAG_USER;
         if (phdr.p_flags & elf::PF_W) {
@@ -292,6 +296,21 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
     if (!has_load_segment) {
         cinux::lib::kprintf("[EXECVE] no PT_LOAD segments found\n");
         return ExecveResult::NoLoadSegments;
+    }
+
+    // F2-M3: initialise the user heap.  brk starts at the page-aligned end of
+    // the ELF image; the Heap VMA spans [brk_initial, USER_BRK_MAX) so demand
+    // paging services heap growth without further bookkeeping.
+    task->brk_initial = (max_seg_end + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    task->brk_current = task->brk_initial;
+    task->brk_max     = cinux::arch::USER_BRK_MAX;
+    constexpr cinux::mm::VmaFlags kHeapVma =
+        cinux::mm::VmaFlags::Read | cinux::mm::VmaFlags::Write | cinux::mm::VmaFlags::Heap;
+    if (!task->addr_space->vmas()
+             .insert(task->brk_initial, cinux::arch::USER_BRK_MAX, kHeapVma)
+             .ok()) {
+        cinux::lib::kprintf("[EXECVE] heap VMA record failed\n");
+        return ExecveResult::MapFailed;
     }
 
     task->ctx.rip = ehdr->e_entry;

@@ -14,6 +14,7 @@
 
 #include "kernel/arch/x86_64/gdt.hpp"
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/syscall/sys_brk.hpp"
 #include "kernel/syscall/sys_chdir.hpp"
 #include "kernel/syscall/sys_close.hpp"
 #include "kernel/syscall/sys_creat.hpp"
@@ -88,6 +89,7 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_mmap, sys_mmap);
     syscall_register(SyscallNr::SYS_munmap, sys_munmap);
     syscall_register(SyscallNr::SYS_mprotect, sys_mprotect);
+    syscall_register(SyscallNr::SYS_brk, sys_brk);
 }
 
 }  // anonymous namespace
