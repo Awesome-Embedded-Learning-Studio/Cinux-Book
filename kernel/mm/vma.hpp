@@ -42,7 +42,7 @@
 #include <cstdint>
 
 namespace cinux::fs {
-class InodeOps;  // forward declaration; file backings are filled in M2 (mmap)
+struct Inode;  // forward declaration; file backings are filled in M2 (mmap)
 }
 
 namespace cinux::mm {
@@ -63,6 +63,10 @@ constexpr VmaFlags operator|(VmaFlags a, VmaFlags b) noexcept {
     return static_cast<VmaFlags>(static_cast<uint64_t>(a) | static_cast<uint64_t>(b));
 }
 
+constexpr VmaFlags operator&(VmaFlags a, VmaFlags b) noexcept {
+    return static_cast<VmaFlags>(static_cast<uint64_t>(a) & static_cast<uint64_t>(b));
+}
+
 constexpr VmaFlags& operator|=(VmaFlags& a, VmaFlags b) noexcept {
     a = a | b;
     return a;
@@ -81,13 +85,13 @@ constexpr bool has_flag(VmaFlags value, VmaFlags bit) noexcept {
  * table.  They are heap-allocated and owned by the store.
  */
 struct VMA {
-    uint64_t             start{};  ///< Range start (page-aligned), inclusive
-    uint64_t             end{};    ///< Range end (page-aligned), exclusive
-    VmaFlags             flags{VmaFlags::None};
-    cinux::fs::InodeOps* backing{nullptr};  ///< File backend (M2 mmap); null when anonymous
-    uint64_t             file_offset{0};    ///< Offset into the backing inode (M2)
-    VMA*                 prev{nullptr};     ///< Intrusive list link
-    VMA*                 next{nullptr};
+    uint64_t          start{};  ///< Range start (page-aligned), inclusive
+    uint64_t          end{};    ///< Range end (page-aligned), exclusive
+    VmaFlags          flags{VmaFlags::None};
+    cinux::fs::Inode* backing{nullptr};  ///< File backend (M2 mmap); null when anonymous
+    uint64_t          file_offset{0};    ///< Offset into the backing inode (M2)
+    VMA*              prev{nullptr};     ///< Intrusive list link
+    VMA*              next{nullptr};
 };
 
 /**

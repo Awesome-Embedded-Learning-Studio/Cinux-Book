@@ -219,6 +219,21 @@ __attribute__((optimize("no-omit-frame-pointer"), noinline)) int fork(PidAllocat
             child_pml4_table[i].raw = new_page | FLAG_PRESENT | FLAG_WRITABLE | FLAG_USER;
             copy_page_table_level(parent_pml4_table[i].phys_addr(), new_page, 3);
         }
+
+        // F2-M2 batch 4: clone the parent's VMA records into the child so the
+        // bookkeeping matches the CoW page tables.  File backings (Inode*) are
+        // shared by pointer; their contents are demand-read in M4 (Page Cache).
+        for (cinux::mm::VMA* v = parent->addr_space->vmas().first(); v != nullptr;
+             v                 = parent->addr_space->vmas().next(v)) {
+            (void)child->addr_space->vmas().insert(v->start, v->end, v->flags);
+            if (v->backing != nullptr) {
+                cinux::mm::VMA* cv = child->addr_space->vmas().find(v->start);
+                if (cv != nullptr) {
+                    cv->backing     = v->backing;
+                    cv->file_offset = v->file_offset;
+                }
+            }
+        }
     }
 
     child->wait_next = parent->children;

@@ -41,6 +41,9 @@ enum class SyscallNr : uint64_t {
     SYS_execve   = 59,
     SYS_waitpid  = 61,
     SYS_dmesg    = 103,  ///< kernel log read (Linux SYS_syslog)
+    SYS_mmap     = 9,    ///< allocate virtual memory (F2-M2)
+    SYS_mprotect = 10,   ///< set protection on a region (F2-M2)
+    SYS_munmap   = 11,   ///< unmap virtual memory (F2-M2)
 };
 
 constexpr uint64_t SYSCALL_TABLE_SIZE = 256;

@@ -75,6 +75,7 @@ void run_dma_pool_tests();
 void run_prdt_builder_tests();
 void run_block_device_tests();
 void run_vma_tests();
+void run_mmap_tests();
 }
 
 static constexpr uintptr_t BOOT_INFO_PHYS = 0x7000;
@@ -135,6 +136,7 @@ extern "C" void kernel_main() {
     cinux::mm::AddressSpace::init_kernel();
     run_address_space_tests();
     run_vma_tests();
+    run_mmap_tests();
 
     run_scheduler_tests();
     run_sync_tests();

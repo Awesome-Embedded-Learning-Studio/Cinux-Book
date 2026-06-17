@@ -26,6 +26,7 @@
 #include "kernel/syscall/sys_getpid.hpp"
 #include "kernel/syscall/sys_getppid.hpp"
 #include "kernel/syscall/sys_mkdir.hpp"
+#include "kernel/syscall/sys_mmap.hpp"
 #include "kernel/syscall/sys_open.hpp"
 #include "kernel/syscall/sys_pipe.hpp"
 #include "kernel/syscall/sys_read.hpp"
@@ -84,6 +85,9 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_execve, sys_execve);
     syscall_register(SyscallNr::SYS_waitpid, sys_waitpid);
     syscall_register(SyscallNr::SYS_dmesg, sys_dmesg);
+    syscall_register(SyscallNr::SYS_mmap, sys_mmap);
+    syscall_register(SyscallNr::SYS_munmap, sys_munmap);
+    syscall_register(SyscallNr::SYS_mprotect, sys_mprotect);
 }
 
 }  // anonymous namespace
