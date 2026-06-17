@@ -256,18 +256,37 @@ void handle_pf(InterruptFrame* frame) {
                                        : nullptr;
 
             if (vma == nullptr) {
-                // VMA bookkeeping cross-check (F2-M1 batch 4, diagnostic only).
-                // We do NOT gate demand paging on the VMA set yet: the existing
-                // handler auto-pages any not-present user address (stack growth,
-                // bss), and turning that into a hard segfault needs the demand-
-                // paging rework planned for M5.  Here we only log when a fault
-                // lands outside every recorded VMA -- expected for legitimate
-                // stack growth below the initial stack pages, a probable bug
-                // otherwise.  Read unlocked: PF runs with IF=0 on this single
-                // CPU, so no syscall/execve can mutate the store concurrently.
+                // F2-M5: hard VMA gate. A genuine user-mode (err&0x04)
+                // not-present fault on an address with no covering VMA is a
+                // real segfault -- NULL deref, wild pointer, or stack overflow
+                // past the guard. Terminate the offending task. Real SIGSEGV
+                // delivery is F3's job; until then exit_current() is the
+                // SIGSEGV-equivalent kill, and its context_switch() abandons
+                // this frame (the dead task is never resumed here).
+                //
+                // Kernel-mode access to a user address (ring-0 test code
+                // probing a test-built mapping, or copy_to/from_user) is NOT a
+                // segfault: keep the legacy zero-page service below so
+                // kernel-test PF injection and user-access helpers still work.
+                // Read unlocked: PF runs with IF=0 on this single CPU, so no
+                // syscall/execve can mutate the VMA store concurrently.
+                const bool user_fault = (err & 0x04) != 0;
+                if (user_fault && task != nullptr) {
+                    klog_error(
+                        "segfault: tid=%u '%s' addr=%p has no VMA -- killing task",
+                        static_cast<unsigned>(task->tid),
+                        task->name ? task->name : "(null)",
+                        reinterpret_cast<void*>(fault_addr));
+                    cinux::proc::Scheduler::exit_current();
+                    // exit_current() switches away and does not return; halt
+                    // defensively if it ever does.
+                    fatal_halt();
+                }
+                // Kernel-mode fault or no current task: keep the legacy
+                // zero-page service so test/boot PF injection still works.
                 klog_warn(
-                    "demand-paged user addr %p has no VMA (stack growth ok; "
-                    "hard segfault deferred to M5)",
+                    "demand-paged user addr %p has no VMA (kernel-mode/no-task "
+                    "context; mapping zero page)",
                     reinterpret_cast<void*>(fault_addr));
             } else if (vma->backing != nullptr &&
                        !cinux::mm::has_flag(vma->flags, cinux::mm::VmaFlags::Anonymous)) {

@@ -116,11 +116,17 @@ void kernel_init_thread() {
             }
         }
 
-        // Record the user stack as a grows-down VMA (batch 4 auto-expands it).
+        // Record the user stack VMA spanning the full growth region so PF-
+        // driven growth works under the F2-M5 hard VMA gate. Only the top
+        // USER_STACK_PAGES are pre-mapped above; the rest is demand-paged as
+        // the stack grows down. Accesses below [USER_STACK_TOP - GROWTH) hit
+        // no VMA -> segfault (stack overflow guard).
         constexpr cinux::mm::VmaFlags kStackVma =
             cinux::mm::VmaFlags::Read | cinux::mm::VmaFlags::Write | cinux::mm::VmaFlags::Stack;
+        constexpr uint64_t kStackVmaStart =
+            cinux::arch::USER_STACK_TOP - cinux::arch::USER_STACK_GROWTH;
         if (!task->addr_space->vmas()
-                 .insert(stack_base, cinux::arch::USER_STACK_TOP, kStackVma)
+                 .insert(kStackVmaStart, cinux::arch::USER_STACK_TOP, kStackVma)
                  .ok()) {
             cinux::lib::kprintf("[INIT] stack VMA record failed\n");
             cinux::proc::Scheduler::exit_current();

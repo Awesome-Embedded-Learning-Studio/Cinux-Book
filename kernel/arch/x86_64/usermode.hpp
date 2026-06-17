@@ -37,6 +37,13 @@ constexpr uint64_t USER_STACK_TOP = 0x7FFFFF000;
 /// Number of 4 KB pages for the user stack (16 KB)
 constexpr uint64_t USER_STACK_PAGES = 4;
 
+/// Maximum user stack size -- the stack VMA spans this many bytes below
+/// USER_STACK_TOP and grows down on demand (F2-M5). Only USER_STACK_PAGES are
+/// pre-mapped at the top; the rest is demand-paged as the stack grows down.
+/// Accesses below [USER_STACK_TOP - USER_STACK_GROWTH) hit no VMA -> segfault
+/// (stack overflow guard).
+constexpr uint64_t USER_STACK_GROWTH = 0x100000ULL;  // 1 MB
+
 /// x86_64 SysV ABI: RSP = 8 mod 16 at _start entry (mimics `call` push)
 constexpr uint64_t USER_ABI_RSP_OFFSET = 8;
 static_assert((USER_STACK_TOP - USER_ABI_RSP_OFFSET) % 16 == 8,
