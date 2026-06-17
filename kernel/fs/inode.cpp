@@ -37,4 +37,8 @@ cinux::lib::ErrorOr<void> InodeOps::stat(const Inode*, struct stat*) {
     return cinux::lib::Error::NotImplemented;
 }
 
+bool InodeOps::is_page_cacheable() const {
+    return false;
+}
+
 }  // namespace cinux::fs

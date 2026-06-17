@@ -47,6 +47,10 @@ void fill_fake(FakeFile& f, uint64_t size) {
 /// Fake InodeOps: serve bytes from the FakeFile pinned at inode->fs_private.
 class FakeFileOps : public InodeOps {
 public:
+    /// Number of times read() was invoked (a stand-in for "disk reads"), so the
+    /// read_bytes tests can prove the cache avoids re-reading on a hit.
+    uint64_t read_calls{0};
+
     cinux::lib::ErrorOr<int64_t> read(const Inode* inode, uint64_t offset, void* buf,
                                       uint64_t count) override {
         if (inode == nullptr || buf == nullptr || inode->fs_private == nullptr) {
@@ -59,11 +63,15 @@ public:
         uint64_t avail = f->size - offset;
         uint64_t nread = (count < avail) ? count : avail;
         memcpy(buf, f->data + offset, nread);
+        read_calls++;
         return static_cast<int64_t>(nread);
     }
 };
 
 FakeFileOps g_fake_ops;
+
+/// Scratch buffer for read_bytes tests (kept off the kernel stack).
+uint8_t g_readbuf[2 * PAGE_SIZE];
 
 Inode make_fake_inode(FakeFile& f) {
     Inode ino{};
@@ -244,6 +252,94 @@ void test_release_decrements() {
 }  // namespace test_pc_release
 
 // ============================================================
+// Test 7 (F2-M6): read_bytes serves correct bytes and honours EOF
+// ============================================================
+
+namespace test_pc_read_bytes {
+
+void test_read_bytes_basic_and_eof() {
+    PageCache cache;
+    cache.init(64);
+    FakeFile f;
+    fill_fake(f, 100);  // 100 bytes, well under one page
+    Inode ino = make_fake_inode(f);
+
+    g_fake_ops.read_calls = 0;
+    auto r                = cache.read_bytes(&ino, 0, g_readbuf, 100);
+    TEST_ASSERT_TRUE(r.ok());
+    TEST_ASSERT_EQ(static_cast<uint64_t>(r.value()), 100u);
+    TEST_ASSERT_EQ(memcmp(g_readbuf, f.data, 100), 0);
+    // One miss fills the whole underlying page (PAGE_SIZE read at offset 0).
+    TEST_ASSERT_EQ(g_fake_ops.read_calls, 1u);
+
+    // At/past EOF returns 0 with no read.
+    g_fake_ops.read_calls = 0;
+    auto r2               = cache.read_bytes(&ino, 100, g_readbuf, 10);
+    TEST_ASSERT_TRUE(r2.ok());
+    TEST_ASSERT_EQ(static_cast<uint64_t>(r2.value()), 0u);
+    TEST_ASSERT_EQ(g_fake_ops.read_calls, 0u);
+}
+
+}  // namespace test_pc_read_bytes
+
+// ============================================================
+// Test 8 (F2-M6): second read_bytes is served from cache (no re-read)
+// ============================================================
+
+namespace test_pc_read_bytes_cache {
+
+void test_second_read_hits_cache() {
+    PageCache cache;
+    cache.init(64);
+    FakeFile f;
+    fill_fake(f, 2 * PAGE_SIZE);
+    Inode ino = make_fake_inode(f);
+
+    g_fake_ops.read_calls = 0;
+    size_t hits_before    = cache.hit_count();
+
+    auto r1 = cache.read_bytes(&ino, 0, g_readbuf, 2 * PAGE_SIZE);
+    TEST_ASSERT_TRUE(r1.ok());
+    TEST_ASSERT_EQ(static_cast<uint64_t>(r1.value()), 2 * PAGE_SIZE);
+    TEST_ASSERT_EQ(memcmp(g_readbuf, f.data, 2 * PAGE_SIZE), 0);
+    // Two underlying pages filled (page 0 + page 1).
+    uint64_t reads_after_first = g_fake_ops.read_calls;
+    TEST_ASSERT_EQ(reads_after_first, 2u);
+
+    // Identical second read: every page is now cached, so no new disk read and
+    // the hit counter climbs -- the whole point of routing read() through cache.
+    auto r2 = cache.read_bytes(&ino, 0, g_readbuf, 2 * PAGE_SIZE);
+    TEST_ASSERT_TRUE(r2.ok());
+    TEST_ASSERT_EQ(static_cast<uint64_t>(r2.value()), 2 * PAGE_SIZE);
+    TEST_ASSERT_EQ(g_fake_ops.read_calls, reads_after_first);  // no extra reads
+    TEST_ASSERT_GT(cache.hit_count(), hits_before);
+}
+
+}  // namespace test_pc_read_bytes_cache
+
+// ============================================================
+// Test 9 (F2-M6): read_bytes clips to EOF mid-page
+// ============================================================
+
+namespace test_pc_read_bytes_eof {
+
+void test_read_bytes_partial_at_eof() {
+    PageCache cache;
+    cache.init(64);
+    FakeFile f;
+    fill_fake(f, PAGE_SIZE + 50);  // page 1 holds only 50 real bytes
+    Inode ino = make_fake_inode(f);
+
+    auto r = cache.read_bytes(&ino, PAGE_SIZE, g_readbuf, PAGE_SIZE);
+    TEST_ASSERT_TRUE(r.ok());
+    // Asked for a full page but only 50 bytes remain before EOF.
+    TEST_ASSERT_EQ(static_cast<uint64_t>(r.value()), 50u);
+    TEST_ASSERT_EQ(memcmp(g_readbuf, f.data + PAGE_SIZE, 50), 0);
+}
+
+}  // namespace test_pc_read_bytes_eof
+
+// ============================================================
 // Entry point
 // ============================================================
 
@@ -256,6 +352,10 @@ extern "C" void run_page_cache_tests() {
     RUN_TEST(test_pc_distinct::test_distinct_offsets);
     RUN_TEST(test_pc_eof::test_eof_zero_pad);
     RUN_TEST(test_pc_release::test_release_decrements);
+
+    RUN_TEST(test_pc_read_bytes::test_read_bytes_basic_and_eof);
+    RUN_TEST(test_pc_read_bytes_cache::test_second_read_hits_cache);
+    RUN_TEST(test_pc_read_bytes_eof::test_read_bytes_partial_at_eof);
 
     TEST_SUMMARY();
 }

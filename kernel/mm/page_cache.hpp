@@ -77,6 +77,16 @@ public:
     /// propagated read error.
     cinux::lib::ErrorOr<CachedPage*> get_page(cinux::fs::Inode* inode, uint64_t offset);
 
+    /// Read @p count bytes of file @p inode starting at @p file_off into @p buf,
+    /// serving each page-aligned slice from the cache (filling on miss via the
+    /// inode's disk read).  This is the cache-aware read path used by sys_read
+    /// for page-cacheable (disk-backed) inodes: it reuses get_page so that
+    /// repeated reads and demand paging share one copy of each page.  EOF is
+    /// honoured via inode->size; a short page tail is zero-padded by get_page.
+    /// Returns the number of bytes read (0 at/past EOF).
+    cinux::lib::ErrorOr<int64_t> read_bytes(cinux::fs::Inode* inode, uint64_t file_off, void* buf,
+                                            uint64_t count);
+
     /// Decrement the reference count of @p page (floors at 0).  No eviction.
     void release(CachedPage* page);
 

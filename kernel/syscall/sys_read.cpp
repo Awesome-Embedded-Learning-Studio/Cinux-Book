@@ -14,6 +14,7 @@
 #include "kernel/errno.hpp"
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/vfs_mount.hpp"
+#include "kernel/mm/page_cache.hpp"
 
 namespace cinux::syscall {
 
@@ -45,7 +46,14 @@ int64_t sys_read(uint64_t fd, uint64_t buf_virt, uint64_t count, uint64_t, uint6
         auto* buf = reinterpret_cast<void*>(buf_virt);
         auto  g   = file->offset_lock_.guard();
         (void)g;
-        auto read_result = file->inode->ops->read(file->inode, file->offset, buf, count);
+        // Disk-backed files (ext2) are served through the PageCache so that
+        // read() and demand paging share one cached copy; pipes and other
+        // transient ops keep their direct read() path (is_page_cacheable is
+        // false by default, so behaviour is unchanged for them).
+        auto read_result =
+            file->inode->ops->is_page_cacheable()
+                ? cinux::mm::g_page_cache.read_bytes(file->inode, file->offset, buf, count)
+                : file->inode->ops->read(file->inode, file->offset, buf, count);
         if (!read_result.ok()) {
             return -to_errno(read_result.error());
         }

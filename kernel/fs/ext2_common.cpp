@@ -21,7 +21,12 @@ namespace cinux::fs {
 
 Ext2FileOps::Ext2FileOps(Ext2& ext2) : ext2_(ext2) {}
 
-cinux::lib::ErrorOr<int64_t> Ext2FileOps::read(const Inode* inode, uint64_t offset, void* buf, uint64_t count) {
+bool Ext2FileOps::is_page_cacheable() const {
+    return true;
+}
+
+cinux::lib::ErrorOr<int64_t> Ext2FileOps::read(const Inode* inode, uint64_t offset, void* buf,
+                                               uint64_t count) {
     if (inode == nullptr || inode->fs_private == nullptr || buf == nullptr) {
         return cinux::lib::Error::InvalidArgument;
     }
@@ -95,7 +100,8 @@ cinux::lib::ErrorOr<int64_t> Ext2FileOps::read(const Inode* inode, uint64_t offs
     return static_cast<int64_t>(total_read);
 }
 
-cinux::lib::ErrorOr<int64_t> Ext2FileOps::write(Inode* inode, uint64_t offset, const void* buf, uint64_t count) {
+cinux::lib::ErrorOr<int64_t> Ext2FileOps::write(Inode* inode, uint64_t offset, const void* buf,
+                                                uint64_t count) {
     if (inode == nullptr || inode->fs_private == nullptr || buf == nullptr) {
         return cinux::lib::Error::InvalidArgument;
     }
@@ -202,7 +208,8 @@ cinux::lib::ErrorOr<void> Ext2FileOps::stat(const Inode* inode, struct stat* st)
 
 Ext2DirOps::Ext2DirOps(Ext2& ext2) : ext2_(ext2) {}
 
-cinux::lib::ErrorOr<int64_t> Ext2DirOps::readdir(const Inode* inode, uint64_t index, char* name, uint64_t name_max) {
+cinux::lib::ErrorOr<int64_t> Ext2DirOps::readdir(const Inode* inode, uint64_t index, char* name,
+                                                 uint64_t name_max) {
     if (inode == nullptr || inode->fs_private == nullptr || name == nullptr || name_max == 0) {
         return cinux::lib::Error::InvalidArgument;
     }

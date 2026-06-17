@@ -32,8 +32,12 @@
 #include "kernel/fs/ext2.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/string.hpp"
+#include "kernel/mm/page_cache.hpp"
+#include "kernel/syscall/sys_close.hpp"
 #include "kernel/syscall/sys_creat.hpp"
 #include "kernel/syscall/sys_mkdir.hpp"
+#include "kernel/syscall/sys_open.hpp"
+#include "kernel/syscall/sys_read.hpp"
 #include "kernel/syscall/sys_rmdir.hpp"
 #include "kernel/syscall/sys_unlink.hpp"
 
@@ -448,6 +452,63 @@ void test_creat_duplicate_name() {
 }  // namespace test_sys_creat_duplicate
 
 // ============================================================
+// Test 7 (F2-M6): sys_read on an ext2 file is served through the PageCache
+// ============================================================
+
+namespace test_sys_read_ext2_cache {
+
+/**
+ * @brief Open /hello.txt, read it twice; the second read must hit the cache.
+ *
+ * Exercises the sys_read -> is_page_cacheable() -> PageCache::read_bytes wiring
+ * end to end against a real AHCI/ext2 disk.  Reading the same file again (via a
+ * fresh fd at offset 0) reuses the cached page, so the global cache's hit count
+ * climbs -- direct proof that read() no longer bypasses the cache.
+ */
+void test_ext2_read_served_from_cache() {
+    auto pair = setup_syscall_ext2();
+    TEST_ASSERT_NOT_NULL(pair.ext2);
+    TEST_ASSERT_TRUE(pair.ext2->is_mounted());
+
+    const char* path      = "/hello.txt";
+    auto        path_addr = reinterpret_cast<uint64_t>(path);
+
+    // First open + read fills the cache for the file's first page.
+    int64_t fd = cinux::syscall::sys_open(path_addr, 0, 0, 0, 0, 0);
+    TEST_ASSERT_GE(fd, 0);
+
+    char    buf1[128] = {};
+    auto    buf1_addr = reinterpret_cast<uint64_t>(buf1);
+    int64_t n1 =
+        cinux::syscall::sys_read(static_cast<uint64_t>(fd), buf1_addr, sizeof(buf1), 0, 0, 0);
+    TEST_ASSERT_GT(n1, 0);
+    cinux::syscall::sys_close(static_cast<uint64_t>(fd), 0, 0, 0, 0, 0);
+
+    // Reopen (offset 0, same inode -> identical cache keys) and read again.
+    int64_t fd2 = cinux::syscall::sys_open(path_addr, 0, 0, 0, 0, 0);
+    TEST_ASSERT_GE(fd2, 0);
+    char    buf2[128] = {};
+    auto    buf2_addr = reinterpret_cast<uint64_t>(buf2);
+    size_t  hits_mid  = cinux::mm::g_page_cache.hit_count();
+    int64_t n2 =
+        cinux::syscall::sys_read(static_cast<uint64_t>(fd2), buf2_addr, sizeof(buf2), 0, 0, 0);
+    TEST_ASSERT_EQ(n2, n1);
+    cinux::syscall::sys_close(static_cast<uint64_t>(fd2), 0, 0, 0, 0, 0);
+
+    // Second read of the same page is a cache hit -> hit count rises.
+    TEST_ASSERT_GT(cinux::mm::g_page_cache.hit_count(), hits_mid);
+    // Both reads return identical bytes.
+    TEST_ASSERT_EQ(memcmp(buf1, buf2, static_cast<size_t>(n1)), 0);
+
+    cinux::lib::kprintf("[SYSCALL_EXT2] read /hello.txt twice: %ld bytes, cache hit confirmed\n",
+                        n2);
+
+    teardown_syscall_ext2(pair);
+}
+
+}  // namespace test_sys_read_ext2_cache
+
+// ============================================================
 // Entry point
 // ============================================================
 
@@ -471,6 +532,9 @@ extern "C" void run_syscall_ext2_tests() {
 
     // Duplicate creat
     RUN_TEST(test_sys_creat_duplicate::test_creat_duplicate_name);
+
+    // F2-M6: read() served through PageCache
+    RUN_TEST(test_sys_read_ext2_cache::test_ext2_read_served_from_cache);
 
     TEST_SUMMARY();
 }

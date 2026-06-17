@@ -52,13 +52,24 @@ class InodeOps {
 public:
     virtual ~InodeOps() = default;
 
-    virtual cinux::lib::ErrorOr<int64_t> read(const Inode* inode, uint64_t offset, void* buf, uint64_t count);
-    virtual cinux::lib::ErrorOr<int64_t> write(Inode* inode, uint64_t offset, const void* buf, uint64_t count);
-    virtual cinux::lib::ErrorOr<int64_t> readdir(const Inode* inode, uint64_t index, char* name, uint64_t name_max);
-    virtual cinux::lib::ErrorOr<Inode*> create(Inode* dir, const char* name, uint32_t namelen);
-    virtual cinux::lib::ErrorOr<Inode*> mkdir(Inode* dir, const char* name, uint32_t namelen);
-    virtual cinux::lib::ErrorOr<void>   unlink(Inode* dir, const char* name, uint32_t namelen);
-    virtual cinux::lib::ErrorOr<void>   stat(const Inode* inode, struct stat* st);
+    virtual cinux::lib::ErrorOr<int64_t> read(const Inode* inode, uint64_t offset, void* buf,
+                                              uint64_t count);
+    virtual cinux::lib::ErrorOr<int64_t> write(Inode* inode, uint64_t offset, const void* buf,
+                                               uint64_t count);
+    virtual cinux::lib::ErrorOr<int64_t> readdir(const Inode* inode, uint64_t index, char* name,
+                                                 uint64_t name_max);
+    virtual cinux::lib::ErrorOr<Inode*>  create(Inode* dir, const char* name, uint32_t namelen);
+    virtual cinux::lib::ErrorOr<Inode*>  mkdir(Inode* dir, const char* name, uint32_t namelen);
+    virtual cinux::lib::ErrorOr<void>    unlink(Inode* dir, const char* name, uint32_t namelen);
+    virtual cinux::lib::ErrorOr<void>    stat(const Inode* inode, struct stat* st);
+
+    /// Whether reads against this inode should be served through the file-backed
+    /// PageCache.  Disk-backed filesystems (ext2) override to true so that
+    /// sys_read and demand paging share one cache; transient inode-ops shims
+    /// such as pipes inherit the default false (their content is not on disk and
+    /// must never be cached).  Default false keeps every legacy/mock backend
+    /// unchanged.
+    virtual bool is_page_cacheable() const;
 };
 
 // ============================================================

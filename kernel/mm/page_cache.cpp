@@ -134,6 +134,52 @@ void PageCache::release(CachedPage* page) {
     }
 }
 
+cinux::lib::ErrorOr<int64_t> PageCache::read_bytes(cinux::fs::Inode* inode, uint64_t file_off,
+                                                   void* buf, uint64_t count) {
+    if (inode == nullptr || buf == nullptr) {
+        return cinux::lib::Error::InvalidArgument;
+    }
+    // EOF: nothing to deliver at or past the end of file.
+    if (file_off >= inode->size) {
+        return 0;
+    }
+
+    const uint64_t end = ((file_off + count) > inode->size) ? inode->size : (file_off + count);
+    const uint64_t page_mask = static_cast<uint64_t>(cinux::arch::PAGE_SIZE) - 1;
+    auto*          dst       = static_cast<uint8_t*>(buf);
+    uint64_t       done      = 0;
+    uint64_t       cur       = file_off;
+
+    while (cur < end) {
+        const uint64_t page_base = cur & ~page_mask;
+        const uint64_t in_page   = cur - page_base;
+        const uint64_t chunk     = (cinux::arch::PAGE_SIZE - in_page < end - cur)
+                                       ? (cinux::arch::PAGE_SIZE - in_page)
+                                       : (end - cur);
+
+        // Pull the page through the cache (fill on miss, hit on repeat).  No I/O
+        // happens under the cache lock (see get_page), so this is safe from the
+        // syscall path just as it is from the page-fault path.
+        auto gp = get_page(inode, page_base);
+        if (!gp.ok()) {
+            // Return whatever was already read; only surface the error if we
+            // delivered nothing (matches read()'s partial-read contract).
+            if (done > 0) {
+                break;
+            }
+            return gp.error();
+        }
+        CachedPage* cp = gp.value();
+        memcpy(dst + done, reinterpret_cast<void*>(cp->virt + in_page), chunk);
+        release(cp);
+
+        cur += chunk;
+        done += chunk;
+    }
+
+    return static_cast<int64_t>(done);
+}
+
 size_t PageCache::cached_pages() const {
     return total_pages_;
 }
