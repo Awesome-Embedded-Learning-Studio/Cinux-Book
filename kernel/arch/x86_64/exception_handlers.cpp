@@ -23,7 +23,9 @@
 #include "kernel/lib/klog.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
+#include "kernel/mm/page_cache.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/mm/vma.hpp"
 #include "kernel/mm/vmm.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
@@ -248,22 +250,56 @@ void handle_pf(InterruptFrame* frame) {
         if (cinux::arch::is_user_vaddr(fault_addr)) {
             map_flags |= cinux::arch::FLAG_USER;
 
-            // VMA bookkeeping cross-check (F2-M1 batch 4, diagnostic only).
-            // We do NOT gate demand paging on the VMA set yet: the existing
-            // handler auto-pages any not-present user address (stack growth,
-            // bss), and turning that into a hard segfault needs the demand-
-            // paging rework planned for M5.  Here we only log when a fault
-            // lands outside every recorded VMA -- expected for legitimate
-            // stack growth below the initial stack pages, a probable bug
-            // otherwise.  Read unlocked: PF runs with IF=0 on this single CPU,
-            // so no syscall/execve can mutate the store concurrently.
-            auto* task = cinux::proc::Scheduler::current();
-            if (task != nullptr && task->addr_space != nullptr &&
-                task->addr_space->vmas().find(fault_addr) == nullptr) {
+            auto*           task = cinux::proc::Scheduler::current();
+            cinux::mm::VMA* vma  = (task != nullptr && task->addr_space != nullptr)
+                                       ? task->addr_space->vmas().find(fault_addr)
+                                       : nullptr;
+
+            if (vma == nullptr) {
+                // VMA bookkeeping cross-check (F2-M1 batch 4, diagnostic only).
+                // We do NOT gate demand paging on the VMA set yet: the existing
+                // handler auto-pages any not-present user address (stack growth,
+                // bss), and turning that into a hard segfault needs the demand-
+                // paging rework planned for M5.  Here we only log when a fault
+                // lands outside every recorded VMA -- expected for legitimate
+                // stack growth below the initial stack pages, a probable bug
+                // otherwise.  Read unlocked: PF runs with IF=0 on this single
+                // CPU, so no syscall/execve can mutate the store concurrently.
                 klog_warn(
                     "demand-paged user addr %p has no VMA (stack growth ok; "
                     "hard segfault deferred to M5)",
                     reinterpret_cast<void*>(fault_addr));
+            } else if (vma->backing != nullptr &&
+                       !cinux::mm::has_flag(vma->flags, cinux::mm::VmaFlags::Anonymous)) {
+                // File-backed VMA (F2-M4): demand-read the file page through the
+                // page cache instead of mapping a zero page, so mmap'd files
+                // show real content.  get_page() does the disk read OUTSIDE its
+                // own lock, so no I/O happens under a spinlock here (safe at
+                // IF=0).  On success map the cached page with the VMA's
+                // permissions; on failure fall through to the anonymous zero
+                // page so the fault is never left unserved.
+                const uint64_t file_off = vma->file_offset + (virt_page - vma->start);
+                auto           gp       = cinux::mm::g_page_cache.get_page(vma->backing, file_off);
+                if (gp.ok()) {
+                    uint64_t fflags = cinux::arch::FLAG_PRESENT | cinux::arch::FLAG_USER;
+                    if (cinux::mm::has_flag(vma->flags, cinux::mm::VmaFlags::Write)) {
+                        fflags |= cinux::arch::FLAG_WRITABLE;
+                    }
+                    // NX (bit 63) is reserved until EFER.NXE is enabled (F9
+                    // NX/SMEP/SMAP): setting it now triggers a reserved-bit #PF
+                    // on access, so non-exec file pages are not marked NX yet.
+                    uint64_t cur_cr3 = cinux::arch::read_cr3();
+                    if (g_vmm.map_nolock(virt_page, gp.value()->phys, fflags, &cur_cr3)) {
+                        kprintf("[VMM] File demand-read %p -> phys %p\n",
+                                reinterpret_cast<void*>(virt_page),
+                                reinterpret_cast<void*>(gp.value()->phys));
+                        return;
+                    }
+                } else {
+                    klog_warn("page cache read failed for file VMA @ %p",
+                              reinterpret_cast<void*>(fault_addr));
+                }
+                // Fall through to the anonymous zero page below (best effort).
             }
         }
         uint64_t phys = cinux::mm::g_pmm.alloc_page_locked();

@@ -170,6 +170,8 @@ add_executable(big_kernel_test
     test/test_vma.cpp
     test/test_mmap.cpp
     test/test_brk.cpp
+    test/test_page_cache.cpp
+    test/test_file_mmap.cpp
 )
 
 target_sources(big_kernel_test PRIVATE $<TARGET_OBJECTS:big_kernel_common>)

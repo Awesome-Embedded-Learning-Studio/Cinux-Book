@@ -59,6 +59,7 @@
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/heap.hpp"
+#include "kernel/mm/page_cache.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vmm.hpp"
 #include "kernel/proc/init.hpp"
@@ -135,6 +136,10 @@ extern "C" void kernel_main() {
     constexpr uint64_t HEAP_VIRT_BASE    = cinux::arch::KMEM_HEAP_BASE;
     constexpr uint64_t HEAP_INITIAL_SIZE = 64 * 1024;
     cinux::mm::g_heap.init(HEAP_VIRT_BASE, HEAP_INITIAL_SIZE);
+
+    // Step 12b: Initialise the file-backed page cache (F2-M4).  Advisory 10%
+    // ceiling; eviction is deferred.  Needs the heap for CachedPage nodes.
+    cinux::mm::g_page_cache.init(cinux::mm::g_pmm.free_page_count() / 10);
 
     // Step 13: Initialise framebuffer from BootInfo
     Framebuffer fb;

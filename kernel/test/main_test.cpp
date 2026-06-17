@@ -22,6 +22,7 @@
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/heap.hpp"
+#include "kernel/mm/page_cache.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vmm.hpp"
 
@@ -77,6 +78,8 @@ void run_block_device_tests();
 void run_vma_tests();
 void run_mmap_tests();
 void run_brk_tests();
+void run_page_cache_tests();
+void run_file_mmap_tests();
 }
 
 static constexpr uintptr_t BOOT_INFO_PHYS = 0x7000;
@@ -118,6 +121,9 @@ extern "C" void kernel_main() {
     constexpr uint64_t HEAP_VIRT_BASE = cinux::arch::KMEM_HEAP_BASE;
     constexpr uint64_t HEAP_INIT_SIZE = 64 * 1024;  // 64 KB
     cinux::mm::g_heap.init(HEAP_VIRT_BASE, HEAP_INIT_SIZE);
+    // Page cache (F2-M4): advisory 10% ceiling; eviction deferred.  Needs the
+    // heap -- get_page() allocates CachedPage nodes via new.
+    cinux::mm::g_page_cache.init(cinux::mm::g_pmm.free_page_count() / 10);
     run_heap_tests();
     run_heap_lock_stress_tests();
 
@@ -139,6 +145,8 @@ extern "C" void kernel_main() {
     run_vma_tests();
     run_mmap_tests();
     run_brk_tests();
+    run_page_cache_tests();
+    run_file_mmap_tests();
 
     run_scheduler_tests();
     run_sync_tests();
