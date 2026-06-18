@@ -153,6 +153,7 @@ void Scheduler::add_task(Task* task) {
         task->sched_class = &default_rr_;
     }
     task->sched_class->enqueue(task);
+    signal_register_task(task);
     cinux::lib::kprintf("[SCHED] Task tid=%u '%s' added to %s\n", task->tid, task->name,
                         task->sched_class->name());
 }
@@ -164,6 +165,7 @@ void Scheduler::remove_task(Task* task) {
     if (task->sched_class != nullptr) {
         task->sched_class->dequeue(task);
     }
+    signal_unregister_task(task);
     task->state = TaskState::Dead;
     cinux::lib::kprintf("[SCHED] Task tid=%u '%s' removed\n", task->tid, task->name);
 }
@@ -181,6 +183,7 @@ void Scheduler::exit_current() {
     if (prev != nullptr) {
         prev->state = TaskState::Dead;
         prev->sched_class->dequeue(prev);
+        signal_unregister_task(prev);
         cinux::lib::kprintf("[SCHED] Task tid=%u '%s' exited\n", prev->tid, prev->name);
     }
 

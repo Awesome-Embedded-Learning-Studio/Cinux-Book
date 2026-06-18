@@ -14,6 +14,7 @@
 
 #include "kernel/arch/x86_64/gdt.hpp"
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/proc/signal.hpp"
 #include "kernel/syscall/sys_brk.hpp"
 #include "kernel/syscall/sys_chdir.hpp"
 #include "kernel/syscall/sys_close.hpp"
@@ -32,6 +33,7 @@
 #include "kernel/syscall/sys_pipe.hpp"
 #include "kernel/syscall/sys_read.hpp"
 #include "kernel/syscall/sys_rmdir.hpp"
+#include "kernel/syscall/sys_signal.hpp"
 #include "kernel/syscall/sys_stat.hpp"
 #include "kernel/syscall/sys_unlink.hpp"
 #include "kernel/syscall/sys_waitpid.hpp"
@@ -90,6 +92,9 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_munmap, sys_munmap);
     syscall_register(SyscallNr::SYS_mprotect, sys_mprotect);
     syscall_register(SyscallNr::SYS_brk, sys_brk);
+    syscall_register(SyscallNr::SYS_kill, sys_kill);
+    syscall_register(SyscallNr::SYS_rt_sigaction, sys_rt_sigaction);
+    syscall_register(SyscallNr::SYS_rt_sigprocmask, sys_rt_sigprocmask);
 }
 
 }  // anonymous namespace
@@ -161,5 +166,7 @@ extern "C" int64_t syscall_dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint6
     }
 
     int64_t ret = fn(a1, a2, a3, a4, a5, a6);
+    // F3-M1 batch 2: deliver one pending signal before returning to user.
+    cinux::proc::signal_check_and_deliver();
     return ret;
 }

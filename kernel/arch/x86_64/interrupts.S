@@ -69,6 +69,10 @@
     /* Call the C handler function */
     call \handler                     # call the corresponding C exception handler
 
+    /* F3-M1: deliver one pending signal before returning to user mode. */
+    leaq 8(%rsp), %rdi                # (RSP+8)→%rdi: InterruptFrame* (past padding)
+    call signal_check_deliver_isr     # may rewrite the frame to enter a handler
+
     /* Remove alignment padding */
     addq $8, %rsp                     # $8→%rsp: skip alignment padding
 
@@ -140,6 +144,10 @@
     /* Call the C handler function */
     call \handler                     # call the corresponding C exception handler
 
+    /* F3-M1: deliver one pending signal before returning to user mode. */
+    leaq 8(%rsp), %rdi                # (RSP+8)→%rdi: InterruptFrame* (past padding)
+    call signal_check_deliver_isr     # may rewrite the frame to enter a handler
+
     /* Remove alignment padding */
     addq $8, %rsp                     # $8→%rsp: skip alignment padding
 
@@ -188,6 +196,11 @@ ISR_ERRCODE   isr_np_stub,  handle_np       /* #NP(11): Segment Not Present */
 ISR_ERRCODE   isr_ss_stub,  handle_ss       /* #SS(12): Stack Fault */
 ISR_ERRCODE   isr_gp_stub,  handle_gp       /* #GP(13): General Protection */
 ISR_ERRCODE   isr_pf_stub,  handle_pf       /* #PF(14): Page Fault */
+
+/* F3-M1: sigreturn trampoline gate (vector 0x80).  Entered by the int $0x80
+ * instruction that signal_setup_frame writes onto the user stack; restores
+ * the saved user context.  DPL=3 (user-callable), configured in idt.cpp. */
+ISR_NOERRCODE isr_sigreturn_stub, sigreturn_handler
 
 # ============================================================
 # Hardware IRQ stubs (PIC remapped vectors 0x20-0x2F)

@@ -19,32 +19,36 @@
 namespace cinux::syscall {
 
 enum class SyscallNr : uint64_t {
-    SYS_read     = 0,
-    SYS_write    = 1,
-    SYS_open     = 2,
-    SYS_close    = 3,
-    SYS_stat     = 4,
-    SYS_fstat    = 5,
-    SYS_chdir    = 12,
-    SYS_exit     = 60,
-    SYS_yield    = 24,
-    SYS_getcwd   = 79,
-    SYS_getdents = 78,
-    SYS_mkdir    = 83,
-    SYS_rmdir    = 84,
-    SYS_creat    = 85,
-    SYS_unlink   = 87,
-    SYS_pipe     = 22,
-    SYS_getpid   = 39,
-    SYS_getppid  = 110,
-    SYS_fork     = 57,
-    SYS_execve   = 59,
-    SYS_waitpid  = 61,
-    SYS_dmesg    = 103,  ///< kernel log read (Linux SYS_syslog)
-    SYS_mmap     = 9,    ///< allocate virtual memory (F2-M2)
-    SYS_mprotect = 10,   ///< set protection on a region (F2-M2)
-    SYS_munmap   = 11,   ///< unmap virtual memory (F2-M2)
-    SYS_brk      = 12,   ///< set program break / heap end (F2-M3)
+    SYS_read           = 0,
+    SYS_write          = 1,
+    SYS_open           = 2,
+    SYS_close          = 3,
+    SYS_stat           = 4,
+    SYS_fstat          = 5,
+    SYS_chdir          = 12,
+    SYS_exit           = 60,
+    SYS_yield          = 24,
+    SYS_getcwd         = 79,
+    SYS_getdents       = 78,
+    SYS_mkdir          = 83,
+    SYS_rmdir          = 84,
+    SYS_creat          = 85,
+    SYS_unlink         = 87,
+    SYS_pipe           = 22,
+    SYS_getpid         = 39,
+    SYS_getppid        = 110,
+    SYS_fork           = 57,
+    SYS_execve         = 59,
+    SYS_waitpid        = 61,
+    SYS_dmesg          = 103,  ///< kernel log read (Linux SYS_syslog)
+    SYS_mmap           = 9,    ///< allocate virtual memory (F2-M2)
+    SYS_mprotect       = 10,   ///< set protection on a region (F2-M2)
+    SYS_munmap         = 11,   ///< unmap virtual memory (F2-M2)
+    SYS_brk            = 12,   ///< set program break / heap end (F2-M3)
+    SYS_rt_sigaction   = 13,   ///< examine/set signal action (F3-M1)
+    SYS_rt_sigprocmask = 14,   ///< examine/set signal mask (F3-M1)
+    SYS_rt_sigreturn   = 15,   ///< return from signal handler (F3-M1, batch 3)
+    SYS_kill           = 62,   ///< send a signal to a process (F3-M1)
 };
 
 constexpr uint64_t SYSCALL_TABLE_SIZE = 256;

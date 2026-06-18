@@ -11,12 +11,18 @@
 
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/signal.hpp"
 
 namespace cinux::syscall {
 
 int64_t sys_exit(uint64_t code, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) {
     auto* task = cinux::proc::Scheduler::current();
     if (task != nullptr) {
+        // F3-M1: notify the parent of our exit.  SIGCHLD's default disposition
+        // is Ignore, but a parent with a handler or one polling waitpid uses it.
+        if (task->parent != nullptr) {
+            cinux::proc::signal_send(task->parent, cinux::proc::Signal::kSigchld);
+        }
         task->state = cinux::proc::TaskState::Dead;
         cinux::lib::kprintf("[SYSCALL] sys_exit(%u) from tid=%u '%s'\n",
                             static_cast<unsigned>(code), static_cast<unsigned>(task->tid),

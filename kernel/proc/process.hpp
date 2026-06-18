@@ -28,12 +28,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "kernel/mm/address_space.hpp"
-#include "kernel/proc/elf_types.hpp"
-#include "kernel/proc/pid.hpp"
 #include <new>
 
+#include "kernel/mm/address_space.hpp"
 #include "kernel/mm/slab.hpp"
+#include "kernel/proc/elf_types.hpp"
+#include "kernel/proc/pid.hpp"
+#include "kernel/proc/signal.hpp"
 
 namespace cinux::fs {
 class FDTable;
@@ -106,12 +107,12 @@ static_assert(sizeof(CpuContext) == 80, "CpuContext must be 80 bytes");
  */
 struct Task {
     // F2-M7b: heap Task objects are served by the dedicated task slab cache.
-    static void*       operator new(size_t) { return cinux::mm::cache_alloc(cinux::mm::g_task_cache); }
-    static void*       operator new(size_t, std::align_val_t) {
+    static void* operator new(size_t) { return cinux::mm::cache_alloc(cinux::mm::g_task_cache); }
+    static void* operator new(size_t, std::align_val_t) {
         return cinux::mm::cache_alloc(cinux::mm::g_task_cache);
     }
-    static void        operator delete(void* p) { cinux::mm::cache_free(cinux::mm::g_task_cache, p); }
-    static void        operator delete(void* p, std::align_val_t) {
+    static void operator delete(void* p) { cinux::mm::cache_free(cinux::mm::g_task_cache, p); }
+    static void operator delete(void* p, std::align_val_t) {
         cinux::mm::cache_free(cinux::mm::g_task_cache, p);
     }
 
@@ -151,6 +152,15 @@ struct Task {
     uint64_t brk_initial{};  ///< Heap start (ELF image end, set by execve)
     uint64_t brk_max{};      ///< Heap ceiling (USER_BRK_MAX)
 
+    // F3-M1: POSIX signal state.  Dispositions (sig_actions) and the block
+    // mask (sig_blocked) are inherited across fork(); pending signals are
+    // not (cleared explicitly in fork()).
+    SigAction sig_actions[kSignalCount]{};  ///< Per-signal disposition (1..kSignalMax)
+    SigSet    sig_pending{0};               ///< Signals pending delivery
+    SigSet    sig_blocked{0};               ///< Signals blocked from delivery
+    uint64_t  sig_altstack{0};              ///< sigaltstack base (0 = main stack)
+    uint64_t  sig_altstack_size{0};         ///< sigaltstack size in bytes
+
     /** Per-process file descriptor table (nullptr = use global). */
     cinux::fs::FDTable* fd_table;
 
@@ -186,6 +196,9 @@ struct Task {
 
     /** Per-process current working directory (absolute path, NUL-terminated). */
     char cwd[256];
+
+    /** Intrusive link for the global pid->Task registry (sys_kill lookup). */
+    Task* registry_next{nullptr};
 };
 
 // ============================================================

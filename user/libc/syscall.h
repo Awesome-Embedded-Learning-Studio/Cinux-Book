@@ -49,3 +49,46 @@ struct sys_stat {
 
 int64_t sys_stat(const char* path, struct sys_stat* st);
 int64_t sys_fstat(int fd, struct sys_stat* st);
+
+// ============================================================
+// Signal support (F3-M1)
+// ============================================================
+
+// Core POSIX signal numbers.
+#define SIGHUP  1
+#define SIGINT  2
+#define SIGQUIT 3
+#define SIGILL  4
+#define SIGTRAP 5
+#define SIGABRT 6
+#define SIGBUS  7
+#define SIGFPE  8
+#define SIGKILL 9
+#define SIGUSR1 10
+#define SIGSEGV 11
+#define SIGUSR2 12
+#define SIGPIPE 13
+#define SIGALRM 14
+#define SIGTERM 15
+#define SIGCHLD 17
+#define SIGCONT 18
+#define SIGSTOP 19
+#define SIGTSTP 20
+
+#define SIG_DFL     ((uint64_t)0)
+#define SIG_IGN     ((uint64_t)1)
+#define SIG_BLOCK   0
+#define SIG_UNBLOCK 1
+#define SIG_SETMASK 2
+
+// User-space sigaction layout (matches the kernel's UserSigAction).
+struct sys_sigaction {
+    uint64_t sa_handler;   ///< SIG_DFL (0) / SIG_IGN (1) / handler address
+    uint64_t sa_mask;      ///< signals blocked during the handler
+    uint64_t sa_flags;     ///< SA_* flags (currently unused)
+    uint64_t sa_restorer;  ///< reserved (kernel injects its own trampoline)
+};
+
+int64_t sys_kill(int pid, int sig);
+int64_t sys_sigaction(int sig, const struct sys_sigaction* act, struct sys_sigaction* old);
+int64_t sys_sigprocmask(int how, const uint64_t* set, uint64_t* old);

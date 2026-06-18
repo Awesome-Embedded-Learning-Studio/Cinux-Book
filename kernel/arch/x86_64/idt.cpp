@@ -36,6 +36,7 @@ void isr_np_stub();
 void isr_ss_stub();
 void isr_gp_stub();
 void isr_pf_stub();
+void isr_sigreturn_stub();  // F3-M1: int $0x80 sigreturn trampoline
 }  // extern "C"
 
 // ============================================================
@@ -57,6 +58,7 @@ void handle_np(InterruptFrame*);
 void handle_ss(InterruptFrame*);
 void handle_gp(InterruptFrame*);
 void handle_pf(InterruptFrame*);
+void sigreturn_handler(InterruptFrame*);  // F3-M1: defined in signal.cpp
 }  // extern "C"
 
 // ============================================================
@@ -108,6 +110,9 @@ void IDT::init() {
         {ExceptionVector::SS, isr_ss_stub, IDTPrivilege::Kernel, IDTGateType::Interrupt, 0},
         {ExceptionVector::GP, isr_gp_stub, IDTPrivilege::Kernel, IDTGateType::Interrupt, 0},
         {ExceptionVector::PF, isr_pf_stub, IDTPrivilege::Kernel, IDTGateType::Interrupt, 0},
+        // F3-M1: sigreturn trampoline gate.  User-callable (DPL=3) trap gate
+        // so the int $0x80 in the on-stack trampoline can enter it from Ring 3.
+        {ExceptionVector::Sigreturn, isr_sigreturn_stub, IDTPrivilege::User, IDTGateType::Trap, 0},
     };
 
     for (const auto& r : routes) {

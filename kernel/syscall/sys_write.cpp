@@ -14,6 +14,8 @@
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/signal.hpp"
 
 namespace cinux::syscall {
 
@@ -46,7 +48,15 @@ int64_t sys_write(uint64_t fd, uint64_t buf_virt, uint64_t count, uint64_t, uint
         (void)g;
         auto write_result = file->inode->ops->write(file->inode, file->offset, buf, count);
         if (!write_result.ok()) {
-            return -to_errno(write_result.error());
+            int err = to_errno(write_result.error());
+            // F3-M1: writing to a pipe/fifo with no readers raises SIGPIPE.
+            if (err == kEpipe) {
+                auto* self = cinux::proc::Scheduler::current();
+                if (self != nullptr) {
+                    cinux::proc::signal_send(self, cinux::proc::Signal::kSigpipe);
+                }
+            }
+            return -err;
         }
         if (write_result.value() > 0) {
             file->offset += static_cast<uint64_t>(write_result.value());

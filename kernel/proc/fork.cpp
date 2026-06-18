@@ -127,6 +127,9 @@ __attribute__((optimize("no-omit-frame-pointer"), noinline)) int fork(PidAllocat
     child->parent      = parent;
     child->children    = nullptr;
     child->exit_status = 0;
+    // F3-M1: a forked child does not inherit pending signals (POSIX);
+    // dispositions and the block mask are inherited via the memcpy above.
+    child->sig_pending = 0;
     child->fd_table    = nullptr;
 
     uint64_t child_stack_phys = cinux::mm::g_pmm.alloc_pages(TaskBuilder::STACK_PAGES);

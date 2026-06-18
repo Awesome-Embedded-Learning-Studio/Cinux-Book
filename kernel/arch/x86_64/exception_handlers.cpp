@@ -32,6 +32,7 @@
 #include "kernel/mm/vmm.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/signal.hpp"
 
 extern "C" char __kernel_stack_top[];
 extern "C" char __boot_guard_start[];
@@ -81,8 +82,8 @@ void dump_registers(const InterruptFrame* frame, const char* name, uint8_t vecto
 // frame is available, walks + symbolizes the call stack, notes the current
 // task, then halts.  Replaces the per-handler dump_registers/klog/fatal_halt
 // triplet with a single entry point.
-[[noreturn]] void panic(const InterruptFrame* frame, const char* name,
-                        uint8_t vector, const char* fmt, ...) {
+[[noreturn]] void panic(const InterruptFrame* frame, const char* name, uint8_t vector,
+                        const char* fmt, ...) {
     kprintf("\n========== KERNEL PANIC ==========\n");
     va_list args;
     va_start(args, fmt);
@@ -98,8 +99,8 @@ void dump_registers(const InterruptFrame* frame, const char* name, uint8_t vecto
     }
 
     if (auto* t = cinux::proc::Scheduler::current(); t != nullptr) {
-        kprintf("Task: tid=%u pid=%d name='%s'\n", static_cast<unsigned>(t->tid),
-                t->pid, t->name ? t->name : "(null)");
+        kprintf("Task: tid=%u pid=%d name='%s'\n", static_cast<unsigned>(t->tid), t->pid,
+                t->name ? t->name : "(null)");
     }
     cinux::mm::dump_memory_stats();
     kprintf("==================================\n");
@@ -172,8 +173,7 @@ void handle_ss(InterruptFrame* frame) {
 void handle_gp(InterruptFrame* frame) {
     const bool from_user = (frame->cs & 0x03) != 0;
     if (from_user) {
-        panic(frame, "#GP", 13,
-              "General Protection Fault from user mode (Ring 3)");
+        panic(frame, "#GP", 13, "General Protection Fault from user mode (Ring 3)");
     }
     panic(frame, "#GP", 13, "General Protection Fault in kernel mode (error code=%p)",
           reinterpret_cast<void*>(frame->error_code));
@@ -279,15 +279,14 @@ void handle_pf(InterruptFrame* frame) {
                 // syscall/execve can mutate the VMA store concurrently.
                 const bool user_fault = (err & 0x04) != 0;
                 if (user_fault && task != nullptr) {
-                    klog_error(
-                        "segfault: tid=%u '%s' addr=%p has no VMA -- killing task",
-                        static_cast<unsigned>(task->tid),
-                        task->name ? task->name : "(null)",
-                        reinterpret_cast<void*>(fault_addr));
-                    cinux::proc::Scheduler::exit_current();
-                    // exit_current() switches away and does not return; halt
-                    // defensively if it ever does.
-                    fatal_halt();
+                    klog_error("segfault: tid=%u '%s' addr=%p has no VMA -- sending SIGSEGV",
+                               static_cast<unsigned>(task->tid), task->name ? task->name : "(null)",
+                               reinterpret_cast<void*>(fault_addr));
+                    // F3-M1: queue SIGSEGV; the ISR stub's signal_check_deliver_isr
+                    // (invoked right after handle_pf returns) delivers it -- to a
+                    // custom handler if installed, else the default Terminate.
+                    cinux::proc::signal_send(task, cinux::proc::Signal::kSigsegv);
+                    return;
                 }
                 // Kernel-mode fault or no current task: keep the legacy
                 // zero-page service so test/boot PF injection still works.
@@ -354,8 +353,8 @@ void handle_pf(InterruptFrame* frame) {
     const char* reserved = (err & 0x08) ? ", reserved bits" : "";
     const char* fetch    = (err & 0x10) ? ", instruction fetch" : "";
 
-    panic(frame, "#PF", 14, "Page Fault: %s %s %s%s%s @ CR2=%p", present, access, mode,
-          reserved, fetch, reinterpret_cast<void*>(fault_addr));
+    panic(frame, "#PF", 14, "Page Fault: %s %s %s%s%s @ CR2=%p", present, access, mode, reserved,
+          fetch, reinterpret_cast<void*>(fault_addr));
 }
 
 }  // extern "C"

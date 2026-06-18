@@ -97,3 +97,17 @@ void sys_exit(int code) {
 void sys_yield(void) {
     _syscall1(static_cast<uint64_t>(SyscallNr::SYS_yield), 0);
 }
+
+int64_t sys_kill(int pid, int sig) {
+    return _syscall2(static_cast<uint64_t>(SyscallNr::SYS_kill), (uint64_t)pid, (uint64_t)sig);
+}
+
+int64_t sys_sigaction(int sig, const struct sys_sigaction* act, struct sys_sigaction* old) {
+    return _syscall3(static_cast<uint64_t>(SyscallNr::SYS_rt_sigaction), (uint64_t)sig,
+                     (uint64_t)act, (uint64_t)old);
+}
+
+int64_t sys_sigprocmask(int how, const uint64_t* set, uint64_t* old) {
+    return _syscall3(static_cast<uint64_t>(SyscallNr::SYS_rt_sigprocmask), (uint64_t)how,
+                     (uint64_t)set, (uint64_t)old);
+}

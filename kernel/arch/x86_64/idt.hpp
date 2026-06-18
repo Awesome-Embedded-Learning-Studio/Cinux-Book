@@ -26,20 +26,21 @@ namespace cinux::arch {
 // ============================================================
 
 enum class ExceptionVector : uint8_t {
-    DE  = 0,   ///< #DE: Divide Error
-    DB  = 1,   ///< #DB: Debug Exception
-    NMI = 2,   ///< Non-maskable Interrupt
-    BP  = 3,   ///< #BP: Breakpoint (INT3)
-    OF  = 4,   ///< #OF: Overflow
-    BR  = 5,   ///< #BR: BOUND Range Exceeded
-    UD  = 6,   ///< #UD: Invalid Opcode
-    NM  = 7,   ///< #NM: Device Not Available
-    DF  = 8,   ///< #DF: Double Fault (has error code)
-    TS  = 10,  ///< #TS: Invalid TSS (has error code)
-    NP  = 11,  ///< #NP: Segment Not Present (has error code)
-    SS  = 12,  ///< #SS: Stack-Segment Fault (has error code)
-    GP  = 13,  ///< #GP: General Protection (has error code)
-    PF  = 14,  ///< #PF: Page Fault (has error code)
+    DE        = 0,     ///< #DE: Divide Error
+    DB        = 1,     ///< #DB: Debug Exception
+    NMI       = 2,     ///< Non-maskable Interrupt
+    BP        = 3,     ///< #BP: Breakpoint (INT3)
+    OF        = 4,     ///< #OF: Overflow
+    BR        = 5,     ///< #BR: BOUND Range Exceeded
+    UD        = 6,     ///< #UD: Invalid Opcode
+    NM        = 7,     ///< #NM: Device Not Available
+    DF        = 8,     ///< #DF: Double Fault (has error code)
+    TS        = 10,    ///< #TS: Invalid TSS (has error code)
+    NP        = 11,    ///< #NP: Segment Not Present (has error code)
+    SS        = 12,    ///< #SS: Stack-Segment Fault (has error code)
+    GP        = 13,    ///< #GP: General Protection (has error code)
+    PF        = 14,    ///< #PF: Page Fault (has error code)
+    Sigreturn = 0x80,  ///< F3-M1: int $0x80 sigreturn gate (user-callable trap)
 };
 
 // ============================================================

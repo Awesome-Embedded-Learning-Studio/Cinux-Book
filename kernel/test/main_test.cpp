@@ -21,9 +21,9 @@
 #include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
-#include "kernel/mm/slab.hpp"
 #include "kernel/mm/page_cache.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/mm/slab.hpp"
 #include "kernel/mm/vmm.hpp"
 
 extern "C" {
@@ -79,6 +79,7 @@ void run_block_device_tests();
 void run_vma_tests();
 void run_mmap_tests();
 void run_brk_tests();
+void run_signal_tests();
 void run_page_cache_tests();
 void run_file_mmap_tests();
 void run_kallsyms_tests();
@@ -184,6 +185,7 @@ extern "C" void kernel_main() {
     run_vma_tests();
     run_mmap_tests();
     run_brk_tests();
+    run_signal_tests();
     run_page_cache_tests();
     run_file_mmap_tests();
 
