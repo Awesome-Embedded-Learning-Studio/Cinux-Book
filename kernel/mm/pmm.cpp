@@ -1,6 +1,6 @@
 /**
  * @file kernel/mm/pmm.cpp
- * @brief Physical Memory Manager -- bitmap allocator implementation
+ * @brief Physical Memory Manager -- buddy-system allocator implementation
  */
 
 #include "kernel/mm/pmm.hpp"
@@ -24,7 +24,6 @@ constexpr uint64_t KERNEL_VMA       = 0xFFFFFFFF80000000ULL;
 // ============================================================
 
 extern "C" {
-extern char __kernel_end;
 extern char __kernel_stack_top;
 }
 
@@ -33,55 +32,6 @@ extern char __kernel_stack_top;
 // ============================================================
 
 PMM g_pmm;
-
-// ============================================================
-// Internal bitmap helpers
-// ============================================================
-
-namespace {
-
-void bm_set(uint8_t* bm, uint64_t idx) {
-    bm[idx / 8] |= static_cast<uint8_t>(1U << (idx % 8));
-}
-
-void bm_clear(uint8_t* bm, uint64_t idx) {
-    bm[idx / 8] &= static_cast<uint8_t>(~(1U << (idx % 8)));
-}
-
-bool bm_test(const uint8_t* bm, uint64_t idx) {
-    return (bm[idx / 8] & (1U << (idx % 8))) != 0;
-}
-
-/// Scan 64 bits at a time using __builtin_ctzll for the first free bit.
-int64_t bm_find_first_free(const uint8_t* bm, uint64_t highest_page, uint64_t bitmap_size) {
-    const auto* bm64        = reinterpret_cast<const uint64_t*>(bm);
-    uint64_t    qword_count = bitmap_size / sizeof(uint64_t);
-
-    for (uint64_t i = 0; i < qword_count; i++) {
-        if (bm64[i] != ~0ULL) {
-            int      bit = __builtin_ctzll(~bm64[i]);
-            uint64_t idx = i * 64 + static_cast<uint64_t>(bit);
-            if (idx < highest_page)
-                return static_cast<int64_t>(idx);
-        }
-    }
-
-    // Handle tail bytes not covered by the qword scan
-    for (uint64_t byte = qword_count * 8; byte < bitmap_size; byte++) {
-        if (bm[byte] != 0xFF) {
-            for (uint64_t bit = 0; bit < 8; bit++) {
-                uint64_t idx = byte * 8 + bit;
-                if (idx < highest_page && !(bm[byte] & (1U << bit))) {
-                    return static_cast<int64_t>(idx);
-                }
-            }
-        }
-    }
-
-    return -1;
-}
-
-}  // anonymous namespace
 
 // ============================================================
 // parse_memory_map
@@ -120,34 +70,6 @@ uint32_t parse_memory_map(const BootInfo& info, MemoryRegion* regions, uint32_t 
 }
 
 // ============================================================
-// PMM private helpers
-// ============================================================
-
-void PMM::mark_region_used(uint64_t phys, uint64_t length) {
-    uint64_t start = phys / PAGE_SIZE;
-    uint64_t end   = (phys + length + PAGE_SIZE - 1) / PAGE_SIZE;
-
-    for (uint64_t p = start; p < end && p < highest_page_; p++) {
-        if (!bm_test(bitmap_, p)) {
-            bm_set(bitmap_, p);
-            free_pages_--;
-        }
-    }
-}
-
-void PMM::mark_region_free(uint64_t phys, uint64_t length) {
-    uint64_t start = phys / PAGE_SIZE;
-    uint64_t end   = (phys + length + PAGE_SIZE - 1) / PAGE_SIZE;
-
-    for (uint64_t p = start; p < end && p < highest_page_; p++) {
-        if (bm_test(bitmap_, p)) {
-            bm_clear(bitmap_, p);
-            free_pages_++;
-        }
-    }
-}
-
-// ============================================================
 // PMM::init
 // ============================================================
 
@@ -156,47 +78,64 @@ void PMM::init(const BootInfo& info) {
     MemoryRegion regions[32];
     uint32_t     region_count = parse_memory_map(info, regions, 32);
 
-    // Step 2: Determine highest physical address -> bitmap size
+    // Step 2: Determine highest physical address -> total pages
     uint64_t max_addr = 0;
     for (uint32_t i = 0; i < region_count; i++) {
         uint64_t end = regions[i].base + regions[i].length;
         if (end > max_addr)
             max_addr = end;
     }
-
     highest_page_ = max_addr / PAGE_SIZE;
     total_pages_  = highest_page_;
-    bitmap_size_  = (highest_page_ + 7) / 8;
 
-    // Step 3: Place bitmap after kernel stack, page-aligned
+    // Step 3: Place the per-page order array (1 byte/page) after the kernel
+    // stack, page-aligned -- where the old bitmap lived.
     uintptr_t stack_top_virt = reinterpret_cast<uintptr_t>(&__kernel_stack_top);
-    uintptr_t bm_virt        = (stack_top_virt + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-    bitmap_                  = reinterpret_cast<uint8_t*>(bm_virt);
+    uintptr_t os_virt        = (stack_top_virt + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    order_storage_           = reinterpret_cast<uint8_t*>(os_virt);
 
-    // Step 4: Initialise bitmap -- all pages marked as used
-    for (uint64_t i = 0; i < bitmap_size_; i++) {
-        bitmap_[i] = 0xFF;
-    }
-    free_pages_ = 0;
+    // Step 4: Place the buddy's per-order free bitmaps right after the order
+    // array (page-aligned).  The bitmaps track free blocks without writing into
+    // the free pages themselves (GOTCHA #14 -- nested-KVM safe).
+    uint64_t order_bytes = total_pages_;
+    uintptr_t bs_virt    = (os_virt + order_bytes + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    bitmap_storage_      = reinterpret_cast<uint8_t*>(bs_virt);
+    uint64_t bm_bytes    = BuddyAllocator::bitmap_bytes(total_pages_);
 
-    // Step 5: Clear bits for each usable region
+    // Step 5: Initialise the buddy over page indices [0, total_pages).
+    buddy_.init(0, total_pages_, order_storage_, bitmap_storage_);
+
+    // Step 6: Mark usable RAM free, EXCLUDING the permanently-reserved span
+    // [kernel_phys_base, metadata_end) -- the kernel image, stack, order array
+    // and the free bitmaps themselves.  Pages never marked free stay invisible
+    // to the allocator (free() is a no-op on them), so the kernel's own pages
+    // are never handed out (the F2-M7 wiring trampling root cause).
+    // The order array and the per-order bitmaps sit contiguously after the
+    // kernel image (order first, then bitmaps), so the bitmap tail covers both
+    // metadata regions.  Exclude the whole span [kernel_phys_base, bitmap tail)
+    // from the free pool.
+    uint64_t bitmap_phys  = bs_virt - KERNEL_VMA;
+    uint64_t bitmap_pages = (bm_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
+    uint64_t used_start   = info.kernel_phys_base;
+    uint64_t used_end     = bitmap_phys + bitmap_pages * PAGE_SIZE;
+
     for (uint32_t i = 0; i < region_count; i++) {
-        mark_region_free(regions[i].base, regions[i].length);
+        uint64_t seg_start = regions[i].base;
+        uint64_t seg_end   = regions[i].base + regions[i].length;
+        if (used_end <= seg_start || used_start >= seg_end) {
+            buddy_.mark_free_region(seg_start / PAGE_SIZE, (seg_end - seg_start) / PAGE_SIZE);
+        } else {
+            if (used_start > seg_start)
+                buddy_.mark_free_region(seg_start / PAGE_SIZE,
+                                        (used_start - seg_start) / PAGE_SIZE);
+            if (used_end < seg_end)
+                buddy_.mark_free_region(used_end / PAGE_SIZE, (seg_end - used_end) / PAGE_SIZE);
+        }
     }
 
-    // Step 6: Re-mark kernel image + stack as used
-    uint64_t used_phys_start = info.kernel_phys_base;
-    uint64_t used_phys_end   = bm_virt - KERNEL_VMA;
-    mark_region_used(used_phys_start, used_phys_end - used_phys_start);
-
-    // Step 7: Mark bitmap itself as used
-    uint64_t bm_phys        = bm_virt - KERNEL_VMA;
-    uint64_t bm_pages_bytes = ((bitmap_size_ + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
-    mark_region_used(bm_phys, bm_pages_bytes);
-
-    // Step 8: Print statistics
+    // Step 7: Print statistics
     uint64_t total_mb = total_pages_ * PAGE_SIZE / (1024 * 1024);
-    uint64_t free_mb  = free_pages_ * PAGE_SIZE / (1024 * 1024);
+    uint64_t free_mb  = buddy_.free_pages() * PAGE_SIZE / (1024 * 1024);
     cinux::lib::kprintf("[PMM] Total: %uMB, Free: %uMB\n", total_mb, free_mb);
 }
 
@@ -205,26 +144,16 @@ void PMM::init(const BootInfo& info) {
 // ============================================================
 
 uint64_t PMM::alloc_page_locked() {
-    int64_t idx = bm_find_first_free(bitmap_, highest_page_, bitmap_size_);
-    if (idx < 0)
+    uint64_t page = buddy_.alloc_order(0);
+    if (page == BuddyAllocator::kInvalidPage)
         return 0;
-
-    bm_set(bitmap_, static_cast<uint64_t>(idx));
-    free_pages_--;
-    return static_cast<uint64_t>(idx) * PAGE_SIZE;
+    return page * PAGE_SIZE;
 }
 
 void PMM::free_page_locked(uint64_t phys) {
     if (phys == 0)
         return;
-    uint64_t idx = phys / PAGE_SIZE;
-    if (idx >= highest_page_)
-        return;
-    if (!bm_test(bitmap_, idx))
-        return;
-
-    bm_clear(bitmap_, idx);
-    free_pages_++;
+    buddy_.free(phys / PAGE_SIZE);
 }
 
 // ============================================================
@@ -251,41 +180,29 @@ uint64_t PMM::alloc_pages(uint64_t count) {
     if (count == 0)
         return 0;
 
-    auto g = lock_.guard();
-    (void)g;
-
-    if (count == 1)
-        return alloc_page_locked();
-
-    uint64_t run   = 0;
-    uint64_t start = 0;
-
-    for (uint64_t p = 0; p < highest_page_; p++) {
-        if (!bm_test(bitmap_, p)) {
-            if (run == 0)
-                start = p;
-            run++;
-            if (run >= count) {
-                for (uint64_t i = start; i < start + count; i++) {
-                    bm_set(bitmap_, i);
-                }
-                free_pages_ -= count;
-                return start * PAGE_SIZE;
-            }
-        } else {
-            run = 0;
-        }
+    // Round up to the smallest buddy order holding >= count pages.
+    int      order = 0;
+    uint64_t n     = 1;
+    while (n < count) {
+        n <<= 1;
+        order++;
     }
+    if (order > BuddyAllocator::kMaxOrder)
+        return 0;
 
-    return 0;
+    auto     g    = lock_.guard();
+    (void)g;
+    uint64_t page = buddy_.alloc_order(order);
+    if (page == BuddyAllocator::kInvalidPage)
+        return 0;
+    return page * PAGE_SIZE;
 }
 
 void PMM::free_pages(uint64_t phys, uint64_t count) {
-    auto g = lock_.guard();
-    (void)g;
-    for (uint64_t i = 0; i < count; i++) {
-        free_page_locked(phys + i * PAGE_SIZE);
-    }
+    // The buddy records each head's order authoritatively, so @p count is not
+    // needed: freeing the head returns the whole power-of-two block.
+    (void)count;
+    free_page(phys);
 }
 
 // ============================================================
@@ -293,7 +210,7 @@ void PMM::free_pages(uint64_t phys, uint64_t count) {
 // ============================================================
 
 uint64_t PMM::free_page_count() const {
-    return free_pages_;
+    return buddy_.free_pages();
 }
 uint64_t PMM::total_page_count() const {
     return total_pages_;

@@ -1,10 +1,12 @@
 /**
  * @file kernel/mm/pmm.hpp
- * @brief Physical Memory Manager -- bitmap allocator
+ * @brief Physical Memory Manager -- buddy-system allocator
  *
- * Manages physical page allocation using a one-bit-per-page bitmap
- * placed immediately after the kernel image + stack.  Supports single
- * and contiguous multi-page allocation with 64-bit accelerated scanning.
+ * Manages physical page allocation using a buddy allocator (power-of-two free
+ * lists) over all usable RAM.  The per-page order metadata (1 byte/page) sits
+ * where the old bitmap did, immediately after the kernel image + stack.
+ * Supports single and contiguous multi-page allocation; multi-page allocs
+ * round up to the next power of two (see alloc_pages).
  */
 
 #pragma once
@@ -12,6 +14,7 @@
 #include <stdint.h>
 
 #include "boot/boot_info.h"
+#include "kernel/mm/buddy.hpp"
 #include "kernel/proc/sync.hpp"
 
 namespace cinux::mm {
@@ -36,11 +39,13 @@ struct MemoryRegion {
 uint32_t parse_memory_map(const BootInfo& info, MemoryRegion* regions, uint32_t max_regions);
 
 /**
- * @brief Physical Memory Manager using a bitmap allocator
+ * @brief Physical Memory Manager backed by a BuddyAllocator
  *
- * Bitmap is placed at __kernel_stack_top (virtual), aligned to a page
- * boundary.  Allocation uses __builtin_ctzll for fast 64-bit-group
- * scanning.
+ * The per-page order array (1 byte/page) is placed at __kernel_stack_top
+ * (virtual), page-aligned.  Public alloc/free take the spinlock; the _locked
+ * variants rely on caller-provided exclusion (interrupts disabled, e.g. the
+ * page-fault path), matching the BuddyAllocator's own "caller holds exclusion"
+ * contract.
  */
 class PMM {
 public:
@@ -53,10 +58,13 @@ public:
     /** Free a single page (no-op if phys is 0 or already free). */
     void free_page(uint64_t phys);
 
-    /** Allocate @p count contiguous pages.  Returns base phys addr, 0 on OOM. */
+    /** Allocate @p count contiguous pages.  Returns base phys addr, 0 on OOM.
+     *  The block is rounded up to the next power of two (buddy order); free it
+     *  via free_pages() with the same base -- the recorded order is authoritative. */
     uint64_t alloc_pages(uint64_t count);
 
-    /** Free @p count contiguous pages starting at @p phys. */
+    /** Free the block whose head is @p phys (@p count is ignored -- the buddy's
+     *  recorded order drives coalescing).  No-op if @p phys is not an allocated head. */
     void free_pages(uint64_t phys, uint64_t count);
 
     /** Current number of free pages. */
@@ -78,15 +86,12 @@ public:
     void free_page_locked(uint64_t phys);
 
 private:
-    void mark_region_used(uint64_t phys, uint64_t length);
-    void mark_region_free(uint64_t phys, uint64_t length);
-
     cinux::proc::Spinlock lock_;
-    uint8_t*              bitmap_{};
+    BuddyAllocator        buddy_;
+    uint8_t*              order_storage_{};  ///< 1 byte/page, @ __kernel_stack_top
+    uint8_t*              bitmap_storage_{};  ///< per-order free bitmaps, after order_storage
     uint64_t              total_pages_{};
-    uint64_t              free_pages_{};
     uint64_t              highest_page_{};
-    uint64_t              bitmap_size_{};
 };
 
 /// Global PMM instance.

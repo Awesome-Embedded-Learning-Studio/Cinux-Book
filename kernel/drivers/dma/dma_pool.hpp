@@ -3,8 +3,8 @@
  * @brief DmaPool -- allocator for DMA-capable memory backed by PMM + VMM
  *
  * DmaPool hands out DmaBuffer handles whose backing memory is contiguous
- * physical pages from the PMM, mapped into the higher-half direct-map window
- * (virt = phys + KERNEL_VMA) via VMM::map.  Because the bus address uniquely
+ * physical pages from the PMM, mapped into the direct-map window
+ * (virt = phys + DIRECT_MAP_BASE) via VMM::map.  Because the bus address uniquely
  * determines the virtual address, the pool needs no virtual address allocator
  * and cannot leak virtual space.  VMM::map overwrites any prior PTE for the
  * address, so the explicit map is safe whether or not the boot-time direct map
@@ -30,9 +30,8 @@
 
 #pragma once
 
-#include <cstddef>
-
 #include <cinux/expected.hpp>
+#include <cstddef>
 
 #include "kernel/drivers/dma/dma_buffer.hpp"
 

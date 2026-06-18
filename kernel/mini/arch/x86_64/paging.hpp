@@ -61,6 +61,23 @@ static constexpr uint32_t PDPT_PD_ENTRY = 0;
 /// long_mode.S: PML4[510] -> PDPT (recursive), PDPT[510] -> PD
 static constexpr uint32_t PDPT_HIGHER_HALF_ENTRY = 510;
 
+/// Direct-map window base.  MUST match kernel/arch/x86_64/memory_layout.hpp
+/// (DIRECT_MAP_BASE).  Unlike KERNEL_VMA this 512 GB window is large enough for
+/// all RAM and is fully identity-mapped by direct_map_up_to(), so the big
+/// kernel's phys_to_virt() can address every page the PMM returns.
+static constexpr uint64_t DIRECT_MAP_BASE = 0xFFFF880000000000ULL;
+
+/// PML4 entry that maps the direct-map window = DIRECT_MAP_BASE >> 39.
+static constexpr uint32_t PML4_DIRECT_MAP_ENTRY = 272;
+
+/// Physical address of the direct-map page tables.  The PDPT sits at 0x10000
+/// and, when 1 GB pages are unavailable, one PD page per mapped 1 GB follows at
+/// 0x11000, 0x12000, ...  The [0x10000, 0x20000) window is free (above the
+/// bootloader's low structures at 0x1000-0x7C00, below the mini kernel at
+/// 0x20000) and below the 1 MB boundary, so the PMM never manages it and the
+/// tables persist for the kernel's whole lifetime.
+static constexpr uint64_t DIRECT_MAP_PDPT_PHYS = 0x10000;
+
 // ============================================================
 // Internal Helpers
 // ============================================================
@@ -147,6 +164,58 @@ inline void identity_map_up_to(uint64_t end_addr) {
         // invlpg cannot invalidate PDPT-level mappings.
         detail::reload_cr3();
     }
+}
+
+/**
+ * @brief Identity-map all physical RAM into the dedicated direct-map window
+ *
+ * Wires PML4[272] -> a fresh PDPT (at phys 0x10000) covering [0, end_addr).
+ * Uses 1 GB huge pages when the CPU supports them (PDPE1GB); otherwise falls
+ * back to one 2 MB-huge-PD page per 1 GB (tables placed just above the PDPT).
+ * After this, DIRECT_MAP_BASE + phys is a valid identity mapping for every page
+ * up to @p end_addr, unlike the KERNEL_VMA higher-half window (bootloader-capped
+ * at 1 GB).  Works on QEMU's default qemu64 CPU (no PDPE1GB) via the 2 MB path.
+ *
+ * @param end_addr  Highest physical address that must be direct-mapped.  Maps up
+ *                  to the next 1 GB boundary; capped at the 512 GB window.
+ */
+inline void direct_map_up_to(uint64_t end_addr) {
+    // Access the PML4 and the direct-map tables through the existing higher-half
+    // mapping (all sit below 2 MB, covered by the bootloader's PD[0]).
+    auto* pml4 = reinterpret_cast<volatile uint64_t*>(0xFFFFFFFF80000000ULL + 0x1000);
+    auto* pdpt = reinterpret_cast<volatile uint64_t*>(0xFFFFFFFF80000000ULL + DIRECT_MAP_PDPT_PHYS);
+
+    for (uint32_t i = 0; i < PT_ENTRIES; i++) {
+        pdpt[i] = 0;  // clean PDPT page
+    }
+
+    uint32_t needed_1gb = static_cast<uint32_t>((end_addr + PAGE_1GB_SIZE - 1) / PAGE_1GB_SIZE);
+    if (needed_1gb > PT_ENTRIES) {
+        needed_1gb = PT_ENTRIES;  // window caps at 512 GB
+    }
+
+    const bool use_1gb = detail::has_1gb_pages();
+    for (uint32_t n = 0; n < needed_1gb; n++) {
+        if (use_1gb) {
+            // 1 GB huge page: a single PDPT entry, no PD needed.
+            pdpt[n] = static_cast<uint64_t>(n) * PAGE_1GB_SIZE | PDPT_1GB_PAGE_FLAGS;
+        } else {
+            // 2 MB huge pages: one PD page per 1 GB (placed right above the PDPT).
+            uint64_t pd_phys = DIRECT_MAP_PDPT_PHYS + static_cast<uint64_t>(n + 1) * 0x1000;
+            auto*    pd = reinterpret_cast<volatile uint64_t*>(0xFFFFFFFF80000000ULL + pd_phys);
+            for (uint32_t k = 0; k < PT_ENTRIES; k++) {
+                pd[k] = (static_cast<uint64_t>(n) * PAGE_1GB_SIZE +
+                         static_cast<uint64_t>(k) * PAGE_2MB_SIZE) |
+                        PD_HUGE_PAGE_FLAGS;
+            }
+            pdpt[n] = pd_phys | 0x3;  // present + writable (PD pointer, not huge)
+        }
+    }
+
+    // Wire PML4[272] -> direct-map PDPT (present + writable).
+    pml4[PML4_DIRECT_MAP_ENTRY] = DIRECT_MAP_PDPT_PHYS | 0x3;
+
+    detail::reload_cr3();  // flush TLB for the new PML4/PDPT entries
 }
 
 }  // namespace cinux::mini::arch

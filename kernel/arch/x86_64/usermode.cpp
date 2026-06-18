@@ -12,6 +12,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "kernel/arch/x86_64/memory_layout.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/proc/per_cpu.hpp"
@@ -52,7 +53,6 @@ void usermode_init() {
     // gs:0 = kernel stack pointer (updated by scheduler on context switch)
     // gs:8 = user RSP scratch (saved/restored by syscall handler)
     // gs:16 = return value scratch
-    constexpr uint64_t KERNEL_VMA = 0xFFFFFFFF80000000ULL;
 
     uint64_t gs_phys = g_pmm.alloc_page();
     if (gs_phys == 0) {
@@ -60,16 +60,16 @@ void usermode_init() {
         return;
     }
 
-    auto* gs_virt = reinterpret_cast<uint64_t*>(gs_phys + KERNEL_VMA);
+    auto* gs_virt = reinterpret_cast<uint64_t*>(gs_phys + DIRECT_MAP_BASE);
     gs_virt[0]    = 0;  // kernel stack — filled by scheduler on first context switch
     gs_virt[1]    = 0;
 
-    write_msr(MSR_KERNEL_GS_BASE, gs_phys + KERNEL_VMA);
+    write_msr(MSR_KERNEL_GS_BASE, gs_phys + DIRECT_MAP_BASE);
 
-    cinux::proc::g_per_cpu.gs_page_vaddr = gs_phys + KERNEL_VMA;
+    cinux::proc::g_per_cpu.gs_page_vaddr = gs_phys + DIRECT_MAP_BASE;
 
     kprintf("[USER] Per-CPU GS data page at %p (phys %p)\n",
-            reinterpret_cast<void*>(gs_phys + KERNEL_VMA), reinterpret_cast<void*>(gs_phys));
+            reinterpret_cast<void*>(gs_phys + DIRECT_MAP_BASE), reinterpret_cast<void*>(gs_phys));
 }
 
 }  // namespace cinux::arch

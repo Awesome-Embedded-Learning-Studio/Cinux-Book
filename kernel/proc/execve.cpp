@@ -60,28 +60,30 @@ ExecveResult elf_error_to_execve(elf::ElfValidateResult r) {
  * page table page.  Does NOT free the PML4 itself.
  */
 void clear_user_mappings(cinux::mm::AddressSpace& space) {
-    constexpr uint64_t KERNEL_VMA = 0xFFFFFFFF80000000ULL;
-    uint64_t           pml4_phys  = space.pml4_phys();
-    auto*              pml4 = reinterpret_cast<cinux::arch::PageEntry*>(pml4_phys + KERNEL_VMA);
+    uint64_t pml4_phys = space.pml4_phys();
+    auto*    pml4 =
+        reinterpret_cast<cinux::arch::PageEntry*>(pml4_phys + cinux::arch::DIRECT_MAP_BASE);
 
     for (uint32_t i = 0; i < 256; i++) {
         if (!pml4[i].is_present())
             continue;
 
-        auto* pdpt = reinterpret_cast<cinux::arch::PageEntry*>(pml4[i].phys_addr() + KERNEL_VMA);
+        auto* pdpt = reinterpret_cast<cinux::arch::PageEntry*>(pml4[i].phys_addr() +
+                                                               cinux::arch::DIRECT_MAP_BASE);
 
         for (uint32_t j = 0; j < cinux::arch::PT_ENTRIES; j++) {
             if (!pdpt[j].is_present())
                 continue;
 
-            auto* pd = reinterpret_cast<cinux::arch::PageEntry*>(pdpt[j].phys_addr() + KERNEL_VMA);
+            auto* pd = reinterpret_cast<cinux::arch::PageEntry*>(pdpt[j].phys_addr() +
+                                                                 cinux::arch::DIRECT_MAP_BASE);
 
             for (uint32_t k = 0; k < cinux::arch::PT_ENTRIES; k++) {
                 if (!pd[k].is_present())
                     continue;
 
-                auto* pt =
-                    reinterpret_cast<cinux::arch::PageEntry*>(pd[k].phys_addr() + KERNEL_VMA);
+                auto* pt = reinterpret_cast<cinux::arch::PageEntry*>(pd[k].phys_addr() +
+                                                                     cinux::arch::DIRECT_MAP_BASE);
 
                 for (uint32_t l = 0; l < cinux::arch::PT_ENTRIES; l++) {
                     if (!pt[l].is_present())
@@ -235,7 +237,7 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
                 return ExecveResult::MapFailed;
             }
 
-            auto* dst = reinterpret_cast<uint8_t*>(phys + KERNEL_VMA);
+            auto* dst = reinterpret_cast<uint8_t*>(phys + cinux::arch::DIRECT_MAP_BASE);
             for (uint64_t b = 0; b < PAGE_SIZE; b++) {
                 dst[b] = 0;
             }

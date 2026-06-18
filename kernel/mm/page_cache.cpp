@@ -82,7 +82,7 @@ cinux::lib::ErrorOr<CachedPage*> PageCache::get_page(cinux::fs::Inode* inode, ui
     if (phys == 0) {
         return cinux::lib::Error::OutOfMemory;
     }
-    const uint64_t virt = phys + cinux::arch::KERNEL_VMA;
+    const uint64_t virt = phys + cinux::arch::DIRECT_MAP_BASE;
 
     // Start from a clean zero page so any short read (file tail) is zero-filled.
     memset(reinterpret_cast<void*>(virt), 0, cinux::arch::PAGE_SIZE);

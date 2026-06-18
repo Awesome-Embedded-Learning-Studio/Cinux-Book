@@ -32,6 +32,7 @@ void run_pic_pit_tests();
 void run_video_tests();
 void run_keyboard_tests();
 void run_pmm_tests();
+void run_buddy_tests();
 void run_vmm_tests();
 void run_heap_tests();
 void run_heap_lock_stress_tests();
@@ -97,6 +98,32 @@ extern "C" void kernel_main() {
     cinux::arch::g_idt.init();
     cinux::lib::kprintf("[TEST] IDT loaded.\n");
 
+    // F2-M7 direct-map identity probe (batch 1): the loader mapped all RAM into
+    // the DIRECT_MAP_BASE window with 1 GB huge pages.  Verify it is identity by
+    // comparing bytes seen through DIRECT_MAP_BASE + phys against the existing
+    // KERNEL_VMA + phys window (valid for phys < 1 GB).  The 1 GB pages are
+    // uniform, so a low-phys match confirms the whole window is wired correctly.
+    {
+        // Diagnostics: dump CR3 and the PML4 entry that should map the window.
+        // PML4[272] is read via the existing higher-half mapping of phys 0x1000.
+        uint64_t cr3;
+        __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
+        const volatile uint64_t* pml4 =
+            reinterpret_cast<const volatile uint64_t*>(cinux::arch::KERNEL_VMA + 0x1000);
+        cinux::lib::kprintf("[TEST] dmap diag: cr3=0x%lx pml4[272]=0x%lx\n", cr3, pml4[272]);
+
+        bool dmap_ok = true;
+        for (uint64_t probe : {0x200000ULL, 0x800000ULL, 0x1000000ULL}) {
+            const uint8_t* a =
+                reinterpret_cast<const uint8_t*>(cinux::arch::DIRECT_MAP_BASE + probe);
+            const uint8_t* b = reinterpret_cast<const uint8_t*>(cinux::arch::KERNEL_VMA + probe);
+            if (a[0] != b[0] || a[7] != b[7]) {
+                dmap_ok = false;
+            }
+        }
+        cinux::lib::kprintf("[TEST] direct-map identity probe: %s\n", dmap_ok ? "OK" : "MISMATCH");
+    }
+
     // kprintf format tests run early — only need serial + kprintf
     run_kprintf_format_tests();
 
@@ -109,6 +136,7 @@ extern "C" void kernel_main() {
     auto* boot_info = reinterpret_cast<const BootInfo*>(BOOT_INFO_PHYS);
     cinux::mm::g_pmm.init(*boot_info);
     run_pmm_tests();
+    run_buddy_tests();
 
     // VMM tests: initialise VMM after PMM, then run tests
     cinux::mm::g_vmm.init();

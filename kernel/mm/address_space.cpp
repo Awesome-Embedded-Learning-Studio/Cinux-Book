@@ -12,6 +12,7 @@
 
 #include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
+#include "kernel/arch/x86_64/phys_virt.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vmm.hpp"
@@ -30,8 +31,6 @@ uint64_t AddressSpace::kernel_pml4_ = 0;
 
 using namespace cinux::arch;
 
-constexpr uint64_t KERNEL_VMA = 0xFFFFFFFF80000000ULL;
-
 // PML4 entry indices that belong to user space (lower half)
 constexpr uint32_t USER_PML4_START = 0;
 constexpr uint32_t USER_PML4_END   = 256;
@@ -45,15 +44,6 @@ constexpr int LEVEL_PT   = 1;
 // ============================================================
 // Internal helpers
 // ============================================================
-
-namespace {
-
-/** Convert a physical address to a virtual address via the higher-half mapping. */
-PageEntry* phys_to_virt(uint64_t phys) {
-    return reinterpret_cast<PageEntry*>(phys + KERNEL_VMA);
-}
-
-}  // anonymous namespace
 
 // ============================================================
 // Static initialisation

@@ -19,7 +19,7 @@
 #include "kernel/lib/string.hpp"
 #include "kernel/mm/page_cache.hpp"
 
-using cinux::arch::KERNEL_VMA;
+using cinux::arch::DIRECT_MAP_BASE;
 using cinux::arch::PAGE_SIZE;
 using cinux::fs::Inode;
 using cinux::fs::InodeOps;
@@ -129,7 +129,7 @@ void test_get_page_fills_and_caches() {
     TEST_ASSERT_NOT_NULL(p);
     TEST_ASSERT_TRUE(p->valid);
     TEST_ASSERT_EQ(p->offset, static_cast<uint64_t>(0));
-    TEST_ASSERT_EQ(p->phys, p->virt - KERNEL_VMA);  // direct-map invariant
+    TEST_ASSERT_EQ(p->phys, p->virt - DIRECT_MAP_BASE);  // direct-map invariant
     // Byte-exact content sampling across a full page.
     for (uint64_t i = 0; i < PAGE_SIZE; i += 256) {
         TEST_ASSERT_EQ(byte_at(p, i), f.data[i]);

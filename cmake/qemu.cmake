@@ -6,7 +6,8 @@ if(NOT QEMU_EXECUTABLE)
 endif()
 
 # Detect KVM — skip -accel kvm when /dev/kvm is absent (e.g. CI runners)
-if(EXISTS "/dev/kvm")
+# or when CINUX_NO_KVM is set (force TCG / 2MB-path for diagnosis).
+if(EXISTS "/dev/kvm" AND NOT DEFINED ENV{CINUX_NO_KVM})
     set(QEMU_ACCEL -accel kvm -cpu max)
 endif()
 

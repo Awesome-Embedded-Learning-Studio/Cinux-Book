@@ -11,14 +11,10 @@
 #include "kernel/arch/x86_64/memory_layout.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
 #include "kernel/mm/pmm.hpp"
-#include "kernel/mm/vmm.hpp"
 
 namespace cinux::drivers::dma {
 
 namespace {
-
-// DMA buffers are kernel-writable and present.
-constexpr uint64_t kDmaFlags = cinux::arch::FLAG_PRESENT | cinux::arch::FLAG_WRITABLE;
 
 /// Whole-page count needed to hold @p bytes.
 std::size_t pages_for(std::size_t bytes) {
@@ -40,22 +36,15 @@ cinux::lib::ErrorOr<DmaBuffer> DmaPool::alloc(std::size_t size) {
         return cinux::lib::Error::OutOfMemory;
     }
 
-    // Map every page into the higher-half direct-map window.  virt = phys +
-    // KERNEL_VMA is unique per phys, so no virtual allocator is needed.
-    const uint64_t virt = phys + cinux::arch::KERNEL_VMA;
-    for (std::size_t i = 0; i < pages; i++) {
-        const uint64_t v = virt + i * cinux::arch::PAGE_SIZE;
-        const uint64_t p = phys + i * cinux::arch::PAGE_SIZE;
-        if (!cinux::mm::g_vmm.map(v, p, kDmaFlags)) {
-            // Rollback: unmap what we mapped, return the physical allocation.
-            for (std::size_t j = 0; j < i; j++) {
-                cinux::mm::g_vmm.unmap(virt + j * cinux::arch::PAGE_SIZE);
-            }
-            cinux::mm::g_pmm.free_pages(phys, pages);
-            return cinux::lib::Error::OutOfMemory;
-        }
-    }
-
+    // The direct map is a permanent identity mapping of all RAM, built once by
+    // the loader's direct_map_up_to() (1 GB huge pages in PML4[272]).  virt =
+    // phys + DIRECT_MAP_BASE is therefore already CPU-accessible and needs no
+    // per-buffer PTE work.  We MUST NOT g_vmm.map() it here: VMM::map's
+    // walk_level() would hit the 1 GB huge entry, split it into 4 KB pages, and
+    // corrupt the shared direct map for the whole kernel -- the next
+    // phys_to_virt() then takes a reserved-bit #PF (GOTCHA #7/#13).  Mirror of
+    // return_pages(), which frees only the physical pages and never unmaps.
+    const uint64_t virt = phys + cinux::arch::DIRECT_MAP_BASE;
     return DmaBuffer(phys, reinterpret_cast<void*>(virt), size, &DmaPool::release_callback);
 }
 
@@ -63,14 +52,11 @@ void DmaPool::return_pages(const DmaBuffer& buf) {
     if (!buf.valid()) {
         return;
     }
-    // Return the physical pages only.  The higher-half direct map
-    // (virt = phys + KERNEL_VMA) is a permanent phys<->virt correspondence
-    // shared by the whole kernel -- unmapping a DMA buffer's window would
-    // corrupt it and send later demand paging into an infinite remap loop (the
-    // freed slot faults, the handler maps a *different* phys, faults again...).
-    // The freed phys may be reallocated later; if it returns as a DMA buffer,
-    // alloc()'s map() re-establishes the same PTE (idempotent overwrite).  This
-    // mirrors how the AHCI driver holds its command-list/FIS mappings.
+    // Return the physical pages only.  The direct map (virt = phys +
+    // DIRECT_MAP_BASE) is a permanent, loader-built identity mapping shared by
+    // the whole kernel; we never allocate or free PTEs for it (see alloc()).
+    // The freed phys may be reallocated later and reused as another DMA buffer,
+    // which is fine: the same virt (phys + DIRECT_MAP_BASE) keeps working.
     cinux::mm::g_pmm.free_pages(buf.phys(), pages_for(buf.size()));
 }
 

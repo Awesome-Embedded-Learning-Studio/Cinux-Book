@@ -10,16 +10,11 @@
 
 #include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
+#include "kernel/arch/x86_64/phys_virt.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/pmm.hpp"
 
 namespace cinux::mm {
-
-// ============================================================
-// Constants
-// ============================================================
-
-constexpr uint64_t KERNEL_VMA = 0xFFFFFFFF80000000ULL;
 
 // ============================================================
 // Global instance
@@ -33,11 +28,6 @@ VMM g_vmm;
 using namespace cinux::arch;
 
 namespace {
-
-/** Convert a physical address to a virtual address via the higher-half mapping. */
-PageEntry* phys_to_virt(uint64_t phys) {
-    return reinterpret_cast<PageEntry*>(phys + KERNEL_VMA);
-}
 
 /**
  * @brief Walk one level of the page table, allocating if needed

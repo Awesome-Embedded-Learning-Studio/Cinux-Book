@@ -17,6 +17,7 @@
 #include "kernel/arch/x86_64/memory_layout.hpp"
 #include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
+#include "kernel/arch/x86_64/phys_virt.hpp"
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -37,13 +38,7 @@ namespace cinux::proc {
 
 namespace {
 
-constexpr uint64_t KERNEL_VMA = 0xFFFFFFFF80000000ULL;
-
 using namespace cinux::arch;
-
-PageEntry* phys_to_virt(uint64_t phys) {
-    return reinterpret_cast<PageEntry*>(phys + KERNEL_VMA);
-}
 
 /**
  * @brief Recursively copy a page table level for CoW fork

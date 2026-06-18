@@ -192,6 +192,13 @@ uint64_t load_big_kernel_phase2(const BigKernelLoadState& state, uint64_t disk_l
             reinterpret_cast<const void*>(highest_phys));
     identity_map_up_to(highest_phys);
 
+    // Build the dedicated direct-map window (DIRECT_MAP_BASE, 1 GB huge pages)
+    // so the big kernel's phys_to_virt() can address every page of RAM, not just
+    // the first 1 GB covered by the KERNEL_VMA higher-half window.
+    arch::direct_map_up_to(highest_phys);
+    kprintf("[LOADER] Direct map window ready at 0x%p\n",
+            reinterpret_cast<const void*>(arch::DIRECT_MAP_BASE));
+
     // Register memory regions and check overlaps.
     // Note: we intentionally do NOT register the staging buffer as a separate
     // region because it intentionally overlaps with PT_LOAD targets (in-place

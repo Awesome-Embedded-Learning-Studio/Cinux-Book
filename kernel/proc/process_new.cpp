@@ -13,6 +13,7 @@
 #include "kernel/arch/x86_64/memory_layout.hpp"
 #include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
+#include "kernel/arch/x86_64/phys_virt.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/proc/pid.hpp"
@@ -42,13 +43,7 @@ uint64_t alloc_stack_vaddr(uint64_t pages) {
 
 namespace {
 
-constexpr uint64_t KERNEL_VMA = 0xFFFFFFFF80000000ULL;
-
 using namespace cinux::arch;
-
-PageEntry* phys_to_virt(uint64_t phys) {
-    return reinterpret_cast<PageEntry*>(phys + KERNEL_VMA);
-}
 
 PageEntry* get_pte(uint64_t pml4_phys, uint64_t virt) {
     auto*      pml4  = phys_to_virt(pml4_phys);
@@ -99,8 +94,8 @@ bool handle_cow_fault(uint64_t fault_vaddr) {
         return false;
     }
 
-    auto* src = reinterpret_cast<uint8_t*>(old_phys + KERNEL_VMA);
-    auto* dst = reinterpret_cast<uint8_t*>(new_phys + KERNEL_VMA);
+    auto* src = reinterpret_cast<uint8_t*>(old_phys + cinux::arch::DIRECT_MAP_BASE);
+    auto* dst = reinterpret_cast<uint8_t*>(new_phys + cinux::arch::DIRECT_MAP_BASE);
     for (uint64_t i = 0; i < cinux::arch::PAGE_SIZE; i++) {
         dst[i] = src[i];
     }

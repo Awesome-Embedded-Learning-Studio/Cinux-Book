@@ -10,7 +10,7 @@
  *   - Tests (this batch): unit-test the cache in isolation with a fake inode.
  *
  * Design notes (see document/ai/PLAN.md F2-M4):
- *   - Cached pages live in the higher-half direct map: virt = phys + KERNEL_VMA,
+ *   - Cached pages live in the direct map: virt = phys + DIRECT_MAP_BASE,
  *     so no temporary mapping is needed and pages are never unmapped (GOTCHA #7,
  *     same model as the F1-M3 DmaPool).
  *   - lookup() is lock-free: safe because the cache is mutated only from the
@@ -47,7 +47,7 @@ struct CachedPage {
     cinux::fs::Inode* inode{nullptr};  ///< Backing inode (key, part 1)
     uint64_t          offset{0};       ///< File offset, page-aligned (key, part 2)
     uint64_t          phys{0};         ///< Physical page address
-    uint64_t          virt{0};         ///< Kernel vaddr = phys + KERNEL_VMA (direct map)
+    uint64_t          virt{0};         ///< Kernel vaddr = phys + DIRECT_MAP_BASE (direct map)
     uint32_t          ref_count{0};    ///< Outstanding users (no eviction yet)
     bool              valid{false};    ///< File content has been loaded
 

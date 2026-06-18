@@ -6,7 +6,20 @@ namespace cinux::arch {
 
 // Higher-half direct mapping: physaddr + KERNEL_VMA = canonical virtual address.
 // Must match the offset used in linker.ld.
+//
+// NOTE: KERNEL_VMA doubles as the kernel IMAGE base (the kernel is linked and
+// mapped at KERNEL_VMA + KERNEL_LMA).  It is NOT a usable direct map for all
+// RAM: the higher-half window above 0xFFFFFFFF80000000 is only 2 GB, and the
+// bootloader maps just the first 1 GB there.  Use DIRECT_MAP_BASE for arbitrary
+// phys->virt (phys_to_virt); KERNEL_VMA stays for kernel-image-relative math.
 constexpr uint64_t KERNEL_VMA = 0xFFFFFFFF80000000ULL;
+
+// Direct map: a dedicated 512 GB window (PML4[272]) where the loader identity-
+// maps ALL physical RAM with 1 GB huge pages.  Unlike KERNEL_VMA this window is
+// large enough for any RAM size and is fully identity-mapped at load time, so
+// phys_to_virt(phys) = DIRECT_MAP_BASE + phys works for every page the PMM can
+// return.  Must match the window mapped by the mini loader (direct_map_up_to).
+constexpr uint64_t DIRECT_MAP_BASE = 0xFFFF880000000000ULL;
 
 // ============================================================
 // Kernel virtual memory layout (0xFFFF8000_00000000+)
