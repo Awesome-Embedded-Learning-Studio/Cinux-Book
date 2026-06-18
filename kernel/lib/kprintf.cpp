@@ -15,6 +15,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 
+#include "kernel/arch/x86_64/backtrace.hpp"
 #include "kernel/drivers/serial/serial.hpp"
 #include "kernel/lib/private/vkprintf_impl.hpp"
 
@@ -130,6 +131,11 @@ void kpanic(const char* fmt, ...) {
         },
         fmt, args);
     va_end(args);
+
+    // FO batch 3: dump the call stack so the kpanic() caller is identifiable
+    // even without an exception frame.  Safe at any init stage -- falls back
+    // to the boot-stack range and shows raw addresses until KALLSYMS injection.
+    cinux::arch::backtrace();
 
     while (1) {
         __asm__ volatile("cli; hlt");

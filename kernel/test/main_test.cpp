@@ -81,6 +81,9 @@ void run_mmap_tests();
 void run_brk_tests();
 void run_page_cache_tests();
 void run_file_mmap_tests();
+void run_kallsyms_tests();
+void run_backtrace_tests();
+void run_memory_stats_tests();
 }
 
 static constexpr uintptr_t BOOT_INFO_PHYS = 0x7000;
@@ -127,6 +130,11 @@ extern "C" void kernel_main() {
     // kprintf format tests run early — only need serial + kprintf
     run_kprintf_format_tests();
 
+    // FO observability (batch 1a): KALLSYMS address->symbol lookup logic.  The
+    // production kernel feeds a real nm-generated table at boot; the test
+    // suite injects a fixture inside run_kallsyms_tests().
+    run_kallsyms_tests();
+
     // Step 4: Run test suites (hardware only)
     run_gdt_idt_tests();
     run_pic_pit_tests();
@@ -141,6 +149,9 @@ extern "C" void kernel_main() {
     // VMM tests: initialise VMM after PMM, then run tests
     cinux::mm::g_vmm.init();
     run_vmm_tests();
+
+    // FO batch 2: backtrace (needs VMM for translate-based safe walk).
+    run_backtrace_tests();
 
     // Slab tests (F2-M7b): initialise after VMM (slab maps pages) and PMM.
     cinux::mm::g_slab.init(cinux::arch::KMEM_SLAB_BASE, cinux::arch::KMEM_SLAB_SIZE);
@@ -175,6 +186,9 @@ extern "C" void kernel_main() {
     run_brk_tests();
     run_page_cache_tests();
     run_file_mmap_tests();
+
+    // FO batch 4: memory diagnostics dump (all MM subsystems are up by here).
+    run_memory_stats_tests();
 
     run_scheduler_tests();
     run_sync_tests();

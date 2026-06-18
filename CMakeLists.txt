@@ -16,6 +16,12 @@ endif()
 add_compile_options(
     -Wall
     -Wextra
+    # Keep frame pointers in ALL build types (including -O2 Release) so the
+    # RBP chain stays intact and kernel/user backtraces remain walkable in
+    # the production kernel. Aligns with Linux CONFIG_FRAME_POINTER=y. The
+    # small code-gen cost is intentional: debuggability beats micro-perf for
+    # a hobby OS (FO observability milestone, batch 0).
+    -fno-omit-frame-pointer
 )
 
 # Export CompileCommands
