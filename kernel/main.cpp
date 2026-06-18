@@ -58,7 +58,7 @@
 #endif
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
-#include "kernel/mm/heap.hpp"
+#include "kernel/mm/slab.hpp"
 #include "kernel/mm/page_cache.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vmm.hpp"
@@ -132,13 +132,13 @@ extern "C" void kernel_main() {
     // Step 11: Save kernel PML4 for per-process address spaces
     cinux::mm::AddressSpace::init_kernel();
 
-    // Step 12: Initialise kernel heap (64 KB initial region after kernel image)
-    constexpr uint64_t HEAP_VIRT_BASE    = cinux::arch::KMEM_HEAP_BASE;
-    constexpr uint64_t HEAP_INITIAL_SIZE = 64 * 1024;
-    cinux::mm::g_heap.init(HEAP_VIRT_BASE, HEAP_INITIAL_SIZE);
+    // Step 12: Initialise the slab allocator (small objects) + kmalloc.  Large
+    // allocations reuse the direct map, so only the slab window is reserved.
+    cinux::mm::g_slab.init(cinux::arch::KMEM_SLAB_BASE, cinux::arch::KMEM_SLAB_SIZE);
+    cinux::mm::init_dedicated_caches();  // F2-M7b: task / vma / cached_page caches
 
     // Step 12b: Initialise the file-backed page cache (F2-M4).  Advisory 10%
-    // ceiling; eviction is deferred.  Needs the heap for CachedPage nodes.
+    // ceiling; eviction is deferred.  Needs the slab for CachedPage nodes.
     cinux::mm::g_page_cache.init(cinux::mm::g_pmm.free_page_count() / 10);
 
     // Step 13: Initialise framebuffer from BootInfo

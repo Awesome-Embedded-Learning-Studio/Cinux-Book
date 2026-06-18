@@ -21,7 +21,6 @@
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
-#include "kernel/mm/heap.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vmm.hpp"
 #include "kernel/proc/pid.hpp"

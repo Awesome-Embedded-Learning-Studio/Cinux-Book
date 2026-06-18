@@ -40,6 +40,9 @@
 #include <cinux/expected.hpp>
 #include <cstddef>
 #include <cstdint>
+#include <new>
+
+#include "kernel/mm/slab.hpp"
 
 namespace cinux::fs {
 struct Inode;  // forward declaration; file backings are filled in M2 (mmap)
@@ -85,6 +88,16 @@ constexpr bool has_flag(VmaFlags value, VmaFlags bit) noexcept {
  * table.  They are heap-allocated and owned by the store.
  */
 struct VMA {
+    // F2-M7b: heap VMA nodes are served by the dedicated vma slab cache.
+    static void*       operator new(size_t) { return cinux::mm::cache_alloc(cinux::mm::g_vma_cache); }
+    static void*       operator new(size_t, std::align_val_t) {
+        return cinux::mm::cache_alloc(cinux::mm::g_vma_cache);
+    }
+    static void        operator delete(void* p) { cinux::mm::cache_free(cinux::mm::g_vma_cache, p); }
+    static void        operator delete(void* p, std::align_val_t) {
+        cinux::mm::cache_free(cinux::mm::g_vma_cache, p);
+    }
+
     uint64_t          start{};  ///< Range start (page-aligned), inclusive
     uint64_t          end{};    ///< Range end (page-aligned), exclusive
     VmaFlags          flags{VmaFlags::None};

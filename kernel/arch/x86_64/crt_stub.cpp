@@ -9,7 +9,7 @@
  *   - __stack_chk_fail     : called if stack canary is corrupted
  *   - __cxa_atexit         : no-op (kernels never "exit")
  *   - _init_global_ctors   : walks .init_array, calls each constructor
- *   - operator new / delete: redirected to Heap::alloc / Heap::free
+ *   - operator new / delete: redirected to kmalloc / kfree
  *
  * All stubs that represent programming errors simply cli;hlt forever.
  */
@@ -19,8 +19,8 @@
 
 #include <new>
 
-#include "kernel/mm/heap.hpp"
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/mm/slab.hpp"
 
 extern "C" {
 
@@ -178,76 +178,76 @@ void _init_global_ctors() {
 }  // extern "C"
 
 // ============================================================
-// Operator new / delete -- redirected to Heap
+// Operator new / delete -- redirected to kmalloc / kfree
 // ============================================================
 // Must be outside extern "C" -- they need C++ mangling.
 
 /**
- * @brief Single-object new -- delegates to Heap::alloc
+ * @brief Single-object new -- delegates to kmalloc (slab or buddy)
  */
 void* operator new(unsigned long size) {
-    return cinux::mm::g_heap.alloc(static_cast<size_t>(size));
+    return cinux::mm::kmalloc(static_cast<size_t>(size));
 }
 
 /**
- * @brief Array new -- delegates to Heap::alloc
+ * @brief Array new -- delegates to kmalloc
  */
 void* operator new[](unsigned long size) {
-    return cinux::mm::g_heap.alloc(static_cast<size_t>(size));
+    return cinux::mm::kmalloc(static_cast<size_t>(size));
 }
 
 /**
- * @brief Aligned new -- delegates to Heap::alloc with alignment
+ * @brief Aligned new -- delegates to kmalloc with alignment
  */
 void* operator new(unsigned long size, std::align_val_t align) {
-    return cinux::mm::g_heap.alloc(static_cast<size_t>(size), static_cast<size_t>(align));
+    return cinux::mm::kmalloc(static_cast<size_t>(size), static_cast<size_t>(align));
 }
 
 /**
- * @brief Aligned array new -- delegates to Heap::alloc with alignment
+ * @brief Aligned array new -- delegates to kmalloc with alignment
  */
 void* operator new[](unsigned long size, std::align_val_t align) {
-    return cinux::mm::g_heap.alloc(static_cast<size_t>(size), static_cast<size_t>(align));
+    return cinux::mm::kmalloc(static_cast<size_t>(size), static_cast<size_t>(align));
 }
 
 /**
- * @brief Single-object delete -- delegates to Heap::free
+ * @brief Single-object delete -- delegates to kfree
  */
 void operator delete(void* ptr) noexcept {
-    cinux::mm::g_heap.free(ptr);
+    cinux::mm::kfree(ptr);
 }
 
 /**
- * @brief Sized delete -- delegates to Heap::free (size ignored)
+ * @brief Sized delete -- delegates to kfree (size ignored)
  */
 void operator delete(void* ptr, unsigned long) noexcept {
-    cinux::mm::g_heap.free(ptr);
+    cinux::mm::kfree(ptr);
 }
 
 /**
- * @brief Array delete -- delegates to Heap::free
+ * @brief Array delete -- delegates to kfree
  */
 void operator delete[](void* ptr) noexcept {
-    cinux::mm::g_heap.free(ptr);
+    cinux::mm::kfree(ptr);
 }
 
 /**
- * @brief Sized array delete -- delegates to Heap::free (size ignored)
+ * @brief Sized array delete -- delegates to kfree (size ignored)
  */
 void operator delete[](void* ptr, unsigned long) noexcept {
-    cinux::mm::g_heap.free(ptr);
+    cinux::mm::kfree(ptr);
 }
 
 /**
- * @brief Aligned delete -- delegates to Heap::free (alignment ignored)
+ * @brief Aligned delete -- delegates to kfree (alignment ignored)
  */
 void operator delete(void* ptr, std::align_val_t) noexcept {
-    cinux::mm::g_heap.free(ptr);
+    cinux::mm::kfree(ptr);
 }
 
 /**
- * @brief Aligned sized delete -- delegates to Heap::free
+ * @brief Aligned sized delete -- delegates to kfree
  */
 void operator delete(void* ptr, unsigned long, std::align_val_t) noexcept {
-    cinux::mm::g_heap.free(ptr);
+    cinux::mm::kfree(ptr);
 }

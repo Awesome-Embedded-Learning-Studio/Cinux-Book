@@ -21,7 +21,7 @@
 #include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
-#include "kernel/mm/heap.hpp"
+#include "kernel/mm/slab.hpp"
 #include "kernel/mm/page_cache.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vmm.hpp"
@@ -33,9 +33,9 @@ void run_video_tests();
 void run_keyboard_tests();
 void run_pmm_tests();
 void run_buddy_tests();
+void run_slab_tests();
+void run_kmalloc_tests();
 void run_vmm_tests();
-void run_heap_tests();
-void run_heap_lock_stress_tests();
 void run_address_space_tests();
 void run_scheduler_tests();
 void run_sync_tests();
@@ -142,18 +142,18 @@ extern "C" void kernel_main() {
     cinux::mm::g_vmm.init();
     run_vmm_tests();
 
+    // Slab tests (F2-M7b): initialise after VMM (slab maps pages) and PMM.
+    cinux::mm::g_slab.init(cinux::arch::KMEM_SLAB_BASE, cinux::arch::KMEM_SLAB_SIZE);
+    cinux::mm::init_dedicated_caches();  // F2-M7b: task / vma / cached_page caches
+    run_slab_tests();
+    run_kmalloc_tests();
+
     // Video tests require VMM (framebuffer maps via map_2mb)
     run_video_tests();
 
-    // Heap tests: initialise Heap after VMM, then run tests
-    constexpr uint64_t HEAP_VIRT_BASE = cinux::arch::KMEM_HEAP_BASE;
-    constexpr uint64_t HEAP_INIT_SIZE = 64 * 1024;  // 64 KB
-    cinux::mm::g_heap.init(HEAP_VIRT_BASE, HEAP_INIT_SIZE);
     // Page cache (F2-M4): advisory 10% ceiling; eviction deferred.  Needs the
-    // heap -- get_page() allocates CachedPage nodes via new.
+    // slab -- get_page() allocates CachedPage nodes via new (-> kmalloc).
     cinux::mm::g_page_cache.init(cinux::mm::g_pmm.free_page_count() / 10);
-    run_heap_tests();
-    run_heap_lock_stress_tests();
 
     run_pipe_tests();
     run_sys_pipe_tests();

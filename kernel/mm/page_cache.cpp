@@ -27,14 +27,16 @@ void PageCache::init(size_t max_pages) {
 }
 
 uint64_t PageCache::hash_key(cinux::fs::Inode* inode, uint64_t offset) {
-    // Fold the inode pointer and page-aligned offset into a bucket index.
-    return (reinterpret_cast<uint64_t>(inode) ^ (offset >> 12)) % kHashBuckets;
+    // Fold the inode NUMBER (stable) and page-aligned offset into a bucket.
+    // Keying by inode number, not pointer: the slab allocator reuses freed
+    // Inode memory, so a pointer key would alias a new file onto a stale page.
+    return (inode->ino ^ (offset >> 12)) % kHashBuckets;
 }
 
 CachedPage* PageCache::lookup_locked(cinux::fs::Inode* inode, uint64_t offset) {
     CachedPage* p = buckets_[hash_key(inode, offset)];
     while (p != nullptr) {
-        if (p->inode == inode && p->offset == offset) {
+        if (p->ino == inode->ino && p->offset == offset) {
             return p;
         }
         p = p->hash_next;
@@ -102,6 +104,7 @@ cinux::lib::ErrorOr<CachedPage*> PageCache::get_page(cinux::fs::Inode* inode, ui
         cinux::mm::g_pmm.free_page(phys);
         return cinux::lib::Error::OutOfMemory;
     }
+    page->ino       = inode->ino;
     page->inode     = inode;
     page->offset    = offset;
     page->phys      = phys;

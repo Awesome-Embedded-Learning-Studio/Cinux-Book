@@ -30,9 +30,18 @@ constexpr uint64_t DIRECT_MAP_BASE = 0xFFFF880000000000ULL;
 
 constexpr uint64_t KMEM_BASE = 0xFFFF800000000000ULL;
 
-// Heap: kernel heap allocator
+// Slab: small-object slab allocator pages (F2-M7b).  Intrusive free-list links
+// are written INSIDE these pages, so they MUST be ordinary 4 KB mappings --
+// never the direct-map huge window (sub-page writes there are not reliably
+// read back under WSL2 nested-KVM; see GOTCHA #13/#14).  32 MB is ample: slab
+// pages are few (one per active size class, cached for object reuse).
+constexpr uint64_t KMEM_SLAB_SIZE = 0x2000000ULL;  // 32 MB
+constexpr uint64_t KMEM_SLAB_BASE = KMEM_BASE;
+
+// Heap: kernel heap allocator (deleted in F2-M7b batch 2 once kmalloc replaces
+// it; the region is kept here until that swap lands).
 constexpr uint64_t KMEM_HEAP_SIZE = 0x8000000ULL;  // 128 MB
-constexpr uint64_t KMEM_HEAP_BASE = KMEM_BASE;
+constexpr uint64_t KMEM_HEAP_BASE = KMEM_SLAB_BASE + KMEM_SLAB_SIZE;
 
 // MMIO: memory-mapped I/O (AHCI BAR5, etc.)
 constexpr uint64_t KMEM_MMIO_SIZE = 0x200000ULL;  // 2 MB

@@ -126,7 +126,6 @@ add_executable(big_kernel_test
     test/test_keyboard.cpp
     test/test_pmm.cpp
     test/test_vmm.cpp
-    test/test_heap.cpp
     test/test_address_space.cpp
     test/test_scheduler.cpp
     test/test_sync.cpp
@@ -173,6 +172,8 @@ add_executable(big_kernel_test
     test/test_page_cache.cpp
     test/test_file_mmap.cpp
     test/test_buddy.cpp
+    test/test_slab.cpp
+    test/test_kmalloc.cpp
 )
 
 target_sources(big_kernel_test PRIVATE $<TARGET_OBJECTS:big_kernel_common>)

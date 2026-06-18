@@ -60,7 +60,6 @@ add_cinux_test(font)
 add_cinux_test(console)
 add_cinux_test(framebuffer)
 add_cinux_test(keyboard)
-add_cinux_test(heap)
 add_cinux_test(address_space)
 add_cinux_test(scheduler)
 add_cinux_test(sync)
@@ -187,7 +186,7 @@ add_cinux_integration_test(fork_exec
 set(ALL_HOST_TESTS
     test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader
     test_big_kernel_loader test_kprintf test_pic test_pit test_font
-    test_console test_framebuffer test_keyboard test_pmm test_vmm test_heap
+    test_console test_framebuffer test_keyboard test_pmm test_vmm
     test_address_space test_scheduler test_sync test_sync_concurrent
     test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table
     test_vfs_mount test_ext2 test_ahci_write test_ext2_allocator test_ext2_ops

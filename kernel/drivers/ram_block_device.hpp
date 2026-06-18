@@ -2,15 +2,15 @@
  * @file kernel/drivers/ram_block_device.hpp
  * @brief RAMBlockDevice -- in-memory IBlockDevice for tests and ramdisks
  *
- * Backed by a plain kernel heap allocation: read_blocks / write_blocks are
+ * Backed by a plain kmalloc allocation: read_blocks / write_blocks are
  * memcpy over a contiguous byte array sized block_count * block_size.  No DMA,
  * no hardware -- the simplest concrete IBlockDevice, used by unit tests (and
  * later ramdisk mounts) to exercise block consumers without real storage.
  *
- * Allocation goes through Heap directly rather than new[]: the kernel operator
- * new returns nullptr on exhaustion (no exceptions), and operator delete[] is
- * not provided, so an explicit Heap::alloc / free pair keeps the failure path
- * clean (Error::OutOfMemory) and the release path matched.
+ * Allocation goes through kmalloc directly rather than new[]: the kernel
+ * operator new returns nullptr on exhaustion (no exceptions), and operator
+ * delete[] is not provided, so an explicit kmalloc / kfree pair keeps the
+ * failure path clean (Error::OutOfMemory) and the release path matched.
  *
  * Move-only: the backing storage has a single owner.  Copying would double-free
  * on destruction.
@@ -26,7 +26,7 @@
 
 #include "kernel/drivers/block_device.hpp"
 #include "kernel/lib/string.hpp"
-#include "kernel/mm/heap.hpp"
+#include "kernel/mm/slab.hpp"
 
 namespace cinux::drivers {
 
@@ -50,7 +50,7 @@ public:
             return cinux::lib::Error::InvalidArgument;
         }
         uint64_t total = block_count * block_size;
-        void*    raw   = cinux::mm::g_heap.alloc(static_cast<std::size_t>(total));
+        void*    raw   = cinux::mm::kmalloc(static_cast<std::size_t>(total));
         if (raw == nullptr) {
             return cinux::lib::Error::OutOfMemory;
         }
@@ -59,7 +59,7 @@ public:
 
     ~RAMBlockDevice() override {
         if (storage_ != nullptr) {
-            cinux::mm::g_heap.free(storage_);
+            cinux::mm::kfree(storage_);
         }
     }
 
@@ -75,7 +75,7 @@ public:
     RAMBlockDevice& operator=(RAMBlockDevice&& other) noexcept {
         if (this != &other) {
             if (storage_ != nullptr) {
-                cinux::mm::g_heap.free(storage_);
+                cinux::mm::kfree(storage_);
             }
             block_count_       = other.block_count_;
             block_size_        = other.block_size_;
