@@ -17,12 +17,14 @@
 #include "kernel/proc/signal.hpp"
 #include "kernel/syscall/sys_brk.hpp"
 #include "kernel/syscall/sys_chdir.hpp"
+#include "kernel/syscall/sys_clone.hpp"
 #include "kernel/syscall/sys_close.hpp"
 #include "kernel/syscall/sys_creat.hpp"
 #include "kernel/syscall/sys_dmesg.hpp"
 #include "kernel/syscall/sys_execve.hpp"
 #include "kernel/syscall/sys_exit.hpp"
 #include "kernel/syscall/sys_fork.hpp"
+#include "kernel/syscall/sys_futex.hpp"
 #include "kernel/syscall/sys_getcwd.hpp"
 #include "kernel/syscall/sys_getdents.hpp"
 #include "kernel/syscall/sys_getpid.hpp"
@@ -85,6 +87,7 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_getpid, sys_getpid);
     syscall_register(SyscallNr::SYS_getppid, sys_getppid);
     syscall_register(SyscallNr::SYS_fork, sys_fork);
+    syscall_register(SyscallNr::SYS_clone, sys_clone);
     syscall_register(SyscallNr::SYS_execve, sys_execve);
     syscall_register(SyscallNr::SYS_waitpid, sys_waitpid);
     syscall_register(SyscallNr::SYS_dmesg, sys_dmesg);
@@ -95,6 +98,7 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_kill, sys_kill);
     syscall_register(SyscallNr::SYS_rt_sigaction, sys_rt_sigaction);
     syscall_register(SyscallNr::SYS_rt_sigprocmask, sys_rt_sigprocmask);
+    syscall_register(SyscallNr::SYS_futex, sys_futex);
 }
 
 }  // anonymous namespace

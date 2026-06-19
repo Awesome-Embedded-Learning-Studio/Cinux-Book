@@ -32,6 +32,31 @@ static inline int64_t _syscall3(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t 
     return ret;
 }
 
+static inline int64_t _syscall5(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4,
+                                uint64_t a5) {
+    int64_t           ret;
+    register uint64_t r4 __asm__("r10") = a4;
+    register uint64_t r5 __asm__("r8")  = a5;
+    __asm__ volatile("syscall"
+                     : "=a"(ret)
+                     : "a"(nr), "D"(a1), "S"(a2), "d"(a3), "r"(r4), "r"(r5)
+                     : "rcx", "r11", "memory");
+    return ret;
+}
+
+static inline int64_t _syscall6(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4,
+                                uint64_t a5, uint64_t a6) {
+    int64_t           ret;
+    register uint64_t r4 __asm__("r10") = a4;
+    register uint64_t r5 __asm__("r8")  = a5;
+    register uint64_t r6 __asm__("r9")  = a6;
+    __asm__ volatile("syscall"
+                     : "=a"(ret)
+                     : "a"(nr), "D"(a1), "S"(a2), "d"(a3), "r"(r4), "r"(r5), "r"(r6)
+                     : "rcx", "r11", "memory");
+    return ret;
+}
+
 using cinux::syscall::SyscallNr;
 
 int64_t sys_open(const char* path, int flags) {
@@ -110,4 +135,19 @@ int64_t sys_sigaction(int sig, const struct sys_sigaction* act, struct sys_sigac
 int64_t sys_sigprocmask(int how, const uint64_t* set, uint64_t* old) {
     return _syscall3(static_cast<uint64_t>(SyscallNr::SYS_rt_sigprocmask), (uint64_t)how,
                      (uint64_t)set, (uint64_t)old);
+}
+
+// ============================================================
+// Thread support (F3-M2 batch 5)
+// ============================================================
+
+int64_t sys_clone(uint64_t flags, void* stack, int* parent_tid, int* child_tid, void* tls) {
+    return _syscall5(static_cast<uint64_t>(SyscallNr::SYS_clone), flags, (uint64_t)stack,
+                     (uint64_t)parent_tid, (uint64_t)child_tid, (uint64_t)tls);
+}
+
+int64_t sys_futex(uint32_t* uaddr, int op, uint32_t val, uint32_t val3) {
+    // timeout and uaddr2 are unsupported (no timeout/requeue); pass 0.
+    return _syscall6(static_cast<uint64_t>(SyscallNr::SYS_futex), (uint64_t)uaddr, (uint64_t)op,
+                     (uint64_t)val, 0, 0, (uint64_t)val3);
 }

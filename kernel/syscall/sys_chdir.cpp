@@ -56,18 +56,23 @@ int64_t sys_chdir(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, ui
         return -kEnotdir;
     }
 
-    // Step 5: Update cwd
+    // Step 5: Update cwd (in place on the refcounted SharedCwd; CLONE_FS
+    // sharers see the change, a forked private copy is mutated alone).
     cinux::proc::Task* current = cinux::proc::Scheduler::current();
     if (current == nullptr) {
         return -kEio;
     }
+    if (current->cwd == nullptr) {
+        current->cwd = cinux::proc::SharedCwd::create(resolved);
+        return (current->cwd != nullptr) ? 0 : -12;  // ENOMEM
+    }
 
     uint32_t i = 0;
-    while (resolved[i] != '\0' && i < sizeof(current->cwd) - 1) {
-        current->cwd[i] = resolved[i];
+    while (resolved[i] != '\0' && i + 1 < cinux::proc::SharedCwd::kPathMax) {
+        current->cwd->path[i] = resolved[i];
         ++i;
     }
-    current->cwd[i] = '\0';
+    current->cwd->path[i] = '\0';
 
     return 0;
 }

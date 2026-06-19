@@ -12,6 +12,7 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/x86_64/context_switch.S
     ${CMAKE_CURRENT_SOURCE_DIR}/x86_64/usermode.S
     ${CMAKE_CURRENT_SOURCE_DIR}/x86_64/usermode.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/x86_64/tls.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/x86_64/syscall.S
     ${CMAKE_CURRENT_SOURCE_DIR}/x86_64/syscall.cpp
 )

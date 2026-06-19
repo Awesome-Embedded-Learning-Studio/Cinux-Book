@@ -124,7 +124,7 @@ int signal_send(Task* target, Signal sig) {
     // A signal with disposition SIG_IGN is discarded unless it is uncatchable
     // (SIGKILL/SIGSTOP), which override SIG_IGN.
     if (!signal_is_uncatchable(sig) &&
-        target->sig_actions[static_cast<int>(sig)].type == HandlerType::kIgnore) {
+        target->sig_actions->actions[static_cast<int>(sig)].type == HandlerType::kIgnore) {
         return 0;
     }
     sig_set_add(target->sig_pending, sig);
@@ -144,7 +144,7 @@ int signal_pick_deliverable(Task* task, bool allow_custom) {
         // Custom handlers need a signal frame.  The syscall return path
         // (allow_custom=false) cannot build one, so it skips them; the
         // interrupt path (allow_custom=true) delivers them.
-        if (!allow_custom && task->sig_actions[n].type == HandlerType::kCustom) {
+        if (!allow_custom && task->sig_actions->actions[n].type == HandlerType::kCustom) {
             continue;
         }
         task->sig_pending &= ~(SigSet{1} << n);
@@ -184,7 +184,7 @@ void signal_check_and_deliver() {
         return;
     }
     Signal           sig = static_cast<Signal>(n);
-    const SigAction& act = task->sig_actions[n];
+    const SigAction& act = task->sig_actions->actions[n];
     switch (act.type) {
     case HandlerType::kDefault:
         signal_exec_default(task, sig);  // may not return (terminate)
@@ -268,7 +268,7 @@ extern "C" void signal_check_deliver_isr(InterruptFrame* frame) {
         return;
     }
     Signal           sig = static_cast<Signal>(n);
-    const SigAction& act = task->sig_actions[n];
+    const SigAction& act = task->sig_actions->actions[n];
     switch (act.type) {
     case HandlerType::kDefault:
         signal_exec_default(task, sig);  // may not return (terminate)

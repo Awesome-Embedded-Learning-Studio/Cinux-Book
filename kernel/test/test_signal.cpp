@@ -127,9 +127,11 @@ void test_task_has_signal_fields() {
     // A value-initialised Task starts with no pending/blocked signals and
     // every disposition at default -- fork relies on this baseline.
     Task t{};
+    t.sig_actions = SharedSigActions::create();
     TEST_ASSERT_EQ(t.sig_pending, SigSet{0});
     TEST_ASSERT_EQ(t.sig_blocked, SigSet{0});
-    TEST_ASSERT_EQ(t.sig_actions[static_cast<int>(Signal::kSigterm)].type, HandlerType::kDefault);
+    TEST_ASSERT_EQ(t.sig_actions->actions[static_cast<int>(Signal::kSigterm)].type,
+                   HandlerType::kDefault);
 }
 
 }  // namespace test_sig_state
@@ -141,7 +143,8 @@ void test_task_has_signal_fields() {
 namespace test_sig_send {
 
 void test_send_sets_pending() {
-    Task             t{};
+    Task t{};
+    t.sig_actions = SharedSigActions::create();
     CurrentTaskGuard guard(&t);
     t.pid = 1;
     TEST_ASSERT_EQ(signal_send(&t, Signal::kSigterm), 0);
@@ -149,19 +152,21 @@ void test_send_sets_pending() {
 }
 
 void test_send_ignored_is_discarded() {
-    Task             t{};
+    Task t{};
+    t.sig_actions = SharedSigActions::create();
     CurrentTaskGuard guard(&t);
-    t.pid                                                  = 1;
-    t.sig_actions[static_cast<int>(Signal::kSigchld)].type = HandlerType::kIgnore;
+    t.pid                                                           = 1;
+    t.sig_actions->actions[static_cast<int>(Signal::kSigchld)].type = HandlerType::kIgnore;
     TEST_ASSERT_EQ(signal_send(&t, Signal::kSigchld), 0);
     TEST_ASSERT_FALSE(sig_is_member(t.sig_pending, Signal::kSigchld));  // discarded
 }
 
 void test_send_uncatchable_overrides_ignore() {
-    Task             t{};
+    Task t{};
+    t.sig_actions = SharedSigActions::create();
     CurrentTaskGuard guard(&t);
-    t.pid                                                  = 1;
-    t.sig_actions[static_cast<int>(Signal::kSigkill)].type = HandlerType::kIgnore;
+    t.pid                                                           = 1;
+    t.sig_actions->actions[static_cast<int>(Signal::kSigkill)].type = HandlerType::kIgnore;
     TEST_ASSERT_EQ(signal_send(&t, Signal::kSigkill), 0);
     TEST_ASSERT_TRUE(sig_is_member(t.sig_pending, Signal::kSigkill));  // SIGKILL not ignored
 }
@@ -171,7 +176,8 @@ void test_send_uncatchable_overrides_ignore() {
 namespace test_sig_pick {
 
 void test_pick_clears_and_respects_block() {
-    Task             t{};
+    Task t{};
+    t.sig_actions = SharedSigActions::create();
     CurrentTaskGuard guard(&t);
     sig_set_add(t.sig_pending, Signal::kSigterm);
     sig_set_add(t.sig_blocked, Signal::kSigterm);  // blocked
@@ -184,10 +190,11 @@ void test_pick_clears_and_respects_block() {
 }
 
 void test_pick_skips_custom() {
-    Task             t{};
+    Task t{};
+    t.sig_actions = SharedSigActions::create();
     CurrentTaskGuard guard(&t);
     sig_set_add(t.sig_pending, Signal::kSigterm);
-    t.sig_actions[static_cast<int>(Signal::kSigterm)].type = HandlerType::kCustom;
+    t.sig_actions->actions[static_cast<int>(Signal::kSigterm)].type = HandlerType::kCustom;
     // Custom handlers need a signal frame (batch 3); left pending.
     TEST_ASSERT_EQ(signal_pick_deliverable(&t), 0);
     TEST_ASSERT_TRUE(sig_is_member(t.sig_pending, Signal::kSigterm));
@@ -198,7 +205,8 @@ void test_pick_skips_custom() {
 namespace test_sig_syscall {
 
 void test_sigaction_install_and_query() {
-    Task             t{};
+    Task t{};
+    t.sig_actions = SharedSigActions::create();
     CurrentTaskGuard guard(&t);
     UserSigAction    act{};
     act.sa_handler = 0xDEADBEEFu;
@@ -206,7 +214,7 @@ void test_sigaction_install_and_query() {
     TEST_ASSERT_EQ(sys_rt_sigaction(static_cast<uint64_t>(Signal::kSigusr1),
                                     reinterpret_cast<uint64_t>(&act), 0, 0, 0, 0),
                    0);
-    const SigAction& installed = t.sig_actions[static_cast<int>(Signal::kSigusr1)];
+    const SigAction& installed = t.sig_actions->actions[static_cast<int>(Signal::kSigusr1)];
     TEST_ASSERT_EQ(installed.type, HandlerType::kCustom);
     TEST_ASSERT_EQ(installed.handler_addr, uint64_t{0xDEADBEEF});
 
@@ -218,7 +226,8 @@ void test_sigaction_install_and_query() {
 }
 
 void test_sigaction_rejects_uncatchable() {
-    Task             t{};
+    Task t{};
+    t.sig_actions = SharedSigActions::create();
     CurrentTaskGuard guard(&t);
     UserSigAction    act{};
     act.sa_handler = 0xDEADBEEFu;
@@ -228,7 +237,8 @@ void test_sigaction_rejects_uncatchable() {
 }
 
 void test_sigprocmask_block_unblock() {
-    Task             t{};
+    Task t{};
+    t.sig_actions = SharedSigActions::create();
     CurrentTaskGuard guard(&t);
     uint64_t         mask = sig_make_mask(Signal::kSigterm);
     TEST_ASSERT_EQ(
@@ -240,7 +250,8 @@ void test_sigprocmask_block_unblock() {
 }
 
 void test_sigprocmask_cannot_block_sigkill() {
-    Task             t{};
+    Task t{};
+    t.sig_actions = SharedSigActions::create();
     CurrentTaskGuard guard(&t);
     uint64_t         mask = sig_make_mask(Signal::kSigkill);
     sys_rt_sigprocmask(0, reinterpret_cast<uint64_t>(&mask), 0, 0, 0, 0);
@@ -248,7 +259,8 @@ void test_sigprocmask_cannot_block_sigkill() {
 }
 
 void test_kill_self_pends() {
-    Task             t{};
+    Task t{};
+    t.sig_actions = SharedSigActions::create();
     CurrentTaskGuard guard(&t);
     t.pid = 42;
     TEST_ASSERT_EQ(sys_kill(0, static_cast<uint64_t>(Signal::kSigusr2), 0, 0, 0, 0), 0);
@@ -260,8 +272,10 @@ void test_kill_self_pends() {
 void test_kill_via_registry() {
     // F3-M1 batch 4: sys_kill resolves a target pid through the global task
     // registry rather than the current task.
-    Task             t1{};  // current (the killer)
-    Task             t2{};  // target (registered, distinct pid)
+    Task t1{};  // current (the killer)
+    Task t2{};  // target (registered, distinct pid)
+    t1.sig_actions = SharedSigActions::create();
+    t2.sig_actions = SharedSigActions::create();
     CurrentTaskGuard guard(&t1);
     t1.pid   = 1;
     t2.pid   = 100;

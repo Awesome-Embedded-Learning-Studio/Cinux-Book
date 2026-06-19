@@ -38,6 +38,7 @@ enum class SyscallNr : uint64_t {
     SYS_getpid         = 39,
     SYS_getppid        = 110,
     SYS_fork           = 57,
+    SYS_clone          = 56,  ///< create a thread/process (F3-M2)
     SYS_execve         = 59,
     SYS_waitpid        = 61,
     SYS_dmesg          = 103,  ///< kernel log read (Linux SYS_syslog)
@@ -49,6 +50,7 @@ enum class SyscallNr : uint64_t {
     SYS_rt_sigprocmask = 14,   ///< examine/set signal mask (F3-M1)
     SYS_rt_sigreturn   = 15,   ///< return from signal handler (F3-M1, batch 3)
     SYS_kill           = 62,   ///< send a signal to a process (F3-M1)
+    SYS_futex          = 202,  ///< fast user-space mutex (F3-M2)
 };
 
 constexpr uint64_t SYSCALL_TABLE_SIZE = 256;

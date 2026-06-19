@@ -118,6 +118,59 @@ struct SigAction {
 };
 
 // ============================================================
+// Shared signal disposition table (F3-M2 batch 3)
+// ============================================================
+
+/**
+ * @brief Reference-counted signal disposition table
+ *
+ * Threads created with CLONE_SIGHAND share one instance (each acquire() bumps
+ * the refcount); fork/execve and clone-without-SIGHAND each get a private
+ * copy via create_copy().  Lives on the kernel heap (slab general cache).
+ *
+ * A Task holds a SharedSigActions*; clone sharing is just pointer + acquire(),
+ * which is why the table is heap-allocated and refcounted rather than an
+ * inline array.
+ */
+struct SharedSigActions {
+    uint32_t  refcount;
+    SigAction actions[kSignalCount];
+
+    /// Allocate a fresh table with all-default dispositions (refcount = 1).
+    static SharedSigActions* create() {
+        auto* p = new SharedSigActions;
+        if (p != nullptr) {
+            p->refcount = 1;
+        }
+        return p;
+    }
+
+    /// Allocate a private copy of @p src (refcount = 1).
+    static SharedSigActions* create_copy(const SharedSigActions* src) {
+        auto* p = new SharedSigActions;
+        if (p != nullptr) {
+            p->refcount = 1;
+            if (src != nullptr) {
+                for (int i = 0; i < kSignalCount; ++i) {
+                    p->actions[i] = src->actions[i];
+                }
+            }
+        }
+        return p;
+    }
+
+    /// Increment the reference count (share this table).
+    void acquire() { ++refcount; }
+
+    /// Decrement the reference count; free the table when it reaches zero.
+    void release() {
+        if (refcount > 0 && --refcount == 0) {
+            delete this;
+        }
+    }
+};
+
+// ============================================================
 // Lookup helpers (defined in signal.cpp)
 // ============================================================
 

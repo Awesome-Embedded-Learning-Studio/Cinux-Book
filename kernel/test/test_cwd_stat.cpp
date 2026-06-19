@@ -159,8 +159,8 @@ void make_sub_path(char* buf, uint32_t buf_len, const char* dirname, const char*
 void reset_cwd() {
     cinux::proc::Task* cur = cinux::proc::Scheduler::current();
     if (cur != nullptr) {
-        cur->cwd[0] = '/';
-        cur->cwd[1] = '\0';
+        cur->cwd->path[0] = '/';
+        cur->cwd->path[1] = '\0';
     }
 }
 
@@ -176,7 +176,7 @@ void test_cwd_initial_is_root() {
     // The scheduler's current task should have cwd = "/"
     cinux::proc::Task* cur = cinux::proc::Scheduler::current();
     TEST_ASSERT_NOT_NULL(cur);
-    TEST_ASSERT_TRUE(strcmp(cur->cwd, "/") == 0);
+    TEST_ASSERT_TRUE(strcmp(cur->cwd->path, "/") == 0);
 }
 
 }  // namespace test_cwd_init
@@ -302,7 +302,7 @@ void test_chdir_to_existing_dir() {
     // Verify cwd updated
     cinux::proc::Task* cur = cinux::proc::Scheduler::current();
     TEST_ASSERT_NOT_NULL(cur);
-    TEST_ASSERT_TRUE(strcmp(cur->cwd, dir_path) == 0);
+    TEST_ASSERT_TRUE(strcmp(cur->cwd->path, dir_path) == 0);
 
     cinux::lib::kprintf("[CWD_STAT] chdir to %s OK\n", dir_path);
 
@@ -359,7 +359,7 @@ void test_chdir_nonexistent_fails() {
     // cwd should still be "/"
     cinux::proc::Task* cur = cinux::proc::Scheduler::current();
     TEST_ASSERT_NOT_NULL(cur);
-    TEST_ASSERT_TRUE(strcmp(cur->cwd, "/") == 0);
+    TEST_ASSERT_TRUE(strcmp(cur->cwd->path, "/") == 0);
 
     teardown_cwd_stat(pair);
 }
@@ -386,7 +386,7 @@ void test_chdir_file_fails() {
     // cwd should still be "/"
     cinux::proc::Task* cur = cinux::proc::Scheduler::current();
     TEST_ASSERT_NOT_NULL(cur);
-    TEST_ASSERT_TRUE(strcmp(cur->cwd, "/") == 0);
+    TEST_ASSERT_TRUE(strcmp(cur->cwd->path, "/") == 0);
 
     // Cleanup
     cinux::syscall::sys_unlink(fpath_addr, 0, 0, 0, 0, 0);
@@ -426,9 +426,9 @@ void test_consecutive_chdir() {
     // Verify cwd is /d1/d2
     cinux::proc::Task* cur = cinux::proc::Scheduler::current();
     TEST_ASSERT_NOT_NULL(cur);
-    TEST_ASSERT_TRUE(strcmp(cur->cwd, p2) == 0);
+    TEST_ASSERT_TRUE(strcmp(cur->cwd->path, p2) == 0);
 
-    cinux::lib::kprintf("[CWD_STAT] consecutive chdir -> %s OK\n", cur->cwd);
+    cinux::lib::kprintf("[CWD_STAT] consecutive chdir -> %s OK\n", cur->cwd->path);
 
     // Cleanup
     reset_cwd();
@@ -754,7 +754,7 @@ void test_cd_command_changes_cwd() {
 
     cinux::proc::Task* cur = cinux::proc::Scheduler::current();
     TEST_ASSERT_NOT_NULL(cur);
-    TEST_ASSERT_TRUE(k_strcmp(cur->cwd, dir_path) == 0);
+    TEST_ASSERT_TRUE(k_strcmp(cur->cwd->path, dir_path) == 0);
 
     cinux::lib::kprintf("[CWD_STAT] shell cd %s OK\n", dir_path);
 
@@ -839,8 +839,7 @@ extern "C" void run_cwd_stat_tests() {
     cinux::proc::Task test_task;
     for (uint32_t i = 0; i < sizeof(test_task); ++i)
         reinterpret_cast<uint8_t*>(&test_task)[i] = 0;
-    test_task.cwd[0] = '/';
-    test_task.cwd[1] = '\0';
+    test_task.cwd = cinux::proc::SharedCwd::create();  // default "/"
     cinux::proc::Scheduler::set_current(&test_task);
 
     // CWD initial value

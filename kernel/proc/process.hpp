@@ -33,7 +33,9 @@
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/slab.hpp"
 #include "kernel/proc/elf_types.hpp"
+#include "kernel/proc/execve.hpp"
 #include "kernel/proc/pid.hpp"
+#include "kernel/proc/shared_cwd.hpp"
 #include "kernel/proc/signal.hpp"
 
 namespace cinux::fs {
@@ -67,7 +69,14 @@ enum class TaskState : uint8_t {
  * rip need to be saved/restored because the switch happens at known
  * call boundaries where caller-saved registers are already clobbered.
  *
+ * The FS/GS base MSRs are also saved here so each task keeps its own
+ * TLS (FS) and per-CPU swapgs (GS) state across switches.  fs_base is
+ * the per-thread TLS pointer (MSR_FS_BASE); gs_base/kgs_base carry the
+ * swapgs pair used for per-CPU kernel data.
+ *
  * Layout must match the offsets used in context_switch.S exactly.
+ * Note: alignas(16) pads the explicit 88-byte payload to 96 bytes;
+ * bytes 88..95 are unused alignment padding (never accessed by asm).
  */
 struct alignas(16) CpuContext {
     uint64_t r15;
@@ -80,6 +89,7 @@ struct alignas(16) CpuContext {
     uint64_t rip;
     uint64_t gs_base;
     uint64_t kgs_base;
+    uint64_t fs_base;  ///< Per-thread TLS base (MSR_FS_BASE 0xC0000100), F3-M2
 };
 
 static_assert(offsetof(CpuContext, r15) == 0, "r15 at offset 0");
@@ -92,7 +102,10 @@ static_assert(offsetof(CpuContext, rsp) == 48, "rsp at offset 48");
 static_assert(offsetof(CpuContext, rip) == 56, "rip at offset 56");
 static_assert(offsetof(CpuContext, gs_base) == 64, "gs_base at offset 64");
 static_assert(offsetof(CpuContext, kgs_base) == 72, "kgs_base at offset 72");
-static_assert(sizeof(CpuContext) == 80, "CpuContext must be 80 bytes");
+static_assert(offsetof(CpuContext, fs_base) == 80, "fs_base at offset 80");
+static_assert(sizeof(CpuContext) == 96, "CpuContext must be 96 bytes (alignas(16) pads 88->96)");
+
+// SharedCwd (reference-counted cwd) lives in shared_cwd.hpp; included below.
 
 // ============================================================
 // Task Control Block
@@ -111,10 +124,25 @@ struct Task {
     static void* operator new(size_t, std::align_val_t) {
         return cinux::mm::cache_alloc(cinux::mm::g_task_cache);
     }
-    static void operator delete(void* p) { cinux::mm::cache_free(cinux::mm::g_task_cache, p); }
-    static void operator delete(void* p, std::align_val_t) {
+    // F3-M2 batch 3: release shared refcounted resources (sig_actions / cwd /
+    // fd_table) before the slab memory is returned.  Defined out-of-line
+    // (task_builder.cpp) because fd_table's release() needs FDTable's full
+    // definition (only forward-declared here).
+    static void operator delete(void* p) {
+        if (p != nullptr) {
+            static_cast<Task*>(p)->release_resources();
+        }
         cinux::mm::cache_free(cinux::mm::g_task_cache, p);
     }
+    static void operator delete(void* p, std::align_val_t) {
+        if (p != nullptr) {
+            static_cast<Task*>(p)->release_resources();
+        }
+        cinux::mm::cache_free(cinux::mm::g_task_cache, p);
+    }
+
+    /// Drop this task's references to its shared sig_actions / cwd / fd_table.
+    void release_resources();
 
     /** Saved callee-saved registers for context switching. */
     CpuContext ctx;
@@ -152,14 +180,22 @@ struct Task {
     uint64_t brk_initial{};  ///< Heap start (ELF image end, set by execve)
     uint64_t brk_max{};      ///< Heap ceiling (USER_BRK_MAX)
 
-    // F3-M1: POSIX signal state.  Dispositions (sig_actions) and the block
-    // mask (sig_blocked) are inherited across fork(); pending signals are
-    // not (cleared explicitly in fork()).
-    SigAction sig_actions[kSignalCount]{};  ///< Per-signal disposition (1..kSignalMax)
-    SigSet    sig_pending{0};               ///< Signals pending delivery
-    SigSet    sig_blocked{0};               ///< Signals blocked from delivery
-    uint64_t  sig_altstack{0};              ///< sigaltstack base (0 = main stack)
-    uint64_t  sig_altstack_size{0};         ///< sigaltstack size in bytes
+    // F3-M1: POSIX signal state.  The block mask (sig_blocked) is inherited
+    // across fork(); pending signals are not (cleared in fork()).  F3-M2 batch
+    // 3: dispositions live in a refcounted SharedSigActions so CLONE_SIGHAND
+    // threads can share them (fork copies, clone may share).
+    SharedSigActions* sig_actions{
+        nullptr};                   ///< Refcounted dispositions (never null for a live task)
+    SigSet   sig_pending{0};        ///< Signals pending delivery
+    SigSet   sig_blocked{0};        ///< Signals blocked from delivery
+    uint64_t sig_altstack{0};       ///< sigaltstack base (0 = main stack)
+    uint64_t sig_altstack_size{0};  ///< sigaltstack size in bytes
+
+    // F3-M2: futex wait state.  Set in FUTEX_WAIT just before blocking, then
+    // matched (uaddr + bitset) and cleared by FUTEX_WAKE.  futex_uaddr==0
+    // means "this task is not waiting on a futex".
+    uint64_t futex_uaddr{0};   ///< uaddr waited on (0 = not waiting)
+    uint32_t futex_bitset{0};  ///< bitset mask (FUTEX_*_BITSET; 0xFFFFFFFF for plain)
 
     /** Per-process file descriptor table (nullptr = use global). */
     cinux::fs::FDTable* fd_table;
@@ -169,6 +205,25 @@ struct Task {
 
     /** Process ID (assigned by PidAllocator; 0 = uninitialised). */
     int pid;
+
+    /**
+     * Thread-group ID (F3-M2 batch 4).  Equals the group leader's pid; getpid()
+     * reports tgid so all threads of a process share one identity.  A
+     * single-threaded process has tgid == pid.
+     */
+    int tgid{0};
+
+    /** Pointer to the thread-group leader task (self for a leader). */
+    Task* group_leader{nullptr};
+
+    /**
+     * CLONE_CHILD_CLEARTID address (F3-M2 batch 4/5).  On thread exit the
+     * kernel writes 0 here and futex_wakes any waiter.  0 = not set.
+     */
+    uint64_t clear_child_tid{0};
+
+    /** CLONE_CHILD_SETTID address (child writes its tid here on startup). */
+    uint64_t set_child_tid{0};
 
     /** Parent process ID (0 for the kernel init task). */
     int ppid;
@@ -194,8 +249,8 @@ struct Task {
     /** FPU/SSE state (512 bytes, 16-byte aligned for fxsave/fxrstor). */
     alignas(16) uint8_t fpu_state[512];
 
-    /** Per-process current working directory (absolute path, NUL-terminated). */
-    char cwd[256];
+    /** Per-process current working directory (refcounted; F3-M2 batch 3). */
+    SharedCwd* cwd{nullptr};
 
     /** Intrusive link for the global pid->Task registry (sys_kill lookup). */
     Task* registry_next{nullptr};
@@ -290,6 +345,42 @@ private:
 int fork(PidAllocator& pid_alloc);
 
 // ============================================================
+// Clone (F3-M2 batch 4)
+// ============================================================
+
+/**
+ * @brief Create a new task sharing resources per Linux clone() flags
+ *
+ * Linux syscall 56: `clone(flags, stack, parent_tid, child_tid, tls)`.
+ * Unlike fork (full CoW copy), clone selectively SHARES resources:
+ *   CLONE_VM      -> share address space (threads)
+ *   CLONE_FILES   -> share fd table
+ *   CLONE_SIGHAND -> share signal dispositions (implies CLONE_VM)
+ *   CLONE_FS      -> share cwd
+ *   CLONE_THREAD  -> same thread group (tgid); sibling, not child
+ *   CLONE_SETTLS  -> set the child's FS base (TLS) to @p tls
+ *   CLONE_PARENT_SETTID / CLONE_CHILD_SETTID -> write the new tid
+ *   CLONE_CHILD_CLEARTID -> zero @p child_tid + futex_wake on exit
+ *
+ * The child returns to user space at the parent's syscall-return RIP with
+ * RAX=0 and (if @p stack != 0) RSP=@p stack -- achieved by copying the
+ * parent's kernel stack (whose syscall pt_regs frame sits at the top) and
+ * patching the child's user-RSP slot.
+ *
+ * @return child tid (>0) to the parent, or -errno on failure.
+ */
+int clone(uint64_t flags, uint64_t stack, uint64_t parent_tid, uint64_t child_tid, uint64_t tls);
+
+/**
+ * @brief CLONE_CHILD_CLEARTID exit hook (F3-M2 batch 5)
+ *
+ * If @p task has a clear_child_tid set (CLONE_CHILD_CLEARTID), write 0 to that
+ * user address and futex_wake one waiter -- the pthread_join protocol.  Called
+ * from the exit path.  No-op when clear_child_tid == 0.
+ */
+void task_exit_cleartid(Task* task);
+
+// ============================================================
 // CoW page fault handling
 // ============================================================
 
@@ -308,65 +399,8 @@ int fork(PidAllocator& pid_alloc);
  */
 bool handle_cow_fault(uint64_t fault_vaddr);
 
-// ============================================================
-// Execve
-// ============================================================
-
-namespace errno_values {
-constexpr int EPERM   = 1;   ///< Operation not permitted
-constexpr int ENOENT  = 2;   ///< No such file or directory
-constexpr int ESRCH   = 3;   ///< No such process
-constexpr int EIO     = 5;   ///< I/O error
-constexpr int ENOEXEC = 8;   ///< Exec format error
-constexpr int ENOMEM  = 12;  ///< Out of memory
-constexpr int EACCES  = 13;  ///< Permission denied
-constexpr int EFAULT  = 14;  ///< Bad address
-constexpr int ECHILD  = 10;  ///< No child processes
-constexpr int EISDIR  = 21;  ///< Is a directory
-constexpr int EINVAL  = 22;  ///< Invalid argument
-}  // namespace errno_values
-
-/**
- * @brief Result codes from execve() loading
- *
- * Values follow Linux errno conventions so that sys_execve can
- * return the negated value directly (e.g. -ENOENT, -ENOEXEC).
- */
-enum class ExecveResult : int {
-    Ok             = 0,    ///< Successfully loaded the new executable
-    BadPath        = -22,  ///< Path is null or empty (EINVAL)
-    FileNotFound   = -2,   ///< VFS could not resolve the path (ENOENT)
-    FileNotRegular = -21,  ///< Path resolves to a non-regular file (EISDIR)
-    ReadFailed     = -5,   ///< Failed to read the ELF data from the inode (EIO)
-    BadElfMagic    = -8,   ///< ELF magic number mismatch (ENOEXEC)
-    BadElfClass    = -8,   ///< Not a 64-bit ELF (ENOEXEC)
-    BadElfEndian   = -8,   ///< Not little-endian (ENOEXEC)
-    BadElfMachine  = -8,   ///< Not x86-64 (ENOEXEC)
-    BadElfType     = -8,   ///< Not an executable (ENOEXEC)
-    BadElfHeaders  = -8,   ///< Program header offset/size invalid (ENOEXEC)
-    NoLoadSegments = -8,   ///< No PT_LOAD segments found (ENOEXEC)
-    MapFailed      = -12,  ///< Address space map() failed for a segment (ENOMEM)
-    NoAddressSpace = -12,  ///< Task has no address space (ENOMEM)
-    NoCurrentTask  = -3,   ///< No current task in the scheduler (ESRCH)
-};
-
-/**
- * @brief Replace the current process image with a new ELF executable
- *
- * Reads the ELF binary from the VFS, validates the header, unmaps
- * existing user-space pages, loads PT_LOAD segments into the task's
- * address space, and sets the entry point.  The old process image is
- * destroyed but the PID, parent, and scheduler linkage are preserved.
- *
- * After a successful execve(), the caller is responsible for jumping
- * to the new entry point (typically via jump_to_usermode).
- *
- * @param path  Null-terminated path to the ELF executable
- * @param argv  Array of argument strings (may be nullptr)
- * @param envp  Array of environment strings (may be nullptr)
- * @return ExecveResult::Ok on success, or an error code
- */
-ExecveResult execve(const char* path, const char* const argv[], const char* const envp[]);
+// Execve (errno_values, ExecveResult, execve decl) lives in kernel/proc/execve.hpp;
+// included below.
 
 // ============================================================
 // Waitpid

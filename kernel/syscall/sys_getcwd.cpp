@@ -39,8 +39,9 @@ int64_t sys_getcwd(uint64_t buf_virt, uint64_t size, uint64_t, uint64_t, uint64_
     }
 
     // Step 2: Compute cwd length (including NUL)
-    uint32_t cwd_len = 0;
-    while (current->cwd[cwd_len] != '\0') {
+    const char* cwd_str = (current->cwd != nullptr) ? current->cwd->path : "";
+    uint32_t    cwd_len = 0;
+    while (cwd_str[cwd_len] != '\0') {
         ++cwd_len;
     }
     ++cwd_len;  // include NUL
@@ -51,7 +52,7 @@ int64_t sys_getcwd(uint64_t buf_virt, uint64_t size, uint64_t, uint64_t, uint64_
 
     // Step 3: Copy cwd to user buffer
     auto* dst = reinterpret_cast<char*>(buf_virt);
-    memcpy(dst, current->cwd, cwd_len);
+    memcpy(dst, cwd_str, cwd_len);
 
     return static_cast<int64_t>(cwd_len);
 }

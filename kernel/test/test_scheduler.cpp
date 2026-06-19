@@ -190,7 +190,7 @@ void test_empty_pick_next() {
 namespace test_cpu_context {
 
 void test_layout() {
-    TEST_ASSERT_EQ(sizeof(CpuContext), 80u);
+    TEST_ASSERT_EQ(sizeof(CpuContext), 96u);
     TEST_ASSERT_EQ(offsetof(CpuContext, r15), 0u);
     TEST_ASSERT_EQ(offsetof(CpuContext, r14), 8u);
     TEST_ASSERT_EQ(offsetof(CpuContext, r13), 16u);
@@ -199,6 +199,9 @@ void test_layout() {
     TEST_ASSERT_EQ(offsetof(CpuContext, rbx), 40u);
     TEST_ASSERT_EQ(offsetof(CpuContext, rsp), 48u);
     TEST_ASSERT_EQ(offsetof(CpuContext, rip), 56u);
+    TEST_ASSERT_EQ(offsetof(CpuContext, gs_base), 64u);
+    TEST_ASSERT_EQ(offsetof(CpuContext, kgs_base), 72u);
+    TEST_ASSERT_EQ(offsetof(CpuContext, fs_base), 80u);
     TEST_ASSERT_EQ(alignof(CpuContext), 16u);
 }
 

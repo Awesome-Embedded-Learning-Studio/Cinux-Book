@@ -16,9 +16,40 @@ namespace cinux::fs {
 // Construction
 // ============================================================
 
-FDTable::FDTable() {
+FDTable::FDTable() : refcount_(1) {
     for (uint32_t i = 0; i < FD_TABLE_SIZE; ++i) {
         fds_[i] = nullptr;
+    }
+}
+
+// ============================================================
+// Reference counting (F3-M2 batch 3)
+// ============================================================
+
+void FDTable::acquire() {
+    auto g = lock_.guard();
+    (void)g;
+    ++refcount_;
+}
+
+void FDTable::release() {
+    bool last = false;
+    {
+        auto g = lock_.guard();
+        (void)g;
+        if (refcount_ > 0) {
+            --refcount_;
+        }
+        last = (refcount_ == 0);
+    }
+    if (last) {
+        // Close every live descriptor, then free the table itself.
+        for (uint32_t i = 0; i < FD_TABLE_SIZE; ++i) {
+            if (fds_[i] != nullptr) {
+                close(static_cast<int>(i));
+            }
+        }
+        delete this;
     }
 }
 

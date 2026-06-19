@@ -35,16 +35,17 @@ namespace cinux::proc {
 // Internal helpers for CoW page table cloning
 // ============================================================
 
-namespace {
-
+// FLAG_* / phys_to_virt / PT_ENTRIES live in cinux::arch; both the CoW copier
+// and fork()'s page-table walk use them unqualified.
 using namespace cinux::arch;
 
 /**
- * @brief Recursively copy a page table level for CoW fork
+ * @brief Recursively copy a page table level for CoW fork/clone
  *
  * At the PT (leaf) level, shares physical pages and marks writable
  * entries as read-only with FLAG_COW.  At intermediate levels, allocates
- * new page table pages and recurses.
+ * new page table pages and recurses.  Shared with clone.cpp (declared in
+ * process_internal.hpp).
  */
 void copy_page_table_level(uint64_t src_phys, uint64_t dst_phys, int level) {
     auto* src_table = phys_to_virt(src_phys);
@@ -92,8 +93,6 @@ void copy_page_table_level(uint64_t src_phys, uint64_t dst_phys, int level) {
     }
 }
 
-}  // anonymous namespace
-
 // ============================================================
 // fork implementation
 // ============================================================
@@ -120,17 +119,35 @@ __attribute__((optimize("no-omit-frame-pointer"), noinline)) int fork(PidAllocat
 
     std::memcpy(child, parent, sizeof(Task));
 
-    child->tid         = next_tid.fetch_add(1, cinux::lib::MemoryOrder::Relaxed);
-    child->pid         = child_pid;
-    child->ppid        = parent->pid;
-    child->state       = TaskState::Ready;
-    child->parent      = parent;
-    child->children    = nullptr;
-    child->exit_status = 0;
-    // F3-M1: a forked child does not inherit pending signals (POSIX);
-    // dispositions and the block mask are inherited via the memcpy above.
+    // F3-M2 batch 3: the memcpy just copied the parent's shared-resource
+    // POINTERS (sig_actions / cwd / fd_table) into the child.  Give the child
+    // its OWN private copies now -- fork is copy semantics (clone in batch 4
+    // will share instead).  Doing this before any later error-path
+    // `delete child` ensures release() frees the child's own objects, not the
+    // parent's.  The block mask (sig_blocked) is retained from the memcpy;
+    // pending signals are not inherited (POSIX).
+    child->sig_actions = SharedSigActions::create_copy(parent->sig_actions);
+    child->cwd         = SharedCwd::create_copy(parent->cwd);
+    child->fd_table    = nullptr;  // detached; rebuilt fresh below
     child->sig_pending = 0;
-    child->fd_table    = nullptr;
+    if (child->sig_actions == nullptr || child->cwd == nullptr) {
+        cinux::lib::kprintf("[PROC] fork: shared-state copy failed\n");
+        delete child;
+        pid_alloc.free(child_pid);
+        return -1;
+    }
+
+    child->tid             = next_tid.fetch_add(1, cinux::lib::MemoryOrder::Relaxed);
+    child->pid             = child_pid;
+    child->tgid            = child_pid;  // F3-M2: a forked process is its own group leader
+    child->group_leader    = child;
+    child->clear_child_tid = 0;
+    child->set_child_tid   = 0;
+    child->ppid            = parent->pid;
+    child->state           = TaskState::Ready;
+    child->parent          = parent;
+    child->children        = nullptr;
+    child->exit_status     = 0;
 
     uint64_t child_stack_phys = cinux::mm::g_pmm.alloc_pages(TaskBuilder::STACK_PAGES);
     if (child_stack_phys == 0) {
@@ -163,7 +180,13 @@ __attribute__((optimize("no-omit-frame-pointer"), noinline)) int fork(PidAllocat
     __asm__ volatile("movq %%rsp, %0" : "=r"(current_rsp));
     __asm__ volatile("movq %%rbp, %0" : "=r"(current_rbp));
 
-    uint64_t full_stack_used   = parent->kernel_stack_top - current_rsp;
+    uint64_t full_stack_used = parent->kernel_stack_top - current_rsp;
+    // Defensive: cap the copied region at the child stack size so a
+    // pathologically-deep parent (or a synthetic test parent) cannot make
+    // child_stack_start underflow below the stack mapping.
+    if (full_stack_used > stack_size) {
+        full_stack_used = stack_size;
+    }
     uint64_t child_stack_start = child_stack_virt + stack_size - full_stack_used;
     std::memcpy(reinterpret_cast<void*>(child_stack_start), reinterpret_cast<void*>(current_rsp),
                 full_stack_used);

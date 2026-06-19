@@ -17,6 +17,7 @@
  *   Offset 56: rip
  *   Offset 64: gs_base      (MSR_GS_BASE)
  *   Offset 72: kgs_base     (MSR_KERNEL_GS_BASE)
+ *   Offset 80: fs_base      (MSR_FS_BASE, per-thread TLS)
  *
  * Calling convention (System V AMD64 ABI):
  *   %rdi = from (CpuContext* of outgoing task)
@@ -68,6 +69,12 @@ context_switch:
     movl %eax, 72(%rdi)             # from+72: kgs_base low 32
     movl %edx, 76(%rdi)             # from+76: kgs_base high 32
 
+    /* Save FS base (per-thread TLS pointer, MSR_FS_BASE) */
+    movq $0xC0000100, %rcx           # MSR_FS_BASE→%rcx
+    rdmsr                             # %edx:%eax = MSR_FS_BASE
+    movl %eax, 80(%rdi)             # from+80: fs_base low 32
+    movl %edx, 84(%rdi)             # from+84: fs_base high 32
+
     /* ---- Restore callee-saved registers from `to` ---- */
 
     movq 0(%rsi), %r15               # to+0→%r15: restore R15
@@ -90,6 +97,12 @@ context_switch:
     movl 76(%rsi), %edx              # to+76→%edx: kgs_base high 32
     movq $0xC0000102, %rcx           # MSR_KERNEL_GS_BASE→%rcx
     wrmsr                             # write MSR_KERNEL_GS_BASE
+
+    /* Restore FS base (per-thread TLS pointer) */
+    movl 80(%rsi), %eax              # to+80→%eax: fs_base low 32
+    movl 84(%rsi), %edx              # to+84→%edx: fs_base high 32
+    movq $0xC0000100, %rcx           # MSR_FS_BASE→%rcx
+    wrmsr                             # write MSR_FS_BASE
 
     /* Re-enable interrupts -- we may have entered from ISR context (IF=0).
        New tasks must start with interrupts on; resumed tasks will restore

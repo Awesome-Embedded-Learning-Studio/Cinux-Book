@@ -35,6 +35,8 @@
 #include "kernel/proc/pid.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/signal.hpp"
+#include "kernel/proc/sync.hpp"
 #include "kernel/syscall/sys_execve.hpp"
 #include "kernel/syscall/sys_fork.hpp"
 #include "kernel/syscall/sys_getpid.hpp"
@@ -124,6 +126,7 @@ void test_sys_getpid_returns_nonnegative() {
     // with pid=42 so the syscall can exercise the TCB read path.
     Task tmp{};
     tmp.pid    = 42;
+    tmp.tgid   = 42;  // F3-M2: getpid() reports tgid
     tmp.ppid   = 1;
     Task* prev = cinux::proc::Scheduler::current();
     cinux::proc::Scheduler::set_current(&tmp);
@@ -158,6 +161,7 @@ namespace test_getpid_dispatch {
 void test_dispatch_getpid() {
     Task tmp{};
     tmp.pid    = 7;
+    tmp.tgid   = 7;  // F3-M2: getpid() reports tgid
     tmp.ppid   = 2;
     Task* prev = cinux::proc::Scheduler::current();
     cinux::proc::Scheduler::set_current(&tmp);
@@ -379,12 +383,13 @@ void test_dispatch_sys_fork() {
     Task tmp{};
     tmp.pid  = 42;
     tmp.ppid = 1;
-    // kernel_stack_top must be set above the current RSP so fork()'s
-    // stack usage calculation (kernel_stack_top - current_rsp) doesn't
-    // underflow.
+    // Pin kernel_stack_top only a small offset above the live RSP so the
+    // copied length (kernel_stack_top - current_rsp) stays well under the
+    // 16 KiB child stack -- a full-stack offset would make fork() copy more
+    // than one stack and underflow the child mapping.
     uint64_t rsp;
     __asm__ volatile("movq %%rsp, %0" : "=r"(rsp));
-    tmp.kernel_stack_top = rsp + 16384;
+    tmp.kernel_stack_top = rsp + 4096;
     Task* prev           = cinux::proc::Scheduler::current();
     cinux::proc::Scheduler::set_current(&tmp);
 
@@ -392,9 +397,18 @@ void test_dispatch_sys_fork() {
     // which depends on Scheduler::add_task etc.  In the test harness
     // the scheduler is initialised but not running, so we verify
     // that the dispatch path is reachable.
-    int64_t ret = sys_fork(0, 0, 0, 0, 0, 0);
+    cinux::proc::InterruptGuard ig;  // keep IF=0 so the child cannot be scheduled mid-test
+    int64_t                     ret = sys_fork(0, 0, 0, 0, 0, 0);
     // fork may succeed (return child_pid) or fail (return -1)
     TEST_ASSERT_TRUE(ret == -1 || ret >= 0);
+    // Quarantine the child so it can never be scheduled (it would run
+    // fork_child_trampoline and unwind the copied test stack).
+    if (ret > 0) {
+        Task* child = cinux::proc::signal_find_task_by_pid(static_cast<int>(ret));
+        if (child != nullptr) {
+            cinux::proc::Scheduler::remove_task(child);
+        }
+    }
 
     cinux::proc::Scheduler::set_current(prev);
 }
@@ -405,14 +419,21 @@ void test_dispatch_sys_fork_via_table() {
     tmp.ppid = 1;
     uint64_t rsp;
     __asm__ volatile("movq %%rsp, %0" : "=r"(rsp));
-    tmp.kernel_stack_top = rsp + 16384;
+    tmp.kernel_stack_top = rsp + 4096;
     Task* prev           = cinux::proc::Scheduler::current();
     cinux::proc::Scheduler::set_current(&tmp);
 
-    int64_t dispatched =
+    cinux::proc::InterruptGuard ig;
+    int64_t                     dispatched =
         syscall_dispatch(static_cast<uint64_t>(SyscallNr::SYS_fork), 0, 0, 0, 0, 0, 0);
     // Should be reachable via dispatch table (registered in syscall_init)
     TEST_ASSERT_TRUE(dispatched == -1 || dispatched >= 0);
+    if (dispatched > 0) {
+        Task* child = cinux::proc::signal_find_task_by_pid(static_cast<int>(dispatched));
+        if (child != nullptr) {
+            cinux::proc::Scheduler::remove_task(child);
+        }
+    }
 
     cinux::proc::Scheduler::set_current(prev);
 }

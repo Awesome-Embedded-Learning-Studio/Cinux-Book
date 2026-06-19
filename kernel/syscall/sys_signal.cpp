@@ -65,7 +65,7 @@ int64_t sys_rt_sigaction(uint64_t sig, uint64_t act, uint64_t oact, uint64_t, ui
 
     if (oact != 0) {
         auto*            uo  = reinterpret_cast<UserSigAction*>(oact);
-        const SigAction& cur = task->sig_actions[n];
+        const SigAction& cur = task->sig_actions->actions[n];
         uo->sa_handler       = (cur.type == HandlerType::kIgnore)   ? 1
                                : (cur.type == HandlerType::kCustom) ? cur.handler_addr
                                                                     : 0;
@@ -75,7 +75,7 @@ int64_t sys_rt_sigaction(uint64_t sig, uint64_t act, uint64_t oact, uint64_t, ui
     }
     if (act != 0) {
         const auto* ua  = reinterpret_cast<const UserSigAction*>(act);
-        SigAction&  dst = task->sig_actions[n];
+        SigAction&  dst = task->sig_actions->actions[n];
         if (ua->sa_handler == 0) {
             dst.type = HandlerType::kDefault;
         } else if (ua->sa_handler == 1) {

@@ -39,6 +39,7 @@ void run_vmm_tests();
 void run_address_space_tests();
 void run_scheduler_tests();
 void run_sync_tests();
+void run_futex_tests();
 void run_usermode_tests();
 void run_syscall_tests();
 void run_shell_tests();
@@ -54,6 +55,8 @@ void run_ext2_inode_ops_tests();
 void run_syscall_ext2_tests();
 void run_shell_write_tests();
 void run_cwd_stat_tests();
+void run_shared_resources_tests();
+void run_clone_tests();
 void run_sync_concurrent_tests();
 void run_canvas_tests();
 void run_mouse_event_tests();
@@ -80,6 +83,7 @@ void run_vma_tests();
 void run_mmap_tests();
 void run_brk_tests();
 void run_signal_tests();
+void run_tls_tests();
 void run_page_cache_tests();
 void run_file_mmap_tests();
 void run_kallsyms_tests();
@@ -186,6 +190,7 @@ extern "C" void kernel_main() {
     run_mmap_tests();
     run_brk_tests();
     run_signal_tests();
+    run_tls_tests();
     run_page_cache_tests();
     run_file_mmap_tests();
 
@@ -194,6 +199,7 @@ extern "C" void kernel_main() {
 
     run_scheduler_tests();
     run_sync_tests();
+    run_futex_tests();
     run_sync_concurrent_tests();
     run_concurrent_ring_buffer_tests();
     run_klog_tests();
@@ -257,6 +263,8 @@ extern "C" void kernel_main() {
 
     // CWD/stat tests (028c): chdir/getcwd/stat/fstat/path canonicalize
     run_cwd_stat_tests();
+    run_shared_resources_tests();
+    run_clone_tests();
 
     // Step 5: Report and exit
     int exit_code = (test::get_total_failed() > 0) ? 1 : 0;

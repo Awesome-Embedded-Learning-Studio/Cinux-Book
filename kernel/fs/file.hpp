@@ -85,9 +85,25 @@ public:
     /**
      * @brief Construct an empty descriptor table
      *
-     * All slots initialised to nullptr.
+     * All slots initialised to nullptr.  Refcount starts at 1 (F3-M2 batch 3:
+     * CLONE_FILES threads share one table via acquire/release).
      */
     FDTable();
+
+    /**
+     * @name Reference counting (F3-M2 batch 3)
+     *
+     * CLONE_FILES threads share one FDTable (acquire bumps the refcount); fork
+     * and clone-without-FILES each get a private copy.  release() frees the
+     * table (and closes every live File) when the last reference drops.
+     */
+    ///@{
+    void acquire();
+    void release();
+    ///@}
+
+    /** Current reference count (diagnostics / tests). */
+    uint32_t refcount() const { return refcount_; }
 
     /**
      * @brief Allocate a file descriptor and assign a File to it
@@ -138,6 +154,7 @@ private:
     /// Fixed-size array of File pointers (nullptr = unused slot)
     File*                         fds_[FD_TABLE_SIZE];
     mutable cinux::proc::Spinlock lock_;
+    uint32_t                      refcount_;  ///< F3-M2 batch 3: shared by CLONE_FILES threads
 };
 
 }  // namespace cinux::fs
