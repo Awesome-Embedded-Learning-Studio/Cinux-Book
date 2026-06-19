@@ -127,8 +127,26 @@ int signal_send(Task* target, Signal sig) {
         target->sig_actions->actions[static_cast<int>(sig)].type == HandlerType::kIgnore) {
         return 0;
     }
+    // A Stopped task is never scheduled, so it cannot deliver a signal to
+    // itself.  SIGCONT (resume) and SIGKILL (must terminate) therefore pull a
+    // stopped task out of the stopped state at send time.  POSIX also has
+    // SIGCONT discard any pending stop signals.
+    if (sig == Signal::kSigcont) {
+        const SigSet stop_mask = sig_make_mask(Signal::kSigstop) | sig_make_mask(Signal::kSigtstp) |
+                                 sig_make_mask(Signal::kSigttin) | sig_make_mask(Signal::kSigtou);
+        target->sig_pending &= ~stop_mask;
+    }
+    if (target->state == TaskState::Stopped &&
+        (sig == Signal::kSigcont || sig == Signal::kSigkill)) {
+        target->state = TaskState::Ready;
+        if (target->sched_class != nullptr) {
+            target->sched_class->enqueue(target);
+        }
+    }
     sig_set_add(target->sig_pending, sig);
-    // TODO(batch later): wake a Blocked target for SIGKILL/SIGCONT/SIGTERM.
+    // TODO(future): wake a Blocked target for SIGKILL/SIGTERM (interruptible
+    // sleep).  Stopped targets are resumed above; Blocked waits (futex/waitpid)
+    // remain non-interruptible until that work lands.
     return 0;
 }
 
@@ -189,11 +207,30 @@ void signal_exec_default(Task* task, Signal sig) {
     case SigDefault::kIgnore:
         break;
     case SigDefault::kStop:
+        // Remove the task from scheduling.  Reached on the target's own delivery
+        // path while it is running; if it is current, switch away (resumes here
+        // if it is later continued).
+        task->state = TaskState::Stopped;
+        if (task->sched_class != nullptr) {
+            task->sched_class->dequeue(task);
+        }
+        cinux::lib::kprintf("[SIGNAL] default stop: tid=%u '%s' by SIG%d\n",
+                            static_cast<unsigned>(task->tid), task->name, static_cast<int>(sig));
+        if (task == Scheduler::current()) {
+            Scheduler::schedule();
+        }
+        break;
     case SigDefault::kContinue:
-        // TODO(batch later): job-control stop/cont need a Stopped task state
-        // and scheduler exclusion.  No-op for now.
-        cinux::lib::kprintf("[SIGNAL] stop/cont not yet supported (SIG%d)\n",
-                            static_cast<int>(sig));
+        // Resume a stopped task.  A task that is already running/ready treats
+        // SIGCONT as a no-op.  Normally a stopped task is resumed at send time
+        // (signal_send); this path covers the rare case of a Continue signal
+        // delivered while the task is still runnable.
+        if (task->state == TaskState::Stopped) {
+            task->state = TaskState::Ready;
+            if (task->sched_class != nullptr) {
+                task->sched_class->enqueue(task);
+            }
+        }
         break;
     }
 }

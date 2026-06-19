@@ -452,6 +452,210 @@ void test_locked_fifo_order() {
 }  // namespace test_round_robin_locked
 
 // ============================================================
+// Test 11: SchedulingClass policy hooks (F3-M4 batch 1)
+// ============================================================
+
+namespace test_sched_class_hooks {
+
+void test_task_tick_quantum() {
+    RoundRobin rr;
+    Task* t = TaskBuilder().set_entry(test_task_builder::dummy_entry).set_name("tick_q").build();
+    TEST_ASSERT_NOT_NULL(t);
+
+    rr.enqueue(t);
+    rr.pick_next();  // select t, recharge its quantum to DEFAULT_TIME_SLICE
+
+    // The first (DEFAULT_TIME_SLICE - 1) ticks do not request preemption...
+    for (int i = 1; i < Scheduler::DEFAULT_TIME_SLICE; i++) {
+        TEST_ASSERT_FALSE(rr.task_tick(t));
+    }
+    // ...the DEFAULT_TIME_SLICE-th tick exhausts the quantum and recharges.
+    TEST_ASSERT_TRUE(rr.task_tick(t));
+    // After recharging the task again has a full slice.
+    TEST_ASSERT_FALSE(rr.task_tick(t));
+}
+
+void test_task_fork_inherits_priority() {
+    RoundRobin rr;
+    Task*      parent = TaskBuilder()
+                            .set_entry(test_task_builder::dummy_entry)
+                            .set_name("fork_p")
+                            .set_priority(7)
+                            .build();
+    Task*      child  = TaskBuilder()
+                            .set_entry(test_task_builder::dummy_entry)
+                            .set_name("fork_c")
+                            .set_priority(0)
+                            .build();
+    TEST_ASSERT_NOT_NULL(parent);
+    TEST_ASSERT_NOT_NULL(child);
+
+    rr.task_fork(parent, child);
+    TEST_ASSERT_EQ(child->priority, 7u);
+}
+
+void test_task_deadline_default_zero() {
+    // RoundRobin does not override task_deadline, so the base default (0,
+    // "not deadline-based") applies.
+    RoundRobin rr;
+    Task*      t = TaskBuilder().set_entry(test_task_builder::dummy_entry).set_name("dl").build();
+    TEST_ASSERT_NOT_NULL(t);
+    TEST_ASSERT_EQ(rr.task_deadline(t), 0u);
+}
+
+}  // namespace test_sched_class_hooks
+
+// ============================================================
+// Test 12: Priority-aware RoundRobin (F3-M4 batch 2)
+// ============================================================
+
+namespace test_priority {
+
+void test_priority_picks_lowest_value() {
+    RoundRobin rr;
+    Task*      hi = TaskBuilder()
+                        .set_entry(test_task_builder::dummy_entry)
+                        .set_name("hi")
+                        .set_priority(0)
+                        .build();
+    Task*      lo = TaskBuilder()
+                        .set_entry(test_task_builder::dummy_entry)
+                        .set_name("lo")
+                        .set_priority(10)
+                        .build();
+    TEST_ASSERT_NOT_NULL(hi);
+    TEST_ASSERT_NOT_NULL(lo);
+
+    rr.enqueue(hi);  // priority 0
+    rr.enqueue(lo);  // priority 10
+
+    // Lower value = higher priority: hi is always selected while ready.
+    TEST_ASSERT_EQ(rr.pick_next(), hi);
+    // hi is re-enqueued and is still the lowest value, so it is picked again
+    // (strict priority -- lo is starved while a higher-priority task is ready).
+    TEST_ASSERT_EQ(rr.pick_next(), hi);
+}
+
+void test_priority_round_robin_within_level() {
+    RoundRobin rr;
+    Task*      a = TaskBuilder()
+                       .set_entry(test_task_builder::dummy_entry)
+                       .set_name("a")
+                       .set_priority(5)
+                       .build();
+    Task*      b = TaskBuilder()
+                       .set_entry(test_task_builder::dummy_entry)
+                       .set_name("b")
+                       .set_priority(5)
+                       .build();
+    Task*      c = TaskBuilder()
+                       .set_entry(test_task_builder::dummy_entry)
+                       .set_name("c")
+                       .set_priority(9)
+                       .build();
+    TEST_ASSERT_NOT_NULL(a);
+    TEST_ASSERT_NOT_NULL(b);
+    TEST_ASSERT_NOT_NULL(c);
+
+    rr.enqueue(a);
+    rr.enqueue(b);
+    rr.enqueue(c);
+
+    // Equal-priority tasks (a, b) round-robin; c (lower priority) is starved.
+    TEST_ASSERT_EQ(rr.pick_next(), a);
+    TEST_ASSERT_EQ(rr.pick_next(), b);
+    TEST_ASSERT_EQ(rr.pick_next(), a);
+    TEST_ASSERT_EQ(rr.pick_next(), b);
+}
+
+void test_priority_ignores_enqueue_order() {
+    RoundRobin rr;
+    Task*      first  = TaskBuilder()
+                            .set_entry(test_task_builder::dummy_entry)
+                            .set_name("first")
+                            .set_priority(20)
+                            .build();
+    Task*      second = TaskBuilder()
+                            .set_entry(test_task_builder::dummy_entry)
+                            .set_name("second")
+                            .set_priority(1)
+                            .build();
+    rr.enqueue(first);   // enqueued first but lower priority
+    rr.enqueue(second);  // enqueued later but higher priority
+
+    // pick_next selects by priority, not enqueue order.
+    TEST_ASSERT_EQ(rr.pick_next(), second);
+}
+
+}  // namespace test_priority
+
+// ============================================================
+// Test 13: Multi-class consultation (F3-M4 batch 3)
+// ============================================================
+
+namespace test_multi_class {
+
+// A class that is always empty.
+class EmptyClass : public SchedulingClass {
+public:
+    void        enqueue(Task*) override {}
+    void        dequeue(Task*) override {}
+    Task*       pick_next() override { return nullptr; }
+    const char* name() const override { return "EmptyClass"; }
+};
+
+// A class that holds a single task and drains it on pick_next.
+class OneShotClass : public SchedulingClass {
+public:
+    void  enqueue(Task* t) override { task_ = t; }
+    void  dequeue(Task*) override { task_ = nullptr; }
+    Task* pick_next() override {
+        Task* t = task_;
+        task_   = nullptr;
+        return t;
+    }
+    const char* name() const override { return "OneShotClass"; }
+
+private:
+    Task* task_ = nullptr;
+};
+
+void test_pick_next_from_skips_empty() {
+    EmptyClass   a;
+    OneShotClass b;
+    EmptyClass   c;
+    Task* mine = TaskBuilder().set_entry(test_task_builder::dummy_entry).set_name("mc").build();
+    b.enqueue(mine);
+
+    SchedulingClass* classes[3] = {&a, &b, &c};
+    // a empty -> skip; b returns mine -> selected; c never asked.
+    TEST_ASSERT_EQ(Scheduler::pick_next_from(classes, 3), mine);
+}
+
+void test_pick_next_from_all_empty() {
+    EmptyClass       a;
+    EmptyClass       b;
+    SchedulingClass* classes[2] = {&a, &b};
+    TEST_ASSERT_NULL(Scheduler::pick_next_from(classes, 2));
+}
+
+void test_pick_next_from_first_class_wins() {
+    OneShotClass a;
+    OneShotClass b;
+    Task* first = TaskBuilder().set_entry(test_task_builder::dummy_entry).set_name("first").build();
+    Task* second =
+        TaskBuilder().set_entry(test_task_builder::dummy_entry).set_name("second").build();
+    a.enqueue(first);
+    b.enqueue(second);
+
+    SchedulingClass* classes[2] = {&a, &b};
+    // a (index 0) wins; b is never consulted.
+    TEST_ASSERT_EQ(Scheduler::pick_next_from(classes, 2), first);
+}
+
+}  // namespace test_multi_class
+
+// ============================================================
 // Entry point
 // ============================================================
 
@@ -477,6 +681,18 @@ extern "C" void run_scheduler_tests() {
     RUN_TEST(test_round_robin_locked::test_locked_enqueue_dequeue);
     RUN_TEST(test_round_robin_locked::test_locked_dequeue_middle);
     RUN_TEST(test_round_robin_locked::test_locked_fifo_order);
+
+    RUN_TEST(test_sched_class_hooks::test_task_tick_quantum);
+    RUN_TEST(test_sched_class_hooks::test_task_fork_inherits_priority);
+    RUN_TEST(test_sched_class_hooks::test_task_deadline_default_zero);
+
+    RUN_TEST(test_priority::test_priority_picks_lowest_value);
+    RUN_TEST(test_priority::test_priority_round_robin_within_level);
+    RUN_TEST(test_priority::test_priority_ignores_enqueue_order);
+
+    RUN_TEST(test_multi_class::test_pick_next_from_skips_empty);
+    RUN_TEST(test_multi_class::test_pick_next_from_all_empty);
+    RUN_TEST(test_multi_class::test_pick_next_from_first_class_wins);
 
     TEST_SUMMARY();
 }

@@ -54,6 +54,7 @@ enum class TaskState : uint8_t {
     Running,
     Ready,
     Blocked,
+    Stopped,  // Stopped by a job-control signal (SIGSTOP/SIGTSTP/...); excluded from scheduling
     Zombie,
     Dead
 };

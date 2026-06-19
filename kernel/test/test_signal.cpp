@@ -362,6 +362,69 @@ void test_sigreturn_restores_context() {
 }  // namespace test_sig_frame
 
 // ============================================================
+// Job-control stop/continue (F3-M4 batch 4)
+// ============================================================
+
+namespace test_stop_cont {
+
+/// A stack Task is enough for the stop/cont state machine: signal_exec_default
+/// and signal_send only touch state / sched_class / sig_actions / sig_pending.
+/// Using a stack Task (not TaskBuilder) avoids consuming the global tid counter,
+/// which would shift other suites' tid assertions (test files share one counter).
+struct Victim {
+    Task task{};
+    Victim() {
+        task.name        = "victim";
+        task.state       = TaskState::Running;
+        task.sig_actions = SharedSigActions::create();
+    }
+};
+
+void test_sigstop_default_marks_stopped() {
+    Victim v;
+    TEST_ASSERT_NE(static_cast<int>(v.task.state), static_cast<int>(TaskState::Stopped));
+
+    // The victim is never current, so exec_default does not context-switch away.
+    signal_exec_default(&v.task, Signal::kSigstop);
+
+    TEST_ASSERT_EQ(static_cast<int>(v.task.state), static_cast<int>(TaskState::Stopped));
+}
+
+void test_sigcont_default_resumes_stopped() {
+    Victim v;
+    signal_exec_default(&v.task, Signal::kSigstop);
+    TEST_ASSERT_EQ(static_cast<int>(v.task.state), static_cast<int>(TaskState::Stopped));
+
+    signal_exec_default(&v.task, Signal::kSigcont);
+
+    TEST_ASSERT_EQ(static_cast<int>(v.task.state), static_cast<int>(TaskState::Ready));
+}
+
+void test_sigcont_resumes_at_send_time() {
+    // A stopped task is never scheduled, so it cannot deliver SIGCONT to itself;
+    // signal_send must resume it immediately.
+    Victim v;
+    signal_exec_default(&v.task, Signal::kSigstop);
+    TEST_ASSERT_EQ(static_cast<int>(v.task.state), static_cast<int>(TaskState::Stopped));
+
+    TEST_ASSERT_EQ(signal_send(&v.task, Signal::kSigcont), 0);
+    TEST_ASSERT_EQ(static_cast<int>(v.task.state), static_cast<int>(TaskState::Ready));
+}
+
+void test_sigcont_clears_pending_stops() {
+    // POSIX: generating SIGCONT discards any pending stop signals.
+    Victim v;
+    sig_set_add(v.task.sig_pending, Signal::kSigtstp);
+    TEST_ASSERT_TRUE(sig_is_member(v.task.sig_pending, Signal::kSigtstp));
+
+    signal_send(&v.task, Signal::kSigcont);
+
+    TEST_ASSERT_FALSE(sig_is_member(v.task.sig_pending, Signal::kSigtstp));
+}
+
+}  // namespace test_stop_cont
+
+// ============================================================
 // Entry point
 // ============================================================
 
@@ -390,6 +453,11 @@ extern "C" void run_signal_tests() {
 
     RUN_TEST(test_sig_frame::test_setup_frame_redirects_to_handler);
     RUN_TEST(test_sig_frame::test_sigreturn_restores_context);
+
+    RUN_TEST(test_stop_cont::test_sigstop_default_marks_stopped);
+    RUN_TEST(test_stop_cont::test_sigcont_default_resumes_stopped);
+    RUN_TEST(test_stop_cont::test_sigcont_resumes_at_send_time);
+    RUN_TEST(test_stop_cont::test_sigcont_clears_pending_stops);
 
     TEST_SUMMARY();
 }
