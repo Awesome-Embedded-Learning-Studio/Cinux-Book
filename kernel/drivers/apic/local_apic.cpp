@@ -68,4 +68,26 @@ void LocalAPIC::clear_error() {
     write(kRegErrorStatus, 0);
 }
 
+void LocalAPIC::send_ipi(uint8_t dest_apic_id, uint8_t vector) {
+    write(kRegIcrHigh, static_cast<uint32_t>(dest_apic_id) << 24);
+    while ((read(kRegIcrLow) & kIcrDeliveryStatus) != 0) {
+        // Wait for any previous IPI to finish sending (delivery status Idle).
+    }
+    write(kRegIcrLow, static_cast<uint32_t>(vector) | kIcrModeFixed);
+}
+
+void LocalAPIC::send_init(uint8_t dest_apic_id) {
+    write(kRegIcrHigh, static_cast<uint32_t>(dest_apic_id) << 24);
+    while ((read(kRegIcrLow) & kIcrDeliveryStatus) != 0) {
+    }
+    write(kRegIcrLow, kIcrModeInit | kIcrLevelAssert);
+}
+
+void LocalAPIC::send_sipi(uint8_t dest_apic_id, uint8_t vector) {
+    write(kRegIcrHigh, static_cast<uint32_t>(dest_apic_id) << 24);
+    while ((read(kRegIcrLow) & kIcrDeliveryStatus) != 0) {
+    }
+    write(kRegIcrLow, static_cast<uint32_t>(vector) | kIcrModeSipi | kIcrLevelAssert);
+}
+
 }  // namespace cinux::drivers::apic

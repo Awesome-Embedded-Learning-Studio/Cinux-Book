@@ -23,9 +23,15 @@ using cinux::drivers::apic::kIoapicRegRedirectBase;
 using cinux::drivers::apic::kRedirectMaskBit;
 using cinux::drivers::apic::kRegEoi;
 using cinux::drivers::apic::kRegErrorStatus;
+using cinux::drivers::apic::kRegIcrHigh;
+using cinux::drivers::apic::kRegIcrLow;
 using cinux::drivers::apic::kRegId;
 using cinux::drivers::apic::kRegSpurious;
 using cinux::drivers::apic::kRegTaskPriority;
+using cinux::drivers::apic::kIcrLevelAssert;
+using cinux::drivers::apic::kIcrModeFixed;
+using cinux::drivers::apic::kIcrModeInit;
+using cinux::drivers::apic::kIcrModeSipi;
 using cinux::drivers::apic::kSvrEnable;
 
 namespace {
@@ -109,6 +115,39 @@ void test_clear_error() {
     TEST_ASSERT_TRUE(mmio.words[kRegErrorStatus / 4] == 0);
 }
 
+// ---- IPI (F4-M3 P2-1): ICR high = dest<<24, ICR low = vector | mode | assert ----
+
+void test_send_init_writes_icr() {
+    MockMmio mmio;
+    mmio.clear();
+    LocalAPIC lapic;
+    lapic.bind(mmio.base());
+    lapic.send_init(3);
+    TEST_ASSERT_TRUE(mmio.words[kRegIcrHigh / 4] == (3u << 24));  // dest in bits 24-31
+    TEST_ASSERT_TRUE(mmio.words[kRegIcrLow / 4] ==
+                     (kIcrModeInit | kIcrLevelAssert));  // INIT, assert, vec 0
+}
+
+void test_send_sipi_writes_vector() {
+    MockMmio mmio;
+    mmio.clear();
+    LocalAPIC lapic;
+    lapic.bind(mmio.base());
+    lapic.send_sipi(3, 0x08);  // page 0x08 -> AP starts at physical 0x8000
+    TEST_ASSERT_TRUE(mmio.words[kRegIcrHigh / 4] == (3u << 24));
+    TEST_ASSERT_TRUE(mmio.words[kRegIcrLow / 4] == (0x08u | kIcrModeSipi | kIcrLevelAssert));
+}
+
+void test_send_ipi_fixed() {
+    MockMmio mmio;
+    mmio.clear();
+    LocalAPIC lapic;
+    lapic.bind(mmio.base());
+    lapic.send_ipi(5, 0x40);
+    TEST_ASSERT_TRUE(mmio.words[kRegIcrHigh / 4] == (5u << 24));
+    TEST_ASSERT_TRUE(mmio.words[kRegIcrLow / 4] == (0x40u | kIcrModeFixed));
+}
+
 }  // namespace test_local_apic
 
 // ============================================================
@@ -170,6 +209,9 @@ extern "C" void run_apic_tests() {
     RUN_TEST(test_local_apic::test_eoi_writes_zero);
     RUN_TEST(test_local_apic::test_id_decodes_bits_24_31);
     RUN_TEST(test_local_apic::test_clear_error);
+    RUN_TEST(test_local_apic::test_send_init_writes_icr);
+    RUN_TEST(test_local_apic::test_send_sipi_writes_vector);
+    RUN_TEST(test_local_apic::test_send_ipi_fixed);
 
     RUN_TEST(test_ioapic::test_write_selects_reg_and_writes_window);
     RUN_TEST(test_ioapic::test_set_redirect_dest_in_high);

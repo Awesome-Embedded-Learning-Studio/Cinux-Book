@@ -38,6 +38,23 @@ constexpr uint32_t kRegTimerDivide  = 0x3E0;
 /// Spurious Interrupt Vector Register bit 8: APIC software enable.
 constexpr uint32_t kSvrEnable = 1u << 8;
 
+// Interrupt Command Register (ICR) -- used by IPIs (F4-M3 P2-1).  64-bit,
+// split across two 32-bit MMIO words: high holds the destination APIC ID
+// (bits 24-31, physical mode), low holds the vector + delivery mode + flags.
+constexpr uint32_t kRegIcrLow  = 0x300;  ///< ICR low: vector / delivery mode / flags
+constexpr uint32_t kRegIcrHigh = 0x310;  ///< ICR high: dest APIC ID in bits 24-31
+
+/// ICR low bit 12: delivery status (0 = Idle, 1 = Send Pending).  Read-only;
+/// polled before issuing the next IPI so we never overwrite a pending send.
+constexpr uint32_t kIcrDeliveryStatus = 1u << 12;
+/// ICR low bit 14: level = assert (required for INIT/SIPI delivery).
+constexpr uint32_t kIcrLevelAssert    = 1u << 14;
+
+// Delivery modes (ICR low bits 8-10).
+constexpr uint32_t kIcrModeFixed = 0u << 8;  ///< normal fixed-vector IPI
+constexpr uint32_t kIcrModeInit  = 5u << 8;  ///< INIT (AP startup sequence)
+constexpr uint32_t kIcrModeSipi  = 6u << 8;  ///< Startup (SIPI; vector = page nr)
+
 class LocalAPIC {
 public:
     /// Attach to an already-mapped (or mock) 4 KB MMIO window.
@@ -62,6 +79,18 @@ public:
     void     eoi();  ///< End Of Interrupt (write 0 to EOI register).
     uint32_t error_status();
     void     clear_error();
+
+    // ---- Inter-Processor Interrupts (F4-M3 P2-1) ----
+    // All IPIs use physical destination mode + edge trigger.  Each waits for
+    // the ICR delivery status to go Idle before writing, so a previous IPI is
+    // never overwritten mid-send.
+    /// Send a fixed-vector IPI carrying @p vector to @p dest_apic_id.
+    void send_ipi(uint8_t dest_apic_id, uint8_t vector);
+    /// Send an INIT IPI to @p dest_apic_id (first step of AP startup).
+    void send_init(uint8_t dest_apic_id);
+    /// Send a Startup IPI (SIPI): @p vector is the trampoline page number
+    /// (e.g. 0x08 -> AP starts real-mode execution at physical 0x8000).
+    void send_sipi(uint8_t dest_apic_id, uint8_t vector);
 
 private:
     volatile uint32_t* base_ = nullptr;
