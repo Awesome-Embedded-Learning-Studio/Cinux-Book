@@ -194,7 +194,7 @@ void Scheduler::init() {
 
     if (idle_task_ != nullptr) {
         idle_task_->state = TaskState::Ready;
-        cinux::lib::kprintf("[SCHED] Idle task created tid=%u\n", idle_task_->tid);
+        cinux::lib::kprintf("[SCHED] Idle task created tid=%lu\n", idle_task_->tid);
     }
 
     initialized_ = true;
@@ -224,17 +224,17 @@ Task* Scheduler::pick_next_task() {
     return pick_next_from(classes_, class_count_);
 }
 
-void Scheduler::add_task(Task* task) {
+void Scheduler::add_task(lib::NotNull<Task*> task) {
     if (task->sched_class == nullptr) {
         task->sched_class = &default_rr_;
     }
     task->sched_class->enqueue(task);
     signal_register_task(task);
-    cinux::lib::kprintf("[SCHED] Task tid=%u '%s' added to %s\n", task->tid, task->name,
+    cinux::lib::kprintf("[SCHED] Task tid=%lu '%s' added to %s\n", task->tid, task->name,
                         task->sched_class->name());
 }
 
-void Scheduler::remove_task(Task* task) {
+void Scheduler::remove_task(lib::NotNull<Task*> task) {
     if (task == nullptr) {
         return;
     }
@@ -243,7 +243,7 @@ void Scheduler::remove_task(Task* task) {
     }
     signal_unregister_task(task);
     task->state = TaskState::Dead;
-    cinux::lib::kprintf("[SCHED] Task tid=%u '%s' removed\n", task->tid, task->name);
+    cinux::lib::kprintf("[SCHED] Task tid=%lu '%s' removed\n", task->tid, task->name);
 }
 
 void Scheduler::yield() {
@@ -260,7 +260,7 @@ void Scheduler::exit_current() {
         prev->state = TaskState::Dead;
         prev->sched_class->dequeue(prev);
         signal_unregister_task(prev);
-        cinux::lib::kprintf("[SCHED] Task tid=%u '%s' exited\n", prev->tid, prev->name);
+        cinux::lib::kprintf("[SCHED] Task tid=%lu '%s' exited\n", prev->tid, prev->name);
     }
 
     Task* next = pick_next_task();
@@ -286,7 +286,7 @@ void Scheduler::exit_current() {
     __asm__ volatile("fxrstor %0" : : "m"(current_->fpu_state));
 }
 
-void Scheduler::run_first(Task* boot_task) {
+void Scheduler::run_first(lib::NotNull<Task*> boot_task) {
     current_          = boot_task;
     g_per_cpu.current = boot_task;
     cinux::arch::GDT::tss_set_rsp0(boot_task->kernel_stack_top);
@@ -338,6 +338,20 @@ void Scheduler::schedule() {
         return;
     }
 
+#ifdef CINUX_LOCKDEP
+    // F-INFRA I-10: holding a spinlock across the context switch below deadlocks
+    // single-core (the next task cannot release a lock this caller still owns,
+    // and this caller never runs again). Catch it here rather than as a silent
+    // hang. kpanic is noreturn, so the depth it bumps while dumping memstats is
+    // harmless (no re-check of this assert).
+    if (g_lockdep_held_depth > 0) {
+        cinux::lib::kpanic(
+            "lockdep: schedule() called with %u spinlock(s) held -- "
+            "would deadlock (held across context switch)",
+            g_lockdep_held_depth);
+    }
+#endif
+
     Task* prev = current_;
 
     if (prev->state == TaskState::Running) {
@@ -378,7 +392,7 @@ void Scheduler::schedule() {
     __asm__ volatile("fxrstor %0" : : "m"(current_->fpu_state));
 }
 
-void Scheduler::block(Task* task, const char* reason) {
+void Scheduler::block(lib::NotNull<Task*> task, const char* reason) {
     if (task == nullptr) {
         return;
     }
@@ -388,7 +402,7 @@ void Scheduler::block(Task* task, const char* reason) {
         task->sched_class->dequeue(task);
     }
 
-    cinux::lib::kprintf("[SCHED] Task tid=%u '%s' blocked: %s\n", task->tid, task->name,
+    cinux::lib::kprintf("[SCHED] Task tid=%lu '%s' blocked: %s\n", task->tid, task->name,
                         reason ? reason : "unknown");
 
     if (task == current_) {
@@ -396,7 +410,7 @@ void Scheduler::block(Task* task, const char* reason) {
     }
 }
 
-void Scheduler::unblock(Task* task) {
+void Scheduler::unblock(lib::NotNull<Task*> task) {
     if (task == nullptr) {
         return;
     }
@@ -407,7 +421,7 @@ void Scheduler::unblock(Task* task) {
     }
     task->sched_class->enqueue(task);
 
-    cinux::lib::kprintf("[SCHED] Task tid=%u '%s' unblocked\n", task->tid, task->name);
+    cinux::lib::kprintf("[SCHED] Task tid=%lu '%s' unblocked\n", task->tid, task->name);
 }
 
 }  // namespace cinux::proc

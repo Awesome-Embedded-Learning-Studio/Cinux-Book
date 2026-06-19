@@ -214,7 +214,7 @@ void test_mask_suppresses_irq0() {
     __asm__ volatile("sti");
 
     // Busy-wait loop (not relying on PIT since it is masked)
-    for (volatile uint64_t i = 0; i < 10'000'000; i++) {
+    for (volatile uint64_t i = 0; i < 10'000'000; i = i + 1) {
         __asm__ volatile("pause");
     }
 
@@ -266,7 +266,7 @@ void test_disable_all_suppresses() {
     __asm__ volatile("sti");
 
     // Spin for a while -- no ticks should arrive
-    for (volatile uint64_t i = 0; i < 10'000'000; i++) {
+    for (volatile uint64_t i = 0; i < 10'000'000; i = i + 1) {
         __asm__ volatile("pause");
     }
 

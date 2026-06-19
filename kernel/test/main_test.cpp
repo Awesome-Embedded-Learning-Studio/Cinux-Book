@@ -19,6 +19,7 @@
 #include "kernel/arch/x86_64/memory_layout.hpp"
 #include "kernel/arch/x86_64/syscall.hpp"
 #include "kernel/arch/x86_64/usermode.hpp"
+#include "kernel/lib/kallsyms.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/page_cache.hpp"
@@ -98,6 +99,11 @@ extern "C" void kernel_main() {
     // Step 1: Initialise serial port for test output
     cinux::lib::kprintf_init();
     cinux::lib::kprintf("[TEST] Big Kernel Test Suite starting...\n");
+
+    // F-INFRA I-5: register the build-generated symbol table. Individual suites
+    // (run_kallsyms_tests) override this with a fixture to test lookup logic, so
+    // this mainly serves early-boot/panic backtraces before those suites run.
+    cinux::lib::kallsyms_set_table(g_kallsyms_table, g_kallsyms_count);
 
     // Step 2: Initialise GDT (must come before IDT)
     cinux::arch::g_gdt.init();

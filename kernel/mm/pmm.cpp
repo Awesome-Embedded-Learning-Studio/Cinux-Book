@@ -97,10 +97,10 @@ void PMM::init(const BootInfo& info) {
     // Step 4: Place the buddy's per-order free bitmaps right after the order
     // array (page-aligned).  The bitmaps track free blocks without writing into
     // the free pages themselves (GOTCHA #14 -- nested-KVM safe).
-    uint64_t order_bytes = total_pages_;
-    uintptr_t bs_virt    = (os_virt + order_bytes + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-    bitmap_storage_      = reinterpret_cast<uint8_t*>(bs_virt);
-    uint64_t bm_bytes    = BuddyAllocator::bitmap_bytes(total_pages_);
+    uint64_t  order_bytes = total_pages_;
+    uintptr_t bs_virt     = (os_virt + order_bytes + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    bitmap_storage_       = reinterpret_cast<uint8_t*>(bs_virt);
+    uint64_t bm_bytes     = BuddyAllocator::bitmap_bytes(total_pages_);
 
     // Step 5: Initialise the buddy over page indices [0, total_pages).
     buddy_.init(0, total_pages_, order_storage_, bitmap_storage_);
@@ -136,7 +136,7 @@ void PMM::init(const BootInfo& info) {
     // Step 7: Print statistics
     uint64_t total_mb = total_pages_ * PAGE_SIZE / (1024 * 1024);
     uint64_t free_mb  = buddy_.free_pages() * PAGE_SIZE / (1024 * 1024);
-    cinux::lib::kprintf("[PMM] Total: %uMB, Free: %uMB\n", total_mb, free_mb);
+    cinux::lib::kprintf("[PMM] Total: %luMB, Free: %luMB\n", total_mb, free_mb);
 }
 
 // ============================================================
@@ -190,7 +190,7 @@ uint64_t PMM::alloc_pages(uint64_t count) {
     if (order > BuddyAllocator::kMaxOrder)
         return 0;
 
-    auto     g    = lock_.guard();
+    auto g = lock_.guard();
     (void)g;
     uint64_t page = buddy_.alloc_order(order);
     if (page == BuddyAllocator::kInvalidPage)

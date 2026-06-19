@@ -292,7 +292,7 @@ __attribute__((optimize("no-omit-frame-pointer"), noinline)) int fork(PidAllocat
 
     Scheduler::add_task(child);
 
-    cinux::lib::kprintf("[PROC] fork: created child pid=%d tid=%u parent_pid=%d\n", child->pid,
+    cinux::lib::kprintf("[PROC] fork: created child pid=%d tid=%lu parent_pid=%d\n", child->pid,
                         child->tid, parent->pid);
 
     return child_pid;

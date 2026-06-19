@@ -39,7 +39,7 @@ struct SlabCache;
 /// In-page header placed at the start of every slab page.  Doubly linked so a
 /// slab can move between its cache's partial/full lists in O(1).
 struct SlabHeader {
-    SlabCache*  cache;     ///< owning cache
+    SlabCache*  cache;  ///< owning cache
     SlabHeader* next;
     SlabHeader* prev;
     void*       freelist;  ///< head of the intrusive free list (nullptr when full)
@@ -53,12 +53,18 @@ struct SlabCache {
     size_t      obj_size;       ///< bytes per object (power of two, >= 16)
     uint16_t    objs_per_slab;  ///< capacity of one slab page
     const char* name;
-    SlabHeader* partial;        ///< slabs with at least one free slot (alloc target)
-    SlabHeader* full;           ///< completely used slabs
-    uint32_t    slab_count;     ///< live slab pages in this cache
-    void        (*ctor)(void*); ///< per-object constructor (dedicated caches)
-    void        (*dtor)(void*); ///< per-object destructor  (dedicated caches)
+    SlabHeader* partial;     ///< slabs with at least one free slot (alloc target)
+    SlabHeader* full;        ///< completely used slabs
+    uint32_t    slab_count;  ///< live slab pages in this cache
+    void (*ctor)(void*);     ///< per-object constructor (dedicated caches)
+    void (*dtor)(void*);     ///< per-object destructor  (dedicated caches)
 };
+
+// F-INFRA I-4 (R11): lock slab metadata layouts against silent field reorder /
+// insertion. A wrong SlabHeader/SlabCache layout corrupts the intrusive free
+// list and per-cache accounting (measured from the definitions above).
+static_assert(sizeof(SlabHeader) == 40, "SlabHeader layout (4 ptrs + 2 u16, 8-aligned)");
+static_assert(sizeof(SlabCache) == 64, "SlabCache layout");
 
 /// Smallest general cache is 16 B so that every returned pointer satisfies the
 /// default operator-new alignment (__STDCPP_DEFAULT_NEW_ALIGNMENT__, 16 on
@@ -97,8 +103,8 @@ public:
     /// (C-style; C++ types normally use placement-new and pass nullptr).  The
     /// SlabCache struct itself is drawn from the general caches.  Returns
     /// nullptr on OOM.
-    SlabCache* create_cache(const char* name, size_t obj_size,
-                            void (*ctor)(void*) = nullptr, void (*dtor)(void*) = nullptr);
+    SlabCache* create_cache(const char* name, size_t obj_size, void (*ctor)(void*) = nullptr,
+                            void (*dtor)(void*) = nullptr);
 
     /// Allocate one object from a dedicated @p cache (nullptr cache -> nullptr).
     void* cache_alloc(SlabCache* cache);
@@ -123,12 +129,12 @@ private:
     static void list_push_front(SlabHeader** head, SlabHeader* s);
     static void list_remove(SlabHeader** head, SlabHeader* s);
 
-    SlabCache          caches_[kNumCaches];
+    SlabCache             caches_[kNumCaches];
     cinux::proc::Spinlock lock_;
-    uint64_t           slab_base_{};
-    uint64_t           slab_brk_{};
-    uint64_t           slab_end_{};
-    uint32_t           slab_pages_{};
+    uint64_t              slab_base_{};
+    uint64_t              slab_brk_{};
+    uint64_t              slab_end_{};
+    uint32_t              slab_pages_{};
 };
 
 /// Global SlabAllocator instance.
@@ -177,7 +183,11 @@ void init_dedicated_caches();
 
 /// Convenience wrappers over g_slab.cache_alloc / cache_free, for use by the
 /// class-specific operator new/delete on Task / VMA / CachedPage.
-inline void* cache_alloc(SlabCache* cache) { return g_slab.cache_alloc(cache); }
-inline void  cache_free(SlabCache* cache, void* obj) { g_slab.cache_free(cache, obj); }
+inline void* cache_alloc(SlabCache* cache) {
+    return g_slab.cache_alloc(cache);
+}
+inline void cache_free(SlabCache* cache, void* obj) {
+    g_slab.cache_free(cache, obj);
+}
 
 }  // namespace cinux::mm

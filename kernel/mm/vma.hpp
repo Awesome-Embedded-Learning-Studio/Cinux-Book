@@ -89,12 +89,12 @@ constexpr bool has_flag(VmaFlags value, VmaFlags bit) noexcept {
  */
 struct VMA {
     // F2-M7b: heap VMA nodes are served by the dedicated vma slab cache.
-    static void*       operator new(size_t) { return cinux::mm::cache_alloc(cinux::mm::g_vma_cache); }
-    static void*       operator new(size_t, std::align_val_t) {
+    static void* operator new(size_t) { return cinux::mm::cache_alloc(cinux::mm::g_vma_cache); }
+    static void* operator new(size_t, std::align_val_t) {
         return cinux::mm::cache_alloc(cinux::mm::g_vma_cache);
     }
-    static void        operator delete(void* p) { cinux::mm::cache_free(cinux::mm::g_vma_cache, p); }
-    static void        operator delete(void* p, std::align_val_t) {
+    static void operator delete(void* p) { cinux::mm::cache_free(cinux::mm::g_vma_cache, p); }
+    static void operator delete(void* p, std::align_val_t) {
         cinux::mm::cache_free(cinux::mm::g_vma_cache, p);
     }
 
@@ -106,6 +106,10 @@ struct VMA {
     VMA*              prev{nullptr};     ///< Intrusive list link
     VMA*              next{nullptr};
 };
+
+// F-INFRA I-4 (R11): VMA nodes are slab-cached and threaded onto an intrusive
+// list; pin the layout so a field insertion does not silently desync callers.
+static_assert(sizeof(VMA) == 56, "VMA layout (slab node; 4 u64 + 3 ptr + u64 flags)");
 
 /**
  * @brief Abstract set of VMAs for one address space

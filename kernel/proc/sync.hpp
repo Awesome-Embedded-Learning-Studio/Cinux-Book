@@ -78,6 +78,16 @@ private:
     };
 };
 
+#ifdef CINUX_LOCKDEP
+/// Debug-only (CINUX_LOCKDEP, F-INFRA I-10): count of spinlocks currently held
+/// on this CPU. Asserted == 0 at Scheduler::schedule() entry -- holding a
+/// spinlock across a context switch deadlocks on a single core (the scheduled
+/// task cannot release a lock the caller still owns, and the caller never runs
+/// again). Incremented/decremented by Spinlock::acquire/release. Compiled out
+/// (zero cost) when CINUX_LOCKDEP is off.
+extern uint32_t g_lockdep_held_depth;
+#endif
+
 // ============================================================
 // Mutex -- blocking mutual exclusion
 // ============================================================

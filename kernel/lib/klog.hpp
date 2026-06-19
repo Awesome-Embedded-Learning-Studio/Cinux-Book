@@ -39,6 +39,10 @@ struct LogEntry {
     char     message[kKlogMsgMax];  ///< NUL-terminated formatted message
 };
 
+// F-INFRA I-4 (R11): LogEntry is the klog ring element (array of these). Pinned
+// so a field/type change forces a conscious update, not a silent ABI drift.
+static_assert(sizeof(LogEntry) == 272, "LogEntry layout (u64 + u8 level + 256-byte msg)");
+
 /**
  * @brief Kernel log history (dmesg backing store)
  *

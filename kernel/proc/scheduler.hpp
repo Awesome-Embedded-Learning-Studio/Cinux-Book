@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "kernel/lib/atomic.hpp"
+#include "kernel/lib/not_null.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/sync.hpp"
 
@@ -101,19 +102,19 @@ public:
 
     static void  init();
     static void  register_class(SchedulingClass* sched_class);
-    static void  add_task(Task* task);
-    static void  remove_task(Task* task);
+    static void  add_task(lib::NotNull<Task*> task);
+    static void  remove_task(lib::NotNull<Task*> task);
     static void  yield();
     static void  exit_current();
-    static void  run_first(Task* boot_task);
+    static void  run_first(lib::NotNull<Task*> boot_task);
     static Task* current();
-    static void  set_current(Task* task);
+    static void  set_current(Task* task);  // nullable: tests clear current_ with nullptr
     static bool  is_initialized();
 
     static void tick();
     static void schedule();
-    static void block(Task* task, const char* reason);
-    static void unblock(Task* task);
+    static void block(lib::NotNull<Task*> task, const char* reason);
+    static void unblock(lib::NotNull<Task*> task);
 
     // Ask each class in `classes` (precedence = array order, index 0 first) for
     // its next runnable task; return the first non-null, or nullptr if every

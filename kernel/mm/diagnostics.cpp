@@ -23,13 +23,14 @@ void dump_memory_stats() {
     const uint64_t total_pages = g_pmm.total_page_count();
 
     kprintf("[MEM] PMM:       %u / %u pages free (%u KiB free of %u KiB)\n",
-            (unsigned)free_pages, (unsigned)total_pages, (unsigned)(free_pages * 4),
-            (unsigned)(total_pages * 4));
+            static_cast<unsigned>(free_pages), static_cast<unsigned>(total_pages),
+            static_cast<unsigned>(free_pages * 4), static_cast<unsigned>(total_pages * 4));
     kprintf("[MEM] Slab:      %u slab pages mapped\n",
-            (unsigned)g_slab.total_slab_pages());
+            static_cast<unsigned>(g_slab.total_slab_pages()));
     kprintf("[MEM] PageCache: %u cached (%u hits / %u misses)\n",
-            (unsigned)g_page_cache.cached_pages(), (unsigned)g_page_cache.hit_count(),
-            (unsigned)g_page_cache.miss_count());
+            static_cast<unsigned>(g_page_cache.cached_pages()),
+            static_cast<unsigned>(g_page_cache.hit_count()),
+            static_cast<unsigned>(g_page_cache.miss_count()));
 }
 
 }  // namespace cinux::mm

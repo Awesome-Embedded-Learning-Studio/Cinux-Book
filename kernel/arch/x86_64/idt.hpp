@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 namespace cinux::arch {
@@ -75,6 +76,16 @@ struct [[gnu::packed]] InterruptFrame {
     uint64_t error_code;
     uint64_t rip, cs, rflags, rsp, ss;
 };
+
+// F-INFRA I-4 (R11): lock the interrupt stack frame. interrupts.S builds this
+// frame by sequential push and the C handler indexes it via (RSP+offset), so
+// the FIELD OFFSETS are the asm ABI contract -- not just the total size. A field
+// reorder here would read the wrong register in the handler with no other signal.
+static_assert(sizeof(InterruptFrame) == 168, "21 x uint64");
+static_assert(offsetof(InterruptFrame, r15) == 0, "first ISR-saved register");
+static_assert(offsetof(InterruptFrame, error_code) == 120, "error_code precedes the CPU frame");
+static_assert(offsetof(InterruptFrame, rip) == 128, "CPU pushes rip at frame+128");
+static_assert(offsetof(InterruptFrame, ss) == 160, "ss is the final CPU-pushed field");
 
 // ============================================================
 // IDT Class

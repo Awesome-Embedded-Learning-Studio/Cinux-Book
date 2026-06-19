@@ -56,11 +56,12 @@
 #    include "kernel/drivers/canvas.hpp"
 #    include "kernel/gui/gui_init.hpp"
 #endif
+#include "kernel/lib/kallsyms.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
-#include "kernel/mm/slab.hpp"
 #include "kernel/mm/page_cache.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/mm/slab.hpp"
 #include "kernel/mm/vmm.hpp"
 #include "kernel/proc/init.hpp"
 #include "kernel/proc/process.hpp"
@@ -93,6 +94,10 @@ extern "C" void irq_init();
 extern "C" void kernel_main() {
     // Step 1: Initialise the serial port used by kprintf
     cinux::lib::kprintf_init();
+
+    // F-INFRA I-5: register the build-generated symbol table so panic backtraces
+    // resolve to function names without host addr2line. Safe at IF=0 (no locks).
+    cinux::lib::kallsyms_set_table(g_kallsyms_table, g_kallsyms_count);
 
     // Step 2: Print the milestone message
     cinux::lib::kprintf("[BIG] Big kernel running @ 0x1000000\n");

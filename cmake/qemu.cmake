@@ -137,9 +137,10 @@ add_custom_target(run-debug
 
 
 add_custom_target(run-gdb
-    COMMAND gdb -ex "target remote :1234" build/kernel.elf
+    COMMAND gdb -x ${CMAKE_SOURCE_DIR}/scripts/.gdbinit
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     DEPENDS run-debug
-    COMMENT "Using gdb to connects for debugings"
+    COMMENT "GDB: connect to QEMU :1234 (64-bit big_kernel symbols via scripts/.gdbinit)"
     VERBATIM)
 
 # ==============================================================

@@ -192,7 +192,7 @@ cinux::lib::ErrorOr<void> Ramdisk::mount() {
         return cinux::lib::Error::IOError;
     }
 
-    cinux::lib::kprintf("[RAMDISK] Archive at 0x%p, size %u bytes\n", base_, size_);
+    cinux::lib::kprintf("[RAMDISK] Archive at 0x%p, size %lu bytes\n", base_, size_);
 
     // Step 2: Iterate through ustar entries and build the entry table
     entry_count_    = 0;
@@ -208,7 +208,7 @@ cinux::lib::ErrorOr<void> Ramdisk::mount() {
 
         // Validate ustar magic
         if (!is_valid_ustar(hdr)) {
-            cinux::lib::kprintf("[RAMDISK] Invalid ustar magic at offset %u, stopping.\n", offset);
+            cinux::lib::kprintf("[RAMDISK] Invalid ustar magic at offset %lu, stopping.\n", offset);
             break;
         }
 
@@ -242,7 +242,7 @@ cinux::lib::ErrorOr<void> Ramdisk::mount() {
 
                 cinux::lib::kprintf("[RAMDISK]   FILE: ");
                 print_bounded(entry.name, RAMDISK_NAME_MAX);
-                cinux::lib::kprintf("  (%u bytes)\n", file_size);
+                cinux::lib::kprintf("  (%lu bytes)\n", file_size);
 
                 ++entry_count_;
             } else {

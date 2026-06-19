@@ -3,7 +3,7 @@
  * @brief Constexpr 32x32 pixel icon data for desktop applications
  *
  * Contains the raw compile-time bitmap data for application icons.
- * Each icon is a std::array of 1024 uint32_t values in 0x00RRGGBB
+ * Each icon is an IconBitmap of 1024 uint32_t values in 0x00RRGGBB
  * format (row-major, top-to-bottom).  A pixel value of 0x00000000
  * is treated as transparent by Canvas::draw_bitmap().
  *
@@ -14,7 +14,6 @@
 
 #pragma once
 
-#include <array>
 #include <cstdint>
 
 namespace cinux::gui::icons::data {
@@ -42,6 +41,18 @@ constexpr uint32_t ORANGE      = 0x00FF8C00;  // Calculator equals button
 // ============================================================
 
 namespace detail {
+
+/// Fixed 1024-pixel (32x32) bitmap. Freestanding aggregate replacement for
+/// std::array<uint32_t, 1024> (STL containers are prohibited in the kernel;
+/// see DIRECTIVES A). Supports operator[] (build_icon fill) and .data()
+/// (consumers that hand the raw pointer to Canvas::draw_bitmap).
+struct IconBitmap {
+    uint32_t pixels[1024];
+
+    constexpr uint32_t&       operator[](uint32_t i) { return pixels[i]; }
+    constexpr const uint32_t& operator[](uint32_t i) const { return pixels[i]; }
+    constexpr const uint32_t* data() const { return pixels; }
+};
 
 /**
  * @brief Map a single hex character to a 4-bit nibble (0-15)
@@ -82,11 +93,10 @@ constexpr uint32_t palette_lookup(const uint32_t (&pal)[16], uint32_t nibble) {
  * @return         1024-element pixel array
  */
 template <uint32_t Rows>
-constexpr std::array<uint32_t, 1024> build_icon(const uint32_t (&palette)[16],
-                                                const char* const (&rows)[Rows]) {
+constexpr IconBitmap build_icon(const uint32_t (&palette)[16], const char* const (&rows)[Rows]) {
     static_assert(Rows == 32, "Icon must have exactly 32 rows");
 
-    std::array<uint32_t, 1024> pixels{};
+    IconBitmap pixels{};
     for (uint32_t r = 0; r < 32; r++) {
         for (uint32_t c = 0; c < 32; c++) {
             uint32_t nibble    = hex_nibble(rows[r][c]);
@@ -127,7 +137,7 @@ inline constexpr uint32_t k_shell_palette[16] = {
  * Visual: dark rounded-corner terminal body with three traffic-light
  * dots in the title bar and a white ">_" command prompt.
  */
-inline constexpr std::array<uint32_t, 1024> k_shell_icon = detail::build_icon(
+inline constexpr auto k_shell_icon = detail::build_icon(
     k_shell_palette, {
                          "00222222222222222222222222222220", "02255672222222222222222222222220",
                          "02222222222222222222222222222220", "02111111111111111111111111111110",
@@ -177,7 +187,7 @@ inline constexpr uint32_t k_calc_palette[16] = {
  * Visual: rounded grey body, greenish LCD display showing "123",
  * 4-column button grid (C, +/-, %, /, 7-9, *, 4-6, -, 1-3, +, 0, ., =).
  */
-inline constexpr std::array<uint32_t, 1024> k_calc_icon = detail::build_icon(
+inline constexpr auto k_calc_icon = detail::build_icon(
     k_calc_palette, {
                         "00222222222222222222222222222220", "02111111111111111111111111111120",
                         "01244444444444444444444444444110", "01245551111111111111111111111110",

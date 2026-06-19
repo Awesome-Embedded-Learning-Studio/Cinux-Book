@@ -207,7 +207,7 @@ void test_three_tasks_mutual_exclusion() {
     for (int i = 0; i < 10; i++) {
         auto g = test_lock.guard();
         (void)g;
-        shared_counter++;
+        shared_counter = shared_counter + 1;
     }
 
     // Task 2: increment 10 times
@@ -215,7 +215,7 @@ void test_three_tasks_mutual_exclusion() {
     for (int i = 0; i < 10; i++) {
         auto g = test_lock.guard();
         (void)g;
-        shared_counter++;
+        shared_counter = shared_counter + 1;
     }
 
     // Task 3: increment 10 times
@@ -223,7 +223,7 @@ void test_three_tasks_mutual_exclusion() {
     for (int i = 0; i < 10; i++) {
         auto g = test_lock.guard();
         (void)g;
-        shared_counter++;
+        shared_counter = shared_counter + 1;
     }
 
     TEST_ASSERT_EQ(shared_counter, 30);
@@ -245,7 +245,7 @@ void test_irq_guard_three_tasks() {
     for (int i = 0; i < 15; i++) {
         auto g = test_lock.irq_guard();
         (void)g;
-        shared_counter++;
+        shared_counter = shared_counter + 1;
     }
 
     // Task 2: increment with irq_guard
@@ -253,7 +253,7 @@ void test_irq_guard_three_tasks() {
     for (int i = 0; i < 15; i++) {
         auto g = test_lock.irq_guard();
         (void)g;
-        shared_counter++;
+        shared_counter = shared_counter + 1;
     }
 
     TEST_ASSERT_EQ(shared_counter, 30);

@@ -224,11 +224,11 @@ static CpuContext task_a_ctx;
 static CpuContext task_b_ctx;
 
 static void task_a_func() {
-    task_a_count++;
+    task_a_count = task_a_count + 1;
     // Switch to task B
     context_switch(&task_a_ctx, &task_b_ctx);
     // Comes back here after B yields
-    task_a_count++;
+    task_a_count = task_a_count + 1;
     // Done
     done = true;
     // Switch back to boot
@@ -236,7 +236,7 @@ static void task_a_func() {
 }
 
 static void task_b_func() {
-    task_b_count++;
+    task_b_count = task_b_count + 1;
     // Switch back to task A
     context_switch(&task_b_ctx, &task_a_ctx);
     // Should not reach here in this test

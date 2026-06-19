@@ -28,6 +28,19 @@ set(BIG_KERNEL_COMPILE_OPTIONS
     -mno-red-zone
     -Wall
     -Wextra
+    # F-INFRA I-3 (R2): bring the kernel body up to the Cinux-Base submodule's
+    # warning discipline (the submodule already enforces -Wshadow/-Wold-style-cast
+    #/-Wnon-virtual-dtor). -Wconversion/-Wpedantic stay OUT here (kernel uses GNU
+    # inline-asm extensions; -Wconversion is too noisy — see follow-up G6).
+    # -Werror=return-type is a near-zero-noise correctness check (already clean).
+    # (-Werror=implicit-int / implicit-function-declaration are C-only and emit
+    # "not valid for C++" noise in a C++ kernel, so omitted.)
+    -Wshadow
+    -Wold-style-cast
+    -Wnon-virtual-dtor
+    -Woverloaded-virtual
+    -Wformat=2
+    -Werror=return-type
 )
 
 set(BIG_KERNEL_LINK_OPTIONS
@@ -35,6 +48,11 @@ set(BIG_KERNEL_LINK_OPTIONS
     -nostdlib
     -static
     -no-pie
+    # The custom linker.ld discards .note.gnu.build-id, so GCC's default
+    # --build-id is ignored and ld warns. A build-id is meaningless for a kernel
+    # ELF loaded at a fixed physical address; disable it explicitly for a clean
+    # link (F-INFRA I-3: zero-warning build).
+    -Wl,--build-id=none
 )
 
 # Object library: shared sources between production and test kernels.
@@ -65,6 +83,25 @@ add_subdirectory(ipc)
 if(CINUX_GUI)
     target_compile_definitions(big_kernel_common PUBLIC CINUX_GUI)
     add_subdirectory(gui)
+endif()
+
+# F-INFRA I-10: opt-in lockdep checks (assert no spinlock held across schedule()).
+if(CINUX_LOCKDEP)
+    target_compile_definitions(big_kernel_common PUBLIC CINUX_LOCKDEP)
+endif()
+
+# F-INFRA I-9: opt-in UBSan. -fsanitize=undefined at COMPILE only (the freestanding
+# stubs in kernel/lib/ubsan.cpp resolve the __ubsan_handle_* refs -- no libubsan).
+# Exclude the stub + the diagnostic/panic path so a UB hit cannot recurse.
+if(CINUX_UBSAN)
+    target_compile_options(big_kernel_common PUBLIC -fsanitize=undefined -fno-sanitize=alignment)
+    set_source_files_properties(
+        ${CMAKE_SOURCE_DIR}/kernel/lib/ubsan.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/lib/kprintf.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/backtrace.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/mm/diagnostics.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/exception_handlers.cpp
+        PROPERTIES COMPILE_OPTIONS "-fno-sanitize=undefined")
 endif()
 
 # ============================================================
@@ -209,3 +246,47 @@ add_custom_command(TARGET big_kernel_test POST_BUILD
     COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/append_crc32.py ${BIG_KERNEL_TEST_BIN}
     COMMENT "Creating big kernel test binary with trailing CRC32"
 )
+
+# ============================================================
+# F-INFRA I-5: KALLSYMS symbol table (per-target, POST_BUILD regen)
+# ============================================================
+# Each kernel executable embeds its own {addr,name} table so panic backtraces
+# resolve to function names without host addr2line. linker.ld places .rodata
+# (where this table lands) AFTER .text, so adding the table never moves any
+# recorded function address: a single nm pass over the linked ELF is correct,
+# and the POST_BUILD regeneration converges. The generator writes ONLY when
+# content changes (preserves mtime), so once stable it triggers no rebuild.
+set(KALLSYMS_GEN        ${CMAKE_SOURCE_DIR}/scripts/generate_kallsyms.py)
+set(KALLSYMS_DATA_TEST  ${CMAKE_BINARY_DIR}/kernel/kallsyms_data_test.cpp)
+set(KALLSYMS_DATA_KERNEL ${CMAKE_BINARY_DIR}/kernel/kallsyms_data_kernel.cpp)
+
+# Seed an empty stub at configure time so the first build compiles. A clean
+# checkout therefore needs a second build for the real table to be compiled in
+# (CI builds twice). Guarded: do NOT overwrite a previously-regenerated real
+# table on reconfigure.
+set(_KALLSYMS_STUB [==[
+// AUTO-GENERATED placeholder (first build); regenerated POST_BUILD from nm.
+#include <stddef.h>
+#include "kernel/lib/kallsyms.hpp"
+extern "C" const cinux::lib::KallsymEntry g_kallsyms_table[] = {};
+extern "C" const size_t g_kallsyms_count = 0;
+]==])
+if(NOT EXISTS ${KALLSYMS_DATA_TEST})
+    file(WRITE ${KALLSYMS_DATA_TEST} "${_KALLSYMS_STUB}")
+endif()
+if(NOT EXISTS ${KALLSYMS_DATA_KERNEL})
+    file(WRITE ${KALLSYMS_DATA_KERNEL} "${_KALLSYMS_STUB}")
+endif()
+
+target_sources(big_kernel      PRIVATE ${KALLSYMS_DATA_KERNEL})
+target_sources(big_kernel_test PRIVATE ${KALLSYMS_DATA_TEST})
+set_source_files_properties(${KALLSYMS_DATA_KERNEL} ${KALLSYMS_DATA_TEST}
+                            PROPERTIES GENERATED TRUE)
+
+# Regenerate each table from its own linked ELF after every build.
+add_custom_command(TARGET big_kernel POST_BUILD
+    COMMAND python3 ${KALLSYMS_GEN} $<TARGET_FILE:big_kernel> ${KALLSYMS_DATA_KERNEL}
+    COMMENT "KALLSYMS: regenerate big_kernel symbol table")
+add_custom_command(TARGET big_kernel_test POST_BUILD
+    COMMAND python3 ${KALLSYMS_GEN} $<TARGET_FILE:big_kernel_test> ${KALLSYMS_DATA_TEST}
+    COMMENT "KALLSYMS: regenerate big_kernel_test symbol table")

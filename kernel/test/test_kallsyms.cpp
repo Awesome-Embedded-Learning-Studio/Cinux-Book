@@ -136,7 +136,7 @@ namespace test_kallsyms_meta {
 
 void test_availability_and_count() {
     TEST_ASSERT_TRUE(kallsyms_available());
-    TEST_ASSERT_EQ(kallsyms_count(), (size_t)kFixtureCount);
+    TEST_ASSERT_EQ(kallsyms_count(), static_cast<size_t>(kFixtureCount));
 }
 
 }  // namespace test_kallsyms_meta

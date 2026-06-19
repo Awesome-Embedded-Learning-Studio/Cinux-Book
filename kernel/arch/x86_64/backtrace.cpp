@@ -16,10 +16,10 @@
  * on the IST1 double-fault stack would not resolve (rare; future hardening).
  */
 
+#include "kernel/arch/x86_64/backtrace.hpp"
+
 #include <stddef.h>
 #include <stdint.h>
-
-#include "kernel/arch/x86_64/backtrace.hpp"
 
 #include "kernel/lib/kallsyms.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -62,8 +62,8 @@ bool read_frame(uint64_t rbp, uint64_t& next_rbp, uint64_t& ret_addr) {
         return false;
     }
     const volatile uint64_t* f = reinterpret_cast<const volatile uint64_t*>(rbp);
-    next_rbp = f[0];
-    ret_addr = f[1];
+    next_rbp                   = f[0];
+    ret_addr                   = f[1];
     return true;
 }
 
@@ -99,11 +99,12 @@ void backtrace_from(uint64_t rbp, size_t max_frames) {
     }
     uint64_t addrs[kBacktraceMaxFrames];
     size_t   n = backtrace_capture(rbp, addrs, max_frames);
-    kprintf("Backtrace (%u frames):\n", (unsigned)n);
+    kprintf("Backtrace (%u frames):\n", static_cast<unsigned>(n));
     char buf[96];
     for (size_t i = 0; i < n; i++) {
         cinux::lib::kallsyms_lookup(addrs[i], buf, sizeof(buf));
-        kprintf("  [%u] %p  %s\n", (unsigned)i, reinterpret_cast<void*>(addrs[i]), buf);
+        kprintf("  [%u] %p  %s\n", static_cast<unsigned>(i), reinterpret_cast<void*>(addrs[i]),
+                buf);
     }
 }
 

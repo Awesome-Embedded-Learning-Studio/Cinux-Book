@@ -90,7 +90,7 @@ Task* TaskBuilder::build() {
         uint64_t phys = stack_phys + i * cinux::arch::PAGE_SIZE;
         uint64_t virt = stack_virt + i * cinux::arch::PAGE_SIZE;
         if (!cinux::mm::g_vmm.map(virt, phys, 0x03)) {
-            cinux::lib::kprintf("[PROC] TaskBuilder::build: stack map failed at page %u\n", i);
+            cinux::lib::kprintf("[PROC] TaskBuilder::build: stack map failed at page %lu\n", i);
             delete task;
             return nullptr;
         }
@@ -143,7 +143,7 @@ Task* TaskBuilder::build() {
         return nullptr;
     }
 
-    cinux::lib::kprintf("[PROC] Created task tid=%u name='%s' stack=0x%p\n", task->tid, task->name,
+    cinux::lib::kprintf("[PROC] Created task tid=%lu name='%s' stack=0x%p\n", task->tid, task->name,
                         reinterpret_cast<void*>(task->kernel_stack_top));
 
     return task;

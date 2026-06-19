@@ -161,7 +161,9 @@ static void shell_child_entry() {
         cinux::mm::VmaFlags::Read | cinux::mm::VmaFlags::Write | cinux::mm::VmaFlags::Stack;
     constexpr uint64_t kStackVmaStart =
         cinux::arch::USER_STACK_TOP - cinux::arch::USER_STACK_GROWTH;
-    if (!task->addr_space->vmas().insert(kStackVmaStart, cinux::arch::USER_STACK_TOP, kStackVma).ok()) {
+    if (!task->addr_space->vmas()
+             .insert(kStackVmaStart, cinux::arch::USER_STACK_TOP, kStackVma)
+             .ok()) {
         cinux::lib::kprintf("[GUI] stack VMA record failed\n");
         cinux::proc::Scheduler::exit_current();
     }
@@ -280,24 +282,16 @@ void gui_tick_callback(void* /*ctx*/) {
     using cinux::gui::Event;
     using cinux::gui::EventType;
 
-    static uint32_t tick_count   = 0;
-    static uint32_t total_events = 0;
-    static uint32_t mouse_events = 0;
-    tick_count++;
-
     auto& wm = WindowManager::instance();
     auto& eq = Mouse::event_queue();
 
     // Drain all pending events from the queue
     Event ev;
     while (eq.dequeue(ev)) {
-        total_events++;
-
         switch (ev.type_) {
         case EventType::MouseMove:
         case EventType::MouseDown:
         case EventType::MouseUp:
-            mouse_events++;
             wm.handle_mouse(ev);
             break;
         case EventType::KeyDown:

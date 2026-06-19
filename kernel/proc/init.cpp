@@ -39,7 +39,7 @@ void gui_worker_thread() {
 
 void kernel_init_thread() {
     auto* self = Scheduler::current();
-    cinux::lib::kprintf("[INIT] kernel_init started tid=%u\n", self ? self->tid : 0);
+    cinux::lib::kprintf("[INIT] kernel_init started tid=%lu\n", self ? self->tid : 0);
 
     cinux::lib::kprintf("[INIT] ===== Milestone 028: ext2 Filesystem =====\n");
     static auto blk_dev =

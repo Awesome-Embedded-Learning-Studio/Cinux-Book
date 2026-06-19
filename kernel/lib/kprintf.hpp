@@ -81,7 +81,7 @@ void kprintf_init();
  * @param fmt  printf-style format string
  * @param ...  variadic arguments matching the format specifiers
  */
-void kprintf(const char* fmt, ...);
+__attribute__((format(printf, 1, 2))) void kprintf(const char* fmt, ...);
 
 /**
  * @brief va_list variant of kprintf
@@ -91,7 +91,7 @@ void kprintf(const char* fmt, ...);
  * @param fmt   printf-style format string
  * @param args  already-initialised va_list
  */
-void kvprintf(const char* fmt, va_list args);
+__attribute__((format(printf, 1, 0))) void kvprintf(const char* fmt, va_list args);
 
 /**
  * @brief Kernel panic -- print message and halt
@@ -102,6 +102,6 @@ void kvprintf(const char* fmt, va_list args);
  * @param fmt  printf-style format string
  * @param ...  variadic arguments
  */
-[[noreturn]] void kpanic(const char* fmt, ...);
+[[noreturn]] __attribute__((format(printf, 1, 2))) void kpanic(const char* fmt, ...);
 
 }  // namespace cinux::lib

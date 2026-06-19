@@ -54,7 +54,7 @@ namespace test_backtrace_depth {
 void test_walks_multiple_frames() {
     top();
     // leaf -> middle -> top -> test -> runner: at least 3 frames above leaf.
-    TEST_ASSERT_GE(g_count, (size_t)3);
+    TEST_ASSERT_GE(g_count, static_cast<size_t>(3));
 }
 
 }  // namespace test_backtrace_depth
@@ -70,7 +70,7 @@ void test_respects_max() {
     uint64_t rbp;
     __asm__ volatile("mov %%rbp, %0" : "=r"(rbp));
     size_t n = backtrace_capture(rbp, a, 2);  // tiny cap
-    TEST_ASSERT_LE(n, (size_t)2);
+    TEST_ASSERT_LE(n, static_cast<size_t>(2));
 }
 
 }  // namespace test_backtrace_limit
@@ -83,13 +83,13 @@ namespace test_backtrace_bad {
 
 void test_zero_rbp_stops() {
     uint64_t a[8];
-    TEST_ASSERT_EQ(backtrace_capture(0, a, 8), (size_t)0);
+    TEST_ASSERT_EQ(backtrace_capture(0, a, 8), static_cast<size_t>(0));
 }
 
 void test_null_buffer() {
     uint64_t rbp;
     __asm__ volatile("mov %%rbp, %0" : "=r"(rbp));
-    TEST_ASSERT_EQ(backtrace_capture(rbp, nullptr, 8), (size_t)0);
+    TEST_ASSERT_EQ(backtrace_capture(rbp, nullptr, 8), static_cast<size_t>(0));
 }
 
 }  // namespace test_backtrace_bad

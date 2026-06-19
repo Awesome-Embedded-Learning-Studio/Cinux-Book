@@ -65,3 +65,10 @@ size_t kallsyms_count();
 bool kallsyms_lookup(uint64_t addr, char* buf, size_t len);
 
 }  // namespace cinux::lib
+
+// F-INFRA I-5: the build-generated symbol table (one definition per kernel
+// executable, regenerated POST_BUILD from nm over the linked ELF). Register it
+// at boot via cinux::lib::kallsyms_set_table(). Declared extern "C" to match the
+// generated definition; lives at global scope.
+extern "C" const cinux::lib::KallsymEntry g_kallsyms_table[];
+extern "C" const size_t                   g_kallsyms_count;

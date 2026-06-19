@@ -20,3 +20,10 @@ file(GLOB_RECURSE CINUX_BASE_SOURCES
     ${CINUX_BASE_DIR}/src/*.cpp
 )
 target_sources(big_kernel_common PRIVATE ${CINUX_BASE_SOURCES})
+
+# F-INFRA I-9: never instrument Cinux-Base with UBSan. It is -Wpedantic -Werror
+# and heap-free; -fsanitize=undefined may surface intentional sub-source UB and
+# the stubs here must not apply to another repo's contract code.
+if(CINUX_UBSAN)
+    set_source_files_properties(${CINUX_BASE_SOURCES} PROPERTIES COMPILE_OPTIONS "-fno-sanitize=undefined")
+endif()

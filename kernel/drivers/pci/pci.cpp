@@ -161,7 +161,7 @@ bool PCI::find_ahci(PCIDevice& out) const {
 
                     cinux::lib::kprintf(
                         "[PCI] AHCI found: %02x:%02x.%x "
-                        "BAR5=0x%p\n",
+                        "BAR5=0x%lx\n",
                         dev.bus, dev.slot, dev.func, static_cast<uint64_t>(dev.bar[5]));
                     return true;
                 }

@@ -320,7 +320,7 @@ __attribute__((optimize("no-omit-frame-pointer"), noinline)) int clone(
 
     Scheduler::add_task(child);
 
-    cinux::lib::kprintf("[PROC] clone: created child pid=%d tid=%u tgid=%d flags=0x%lx\n",
+    cinux::lib::kprintf("[PROC] clone: created child pid=%d tid=%lu tgid=%d flags=0x%lx\n",
                         child->pid, child->tid, child->tgid, flags);
 
     return child_pid;

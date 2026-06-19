@@ -358,7 +358,7 @@ struct Ext2Pair {
 };
 
 Ext2Pair setup_ext2() {
-    Ext2Pair result{nullptr, nullptr};
+    Ext2Pair result{nullptr, nullptr, nullptr};
 
     PCI pci;
     pci.init();

@@ -196,7 +196,7 @@ void handle_pf(InterruptFrame* frame) {
                 kprintf("========================================================\n");
                 kprintf("  KERNEL STACK OVERFLOW DETECTED\n");
                 kprintf("========================================================\n");
-                kprintf("  Task: tid=%u pid=%d name='%s'\n", cur->tid, cur->pid,
+                kprintf("  Task: tid=%lu pid=%d name='%s'\n", cur->tid, cur->pid,
                         cur->name ? cur->name : "(null)");
                 kprintf("  Fault address (CR2): %p\n", reinterpret_cast<void*>(fault_addr));
                 kprintf("  Guard page range:    [%p, %p)\n", reinterpret_cast<void*>(guard_base),
@@ -208,7 +208,7 @@ void handle_pf(InterruptFrame* frame) {
                 kprintf("  RIP:                 %p\n", reinterpret_cast<void*>(frame->rip));
                 kprintf("========================================================\n");
                 cinux::lib::kpanic(
-                    "kernel stack overflow: task '%s' (tid=%u pid=%d) "
+                    "kernel stack overflow: task '%s' (tid=%lu pid=%d) "
                     "exceeded stack [%p, %p)",
                     cur->name ? cur->name : "(null)", cur->tid, cur->pid,
                     reinterpret_cast<void*>(cur->kernel_stack),

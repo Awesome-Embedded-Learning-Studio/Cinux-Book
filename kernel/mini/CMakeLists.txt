@@ -20,6 +20,12 @@ set(MINI_KERNEL_COMMON_LINK_OPTIONS
     -T ${CMAKE_CURRENT_SOURCE_DIR}/linker.ld
     -nostdlib
     -no-pie
+    # F-INFRA I-4: complete the zero-warning build for the mini loader too
+    # (big-kernel link got -Wl,--build-id=none in I-3). The bootstrap's single
+    # LOAD segment is legitimately RWX (real-mode -> long-mode trampoline), so
+    # silence the RWX-segment warning rather than splitting the linker script.
+    -Wl,--build-id=none
+    -Wl,--no-warn-rwx-segments
 )
 
 # ==============================================================
