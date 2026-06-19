@@ -174,6 +174,7 @@ add_executable(big_kernel_test
     test/test_futex.cpp
     test/test_shared_resources.cpp
     test/test_clone.cpp
+    test/test_process_group.cpp
     test/test_page_cache.cpp
     test/test_file_mmap.cpp
     test/test_buddy.cpp

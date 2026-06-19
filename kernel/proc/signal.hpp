@@ -202,6 +202,12 @@ Task* signal_find_task_by_pid(int pid);
 /// Queue @p sig on @p target's pending set.  Returns 0 / -errno.
 int signal_send(Task* target, Signal sig);
 
+/// Send @p sig to every task in process group @p pgid (F3-M3 batch 2).
+/// @p pgid == 0 resolves to the caller's own group.  Returns the number of
+/// recipients signalled; 0 means no task matched (the syscall layer maps that
+/// to -ESRCH).
+int killpg(int pgid, Signal sig);
+
 /// Pick the next deliverable signal for @p task, clear its pending bit, and
 /// return its number.  When @p allow_custom is false (the syscall return
 /// path, which cannot build a signal frame) Custom dispositions are skipped;

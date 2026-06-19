@@ -272,7 +272,10 @@ void Scheduler::schedule() {
     Task* next = default_rr_.pick_next();
 
     if (next == nullptr || next == prev) {
-        if (prev->state != TaskState::Blocked && prev->state != TaskState::Dead) {
+        // F3-M3 batch 4a: a Zombie task (exited, awaiting reap) must never be
+        // rescheduled -- pick_next() is state-blind, so guard here as well.
+        if (prev->state != TaskState::Blocked && prev->state != TaskState::Dead &&
+            prev->state != TaskState::Zombie) {
             prev->state = TaskState::Running;
             return;
         }

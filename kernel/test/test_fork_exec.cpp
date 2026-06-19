@@ -850,7 +850,8 @@ void test_waitpid_no_children() {
     cinux::proc::Scheduler::set_current(&tmp);
 
     int  status = 0;
-    auto result = cinux::proc::waitpid(-1, &status, cinux::proc::g_pid_alloc);
+    auto result =
+        cinux::proc::waitpid(-1, &status, cinux::proc::kWaitNoHang, cinux::proc::g_pid_alloc);
     TEST_ASSERT_EQ(static_cast<int>(result),
                    static_cast<int>(cinux::proc::WaitpidResult::NoChildren));
 
@@ -877,7 +878,7 @@ void test_waitpid_zombie_child_reaped() {
     cinux::proc::Scheduler::set_current(&tmp);
 
     int  status = 0;
-    auto result = cinux::proc::waitpid(21, &status, local_alloc);
+    auto result = cinux::proc::waitpid(21, &status, cinux::proc::kWaitNoHang, local_alloc);
 
     TEST_ASSERT_EQ(static_cast<int>(result), static_cast<int>(cinux::proc::WaitpidResult::Ok));
     TEST_ASSERT_EQ(status, 7);
@@ -911,7 +912,7 @@ void test_waitpid_any_zombie() {
     cinux::proc::Scheduler::set_current(&tmp);
 
     int  status = 0;
-    auto result = cinux::proc::waitpid(-1, &status, local_alloc);
+    auto result = cinux::proc::waitpid(-1, &status, cinux::proc::kWaitNoHang, local_alloc);
 
     TEST_ASSERT_EQ(static_cast<int>(result), static_cast<int>(cinux::proc::WaitpidResult::Ok));
     TEST_ASSERT_EQ(status, 99);
@@ -938,7 +939,7 @@ void test_waitpid_not_exited() {
     cinux::proc::Scheduler::set_current(&tmp);
 
     int  status = 0;
-    auto result = cinux::proc::waitpid(41, &status, local_alloc);
+    auto result = cinux::proc::waitpid(41, &status, cinux::proc::kWaitNoHang, local_alloc);
 
     TEST_ASSERT_EQ(static_cast<int>(result),
                    static_cast<int>(cinux::proc::WaitpidResult::NotExited));
@@ -962,7 +963,7 @@ void test_waitpid_not_found() {
     cinux::proc::Scheduler::set_current(&tmp);
 
     int  status = 0;
-    auto result = cinux::proc::waitpid(99, &status, local_alloc);
+    auto result = cinux::proc::waitpid(99, &status, cinux::proc::kWaitNoHang, local_alloc);
 
     TEST_ASSERT_EQ(static_cast<int>(result),
                    static_cast<int>(cinux::proc::WaitpidResult::NotFound));
@@ -986,7 +987,7 @@ void test_waitpid_invalid_pid() {
     cinux::proc::Scheduler::set_current(&tmp);
 
     int  status = 0;
-    auto result = cinux::proc::waitpid(0, &status, local_alloc);
+    auto result = cinux::proc::waitpid(0, &status, cinux::proc::kWaitNoHang, local_alloc);
 
     TEST_ASSERT_EQ(static_cast<int>(result),
                    static_cast<int>(cinux::proc::WaitpidResult::InvalidPid));
@@ -1062,7 +1063,7 @@ void test_reaped_pid_is_freed() {
     cinux::proc::Scheduler::set_current(&tmp);
 
     int  status = 0;
-    auto result = cinux::proc::waitpid(child_pid, &status, local_alloc);
+    auto result = cinux::proc::waitpid(child_pid, &status, cinux::proc::kWaitNoHang, local_alloc);
 
     TEST_ASSERT_EQ(static_cast<int>(result), static_cast<int>(cinux::proc::WaitpidResult::Ok));
     TEST_ASSERT_FALSE(local_alloc.is_allocated(child_pid));

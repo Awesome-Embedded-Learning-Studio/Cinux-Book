@@ -132,6 +132,30 @@ int signal_send(Task* target, Signal sig) {
     return 0;
 }
 
+int killpg(int pgid, Signal sig) {
+    if (!signal_valid(static_cast<int>(sig))) {
+        return -22;  // EINVAL
+    }
+    if (pgid == 0) {
+        Task* cur = Scheduler::current();
+        if (cur == nullptr) {
+            return -3;  // ESRCH: no current task to resolve "own group"
+        }
+        pgid = cur->pgid;
+    }
+    // Walk the pid registry and signal every member of the group.  Note: a
+    // recipient may exit mid-iteration; signal_send() tolerates Zombie/Dead
+    // targets (returns ESRCH, no crash), so no extra locking is needed here.
+    int sent = 0;
+    for (Task* t = g_registry_head; t != nullptr; t = t->registry_next) {
+        if (t->pgid == pgid) {
+            signal_send(t, sig);
+            ++sent;
+        }
+    }
+    return sent;
+}
+
 int signal_pick_deliverable(Task* task, bool allow_custom) {
     if (task == nullptr) {
         return 0;

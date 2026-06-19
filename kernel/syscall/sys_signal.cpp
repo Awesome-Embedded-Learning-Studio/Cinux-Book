@@ -39,8 +39,12 @@ int64_t sys_kill(uint64_t pid, uint64_t sig, uint64_t, uint64_t, uint64_t, uint6
     } else if (p > 0) {
         target = cinux::proc::signal_find_task_by_pid(p);
     } else {
-        // TODO(F3-M3): process-group kill (pid < 0).
-        return -22;  // EINVAL for now
+        // POSIX kill(-pgid, sig): signal the whole process group (F3-M3).
+        int sent = cinux::proc::killpg(-p, s);
+        if (sent == 0) {
+            return -3;  // ESRCH: no such process group
+        }
+        return 0;
     }
     if (target == nullptr) {
         return -3;  // ESRCH

@@ -98,21 +98,21 @@ int64_t sys_sigprocmask(int how, const uint64_t* set, uint64_t* old);
 // ============================================================
 
 // Linux clone() flags.
-#define CLONE_VM            0x00000100
-#define CLONE_FS            0x00000200
-#define CLONE_FILES         0x00000400
-#define CLONE_SIGHAND       0x00000800
-#define CLONE_THREAD        0x00010000
-#define CLONE_SETTLS        0x00080000
-#define CLONE_PARENT_SETTID 0x00100000
+#define CLONE_VM             0x00000100
+#define CLONE_FS             0x00000200
+#define CLONE_FILES          0x00000400
+#define CLONE_SIGHAND        0x00000800
+#define CLONE_THREAD         0x00010000
+#define CLONE_SETTLS         0x00080000
+#define CLONE_PARENT_SETTID  0x00100000
 #define CLONE_CHILD_CLEARTID 0x00200000
-#define CLONE_CHILD_SETTID  0x01000000
+#define CLONE_CHILD_SETTID   0x01000000
 
 // futex operations.
-#define FUTEX_WAIT         0
-#define FUTEX_WAKE         1
-#define FUTEX_WAIT_BITSET  9
-#define FUTEX_WAKE_BITSET  10
+#define FUTEX_WAIT        0
+#define FUTEX_WAKE        1
+#define FUTEX_WAIT_BITSET 9
+#define FUTEX_WAKE_BITSET 10
 
 /// Create a thread/process sharing resources per @p flags.  Returns child tid
 /// to the parent, 0 to the child, or -errno on failure.
@@ -121,3 +121,20 @@ int64_t sys_clone(uint64_t flags, void* stack, int* parent_tid, int* child_tid, 
 /// Fast user-space mutex.  WAIT: block if *uaddr == val; WAKE: wake <= val
 /// waiters.  Returns 0 / #woken / -errno.
 int64_t sys_futex(uint32_t* uaddr, int op, uint32_t val, uint32_t val3);
+
+// ============================================================
+// Process-group / session control (F3-M3 batch 3)
+// ============================================================
+
+/// setpgid(pid, pgid): pid 0 => caller; pgid 0 => lead a new group (id == pid).
+/// Returns 0 / -errno.
+int64_t sys_setpgid(int pid, int pgid);
+
+/// setsid(): caller founds a new session + process group.  Returns new sid / -errno.
+int64_t sys_setsid(void);
+
+/// getpgid(pid): pid 0 => caller.  Returns the group id / -errno.
+int64_t sys_getpgid(int pid);
+
+/// getsid(pid): pid 0 => caller.  Returns the session id / -errno.
+int64_t sys_getsid(int pid);

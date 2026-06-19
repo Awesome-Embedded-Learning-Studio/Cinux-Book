@@ -51,6 +51,10 @@ enum class SyscallNr : uint64_t {
     SYS_rt_sigreturn   = 15,   ///< return from signal handler (F3-M1, batch 3)
     SYS_kill           = 62,   ///< send a signal to a process (F3-M1)
     SYS_futex          = 202,  ///< fast user-space mutex (F3-M2)
+    SYS_setpgid        = 109,  ///< set process-group id (F3-M3)
+    SYS_setsid         = 112,  ///< create session + pgrp, become leader (F3-M3)
+    SYS_getpgid        = 121,  ///< get process-group id (F3-M3)
+    SYS_getsid         = 124,  ///< get session id (F3-M3)
 };
 
 constexpr uint64_t SYSCALL_TABLE_SIZE = 256;

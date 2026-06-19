@@ -12,10 +12,28 @@
 #include <stdint.h>
 
 #include "kernel/lib/atomic.hpp"
+#include "kernel/proc/process.hpp"
 
 namespace cinux::proc {
 
 extern cinux::lib::Atomic<uint64_t> next_tid;
+
+/**
+ * @brief Inherit process-group / session membership into a forked/cloned child
+ *
+ * Called after the child TCB is memcpy'd from the parent (F3-M3 batch 1).
+ * A "root" fork (parent->pgid == 0, i.e. the parent is a kernel/bootstrap
+ * task with no group) founds a new process group AND session -- the child
+ * becomes its own leader (pgid == sid == child_pid).  Otherwise the child
+ * inherits the parent's group, session, session-leader pointer, and
+ * controlling terminal.  Centralised here so fork() and clone() share one
+ * testable rule instead of relying on the implicit memcpy copy.
+ *
+ * @param child     Child task (already memcpy'd from parent)
+ * @param parent    Parent task
+ * @param child_pid PID assigned to the child
+ */
+void inherit_process_identity(Task* child, const Task* parent, int child_pid);
 
 uint64_t alloc_stack_vaddr(uint64_t pages);
 

@@ -117,7 +117,7 @@ bool handle_cow_fault(uint64_t fault_vaddr) {
 // waitpid implementation
 // ============================================================
 
-WaitpidResult waitpid(int pid, int* status, PidAllocator& pid_alloc) {
+WaitpidResult waitpid(int pid, int* status, int options, PidAllocator& pid_alloc) {
     auto* parent = Scheduler::current();
     if (parent == nullptr) {
         cinux::lib::kprintf("[WAITPID] no current task\n");
@@ -129,20 +129,19 @@ WaitpidResult waitpid(int pid, int* status, PidAllocator& pid_alloc) {
         return WaitpidResult::InvalidPid;
     }
 
-    if (parent->children == nullptr) {
-        cinux::lib::kprintf("[WAITPID] pid=%d has no children\n", parent->pid);
-        return WaitpidResult::NoChildren;
-    }
+    // Re-scan loop: after waking from a block, the exited child is now Zombie.
+    for (;;) {
+        if (parent->children == nullptr) {
+            return WaitpidResult::NoChildren;
+        }
 
-    Task* target = nullptr;
-    Task* prev   = nullptr;
-
-    if (pid == -1) {
+        // Scan the children list for a Zombie matching the pid selector.
+        Task* target   = nullptr;
+        Task* prev     = nullptr;
         Task* cur      = parent->children;
         Task* cur_prev = nullptr;
-
         while (cur != nullptr) {
-            if (cur->state == TaskState::Zombie) {
+            if ((pid == -1 || cur->pid == pid) && cur->state == TaskState::Zombie) {
                 target = cur;
                 prev   = cur_prev;
                 break;
@@ -151,54 +150,79 @@ WaitpidResult waitpid(int pid, int* status, PidAllocator& pid_alloc) {
             cur      = cur->wait_next;
         }
 
-        if (target == nullptr) {
-            cinux::lib::kprintf("[WAITPID] pid=%d children exist but none exited\n", parent->pid);
-            return WaitpidResult::NotExited;
-        }
-    } else {
-        Task* cur      = parent->children;
-        Task* cur_prev = nullptr;
-
-        while (cur != nullptr) {
-            if (cur->pid == pid) {
-                target = cur;
-                prev   = cur_prev;
-                break;
+        if (target != nullptr) {
+            // Reap: collect status, unlink, free pid, mark Dead.
+            if (status != nullptr) {
+                *status = target->exit_status;
             }
-            cur_prev = cur;
-            cur      = cur->wait_next;
+            if (prev != nullptr) {
+                prev->wait_next = target->wait_next;
+            } else {
+                parent->children = target->wait_next;
+            }
+            pid_alloc.free(target->pid);
+            target->state  = TaskState::Dead;
+            target->parent = nullptr;
+            cinux::lib::kprintf("[WAITPID] reaped child pid=%d exit_status=%d by parent pid=%d\n",
+                                target->pid, target->exit_status, parent->pid);
+            return WaitpidResult::Ok;
         }
 
-        if (target == nullptr) {
-            cinux::lib::kprintf("[WAITPID] pid=%d is not a child of pid=%d\n", pid, parent->pid);
-            return WaitpidResult::NotFound;
+        // No Zombie yet.  For a specific pid, distinguish "not a child"
+        // (NotFound) from "child exists but still running" (NotExited).
+        if (pid != -1) {
+            cur           = parent->children;
+            bool is_child = false;
+            while (cur != nullptr) {
+                if (cur->pid == pid) {
+                    is_child = true;
+                    break;
+                }
+                cur = cur->wait_next;
+            }
+            if (!is_child) {
+                cinux::lib::kprintf("[WAITPID] pid=%d is not a child of pid=%d\n", pid,
+                                    parent->pid);
+                return WaitpidResult::NotFound;
+            }
         }
 
-        if (target->state != TaskState::Zombie) {
-            cinux::lib::kprintf("[WAITPID] child pid=%d has not exited yet\n", pid);
+        // A matching child exists but has not exited.
+        if (options & kWaitNoHang) {
             return WaitpidResult::NotExited;
         }
-    }
 
-    if (status != nullptr) {
-        *status = target->exit_status;
+        // Block until a child exits.  sys_exit() sees parent->waiting_for_child
+        // and Scheduler::unblock()s us.  Single-core makes the check+block
+        // atomic (no other task runs until block()'s schedule() switches out),
+        // matching the futex wait/wake handshake.  NOTE: block() -> schedule()
+        // needs a real scheduler loop, so this path runs only on real hardware,
+        // not in run-kernel-test (tests use kWaitNoHang).
+        parent->waiting_for_child = true;
+        Scheduler::block(parent, "waitpid");
+        parent->waiting_for_child = false;
+        // loop back: the exited child is now Zombie and will be reaped above.
     }
+}
 
-    if (prev != nullptr) {
-        prev->wait_next = target->wait_next;
+// ============================================================
+// Process group / session inheritance (F3-M3 batch 1)
+// ============================================================
+
+void inherit_process_identity(Task* child, const Task* parent, int child_pid) {
+    if (parent->pgid == 0) {
+        // Root fork: the parent is a kernel/bootstrap task with no group, so
+        // the child founds a brand-new process group and session and leads it.
+        child->pgid           = child_pid;
+        child->sid            = child_pid;
+        child->session_leader = child;
     } else {
-        parent->children = target->wait_next;
+        // Inherit the parent's group, session, leader, and controlling tty.
+        child->pgid           = parent->pgid;
+        child->sid            = parent->sid;
+        child->session_leader = parent->session_leader;
     }
-
-    pid_alloc.free(target->pid);
-
-    target->state  = TaskState::Dead;
-    target->parent = nullptr;
-
-    cinux::lib::kprintf("[WAITPID] reaped child pid=%d exit_status=%d by parent pid=%d\n",
-                        target->pid, target->exit_status, parent->pid);
-
-    return WaitpidResult::Ok;
+    child->controlling_tty = parent->controlling_tty;
 }
 
 }  // namespace cinux::proc

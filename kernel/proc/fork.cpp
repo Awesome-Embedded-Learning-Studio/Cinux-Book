@@ -149,6 +149,12 @@ __attribute__((optimize("no-omit-frame-pointer"), noinline)) int fork(PidAllocat
     child->children        = nullptr;
     child->exit_status     = 0;
 
+    // F3-M3 batch 1: derive process-group / session membership.  memcpy
+    // already copied the parent's pgid/sid/session_leader, but we re-derive
+    // them explicitly so root forks found their own group/session and the
+    // rule lives in one testable place (see inherit_process_identity).
+    inherit_process_identity(child, parent, child_pid);
+
     uint64_t child_stack_phys = cinux::mm::g_pmm.alloc_pages(TaskBuilder::STACK_PAGES);
     if (child_stack_phys == 0) {
         cinux::lib::kprintf("[PROC] fork: child stack allocation failed\n");

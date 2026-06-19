@@ -53,7 +53,8 @@ Terminal::~Terminal() {
     if (shell_pid_ > 0) {
         for (uint32_t attempt = 0; attempt < 1000; attempt++) {
             int  status = 0;
-            auto result = cinux::proc::waitpid(shell_pid_, &status, cinux::proc::g_pid_alloc);
+            auto result = cinux::proc::waitpid(shell_pid_, &status, cinux::proc::kWaitNoHang,
+                                               cinux::proc::g_pid_alloc);
             if (result == cinux::proc::WaitpidResult::Ok) {
                 cinux::lib::kprintf("[TERM] Reaped shell pid=%d status=%d\n", shell_pid_, status);
                 break;

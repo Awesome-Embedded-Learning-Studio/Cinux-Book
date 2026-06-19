@@ -32,6 +32,7 @@
 #include "kernel/syscall/sys_mkdir.hpp"
 #include "kernel/syscall/sys_mmap.hpp"
 #include "kernel/syscall/sys_open.hpp"
+#include "kernel/syscall/sys_pgrp.hpp"
 #include "kernel/syscall/sys_pipe.hpp"
 #include "kernel/syscall/sys_read.hpp"
 #include "kernel/syscall/sys_rmdir.hpp"
@@ -99,6 +100,10 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_rt_sigaction, sys_rt_sigaction);
     syscall_register(SyscallNr::SYS_rt_sigprocmask, sys_rt_sigprocmask);
     syscall_register(SyscallNr::SYS_futex, sys_futex);
+    syscall_register(SyscallNr::SYS_setpgid, sys_setpgid);
+    syscall_register(SyscallNr::SYS_setsid, sys_setsid);
+    syscall_register(SyscallNr::SYS_getpgid, sys_getpgid);
+    syscall_register(SyscallNr::SYS_getsid, sys_getsid);
 }
 
 }  // anonymous namespace

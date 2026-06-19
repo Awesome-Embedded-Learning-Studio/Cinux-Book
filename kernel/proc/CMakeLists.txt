@@ -10,4 +10,5 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/init.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/pid.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/signal.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/process_group.cpp
 )

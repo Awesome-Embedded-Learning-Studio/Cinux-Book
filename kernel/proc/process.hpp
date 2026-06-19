@@ -216,6 +216,21 @@ struct Task {
     /** Pointer to the thread-group leader task (self for a leader). */
     Task* group_leader{nullptr};
 
+    // ---- Process group / session (F3-M3 batch 1) ----
+    // Distinct from tgid (thread group): pgid is the job-control group used
+    // for signal broadcast (killpg) and terminal foreground groups.  A task
+    // with pgid == pid leads its process group; setpgid()/setsid() manage it.
+    int pgid{0};  ///< Process-group ID (0 = uninitialised / kernel thread)
+
+    /** Session ID (0 = uninitialised; equals the session leader's pid). */
+    int sid{0};
+
+    /** Pointer to the session-leader task (self for a session leader). */
+    Task* session_leader{nullptr};
+
+    /** Controlling terminal index (-1 = none; real tty attach deferred to F10). */
+    int controlling_tty{-1};
+
     /**
      * CLONE_CHILD_CLEARTID address (F3-M2 batch 4/5).  On thread exit the
      * kernel writes 0 here and futex_wakes any waiter.  0 = not set.
@@ -236,6 +251,10 @@ struct Task {
 
     /** Pointer to the parent task (nullptr for the kernel init task). */
     Task* parent;
+
+    /** F3-M3 batch 4b: set while this task is blocked inside waitpid() so a
+     *  child's sys_exit can wake it (Scheduler::unblock).  Cleared on resume. */
+    bool waiting_for_child{false};
 
     /** Scheduling class this task belongs to. */
     SchedulingClass* sched_class;
@@ -420,6 +439,10 @@ enum class WaitpidResult : int {
     NotExited  = -1,   ///< Child exists but has not exited yet
 };
 
+/// waitpid() option: return immediately (NotExited) if no child has exited,
+/// instead of blocking.  Matches Linux WNOHANG.
+constexpr int kWaitNoHang = 1;
+
 /**
  * @brief Wait for a child process to change state
  *
@@ -437,10 +460,11 @@ enum class WaitpidResult : int {
  *
  * @param pid        PID of the child to wait for, or -1 for any child
  * @param status     Pointer to store the child's exit status (may be nullptr)
+ * @param options    Bitmask: kWaitNoHang => return NotExited instead of blocking
  * @param pid_alloc  Reference to the global PID allocator
  * @return WaitpidResult::Ok on success, or an error code
  */
-WaitpidResult waitpid(int pid, int* status, PidAllocator& pid_alloc);
+WaitpidResult waitpid(int pid, int* status, int options, PidAllocator& pid_alloc);
 
 // ============================================================
 // Assembly entry point (C linkage)

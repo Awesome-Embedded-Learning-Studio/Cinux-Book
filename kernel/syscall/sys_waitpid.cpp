@@ -15,11 +15,13 @@
 
 namespace cinux::syscall {
 
-int64_t sys_waitpid(uint64_t pid_arg, uint64_t status_arg, uint64_t, uint64_t, uint64_t, uint64_t) {
-    int  pid    = static_cast<int>(pid_arg);
-    int* status = reinterpret_cast<int*>(status_arg);
+int64_t sys_waitpid(uint64_t pid_arg, uint64_t status_arg, uint64_t options_arg, uint64_t, uint64_t,
+                    uint64_t) {
+    int  pid     = static_cast<int>(pid_arg);
+    int* status  = reinterpret_cast<int*>(status_arg);
+    int  options = static_cast<int>(options_arg);
 
-    auto result = cinux::proc::waitpid(pid, status, cinux::proc::g_pid_alloc);
+    auto result = cinux::proc::waitpid(pid, status, options, cinux::proc::g_pid_alloc);
 
     if (result == cinux::proc::WaitpidResult::Ok) {
         // Return the reaped child's PID

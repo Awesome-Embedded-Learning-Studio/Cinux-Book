@@ -132,6 +132,22 @@ int64_t sys_sigaction(int sig, const struct sys_sigaction* act, struct sys_sigac
                      (uint64_t)act, (uint64_t)old);
 }
 
+int64_t sys_setpgid(int pid, int pgid) {
+    return _syscall2(static_cast<uint64_t>(SyscallNr::SYS_setpgid), (uint64_t)pid, (uint64_t)pgid);
+}
+
+int64_t sys_setsid(void) {
+    return _syscall1(static_cast<uint64_t>(SyscallNr::SYS_setsid), 0);
+}
+
+int64_t sys_getpgid(int pid) {
+    return _syscall1(static_cast<uint64_t>(SyscallNr::SYS_getpgid), (uint64_t)pid);
+}
+
+int64_t sys_getsid(int pid) {
+    return _syscall1(static_cast<uint64_t>(SyscallNr::SYS_getsid), (uint64_t)pid);
+}
+
 int64_t sys_sigprocmask(int how, const uint64_t* set, uint64_t* old) {
     return _syscall3(static_cast<uint64_t>(SyscallNr::SYS_rt_sigprocmask), (uint64_t)how,
                      (uint64_t)set, (uint64_t)old);

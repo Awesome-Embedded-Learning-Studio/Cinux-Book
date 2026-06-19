@@ -70,6 +70,7 @@ void run_pipe_tests();
 void run_sys_pipe_tests();
 void run_terminal_shell_tests();
 void run_fork_exec_tests();
+void run_process_group_tests();
 void run_multi_terminal_tests();
 void run_kprintf_format_tests();
 void run_concurrent_ring_buffer_tests();
@@ -220,6 +221,7 @@ extern "C" void kernel_main() {
     run_syscall_tests();
 
     run_fork_exec_tests();
+    run_process_group_tests();
 #ifdef CINUX_GUI
     // Multi-terminal tests (035): multiple concurrent terminals with
     // independent pipes, destructor cleanup, WM iteration, tick callback

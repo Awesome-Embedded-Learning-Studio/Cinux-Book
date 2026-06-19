@@ -42,7 +42,21 @@ int64_t sys_exit(uint64_t code, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t
         if (task->parent != nullptr) {
             cinux::proc::signal_send(task->parent, cinux::proc::Signal::kSigchld);
         }
-        task->state = cinux::proc::TaskState::Dead;
+        // F3-M3 batch 4a: become a Zombie (not Dead) so a wait()ing parent can
+        // reap us via the children list.  Dequeue from the run queue (mirroring
+        // exit_current) -- RoundRobin::pick_next() does not check state, so a
+        // task left in the queue would be picked, force-set Running, and run
+        // dead.  waitpid() later flips a reaped Zombie to Dead.
+        task->state = cinux::proc::TaskState::Zombie;
+        if (task->sched_class != nullptr) {
+            task->sched_class->dequeue(task);
+        }
+        // F3-M3 batch 4b: wake a parent blocked in waitpid() so it re-scans
+        // and reaps us (we are now Zombie).  Gated on waiting_for_child so we
+        // never touch a parent that is not actually waiting.
+        if (task->parent != nullptr && task->parent->waiting_for_child) {
+            cinux::proc::Scheduler::unblock(task->parent);
+        }
         cinux::lib::kprintf("[SYSCALL] sys_exit(%u) from tid=%u '%s'\n",
                             static_cast<unsigned>(code), static_cast<unsigned>(task->tid),
                             task->name);

@@ -195,6 +195,11 @@ __attribute__((optimize("no-omit-frame-pointer"), noinline)) int clone(
     child->children    = nullptr;
     child->exit_status = 0;
 
+    // F3-M3 batch 1: derive process-group / session membership (threads and
+    // forked processes alike stay in the caller's group/session; a root fork
+    // founds a new one).  See inherit_process_identity.
+    inherit_process_identity(child, parent, child_pid);
+
     // ---- Kernel stack (always per-thread): copy parent's used portion ----
     uint64_t child_stack_phys = cinux::mm::g_pmm.alloc_pages(TaskBuilder::STACK_PAGES);
     if (child_stack_phys == 0) {
