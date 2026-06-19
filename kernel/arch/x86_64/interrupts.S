@@ -63,6 +63,17 @@
      */
     pushq $0                          # alignment padding (8 bytes)
 
+    /* F4-M3 P1-2: conditional swapgs on entry.  If entered from user mode
+       (CPL=3 in the CPU-saved CS), swapgs to activate this CPU's kernel GS
+       base (PerCpu block) so the C handler may call percpu().  Saved CS sits
+       at RSP+144 (padding + 15 GPRs + error code + RIP).  %rax is still saved
+       on the stack, so clobbering it as scratch here is safe (restored at exit). */
+    movq 144(%rsp), %rax              # saved CS→%rax
+    testb $3, %al                     # CPL bits (low 2 bits of CS)
+    jz 1f                             # kernel mode (CPL=0) -> skip swapgs
+    swapgs                            # user mode -> activate kernel GS
+1:
+
     /* Pass InterruptFrame* as first argument (skip alignment padding) */
     leaq 8(%rsp), %rdi                # (RSP+8)→%rdi: point past padding to r15
 
@@ -75,6 +86,16 @@
 
     /* Remove alignment padding */
     addq $8, %rsp                     # $8→%rsp: skip alignment padding
+
+    /* F4-M3 P1-2: conditional swapgs on exit.  If resuming user mode, swapgs
+       back so user mode sees MSR_GS_BASE = user GS.  Padding is now removed,
+       so saved CS sits at RSP+136.  %rax is clobbered as scratch but restored
+       by the pop below (its saved value is still on the stack at its slot). */
+    movq 136(%rsp), %rax              # saved CS→%rax
+    testb $3, %al                     # CPL bits
+    jz 1f                             # kernel mode -> skip swapgs
+    swapgs                            # user mode -> restore user GS
+1:
 
     /* Restore all general-purpose registers */
     popq %r15                         # (%rsp)→%r15: restore R15
@@ -138,6 +159,17 @@
      */
     pushq $0                          # alignment padding (8 bytes)
 
+    /* F4-M3 P1-2: conditional swapgs on entry.  If entered from user mode
+       (CPL=3 in the CPU-saved CS), swapgs to activate this CPU's kernel GS
+       base (PerCpu block) so the C handler may call percpu().  Saved CS sits
+       at RSP+144 (padding + 15 GPRs + error code + RIP).  %rax is still saved
+       on the stack, so clobbering it as scratch here is safe (restored at exit). */
+    movq 144(%rsp), %rax              # saved CS→%rax
+    testb $3, %al                     # CPL bits (low 2 bits of CS)
+    jz 1f                             # kernel mode (CPL=0) -> skip swapgs
+    swapgs                            # user mode -> activate kernel GS
+1:
+
     /* Pass InterruptFrame* as first argument (skip alignment padding) */
     leaq 8(%rsp), %rdi                # (RSP+8)→%rdi: point past padding to r15
 
@@ -150,6 +182,16 @@
 
     /* Remove alignment padding */
     addq $8, %rsp                     # $8→%rsp: skip alignment padding
+
+    /* F4-M3 P1-2: conditional swapgs on exit.  If resuming user mode, swapgs
+       back so user mode sees MSR_GS_BASE = user GS.  Padding is now removed,
+       so saved CS sits at RSP+136.  %rax is clobbered as scratch but restored
+       by the pop below (its saved value is still on the stack at its slot). */
+    movq 136(%rsp), %rax              # saved CS→%rax
+    testb $3, %al                     # CPL bits
+    jz 1f                             # kernel mode -> skip swapgs
+    swapgs                            # user mode -> restore user GS
+1:
 
     /* Restore all general-purpose registers */
     popq %r15                         # (%rsp)→%r15: restore R15

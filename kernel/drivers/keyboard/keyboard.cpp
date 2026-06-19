@@ -11,6 +11,7 @@
 #include <stdint.h>
 
 #include "kernel/arch/x86_64/io.hpp"
+#include "kernel/arch/x86_64/irq_backend.hpp"
 #include "kernel/arch/x86_64/pic.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/proc/sync.hpp"
@@ -229,7 +230,7 @@ void Keyboard::irq1_handler(cinux::arch::InterruptFrame* /*frame*/) {
 
     // Handle extended scan code prefix (0xE0) -- skip for now
     if (sc == ScanCode::EXTENDED) {
-        PIC::send_eoi(1);
+        cinux::arch::irq_eoi(1);
         return;
     }
 

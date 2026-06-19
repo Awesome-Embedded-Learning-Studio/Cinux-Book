@@ -4,7 +4,7 @@
 #include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
-#include "kernel/proc/per_cpu.hpp"
+#include "kernel/proc/percpu.hpp"
 
 namespace cinux::proc {
 
@@ -135,12 +135,6 @@ void RoundRobin::task_fork(Task* parent, Task* child) {
         child->priority = parent->priority;
     }
 }
-
-// ============================================================
-// PerCPU global
-// ============================================================
-
-PerCPU g_per_cpu{nullptr, 0, 0};
 
 // ============================================================
 // Address space switch (Linux switch_mm style)
@@ -275,10 +269,10 @@ void Scheduler::exit_current() {
     }
 
     current_          = next;
-    g_per_cpu.current = next;
+    percpu()->current = next;
     if (next != idle_task_) {
         cinux::arch::GDT::tss_set_rsp0(next->kernel_stack_top);
-        g_per_cpu.update_syscall_stack(next->kernel_stack_top);
+        update_syscall_stack(next->kernel_stack_top);
     }
     __asm__ volatile("fxsave %0" : : "m"(prev->fpu_state));
     switch_addr_space(prev, next);
@@ -288,7 +282,7 @@ void Scheduler::exit_current() {
 
 void Scheduler::run_first(lib::NotNull<Task*> boot_task) {
     current_          = boot_task;
-    g_per_cpu.current = boot_task;
+    percpu()->current = boot_task;
     cinux::arch::GDT::tss_set_rsp0(boot_task->kernel_stack_top);
 
     Task* next = pick_next_task();
@@ -297,9 +291,9 @@ void Scheduler::run_first(lib::NotNull<Task*> boot_task) {
     }
 
     current_          = next;
-    g_per_cpu.current = next;
+    percpu()->current = next;
     cinux::arch::GDT::tss_set_rsp0(next->kernel_stack_top);
-    g_per_cpu.update_syscall_stack(next->kernel_stack_top);
+    update_syscall_stack(next->kernel_stack_top);
     __asm__ volatile("fxsave %0" : : "m"(boot_task->fpu_state));
     switch_addr_space(boot_task, next);
     context_switch(&boot_task->ctx, &next->ctx);
@@ -312,7 +306,7 @@ Task* Scheduler::current() {
 
 void Scheduler::set_current(Task* task) {
     current_          = task;
-    g_per_cpu.current = task;
+    percpu()->current = task;
 }
 
 bool Scheduler::is_initialized() {
@@ -379,11 +373,11 @@ void Scheduler::schedule() {
     }
 
     current_          = next;
-    g_per_cpu.current = next;
+    percpu()->current = next;
 
     if (next != idle_task_) {
         cinux::arch::GDT::tss_set_rsp0(next->kernel_stack_top);
-        g_per_cpu.update_syscall_stack(next->kernel_stack_top);
+        update_syscall_stack(next->kernel_stack_top);
     }
 
     __asm__ volatile("fxsave %0" : : "m"(prev->fpu_state));

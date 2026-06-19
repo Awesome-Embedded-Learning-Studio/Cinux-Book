@@ -102,6 +102,12 @@ jump_to_usermode:
     xorq %r14, %r14                    # 0→%r14: clear R14
     xorq %r15, %r15                    # 0→%r15: clear R15
 
+    # swapgs to the user GS base before leaving kernel mode.  In kernel mode
+    # MSR_GS_BASE = this CPU's PerCpu block and MSR_KERNEL_GS_BASE = user GS;
+    # swapgs flips them so user mode sees MSR_GS_BASE = user GS (0) and the
+    # next SYSCALL/IRQ entry's swapgs restores the kernel PerCpu pointer.
+    swapgs                              # kernel_gs↔user_gs: activate user GS
+
     # Execute SYSRET to enter Ring 3
     # SYSRET: %rcx→RIP, %r11→RFLAGS, CS=STAR[63:48]+16, SS=STAR[63:48]+8
     sysretq                             # enter user mode (Ring 3)

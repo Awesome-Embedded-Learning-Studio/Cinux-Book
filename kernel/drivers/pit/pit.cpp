@@ -13,6 +13,7 @@
 
 #include "kernel/arch/x86_64/idt.hpp"
 #include "kernel/arch/x86_64/io.hpp"
+#include "kernel/arch/x86_64/irq_backend.hpp"
 #include "kernel/arch/x86_64/pic.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/proc/scheduler.hpp"
@@ -80,8 +81,8 @@ void PIT::irq0_handler(InterruptFrame* /*frame*/) {
     // Increment the global tick counter
     tick_count_.fetch_add(1, lib::MemoryOrder::Relaxed);
 
-    // Signal End-Of-Interrupt to the PIC so the next IRQ can arrive
-    PIC::send_eoi(0);
+    // Signal End-Of-Interrupt so the next IRQ can arrive (PIC or LAPIC).
+    cinux::arch::irq_eoi(0);
 
 #ifdef CINUX_GUI
     invoke_tick_callback();

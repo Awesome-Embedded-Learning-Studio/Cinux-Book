@@ -10,9 +10,11 @@
 
 #include <stdint.h>
 
+#include "kernel/proc/percpu.hpp"
+
 namespace cinux::arch {
 
-GDT g_gdt;
+GDT gdt_blocks[cinux::proc::kMaxCpus];
 
 void GDT::init() {
     entries_[0] = null_entry();
@@ -62,7 +64,7 @@ void GDT::init() {
 }
 
 void GDT::tss_set_rsp0(uint64_t rsp0) {
-    g_gdt.tss_.rsp[0] = rsp0;
+    gdt_blocks[cinux::proc::percpu()->cpu_id].tss_.rsp[0] = rsp0;
 }
 
 void GDT::load() {

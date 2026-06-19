@@ -159,6 +159,8 @@ add_executable(big_kernel_test
     test/main_test.cpp
     test/test_gdt_idt.cpp
     test/test_pic_pit.cpp
+    test/test_acpi.cpp
+    test/test_apic.cpp
     test/test_video.cpp
     test/test_keyboard.cpp
     test/test_pmm.cpp

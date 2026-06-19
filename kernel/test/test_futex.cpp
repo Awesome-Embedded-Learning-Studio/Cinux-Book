@@ -3,7 +3,7 @@
  * @brief QEMU in-kernel tests for the futex syscall (F3-M2 batch 2)
  *
  * Mirrors test_sync.cpp's phantom-task pattern: tasks are built and installed
- * via g_per_cpu.current (not Scheduler::set_current), so Scheduler::block()
+ * via percpu()->current (not Scheduler::set_current), so Scheduler::block()
  * marks them Blocked and returns immediately without scheduling away -- this
  * lets us observe wait-queue state without hanging.  The global futex table
  * persists across tests, so every test wakes its waiters before finishing to
@@ -14,7 +14,7 @@
 #include <stdint.h>
 
 #include "big_kernel_test.h"
-#include "kernel/proc/per_cpu.hpp"
+#include "kernel/proc/percpu.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/syscall/sys_futex.hpp"
@@ -23,7 +23,7 @@ using cinux::proc::Scheduler;
 using cinux::proc::Task;
 using cinux::proc::TaskBuilder;
 using cinux::proc::TaskState;
-using cinux::proc::g_per_cpu;
+using cinux::proc::percpu;
 using cinux::syscall::sys_futex;
 
 namespace {
@@ -46,7 +46,7 @@ void dummy_entry() {}
 /// Build a named task and install it as the current per-CPU task.
 Task* make_current(const char* name) {
     Task* t           = TaskBuilder().set_entry(dummy_entry).set_name(name).build();
-    g_per_cpu.current = t;
+    percpu()->current = t;
     return t;
 }
 
@@ -118,11 +118,11 @@ void test_wake_count_caps() {
     Task* w2 = TaskBuilder().set_entry(dummy_entry).set_name("fx_c2").build();
     Task* w3 = TaskBuilder().set_entry(dummy_entry).set_name("fx_c3").build();
 
-    g_per_cpu.current = w1;
+    percpu()->current = w1;
     sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAIT, 1, 0, 0, 0);
-    g_per_cpu.current = w2;
+    percpu()->current = w2;
     sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAIT, 1, 0, 0, 0);
-    g_per_cpu.current = w3;
+    percpu()->current = w3;
     sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAIT, 1, 0, 0, 0);
     TEST_ASSERT_EQ(static_cast<int>(w1->state), static_cast<int>(TaskState::Blocked));
     TEST_ASSERT_EQ(static_cast<int>(w2->state), static_cast<int>(TaskState::Blocked));

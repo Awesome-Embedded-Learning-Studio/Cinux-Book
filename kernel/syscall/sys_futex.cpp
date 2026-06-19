@@ -16,7 +16,7 @@
 
 #include <stdint.h>
 
-#include "kernel/proc/per_cpu.hpp"
+#include "kernel/proc/percpu.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/sync.hpp"
@@ -80,7 +80,7 @@ void enqueue_waiter(FutexBucket& b, Task* task) {
  * unblocking, so on resume the task is already off the queue.
  */
 int64_t futex_wait(uint64_t uaddr, uint32_t val, uint32_t bitset) {
-    Task* self = cinux::proc::g_per_cpu.current;
+    Task* self = cinux::proc::percpu()->current;
     if (self == nullptr) {
         return kEinval;
     }

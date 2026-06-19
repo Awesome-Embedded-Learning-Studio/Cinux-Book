@@ -11,7 +11,7 @@
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/pmm.hpp"
-#include "kernel/proc/per_cpu.hpp"
+#include "kernel/proc/percpu.hpp"
 #include "kernel/proc/pid.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
@@ -136,7 +136,7 @@ void kernel_init_thread() {
                             reinterpret_cast<void*>(entry));
 
         task->addr_space->activate();
-        cinux::proc::g_per_cpu.update_syscall_stack(task->kernel_stack_top);
+        cinux::proc::update_syscall_stack(task->kernel_stack_top);
         jump_to_usermode(entry, cinux::arch::USER_STACK_TOP - cinux::arch::USER_ABI_RSP_OFFSET, 0);
         cinux::proc::Scheduler::exit_current();
     } else if (child_pid > 0) {

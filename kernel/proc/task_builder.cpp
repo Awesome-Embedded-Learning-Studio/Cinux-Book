@@ -21,7 +21,6 @@
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/process_internal.hpp"
 #include "kernel/proc/scheduler.hpp"
-#include "proc/per_cpu.hpp"
 
 namespace cinux::proc {
 
@@ -101,16 +100,14 @@ Task* TaskBuilder::build() {
     task->ctx.rsp = stack_virt + stack_size - 8;
     *reinterpret_cast<uint64_t*>(task->ctx.rsp) =
         reinterpret_cast<uint64_t>(&cinux::proc::Scheduler::exit_current);
-    task->ctx.rip      = reinterpret_cast<uint64_t>(entry_);
-    task->ctx.r15      = 0;
-    task->ctx.r14      = 0;
-    task->ctx.r13      = 0;
-    task->ctx.r12      = 0;
-    task->ctx.rbp      = 0;
-    task->ctx.rbx      = 0;
-    task->ctx.gs_base  = 0;
-    task->ctx.kgs_base = g_per_cpu.gs_page_vaddr;
-    task->ctx.fs_base  = 0;  // F3-M2: no TLS until clone(CLONE_SETTLS)
+    task->ctx.rip     = reinterpret_cast<uint64_t>(entry_);
+    task->ctx.r15     = 0;
+    task->ctx.r14     = 0;
+    task->ctx.r13     = 0;
+    task->ctx.r12     = 0;
+    task->ctx.rbp     = 0;
+    task->ctx.rbx     = 0;
+    task->ctx.fs_base = 0;  // F3-M2: no TLS until clone(CLONE_SETTLS)
 
     __asm__ volatile("fninit");
     __asm__ volatile("fxsave %0" : : "m"(task->fpu_state));

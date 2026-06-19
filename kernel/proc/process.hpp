@@ -70,10 +70,11 @@ enum class TaskState : uint8_t {
  * rip need to be saved/restored because the switch happens at known
  * call boundaries where caller-saved registers are already clobbered.
  *
- * The FS/GS base MSRs are also saved here so each task keeps its own
- * TLS (FS) and per-CPU swapgs (GS) state across switches.  fs_base is
- * the per-thread TLS pointer (MSR_FS_BASE); gs_base/kgs_base carry the
- * swapgs pair used for per-CPU kernel data.
+ * Only FS base is saved per task (per-thread TLS, MSR_FS_BASE).  The
+ * gs_base/kgs_base fields are RESERVED (unused) since F4-M3 P1-2: GS is
+ * per-CPU, maintained by the swapgs discipline rather than per-task
+ * save/restore.  The fields are kept (and the offset static_asserts below)
+ * so the CpuContext layout is unchanged.
  *
  * Layout must match the offsets used in context_switch.S exactly.
  * Note: alignas(16) pads the explicit 88-byte payload to 96 bytes;

@@ -21,6 +21,7 @@
 
 #include "gdt.hpp"
 #include "idt.hpp"
+#include "irq_backend.hpp"
 #include "kernel/drivers/pit/pit.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "pic.hpp"
@@ -93,7 +94,7 @@ extern "C" {
  * @param frame  Interrupt stack frame (unused)
  */
 void irq_default_handler(InterruptFrame* /*frame*/) {
-    PIC::send_eoi(0);
+    cinux::arch::irq_eoi(0);
 }
 
 #ifndef CINUX_GUI
@@ -107,7 +108,7 @@ void irq_default_handler(InterruptFrame* /*frame*/) {
  * @param frame  Interrupt stack frame (unused)
  */
 void mouse_irq12_handler(InterruptFrame* /*frame*/) {
-    PIC::send_eoi(12);
+    cinux::arch::irq_eoi(12);
 }
 #endif
 

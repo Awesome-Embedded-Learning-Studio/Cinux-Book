@@ -33,7 +33,6 @@
 #include "kernel/mm/pmm.hpp"
 
 using cinux::arch::GDT;
-using cinux::arch::g_gdt;
 using cinux::arch::GDT_KERNEL_CODE;
 using cinux::arch::GDT_KERNEL_DATA;
 using cinux::arch::GDT_USER_CODE;
@@ -58,12 +57,13 @@ namespace test_tss_rsp0 {
 
 void test_set_rsp0() {
     // Set a known value and verify by reading back
-    // Note: tss_set_rsp0 is a static method on GDT that writes to g_gdt.tss_.rsp[0]
+    // Note: tss_set_rsp0 is a static method on GDT that writes to this CPU's
+    // TSS (gdt_blocks[cpu_id].tss_.rsp[0] -- [0] for the BSP).
     uint64_t test_val = 0x801000;
     GDT::tss_set_rsp0(test_val);
 
     // Read it back via the same mechanism
-    // tss_set_rsp0 writes to g_gdt.tss_.rsp[0], we verify indirectly
+    // tss_set_rsp0 writes to this CPU's TSS, we verify indirectly
     // by setting a different value and confirming no crash
     GDT::tss_set_rsp0(0x9000);
     TEST_ASSERT_TRUE(true);  // reached without crash
@@ -313,7 +313,7 @@ void test_df_stack_in_tss_ist1() {
     TEST_ASSERT_EQ(tr, GDT_TSS);
 
     // We verify that TR is loaded, which means IST1 is configured
-    // (the actual IST1 value is stored inside g_gdt which is private)
+    // (the actual IST1 value is stored inside gdt_blocks[0] which is private)
     TEST_ASSERT_TRUE(true);
 }
 

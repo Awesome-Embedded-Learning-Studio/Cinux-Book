@@ -21,7 +21,7 @@
 
 #include "big_kernel_test.h"
 #include "kernel/fs/file.hpp"
-#include "kernel/proc/per_cpu.hpp"
+#include "kernel/proc/percpu.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/signal.hpp"
@@ -32,7 +32,7 @@ using cinux::proc::InterruptGuard;
 using cinux::proc::Scheduler;
 using cinux::proc::TaskBuilder;
 using cinux::proc::TaskState;
-using cinux::proc::g_per_cpu;
+using cinux::proc::percpu;
 using cinux::proc::task_exit_cleartid;
 using cinux::syscall::sys_futex;
 using cinux::proc::SharedCwd;
@@ -243,11 +243,11 @@ void test_exit_cleartid_zeros_and_wakes() {
     static uint32_t ctid_word = 42;
 
     // A waiter task blocks on FUTEX_WAIT(&ctid_word, 42).  The phantom-task
-    // pattern (g_per_cpu.current, not set_current) makes block() return at
+    // pattern (percpu()->current, not set_current) makes block() return at
     // once with state == Blocked.
     Task* waiter = TaskBuilder().set_entry(dummy_entry).set_name("clr_waiter").build();
     TEST_ASSERT_NOT_NULL(waiter);
-    g_per_cpu.current = waiter;
+    percpu()->current = waiter;
     int64_t w         = sys_futex(reinterpret_cast<uint64_t>(&ctid_word), FUTEX_WAIT, 42, 0, 0, 0);
     TEST_ASSERT_EQ(w, 0);
     TEST_ASSERT_EQ(static_cast<int>(waiter->state), static_cast<int>(TaskState::Blocked));

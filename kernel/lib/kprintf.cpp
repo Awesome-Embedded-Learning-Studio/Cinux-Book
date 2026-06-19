@@ -70,6 +70,21 @@ void kprintf_register_sink(OutputSink fn, void* ctx) {
     }
 }
 
+void kprintf_set_sink_enabled(OutputSink fn, void* ctx, bool enabled) {
+    for (uint32_t i = 0; i < g_sink_count; i++) {
+        if (g_sinks[i].fn == fn && g_sinks[i].ctx == ctx) {
+            g_sinks[i].enabled = enabled;
+            return;
+        }
+    }
+}
+
+void kprintf_enable_all_sinks() {
+    for (uint32_t i = 0; i < g_sink_count; i++) {
+        g_sinks[i].enabled = true;
+    }
+}
+
 // ============================================================
 // kprintf_init -- one-time serial port setup for kprintf
 // ============================================================
@@ -119,6 +134,11 @@ void kvprintf(const char* fmt, va_list args) {
 // ============================================================
 
 void kpanic(const char* fmt, ...) {
+    // A crash must reach every possible output.  The GUI may have detached the
+    // framebuffer console sink to keep logs off the desktop; force every sink
+    // back on so the panic (and backtrace below) is visible on screen too.
+    kprintf_enable_all_sinks();
+
     va_list args;
     va_start(args, fmt);
     vkprintf_impl(

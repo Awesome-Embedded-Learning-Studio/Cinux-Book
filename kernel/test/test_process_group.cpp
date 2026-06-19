@@ -295,8 +295,8 @@ namespace test_pgrp_syscall {
 
 // The scheduler loop does not run during the suite, so each test installs its
 // task as current via Scheduler::set_current() -- which sets BOTH the static
-// current_ (what Scheduler::current() actually reads) AND g_per_cpu.current.
-// Setting only g_per_cpu.current leaves current_ null and makes the handlers
+// current_ (what Scheduler::current() actually reads) AND percpu()->current.
+// Setting only percpu()->current leaves current_ null and makes the handlers
 // see no caller (ESRCH).  Cleared BEFORE asserting (TEST_ASSERT early-returns,
 // GOTCHA#19 family).
 

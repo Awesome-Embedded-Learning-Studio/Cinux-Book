@@ -22,7 +22,7 @@
 #include <stdint.h>
 
 #include "big_kernel_test.h"
-#include "kernel/proc/per_cpu.hpp"
+#include "kernel/proc/percpu.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/sync.hpp"
@@ -34,7 +34,7 @@ using cinux::proc::Task;
 using cinux::proc::TaskBuilder;
 using cinux::proc::TaskState;
 using cinux::proc::Scheduler;
-using cinux::proc::g_per_cpu;
+using cinux::proc::percpu;
 
 // ============================================================
 // Test 1: InterruptGuard basic save/restore
@@ -203,7 +203,7 @@ void test_three_tasks_mutual_exclusion() {
     TEST_ASSERT_NOT_NULL(t3);
 
     // Task 1: increment 10 times
-    g_per_cpu.current = t1;
+    percpu()->current = t1;
     for (int i = 0; i < 10; i++) {
         auto g = test_lock.guard();
         (void)g;
@@ -211,7 +211,7 @@ void test_three_tasks_mutual_exclusion() {
     }
 
     // Task 2: increment 10 times
-    g_per_cpu.current = t2;
+    percpu()->current = t2;
     for (int i = 0; i < 10; i++) {
         auto g = test_lock.guard();
         (void)g;
@@ -219,7 +219,7 @@ void test_three_tasks_mutual_exclusion() {
     }
 
     // Task 3: increment 10 times
-    g_per_cpu.current = t3;
+    percpu()->current = t3;
     for (int i = 0; i < 10; i++) {
         auto g = test_lock.guard();
         (void)g;
@@ -241,7 +241,7 @@ void test_irq_guard_three_tasks() {
     TEST_ASSERT_NOT_NULL(t2);
 
     // Task 1: increment with irq_guard
-    g_per_cpu.current = t1;
+    percpu()->current = t1;
     for (int i = 0; i < 15; i++) {
         auto g = test_lock.irq_guard();
         (void)g;
@@ -249,7 +249,7 @@ void test_irq_guard_three_tasks() {
     }
 
     // Task 2: increment with irq_guard
-    g_per_cpu.current = t2;
+    percpu()->current = t2;
     for (int i = 0; i < 15; i++) {
         auto g = test_lock.irq_guard();
         (void)g;

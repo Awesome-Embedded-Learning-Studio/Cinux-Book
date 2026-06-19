@@ -15,8 +15,8 @@
  *   Offset 40: rbx
  *   Offset 48: rsp
  *   Offset 56: rip
- *   Offset 64: gs_base      (MSR_GS_BASE)
- *   Offset 72: kgs_base     (MSR_KERNEL_GS_BASE)
+ *   Offset 64: gs_base      (RESERVED — GS is per-CPU since F4-M3 P1-2)
+ *   Offset 72: kgs_base     (RESERVED — KERNEL_GS_BASE is per-CPU)
  *   Offset 80: fs_base      (MSR_FS_BASE, per-thread TLS)
  *
  * Calling convention (System V AMD64 ABI):
@@ -58,16 +58,10 @@ context_switch:
     leaq .restore(%rip), %rax        # .restore address→%rax: compute return point
     movq %rax, 56(%rdi)              # %rax→from+56: save resume RIP
 
-    /* Save GS MSRs (swapgs state must be preserved across switches) */
-    movq $0xC0000101, %rcx           # MSR_GS_BASE→%rcx
-    rdmsr                             # %edx:%eax = MSR_GS_BASE
-    movl %eax, 64(%rdi)             # from+64: gs_base low 32
-    movl %edx, 68(%rdi)             # from+68: gs_base high 32
-
-    movq $0xC0000102, %rcx           # MSR_KERNEL_GS_BASE→%rcx
-    rdmsr                             # %edx:%eax = MSR_KERNEL_GS_BASE
-    movl %eax, 72(%rdi)             # from+72: kgs_base low 32
-    movl %edx, 76(%rdi)             # from+76: kgs_base high 32
+    /* F4-M3 P1-2: GS base is PER-CPU, not per-task.  The swapgs discipline
+       keeps MSR_GS_BASE == this CPU's PerCpu block for the whole of kernel
+       mode, so it must NOT be saved/restored across context switches (only
+       FS base, the per-thread TLS pointer, is per-task below). */
 
     /* Save FS base (per-thread TLS pointer, MSR_FS_BASE) */
     movq $0xC0000100, %rcx           # MSR_FS_BASE→%rcx
@@ -87,16 +81,7 @@ context_switch:
     /* Switch to the new task's stack */
     movq 48(%rsi), %rsp              # to+48→%rsp: switch stack pointer
 
-    /* Restore GS MSRs */
-    movl 64(%rsi), %eax              # to+64→%eax: gs_base low 32
-    movl 68(%rsi), %edx              # to+68→%edx: gs_base high 32
-    movq $0xC0000101, %rcx           # MSR_GS_BASE→%rcx
-    wrmsr                             # write MSR_GS_BASE
-
-    movl 72(%rsi), %eax              # to+72→%eax: kgs_base low 32
-    movl 76(%rsi), %edx              # to+76→%edx: kgs_base high 32
-    movq $0xC0000102, %rcx           # MSR_KERNEL_GS_BASE→%rcx
-    wrmsr                             # write MSR_KERNEL_GS_BASE
+    /* F4-M3 P1-2: GS base NOT restored (per-CPU; see save-side note above). */
 
     /* Restore FS base (per-thread TLS pointer) */
     movl 80(%rsi), %eax              # to+80→%eax: fs_base low 32

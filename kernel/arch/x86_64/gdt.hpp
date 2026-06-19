@@ -72,6 +72,10 @@ class GDT {
 public:
     void init();
 
+    /// Set RSP0 in THIS CPU's TSS (F4-M3 P1-3).  Each CPU has its own GDT/TSS
+    /// in `gdt_blocks[]`; this targets the running CPU's block (looked up via
+    /// `percpu()->cpu_id`), so concurrent context switches on different CPUs no
+    /// longer clobber a shared RSP0.
     static void tss_set_rsp0(uint64_t rsp0);
 
 private:
@@ -156,7 +160,10 @@ private:
     void load();
 };
 
-/// Global GDT instance (zero-initialized in BSS)
-extern GDT g_gdt;
+/// Per-CPU GDT instances (F4-M3 P1-3).  One GDT/TSS per CPU so each core has
+/// its own RSP0/IST.  Defined with size `kMaxCpus` in gdt.cpp; declared here as
+/// an incomplete array so this header need not depend on proc/percpu.  The BSP
+/// uses `gdt_blocks[0]`; APs will use their own index in Phase 2.
+extern GDT gdt_blocks[];
 
 }  // namespace cinux::arch

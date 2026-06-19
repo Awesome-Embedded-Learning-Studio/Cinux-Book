@@ -30,6 +30,8 @@
 extern "C" {
 void run_gdt_idt_tests();
 void run_pic_pit_tests();
+void run_acpi_tests();
+void run_apic_tests();
 void run_video_tests();
 void run_keyboard_tests();
 void run_pmm_tests();
@@ -106,12 +108,17 @@ extern "C" void kernel_main() {
     cinux::lib::kallsyms_set_table(g_kallsyms_table, g_kallsyms_count);
 
     // Step 2: Initialise GDT (must come before IDT)
-    cinux::arch::g_gdt.init();
+    cinux::arch::gdt_blocks[0].init();
     cinux::lib::kprintf("[TEST] GDT loaded.\n");
 
     // Step 3: Initialise IDT (depends on GDT selectors)
     cinux::arch::g_idt.init();
     cinux::lib::kprintf("[TEST] IDT loaded.\n");
+
+    // F4-M3 P1-2: anchor the BSP's GS base at its PerCpu block BEFORE any test
+    // suite runs -- percpu() reads MSR_GS_BASE, so it must be set first.  This
+    // also configures STAR/EFER for SYSRET; run_usermode_tests still observes them.
+    cinux::arch::usermode_init();
 
     // F2-M7 direct-map identity probe (batch 1): the loader mapped all RAM into
     // the DIRECT_MAP_BASE window with 1 GB huge pages.  Verify it is identity by
@@ -151,6 +158,8 @@ extern "C" void kernel_main() {
     run_gdt_idt_tests();
     run_pic_pit_tests();
     run_keyboard_tests();
+    run_acpi_tests();
+    run_apic_tests();
 
     // PMM tests: initialise with real BootInfo, then run tests
     auto* boot_info = reinterpret_cast<const BootInfo*>(BOOT_INFO_PHYS);
@@ -220,7 +229,6 @@ extern "C" void kernel_main() {
     // Block device tests (M4): IBlockDevice interface + RAMBlockDevice stub (M4-1)
     run_block_device_tests();
 
-    cinux::arch::usermode_init();
     run_usermode_tests();
 
     cinux::arch::syscall_init();

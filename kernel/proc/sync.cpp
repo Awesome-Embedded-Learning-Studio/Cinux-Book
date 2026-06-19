@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#include "kernel/proc/per_cpu.hpp"
+#include "kernel/proc/percpu.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
 
@@ -84,13 +84,13 @@ void Mutex::lock() {
 
     // Step 2: If the mutex is free, take ownership and return
     if (owner_ == nullptr) {
-        owner_ = g_per_cpu.current;
+        owner_ = percpu()->current;
         spin_.release();
         return;
     }
 
     // Step 3: Mutex is contended -- put the current task on the wait queue
-    Task* self = g_per_cpu.current;
+    Task* self = percpu()->current;
     enqueue_waiter(self);
 
     // Step 4: Release the spinlock BEFORE blocking (avoids deadlock)
@@ -130,7 +130,7 @@ bool Mutex::try_lock() {
         return false;
     }
 
-    owner_ = g_per_cpu.current;
+    owner_ = percpu()->current;
     spin_.release();
     return true;
 }
@@ -200,7 +200,7 @@ void Semaphore::wait() {
     }
 
     // Step 4: No resource available -- enqueue the current task
-    Task* self = g_per_cpu.current;
+    Task* self = percpu()->current;
     enqueue_waiter(self);
 
     // Step 5: Release the spinlock before blocking

@@ -40,11 +40,13 @@
 #include "boot/boot_info.h"
 #include "kernel/arch/x86_64/gdt.hpp"
 #include "kernel/arch/x86_64/idt.hpp"
+#include "kernel/arch/x86_64/irq_backend.hpp"
 #include "kernel/arch/x86_64/memory_layout.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
 #include "kernel/arch/x86_64/pic.hpp"
 #include "kernel/arch/x86_64/syscall.hpp"
 #include "kernel/arch/x86_64/usermode.hpp"
+#include "kernel/drivers/acpi/acpi.hpp"
 #include "kernel/drivers/ahci/ahci.hpp"
 #include "kernel/drivers/keyboard/keyboard.hpp"
 #include "kernel/drivers/pci/pci.hpp"
@@ -103,12 +105,18 @@ extern "C" void kernel_main() {
     cinux::lib::kprintf("[BIG] Big kernel running @ 0x1000000\n");
 
     // Step 3: Initialise the GDT (must come before IDT)
-    cinux::arch::g_gdt.init();
+    cinux::arch::gdt_blocks[0].init();
     cinux::lib::kprintf("[BIG] GDT loaded (TSS with IST1 Double Fault stack).\n");
 
     // Step 4: Initialise the IDT (depends on GDT selectors)
     cinux::arch::g_idt.init();
     cinux::lib::kprintf("[BIG] IDT loaded (#DF uses IST1).\n");
+
+    // F4-M3 P1-2 (early): anchor the BSP's GS base at its PerCpu block now, so
+    // percpu() (which reads MSR_GS_BASE) works before any interrupt fires or any
+    // code uses it.  Also configures STAR/EFER for SYSRET (formerly Step 18).
+    cinux::arch::usermode_init();
+    cinux::lib::kprintf("[BIG] PerCpu GS base anchored (BSP).\n");
 
     // Step 5: Initialise the PIC (remap IRQ0-7 -> 0x20-0x27,
     //         IRQ8-15 -> 0x28-0x2F, all masked)
@@ -120,6 +128,10 @@ extern "C" void kernel_main() {
 
     // Step 7: Initialise PIT channel 0 at 100 Hz (10 ms per tick)
     PIT::init(100);
+
+    // Step 7b: Parse ACPI (RSDP/MADT) for the APIC base addresses and CPU list
+    // that M2 consumes.  Only needs the loader's direct map, which is already up.
+    cinux::drivers::acpi::init();
 
     // Step 8: Trigger a software breakpoint to verify exception
     // handling still works after PIC/IRQ setup
@@ -168,26 +180,26 @@ extern "C" void kernel_main() {
     static cinux::drivers::Canvas g_canvas;
     g_canvas.init(fb);
     cinux::gui::gui_init(g_canvas, font);
+
+    // The GUI now owns the framebuffer.  Detach the text console from kprintf
+    // so routine logs stop overlaying the desktop (they still go to serial +
+    // the klog ring, viewable via dmesg).  kpanic re-enables all sinks, so a
+    // crash still reaches the screen.
+    cinux::lib::kprintf_set_sink_enabled(Console::console_sink_adapter, &console, false);
 #endif
 
     // Step 16: Initialise the PS/2 keyboard controller
     Keyboard::init();
 
-    // Step 17: Unmask IRQ0 (PIT timer) and IRQ1 (Keyboard), enable interrupts
-    PIC::unmask(0);
-    PIC::unmask(1);
-    cinux::lib::kprintf("[BIG] IRQ0+IRQ1 unmasked, enabling interrupts...\n");
+    // Step 17: Switch from the 8259 PIC to the APIC (mask PIC, enable LAPIC,
+    // route ISA IRQ 0/1/12 onto vectors 0x20/0x21/0x2C via the I/O APIC), then
+    // enable interrupts.  Falls back to PIC if ACPI/APIC init fails.
+    cinux::arch::switch_to_apic();
     __asm__ volatile("sti");
     cinux::lib::kprintf("[BIG] Interrupts enabled.\n");
 
-#ifdef CINUX_GUI
-    // Step 17b: Unmask IRQ12 (PS/2 mouse) for GUI mode
-    PIC::unmask(12);
-    cinux::lib::kprintf("[BIG] IRQ12 unmasked for PS/2 mouse.\n");
-#endif
-
-    // Step 18: Initialise user-mode support (STAR/EFER MSRs)
-    cinux::arch::usermode_init();
+    // Step 18: user-mode STAR/EFER support was initialised early (right after
+    // the IDT) so the BSP's GS base is anchored before interrupts are enabled.
 
     // Step 19: Initialise syscall infrastructure (LSTAR, SFMASK, dispatch table)
     cinux::arch::syscall_init();
