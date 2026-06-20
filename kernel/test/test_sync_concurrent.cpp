@@ -338,6 +338,52 @@ void test_concurrent_block_unblock() {
     Scheduler::remove_task(t2);
 }
 
+// F4-M4 prepare-to-wait: a wait path prepares to sleep (state -> Blocked), then
+// a concurrent waker unblocks it BEFORE its schedule_blocked() runs.  unblock()
+// must be idempotent and leave the task runnable instead of letting the
+// impending block/schedule drop the wakeup.  Under NoRescheduleGuard the
+// schedule_blocked() is a no-op, so we observe the post-window state directly.
+void test_prepare_to_wait_survives_race_window() {
+    Scheduler::init();
+
+    Task* a = TaskBuilder().set_entry(test_interrupt_guard::dummy_entry).set_name("ptw_a").build();
+    TEST_ASSERT_NOT_NULL(a);
+    Scheduler::add_task(a);     // a -> Ready, on the run queue
+    Scheduler::set_current(a);  // harness role-plays task a
+
+    Scheduler::NoRescheduleGuard no_resched;
+    Scheduler::prepare_to_wait(a);  // a -> Blocked (as a wait path would)
+    TEST_ASSERT_EQ(static_cast<int>(a->state), static_cast<int>(TaskState::Blocked));
+
+    Scheduler::unblock(a);  // concurrent wake races the window: a -> Ready
+    TEST_ASSERT_EQ(static_cast<int>(a->state), static_cast<int>(TaskState::Ready));
+
+    Scheduler::schedule_blocked();  // would switch out; no-op under the guard
+    // The wakeup must survive: a is still runnable, not lost to a re-block.
+    TEST_ASSERT_EQ(static_cast<int>(a->state), static_cast<int>(TaskState::Ready));
+
+    Scheduler::set_current(nullptr);
+    Scheduler::remove_task(a);
+}
+
+// unblock() must be idempotent: waking a task that is already runnable (never
+// put to sleep, or already woken) is a no-op, never a double-enqueue onto the
+// run queue (F4-M4).
+void test_unblock_idempotent_on_runnable() {
+    Scheduler::init();
+
+    Task* a = TaskBuilder().set_entry(test_interrupt_guard::dummy_entry).set_name("idem_a").build();
+    TEST_ASSERT_NOT_NULL(a);
+    Scheduler::add_task(a);  // a -> Ready, on the run queue
+
+    Scheduler::unblock(a);  // already Ready: no-op, no double-enqueue
+    TEST_ASSERT_EQ(static_cast<int>(a->state), static_cast<int>(TaskState::Ready));
+    Scheduler::unblock(a);  // still no-op
+    TEST_ASSERT_EQ(static_cast<int>(a->state), static_cast<int>(TaskState::Ready));
+
+    Scheduler::remove_task(a);
+}
+
 }  // namespace test_scheduler_concurrent
 
 // ============================================================
@@ -359,6 +405,8 @@ extern "C" void run_sync_concurrent_tests() {
 
     RUN_TEST(test_scheduler_concurrent::test_concurrent_add_remove);
     RUN_TEST(test_scheduler_concurrent::test_concurrent_block_unblock);
+    RUN_TEST(test_scheduler_concurrent::test_prepare_to_wait_survives_race_window);
+    RUN_TEST(test_scheduler_concurrent::test_unblock_idempotent_on_runnable);
 
     TEST_SUMMARY();
 }

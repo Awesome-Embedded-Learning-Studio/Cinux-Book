@@ -87,23 +87,24 @@ int64_t futex_wait(uint64_t uaddr, uint32_t val, uint32_t bitset) {
 
     FutexBucket& b = bucket_for(uaddr);
 
-    b.lock.acquire();
-    // Direct user read: kernel maps the caller's address space; a bad pointer
-    // faults through the PF path (sys_signal convention).
-    uint32_t cur = *reinterpret_cast<volatile uint32_t*>(uaddr);
-    if (cur != val) {
-        b.lock.release();
-        return -kEagain;
-    }
+    {
+        // IRQ-safe (F4-M4 prepare-to-wait): the Blocked flip + enqueue must be
+        // atomic vs a concurrent FUTEX_WAKE on another CPU, and no local tick may
+        // preempt us while we hold the bucket lock.  The guard drops before switch.
+        auto     g   = b.lock.irq_guard();
+        // Direct user read: kernel maps the caller's address space; a bad pointer
+        // faults through the PF path (sys_signal convention).
+        uint32_t cur = *reinterpret_cast<volatile uint32_t*>(uaddr);
+        if (cur != val) {
+            return -kEagain;  // guard drops
+        }
 
-    self->futex_uaddr  = uaddr;
-    self->futex_bitset = bitset;
-    enqueue_waiter(b, self);
-    b.lock.release();
-
-    // Release the lock BEFORE blocking (same rule as Semaphore::wait) so a
-    // concurrent FUTEX_WAKE can take the lock and dequeue us.
-    cinux::proc::Scheduler::block(self, "futex");
+        self->futex_uaddr  = uaddr;
+        self->futex_bitset = bitset;
+        enqueue_waiter(b, self);
+        cinux::proc::Scheduler::prepare_to_wait(self);
+    }  // guard drops: release bucket lock + restore IRQs, BEFORE switching out
+    cinux::proc::Scheduler::schedule_blocked();
     return 0;
 }
 

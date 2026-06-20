@@ -103,6 +103,10 @@ public:
     void set_handler(ExceptionVector vector, Stub stub, uint16_t selector, uint8_t type_attr,
                      uint8_t ist = 0);
 
+    /// Load this CPU's IDTR to point at the (shared) IDT.  Each CPU must LIDT
+    /// its own IDTR; init() does it for the BSP, APs call this from ap_main.
+    void load();
+
 private:
     struct [[gnu::packed]] Entry {
         uint16_t offset_low;
@@ -124,8 +128,6 @@ private:
 
     Entry   entries_[kMaxEntries]{};
     Pointer idtr_{};
-
-    void load();
 };
 
 /// Global IDT instance (zero-initialized in BSS)

@@ -274,3 +274,14 @@ ISR_NOERRCODE irq12_stub, mouse_irq12_handler   /* IRQ12(0x2C): PS/2 Mouse */
 ISR_NOERRCODE irq13_stub, irq_default_handler   /* IRQ13(0x2D): FPU */
 ISR_NOERRCODE irq14_stub, irq_default_handler   /* IRQ14(0x2E): Primary ATA */
 ISR_NOERRCODE irq15_stub, irq_default_handler   /* IRQ15(0x2F): Secondary ATA */
+
+# ============================================================
+# Reschedule IPI (F4-M4 M4-2)
+# ============================================================
+# Vector 0xE0, sent by the BSP (wake_idle_ap) to pull an idle AP out of hlt
+# so it re-checks the shared run queue.  The handler is a LAPIC EOI no-op --
+# the AP's idle loop does the actual reschedule after the stub returns.  Uses
+# the same ISR_NOERRCODE frame as IRQs (signal_check_deliver_isr included;
+# harmless on an IPI return path).
+# ============================================================
+ISR_NOERRCODE reschedule_ipi_stub, reschedule_ipi_handler

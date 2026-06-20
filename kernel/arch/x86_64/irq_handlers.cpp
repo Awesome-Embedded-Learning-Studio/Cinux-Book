@@ -25,6 +25,7 @@
 #include "kernel/drivers/pit/pit.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "pic.hpp"
+#include "smp.hpp"
 
 using cinux::arch::ExceptionVector;
 using cinux::arch::GDT_KERNEL_CODE;
@@ -58,6 +59,7 @@ void irq12_stub();
 void irq13_stub();
 void irq14_stub();
 void irq15_stub();
+void reschedule_ipi_stub();  // F4-M4 M4-2: reschedule IPI (vector 0xE0)
 }  // extern "C"
 
 // ============================================================
@@ -133,6 +135,13 @@ extern "C" void irq_init() {
         g_idt.set_handler(static_cast<ExceptionVector>(route.vector), route.stub, GDT_KERNEL_CODE,
                           kIRQAttr, 0);
     }
+
+    // Reschedule IPI (F4-M4 M4-2, vector 0xE0).  Registered into the shared IDT
+    // so any CPU can take it; the handler is a LAPIC EOI no-op and the waking
+    // AP's idle loop does the actual reschedule.  Dormant on a single-core
+    // system (wake_idle_ap never sends it).
+    g_idt.set_handler(static_cast<ExceptionVector>(cinux::arch::kRescheduleIpiVector),
+                      reschedule_ipi_stub, GDT_KERNEL_CODE, kIRQAttr, 0);
 
     kprintf("[IRQ] All IRQ handlers registered.\n");
 }

@@ -44,6 +44,7 @@
 #include "kernel/arch/x86_64/memory_layout.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
 #include "kernel/arch/x86_64/pic.hpp"
+#include "kernel/arch/x86_64/smp.hpp"
 #include "kernel/arch/x86_64/syscall.hpp"
 #include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/drivers/acpi/acpi.hpp"
@@ -197,6 +198,11 @@ extern "C" void kernel_main() {
     cinux::arch::switch_to_apic();
     __asm__ volatile("sti");
     cinux::lib::kprintf("[BIG] Interrupts enabled.\n");
+
+    // Step 17b: Boot Application Processors (F4-M3 P2).  Bring each AP through
+    // INIT-SIPI-SIPI to 64-bit long mode; they reach ap_main(), signal online,
+    // then halt (no tasks until M4).  No-op on a single-CPU machine.
+    cinux::arch::boot_aps();
 
     // Step 18: user-mode STAR/EFER support was initialised early (right after
     // the IDT) so the BSP's GS base is anchored before interrupts are enabled.

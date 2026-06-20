@@ -127,6 +127,20 @@ add_custom_target(run
     VERBATIM
 )
 
+# F4-M3 P2-4: SMP smoke -- same as `run` but with 2 CPUs, to exercise AP boot.
+add_custom_target(run-smp
+    COMMAND ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} -smp 2 ${QEMU_DEVELOP_FLAG}
+        -drive file=${CINUX_IMAGE_PATH},format=raw,index=0,media=disk
+        -device ahci,id=ahci
+        -drive file=${AHCI_TEST_IMAGE},format=raw,if=none,id=ahci-disk
+        -device ide-hd,drive=ahci-disk,bus=ahci.0
+        -drive file=${EXT2_IMAGE},format=raw,if=none,id=ext2-disk
+        -device ide-hd,drive=ext2-disk,bus=ahci.1
+    DEPENDS image ${AHCI_TEST_IMAGE} ${EXT2_IMAGE}
+    COMMENT "Starting QEMU with 2 CPUs (SMP)"
+    VERBATIM
+)
+
 add_custom_target(run-debug
     COMMAND ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} ${QEMU_DEVELOP_FLAG} ${QEMU_DEBUG_FLAGS}
         -drive file=${CINUX_IMAGE_PATH},format=raw,index=0,media=disk
@@ -270,6 +284,17 @@ add_custom_target(run-kernel-test
     DEPENDS test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
     USES_TERMINAL
     COMMENT "Starting QEMU with TEST kernel (auto-exit)"
+    VERBATIM
+)
+
+# F4-M3 P2-4: SMP test kernel -- same suite but with 2 CPUs (auto-exit).
+add_custom_target(run-kernel-test-smp
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/qemu_test_wrapper.sh
+        ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} -smp 2 ${QEMU_TEST_EXTRA_FLAGS}
+        -drive file=${CINUX_TEST_IMAGE_PATH},format=raw,index=0,media=disk
+    DEPENDS test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
+    USES_TERMINAL
+    COMMENT "Starting QEMU with TEST kernel + 2 CPUs (auto-exit)"
     VERBATIM
 )
 

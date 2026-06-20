@@ -6,6 +6,7 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/execve.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/elf_types.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/scheduler.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/roundrobin.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sync.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/percpu.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/init.cpp

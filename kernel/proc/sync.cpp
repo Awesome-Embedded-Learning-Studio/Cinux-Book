@@ -79,25 +79,27 @@ Task* Mutex::dequeue_waiter() {
 }
 
 void Mutex::lock() {
-    // Step 1: Acquire the internal spinlock to examine / modify state
-    spin_.acquire();
-
-    // Step 2: If the mutex is free, take ownership and return
-    if (owner_ == nullptr) {
-        owner_ = percpu()->current;
-        spin_.release();
-        return;
-    }
-
-    // Step 3: Mutex is contended -- put the current task on the wait queue
     Task* self = percpu()->current;
-    enqueue_waiter(self);
+    // Hold the metadata spinlock with IRQs disabled (F4-M4 prepare-to-wait): the
+    // state flip to Blocked + enqueue onto the wait queue must be atomic vs a
+    // concurrent unlock() on another CPU, and no local tick may preempt us while
+    // we hold the lock.  The guard drops (re-enables IRQs) before we switch out.
+    {
+        auto g = spin_.irq_guard();
 
-    // Step 4: Release the spinlock BEFORE blocking (avoids deadlock)
-    spin_.release();
+        // Fast path: mutex is free -- take ownership and return (guard drops).
+        if (owner_ == nullptr) {
+            owner_ = self;
+            return;
+        }
 
-    // Step 5: Block the current task; schedule() will pick another
-    Scheduler::block(self, "mutex");
+        // Contended: enqueue + mark ourselves Blocked under the lock.  A concurrent
+        // unlock() racing through the window finds us already Blocked and unblocks
+        // us; schedule()'s next==prev path then keeps us running -- no lost wakeup.
+        enqueue_waiter(self);
+        Scheduler::prepare_to_wait(self);
+    }  // guard drops: release spin + restore IRQs, BEFORE switching out
+    Scheduler::schedule_blocked();
 }
 
 void Mutex::unlock() {
@@ -187,27 +189,23 @@ void Semaphore::post() {
 }
 
 void Semaphore::wait() {
-    // Step 1: Acquire the internal spinlock
-    spin_.acquire();
-
-    // Step 2: Decrement the count
-    count_--;
-
-    // Step 3: If the count is still >= 0, the resource is available
-    if (count_ >= 0) {
-        spin_.release();
-        return;
-    }
-
-    // Step 4: No resource available -- enqueue the current task
     Task* self = percpu()->current;
-    enqueue_waiter(self);
+    {
+        // IRQ-safe (F4-M4 prepare-to-wait): the Blocked flip + enqueue must be
+        // atomic vs a concurrent post() on another CPU, and no local tick may
+        // preempt us while we hold the lock.  The guard drops before we switch.
+        auto g = spin_.irq_guard();
+        count_--;
 
-    // Step 5: Release the spinlock before blocking
-    spin_.release();
+        // Resource available: return immediately (guard drops).
+        if (count_ >= 0) {
+            return;
+        }
 
-    // Step 6: Block the current task
-    Scheduler::block(self, "semaphore");
+        enqueue_waiter(self);
+        Scheduler::prepare_to_wait(self);
+    }  // guard drops: release spin + restore IRQs, BEFORE switching out
+    Scheduler::schedule_blocked();
 }
 
 bool Semaphore::try_wait() {

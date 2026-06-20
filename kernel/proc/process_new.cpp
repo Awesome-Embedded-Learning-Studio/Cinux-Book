@@ -193,13 +193,18 @@ WaitpidResult waitpid(int pid, int* status, int options, PidAllocator& pid_alloc
         }
 
         // Block until a child exits.  sys_exit() sees parent->waiting_for_child
-        // and Scheduler::unblock()s us.  Single-core makes the check+block
-        // atomic (no other task runs until block()'s schedule() switches out),
-        // matching the futex wait/wake handshake.  NOTE: block() -> schedule()
-        // needs a real scheduler loop, so this path runs only on real hardware,
-        // not in run-kernel-test (tests use kWaitNoHang).
+        // and Scheduler::unblock()s us.  F4-M4 prepare-to-wait: mark Blocked
+        // before switching so a concurrent sys_exit() racing through the window
+        // finds us Blocked and wakes us (unblock() is idempotent) -- closing the
+        // old single-core-only "check+block is atomic" assumption.  NOTE: the
+        // children list is still lock-free, so a fully SMP-safe waitpid
+        // (double-check under a children lock) is follow-up; this stays
+        // single-core-equivalent and only narrows the window on SMP.
+        // schedule_blocked() -> schedule() needs a real scheduler loop, so this
+        // path runs only on real hardware, not in run-kernel-test (kWaitNoHang).
         parent->waiting_for_child = true;
-        Scheduler::block(parent, "waitpid");
+        Scheduler::prepare_to_wait(parent);
+        Scheduler::schedule_blocked();
         parent->waiting_for_child = false;
         // loop back: the exited child is now Zombie and will be reaped above.
     }

@@ -242,13 +242,14 @@ void test_exit_cleartid_zeros_and_wakes() {
     Scheduler::init();
     static uint32_t ctid_word = 42;
 
-    // A waiter task blocks on FUTEX_WAIT(&ctid_word, 42).  The phantom-task
-    // pattern (percpu()->current, not set_current) makes block() return at
-    // once with state == Blocked.
+    // Role-play the waiter on the harness thread: set_current + NoRescheduleGuard
+    // makes block() mark it Blocked and return at once (no context switch away),
+    // so we can observe the wait-queue state.
+    Scheduler::NoRescheduleGuard no_resched;
     Task* waiter = TaskBuilder().set_entry(dummy_entry).set_name("clr_waiter").build();
     TEST_ASSERT_NOT_NULL(waiter);
-    percpu()->current = waiter;
-    int64_t w         = sys_futex(reinterpret_cast<uint64_t>(&ctid_word), FUTEX_WAIT, 42, 0, 0, 0);
+    Scheduler::set_current(waiter);
+    int64_t w = sys_futex(reinterpret_cast<uint64_t>(&ctid_word), FUTEX_WAIT, 42, 0, 0, 0);
     TEST_ASSERT_EQ(w, 0);
     TEST_ASSERT_EQ(static_cast<int>(waiter->state), static_cast<int>(TaskState::Blocked));
 

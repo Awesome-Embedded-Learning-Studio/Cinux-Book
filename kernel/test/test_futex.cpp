@@ -3,11 +3,12 @@
  * @brief QEMU in-kernel tests for the futex syscall (F3-M2 batch 2)
  *
  * Mirrors test_sync.cpp's phantom-task pattern: tasks are built and installed
- * via percpu()->current (not Scheduler::set_current), so Scheduler::block()
- * marks them Blocked and returns immediately without scheduling away -- this
- * lets us observe wait-queue state without hanging.  The global futex table
- * persists across tests, so every test wakes its waiters before finishing to
- * avoid stale waiters being matched by a later test at a reused stack address.
+ * via Scheduler::set_current(), then the test observes wait-queue state.  The
+ * whole section runs under a Scheduler::NoRescheduleGuard, so Scheduler::block()
+ * marks a task Blocked and returns immediately without context-switching away
+ * -- this lets us observe wait-queue state without hanging.  The global futex
+ * table persists across tests, so every test wakes its waiters before finishing
+ * to avoid stale waiters being matched by a later test at a reused stack address.
  */
 
 #include <stddef.h>
@@ -45,8 +46,8 @@ void dummy_entry() {}
 
 /// Build a named task and install it as the current per-CPU task.
 Task* make_current(const char* name) {
-    Task* t           = TaskBuilder().set_entry(dummy_entry).set_name(name).build();
-    percpu()->current = t;
+    Task* t = TaskBuilder().set_entry(dummy_entry).set_name(name).build();
+    Scheduler::set_current(t);
     return t;
 }
 
@@ -118,11 +119,11 @@ void test_wake_count_caps() {
     Task* w2 = TaskBuilder().set_entry(dummy_entry).set_name("fx_c2").build();
     Task* w3 = TaskBuilder().set_entry(dummy_entry).set_name("fx_c3").build();
 
-    percpu()->current = w1;
+    Scheduler::set_current(w1);
     sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAIT, 1, 0, 0, 0);
-    percpu()->current = w2;
+    Scheduler::set_current(w2);
     sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAIT, 1, 0, 0, 0);
-    percpu()->current = w3;
+    Scheduler::set_current(w3);
     sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAIT, 1, 0, 0, 0);
     TEST_ASSERT_EQ(static_cast<int>(w1->state), static_cast<int>(TaskState::Blocked));
     TEST_ASSERT_EQ(static_cast<int>(w2->state), static_cast<int>(TaskState::Blocked));
@@ -184,6 +185,11 @@ void test_bitset_no_match_keeps_blocked() {
 
 extern "C" void run_futex_tests() {
     TEST_SECTION("Futex Tests (F3-M2-2)");
+
+    // This whole section role-plays tasks on the single harness thread (no real
+    // dispatch loop): suppress block()'s reschedule so we observe wait-queue /
+    // task state instead of context-switching away to idle.
+    Scheduler::NoRescheduleGuard no_resched;
 
     RUN_TEST(test_futex_basic::test_wait_val_mismatch_eagain);
     RUN_TEST(test_futex_basic::test_wait_null_uaddr_efault);

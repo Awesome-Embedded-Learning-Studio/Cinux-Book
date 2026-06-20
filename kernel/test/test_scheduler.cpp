@@ -142,18 +142,25 @@ void test_enqueue_dequeue() {
     rr.enqueue(t2);
     rr.enqueue(t3);
 
-    // pick_next should rotate through t1, t2, t3
+    // pick_next REMOVES the winner from the queue (F4-M4 M4-2-2 runqueue
+    // multi-core safety: a running task must not sit in the shared queue, or a
+    // second CPU could double-pick it).  Round-robin cycling is driven by
+    // re-enqueueing the picked task -- exactly what schedule() does when a
+    // running task yields -- so this test mirrors that here.
     Task* n1 = rr.pick_next();
     TEST_ASSERT_EQ(n1, t1);
     TEST_ASSERT_EQ(static_cast<int>(n1->state), static_cast<int>(TaskState::Running));
+    rr.enqueue(n1);  // simulate schedule() re-enqueuing the yielding task
 
     Task* n2 = rr.pick_next();
     TEST_ASSERT_EQ(n2, t2);
+    rr.enqueue(n2);
 
     Task* n3 = rr.pick_next();
     TEST_ASSERT_EQ(n3, t3);
+    rr.enqueue(n3);
 
-    // Wrap around
+    // Wrap around: t1 is back at the head (t2, t3 were enqueued after it).
     Task* n4 = rr.pick_next();
     TEST_ASSERT_EQ(n4, t1);
 }
@@ -230,7 +237,7 @@ static void task_a_func() {
     // Comes back here after B yields
     task_a_count = task_a_count + 1;
     // Done
-    done = true;
+    done         = true;
     // Switch back to boot
     context_switch(&task_a_ctx, &boot_ctx);
 }
@@ -375,6 +382,43 @@ void test_block_unblock() {
     TEST_ASSERT_EQ(static_cast<int>(task->state), static_cast<int>(TaskState::Ready));
 }
 
+// Verifies the real dispatch path that NoRescheduleGuard suppresses in the
+// phantom-task tests: block(current) must genuinely context-switch to a
+// runnable task and resume the caller once that task exits.  b runs, wakes a,
+// and returns into the exit_current trampoline (wired by TaskBuilder at
+// task_builder.cpp:100-103), which schedules back to a.
+static Task* g_block_dispatch_a     = nullptr;
+static bool  g_block_dispatch_b_ran = false;
+
+static void block_dispatch_b_entry() {
+    g_block_dispatch_b_ran = true;
+    Scheduler::unblock(g_block_dispatch_a);  // wake a so exit_current can pick it
+    // Returning falls into exit_current -> schedule -> a resumes.
+}
+
+void test_block_dispatches_to_runnable() {
+    Scheduler::init();
+    g_block_dispatch_a     = nullptr;
+    g_block_dispatch_b_ran = false;
+
+    Task* a = TaskBuilder().set_entry(test_task_builder::dummy_entry).set_name("blk_a").build();
+    Task* b = TaskBuilder().set_entry(block_dispatch_b_entry).set_name("blk_b").build();
+    TEST_ASSERT_NOT_NULL(a);
+    TEST_ASSERT_NOT_NULL(b);
+
+    g_block_dispatch_a = a;     // b's entry unblocks this task before exiting
+    Scheduler::set_current(a);  // the harness thread role-plays task a
+    Scheduler::add_task(b);     // b waits, runnable, in the run queue
+
+    // No NoRescheduleGuard here: block(a) MUST really dispatch to b.  This
+    // proves the guard suppresses scheduling only when explicitly asked.
+    Scheduler::block(a, "dispatch test");
+    // a resumes here after b ran, exited, and scheduled back.
+
+    TEST_ASSERT_TRUE(g_block_dispatch_b_ran);  // b ran => a real dispatch happened
+    Scheduler::set_current(nullptr);
+}
+
 }  // namespace test_scheduler_new
 
 // ============================================================
@@ -398,15 +442,20 @@ void test_locked_enqueue_dequeue() {
     rr.enqueue(t2);
     rr.enqueue(t3);
 
+    // pick_next removes the winner (F4-M4 M4-2-2); re-enqueue after each pick
+    // (as schedule() does on yield) to drive the round-robin cycling.
     Task* n1 = rr.pick_next();
     TEST_ASSERT_EQ(n1, t1);
     TEST_ASSERT_EQ(static_cast<int>(n1->state), static_cast<int>(TaskState::Running));
+    rr.enqueue(n1);
 
     Task* n2 = rr.pick_next();
     TEST_ASSERT_EQ(n2, t2);
+    rr.enqueue(n2);
 
     Task* n3 = rr.pick_next();
     TEST_ASSERT_EQ(n3, t3);
+    rr.enqueue(n3);
 
     Task* n4 = rr.pick_next();
     TEST_ASSERT_EQ(n4, t1);
@@ -529,10 +578,14 @@ void test_priority_picks_lowest_value() {
     rr.enqueue(hi);  // priority 0
     rr.enqueue(lo);  // priority 10
 
-    // Lower value = higher priority: hi is always selected while ready.
-    TEST_ASSERT_EQ(rr.pick_next(), hi);
-    // hi is re-enqueued and is still the lowest value, so it is picked again
-    // (strict priority -- lo is starved while a higher-priority task is ready).
+    // Lower value = higher priority: hi is always selected while ready.  pick_next
+    // removes hi (F4-M4 M4-2-2); re-enqueue it (as schedule() does on yield) so
+    // the strict-priority check below sees it ready again.
+    Task* p1 = rr.pick_next();
+    TEST_ASSERT_EQ(p1, hi);
+    rr.enqueue(p1);
+    // hi is still the lowest value, so it is picked again (strict priority --
+    // lo is starved while a higher-priority task is ready).
     TEST_ASSERT_EQ(rr.pick_next(), hi);
 }
 
@@ -562,9 +615,17 @@ void test_priority_round_robin_within_level() {
     rr.enqueue(c);
 
     // Equal-priority tasks (a, b) round-robin; c (lower priority) is starved.
-    TEST_ASSERT_EQ(rr.pick_next(), a);
-    TEST_ASSERT_EQ(rr.pick_next(), b);
-    TEST_ASSERT_EQ(rr.pick_next(), a);
+    // pick_next removes the winner (F4-M4 M4-2-2); re-enqueue after each pick
+    // (as schedule() does on yield) to drive the round-robin cycling.
+    Task* pa = rr.pick_next();
+    TEST_ASSERT_EQ(pa, a);
+    rr.enqueue(pa);
+    Task* pb = rr.pick_next();
+    TEST_ASSERT_EQ(pb, b);
+    rr.enqueue(pb);
+    Task* pa2 = rr.pick_next();
+    TEST_ASSERT_EQ(pa2, a);
+    rr.enqueue(pa2);
     TEST_ASSERT_EQ(rr.pick_next(), b);
 }
 
@@ -677,6 +738,7 @@ extern "C" void run_scheduler_tests() {
     RUN_TEST(test_scheduler_new::test_is_initialized);
     RUN_TEST(test_scheduler_new::test_remove_task);
     RUN_TEST(test_scheduler_new::test_block_unblock);
+    RUN_TEST(test_scheduler_new::test_block_dispatches_to_runnable);
 
     RUN_TEST(test_round_robin_locked::test_locked_enqueue_dequeue);
     RUN_TEST(test_round_robin_locked::test_locked_dequeue_middle);

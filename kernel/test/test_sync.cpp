@@ -88,7 +88,7 @@ void test_lock_unlock() {
     Task* task = TaskBuilder().set_entry(dummy_entry).set_name("mutex_owner").build();
     TEST_ASSERT_NOT_NULL(task);
 
-    percpu()->current = task;
+    Scheduler::set_current(task);
 
     Mutex m;
     m.lock();
@@ -104,7 +104,7 @@ void test_try_lock_free() {
     Task* task = TaskBuilder().set_entry(dummy_entry).set_name("trylock_free").build();
     TEST_ASSERT_NOT_NULL(task);
 
-    percpu()->current = task;
+    Scheduler::set_current(task);
 
     Mutex m;
     bool  result = m.try_lock();
@@ -117,7 +117,7 @@ void test_try_lock_held() {
     Task* owner = TaskBuilder().set_entry(dummy_entry).set_name("trylock_owner").build();
     TEST_ASSERT_NOT_NULL(owner);
 
-    percpu()->current = owner;
+    Scheduler::set_current(owner);
 
     Mutex m;
     m.lock();  // owner holds the mutex
@@ -126,8 +126,8 @@ void test_try_lock_held() {
     Task* other = TaskBuilder().set_entry(dummy_entry).set_name("trylock_other").build();
     TEST_ASSERT_NOT_NULL(other);
 
-    percpu()->current = other;
-    bool result       = m.try_lock();
+    Scheduler::set_current(other);
+    bool result = m.try_lock();
     TEST_ASSERT_FALSE(result);  // should fail -- mutex is held
 }
 
@@ -151,12 +151,12 @@ void test_lock_blocks_and_enqueues() {
     TEST_ASSERT_NOT_NULL(waiter);
 
     // Owner locks the mutex
-    percpu()->current = owner;
+    Scheduler::set_current(owner);
     Mutex m;
     m.lock();
 
     // Waiter tries to lock -- should be blocked
-    percpu()->current = waiter;
+    Scheduler::set_current(waiter);
     m.lock();  // this calls Scheduler::block(waiter, "mutex")
 
     TEST_ASSERT_EQ(static_cast<int>(waiter->state), static_cast<int>(TaskState::Blocked));
@@ -174,17 +174,17 @@ void test_unlock_transfers_to_waiter() {
     TEST_ASSERT_NOT_NULL(waiter);
 
     // Owner locks
-    percpu()->current = owner;
+    Scheduler::set_current(owner);
     Mutex m;
     m.lock();
 
     // Waiter blocks
-    percpu()->current = waiter;
+    Scheduler::set_current(waiter);
     m.lock();
     TEST_ASSERT_EQ(static_cast<int>(waiter->state), static_cast<int>(TaskState::Blocked));
 
     // Owner unlocks -- transfers to waiter
-    percpu()->current = owner;
+    Scheduler::set_current(owner);
     m.unlock();
 
     // Waiter should now be unblocked (Ready)
@@ -206,16 +206,16 @@ void test_fifo_ordering() {
     TEST_ASSERT_NOT_NULL(w3);
 
     // Owner locks
-    percpu()->current = owner;
+    Scheduler::set_current(owner);
     Mutex m;
     m.lock();
 
     // Three waiters enqueue
-    percpu()->current = w1;
+    Scheduler::set_current(w1);
     m.lock();
-    percpu()->current = w2;
+    Scheduler::set_current(w2);
     m.lock();
-    percpu()->current = w3;
+    Scheduler::set_current(w3);
     m.lock();
 
     // First unlock: should wake w1
@@ -246,7 +246,7 @@ void test_guard_scope() {
         TaskBuilder().set_entry(test_mutex_basic::dummy_entry).set_name("guard_task").build();
     TEST_ASSERT_NOT_NULL(task);
 
-    percpu()->current = task;
+    Scheduler::set_current(task);
 
     Mutex m;
     {
@@ -292,7 +292,7 @@ void test_wait_decrements_when_positive() {
         TaskBuilder().set_entry(test_mutex_basic::dummy_entry).set_name("sem_waiter").build();
     TEST_ASSERT_NOT_NULL(task);
 
-    percpu()->current = task;
+    Scheduler::set_current(task);
 
     Semaphore s(3);
     s.wait();
@@ -307,7 +307,7 @@ void test_wait_blocks_when_zero() {
         TaskBuilder().set_entry(test_mutex_basic::dummy_entry).set_name("sem_block").build();
     TEST_ASSERT_NOT_NULL(task);
 
-    percpu()->current = task;
+    Scheduler::set_current(task);
 
     Semaphore s(0);
     s.wait();
@@ -360,7 +360,7 @@ void test_post_wakes_blocked_waiter() {
         TaskBuilder().set_entry(test_mutex_basic::dummy_entry).set_name("sem_wake").build();
     TEST_ASSERT_NOT_NULL(task);
 
-    percpu()->current = task;
+    Scheduler::set_current(task);
 
     Semaphore s(0);
     s.wait();  // count -> -1, blocks
@@ -383,11 +383,11 @@ void test_fifo_ordering() {
 
     Semaphore s(0);
 
-    percpu()->current = t1;
+    Scheduler::set_current(t1);
     s.wait();
-    percpu()->current = t2;
+    Scheduler::set_current(t2);
     s.wait();
-    percpu()->current = t3;
+    Scheduler::set_current(t3);
     s.wait();
 
     // All three should be blocked
@@ -423,7 +423,7 @@ void test_producer_consumer_no_blocking() {
     Task* task = TaskBuilder().set_entry(test_mutex_basic::dummy_entry).set_name("pc_task").build();
     TEST_ASSERT_NOT_NULL(task);
 
-    percpu()->current = task;
+    Scheduler::set_current(task);
 
     // Buffer of size 3
     Semaphore sem_free(3);
@@ -477,6 +477,11 @@ void test_wait_next_null_after_build() {
 
 extern "C" void run_sync_tests() {
     TEST_SECTION("Sync Tests (021)");
+
+    // This whole section role-plays tasks on the single harness thread (no real
+    // dispatch loop): suppress block()'s reschedule so we observe wait-queue /
+    // task state instead of context-switching away to idle.
+    Scheduler::NoRescheduleGuard no_resched;
 
     RUN_TEST(test_spinlock::test_acquire_release);
     RUN_TEST(test_spinlock::test_guard_raii);
