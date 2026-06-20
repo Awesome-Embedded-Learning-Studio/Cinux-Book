@@ -46,10 +46,15 @@ struct SharedCwd {
         return create(src != nullptr ? src->path : "/");
     }
 
-    void acquire() { ++refcount; }
+    // F4-M5 R3: atomic refcount.  CLONE_FS threads on different CPUs share one
+    // SharedCwd (F3-M2), so acquire/release race once APs really run threads
+    // (F4-M4).  A non-atomic ++/-- loses updates -> use-after-free or leak.
+    // ACQ_REL: the release that brings refcount to 0 must see all prior writes
+    // to the shared object before delete; acquire pairs with it.
+    void acquire() { __atomic_add_fetch(&refcount, 1, __ATOMIC_ACQ_REL); }
 
     void release() {
-        if (refcount > 0 && --refcount == 0) {
+        if (__atomic_sub_fetch(&refcount, 1, __ATOMIC_ACQ_REL) == 0) {
             delete this;
         }
     }

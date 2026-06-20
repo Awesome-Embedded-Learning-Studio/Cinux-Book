@@ -5,6 +5,7 @@
 #include "kernel/arch/x86_64/smp.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
+#include "kernel/proc/lockdep.hpp"
 #include "kernel/proc/percpu.hpp"
 
 namespace cinux::proc {
@@ -104,22 +105,24 @@ bool Scheduler::has_runnable_task() {
 }
 
 void Scheduler::ap_idle_entry() {
-    // M4-2-2: APs idle with interrupts on (sti;hlt), woken by the reschedule IPI
-    // (vector 0xE0) from wake_idle_ap().  They do NOT yet pick up user tasks:
-    // migrating a user task to an AP deterministically GP-faults (GS / address
-    // corruption somewhere in the migration path; the swapgs discipline in
-    // ISR/syscall/jump_to_usermode reads correct, so the root cause needs GDB
-    // -smp 2).  Making user-task migration safe is M4-3.
+    // F4-M4 M4-2-3: APs now pull user tasks off the shared run queue.  An AP
+    // woken by the reschedule IPI (vector 0xE0, sent by wake_idle_ap()) re-checks
+    // the run queue under cli -- has_runnable_task() is a pure peek that closes
+    // the lost-wakeup window (a task enqueued between the check and sti;hlt is
+    // not missed: add_task() sent the very IPI that pulled us out of hlt).  If
+    // there is work, schedule() context-switches onto it; otherwise sti;hlt
+    // again.
     //
-    // The foundation landed in THIS batch and stays regardless:
-    //   - per-CPU idle tasks (idle_tasks_[cpu]) -- shared idle would share one
-    //     ctx/stack across CPUs and crash;
-    //   - multi-core-safe run queue: pick_next() REMOVES the winner (a running
-    //     task never sits in the shared queue, so two CPUs can't double-pick it).
-    // The schedule()+sti;hlt loop that pulls tasks off the shared runq (and the
-    // has_runnable_task() lost-wakeup recheck) re-enables here once M4-3 makes
-    // migration safe; both are already implemented above and unit-tested.
+    // This AP's idle task (priority 255) is the schedule() prev but never enters
+    // the run queue itself (it has no sched_class -- build() does not call
+    // add_task -- so schedule()'s enqueue guard skips it); it is reached only via
+    // the idle fallback when the queue is empty.  The queue thus holds only real
+    // tasks, and pick_next()-REMOVES the winner, so two CPUs can never double-pick
+    // one.  M4-2-2's per-CPU idle tasks make each switch use this CPU's own ctx.
     while (true) {
+        if (has_runnable_task()) {
+            schedule();
+        }
         __asm__ volatile("sti; hlt");
         __asm__ volatile("cli");
     }
@@ -287,16 +290,16 @@ void Scheduler::schedule() {
     }
 
 #ifdef CINUX_LOCKDEP
-    // F-INFRA I-10: holding a spinlock across the context switch below deadlocks
-    // single-core (the next task cannot release a lock this caller still owns,
-    // and this caller never runs again). Catch it here rather than as a silent
-    // hang. kpanic is noreturn, so the depth it bumps while dumping memstats is
-    // harmless (no re-check of this assert).
-    if (g_lockdep_held_depth > 0) {
+    // F-INFRA I-10 / F4-M5 R6-Part2: holding a spinlock across the context
+    // switch below deadlocks single-core (the next task cannot release a lock
+    // this caller still owns, and this caller never runs again). Catch it here
+    // rather than as a silent hang. lockdep_held_depth() is per-CPU (Part1's
+    // global counter was SMP-unsafe). kpanic is noreturn.
+    if (uint32_t d = lockdep_held_depth(); d > 0) {
         cinux::lib::kpanic(
             "lockdep: schedule() called with %u spinlock(s) held -- "
             "would deadlock (held across context switch)",
-            g_lockdep_held_depth);
+            d);
     }
 #endif
 

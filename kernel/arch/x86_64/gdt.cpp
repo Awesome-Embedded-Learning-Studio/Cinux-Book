@@ -78,12 +78,19 @@ void GDT::load() {
         "movw %[ds], %%ax\n\t"
         "movw %%ax, %%ds\n\t"
         "movw %%ax, %%es\n\t"
-        "movw %%ax, %%fs\n\t"
-        "movw %%ax, %%gs\n\t"
         "movw %%ax, %%ss\n\t"
         :
         : [gdtr] "m"(gdtr_), [cs] "i"(GDT_KERNEL_CODE), [ds] "i"(GDT_KERNEL_DATA)
         : "rax", "memory");
+    // NOTE: %fs/%gs are intentionally NOT reloaded here.  In long mode their
+    // bases live in MSR_FS_BASE/MSR_GS_BASE (per-thread TLS / per-CPU PerCpu),
+    // NOT in the GDT descriptor -- loading a flat data selector into %fs/%gs
+    // forces the descriptor's base (0) into the MSR, clobbering the GS anchor.
+    // On APs this was fatal: ap_main anchors GS_BASE=percpu, THEN loads this
+    // GDT, so the old `movw %ax,%gs` here zeroed GS_BASE mid-boot and every
+    // later percpu()/current() read BIOS garbage at phys 0x18 -> #GP (F4-M4
+    // M4-2-3, GOTCHA#25).  A null %fs/%gs selector with an MSR base is the
+    // standard long-mode percpu arrangement (Linux does the same).
 
     const uint16_t tss_sel = GDT_TSS;
     __asm__ volatile("ltr %[sel]\n\t" : : [sel] "r"(tss_sel) : "memory");

@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 
+#include "kernel/proc/lockdep.hpp"
 #include "kernel/proc/percpu.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
@@ -17,24 +18,17 @@ namespace cinux::proc {
 // Spinlock implementation
 // ============================================================
 
-#ifdef CINUX_LOCKDEP
-// F-INFRA I-10: depth of held spinlocks on this CPU. Asserted at schedule().
-uint32_t g_lockdep_held_depth = 0;
-#endif
-
 void Spinlock::acquire() {
     while (__atomic_test_and_set(&locked_, __ATOMIC_ACQUIRE)) {
         __asm__ volatile("pause");
     }
-#ifdef CINUX_LOCKDEP
-    ++g_lockdep_held_depth;  // count only AFTER the lock is actually held
-#endif
+    // F4-M5 R6-Part2: record on this CPU's held stack + lock-order cycle check.
+    // Compiled out (zero cost) when CINUX_LOCKDEP is off.
+    lockdep_acquired(this);
 }
 
 void Spinlock::release() {
-#ifdef CINUX_LOCKDEP
-    --g_lockdep_held_depth;  // decrement before the lock is freed
-#endif
+    lockdep_releasing(this);
     __atomic_clear(&locked_, __ATOMIC_RELEASE);
 }
 

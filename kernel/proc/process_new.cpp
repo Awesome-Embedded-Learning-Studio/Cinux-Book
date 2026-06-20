@@ -196,10 +196,20 @@ WaitpidResult waitpid(int pid, int* status, int options, PidAllocator& pid_alloc
         // and Scheduler::unblock()s us.  F4-M4 prepare-to-wait: mark Blocked
         // before switching so a concurrent sys_exit() racing through the window
         // finds us Blocked and wakes us (unblock() is idempotent) -- closing the
-        // old single-core-only "check+block is atomic" assumption.  NOTE: the
-        // children list is still lock-free, so a fully SMP-safe waitpid
-        // (double-check under a children lock) is follow-up; this stays
-        // single-core-equivalent and only narrows the window on SMP.
+        // old single-core-only "check+block is atomic" assumption.
+        //
+        // F4-M5 analysis: the children list needs NO lock for SMP, despite the
+        // earlier "follow-up" note.  `Task::children` is per-task PRIVATE: fork
+        // and clone link a child into current()->children, and CLONE_THREAD is a
+        // sibling (NOT a child, clone.cpp), so a thread group does not share one
+        // list.  waitpid scans/reaps current()->children, and sys_exit() does NOT
+        // touch parent->children (it only reads task->parent to wake it) -- there
+        // is no reparenting.  So each list is touched only by its owning task,
+        // which runs on one CPU at a time: no cross-CPU list access.  The one
+        // cross-CPU datum is child->state (set Zombie by the child's exit on CPU
+        // A, read here on CPU B) -- atomic on x86, and a miss is covered by
+        // exit's unblock(parent) forcing a re-scan.  Hence no children lock.
+        //
         // schedule_blocked() -> schedule() needs a real scheduler loop, so this
         // path runs only on real hardware, not in run-kernel-test (kWaitNoHang).
         parent->waiting_for_child = true;

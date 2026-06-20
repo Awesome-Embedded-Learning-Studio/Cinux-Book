@@ -160,11 +160,14 @@ struct SharedSigActions {
     }
 
     /// Increment the reference count (share this table).
-    void acquire() { ++refcount; }
+    // F4-M5 R3: atomic refcount -- CLONE_SIGHAND threads on different CPUs share
+    // one SharedSigActions (F3-M2); non-atomic ++/-- races once APs run threads
+    // (F4-M4).  See SharedCwd::acquire/release for the ACQ_REL rationale.
+    void acquire() { __atomic_add_fetch(&refcount, 1, __ATOMIC_ACQ_REL); }
 
     /// Decrement the reference count; free the table when it reaches zero.
     void release() {
-        if (refcount > 0 && --refcount == 0) {
+        if (__atomic_sub_fetch(&refcount, 1, __ATOMIC_ACQ_REL) == 0) {
             delete this;
         }
     }

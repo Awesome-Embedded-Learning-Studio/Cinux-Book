@@ -78,15 +78,9 @@ private:
     };
 };
 
-#ifdef CINUX_LOCKDEP
-/// Debug-only (CINUX_LOCKDEP, F-INFRA I-10): count of spinlocks currently held
-/// on this CPU. Asserted == 0 at Scheduler::schedule() entry -- holding a
-/// spinlock across a context switch deadlocks on a single core (the scheduled
-/// task cannot release a lock the caller still owns, and the caller never runs
-/// again). Incremented/decremented by Spinlock::acquire/release. Compiled out
-/// (zero cost) when CINUX_LOCKDEP is off.
-extern uint32_t g_lockdep_held_depth;
-#endif
+// F4-M5 R6-Part2: runtime lock-order deadlock detection + the schedule()-while-
+// locked assert now live in lockdep.hpp (per-CPU held stack + lock-order graph).
+// Compiled out when CINUX_LOCKDEP is off.
 
 // ============================================================
 // Mutex -- blocking mutual exclusion
