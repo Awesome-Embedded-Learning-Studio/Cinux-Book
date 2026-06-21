@@ -1,6 +1,7 @@
 build*/
 .cache
 helpers
+# Claude Code / AI 产物：目前全部不提交（含 CLAUDE.md 与整个 .claude/），稳定后再解除
 .claude/
 CLAUDE.md
 
@@ -102,8 +103,8 @@ coverage/
 node_modules/
 site/.vitepress/dist/
 site/.vitepress/cache/
+site/.vitepress/.temp/
 document/_build/
 
 # Python虚拟环境
 .venv/
-
