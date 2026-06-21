@@ -1,22 +1,20 @@
 <div align="center">
 
-# <img src="https://emojis.slackmojis.com/emojis/13825/blob-penguin.gif" width="40" alt="logo"> Cinux
+# 🐧 Cinux
 
 ### 从零手搓 x86_64 操作系统 · 中文教程 · 现代 C++ 实现
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)]()
-[![GCC](https://img.shields.io/badge/GCC-Ubuntu%2024.04%2B-blue)]()
-[![QEMU](https://img.shields.io/badge/QEMU-8.0%2B-orange)]()
+[![CMake](https://img.shields.io/badge/CMake-supported-blue)]()
+[![QEMU](https://img.shields.io/badge/QEMU-required-orange)]()
+[![VitePress](https://img.shields.io/badge/docs-VitePress-42b883)]()
 
-一个"手把手"教你从 MBR 开始写操作系统的教程项目——从 Bootloader 到 GUI 桌面，全链路完成。Ubuntu 24.04 默认编译器即可构建，无需额外安装 GCC。
-
-> 小更新!
-> 因为比较火热, 很多人相当关注本项目, 笔者正在规划为: 本Cinux作为组织更前沿的Cinux的一个稳定教学版本迁移到这里.
-> 是的! 我的意思就是复活新特性的开发的手把手的三层教程(也有可能是两层, 因为突然变更组织需要说明):
+**Cinux-Book** 是一个"手把手"教你从 MBR 开始写操作系统的教程项目——从 Bootloader 到 GUI 桌面，全链路完成。Ubuntu 24.04 默认编译器即可构建，无需额外安装 GCC。也是Cinux中特性足够稳定，路径足够明细的教学版本。
 
 > [Cinux](https://github.com/CinuxOS/Cinux) 仍然会作为更加前沿的特性, 持续活跃的开发, 甚至计划到亮起来浏览器, 和使用一些应用作为一个大里程碑!
-> 本仓库后续会再一次进行阶段性的代码排查和大扫描大验证, 持续保证本项目的教程连贯, 希望各位操作系统爱好者可以有一份更好的参考实现! 笔者正在持续努力!
+
+> 笔者已经完成了一轮大重构，后续，会慢慢稳定的从Cinux正在开发的版本逐步迁移回来一些有趣的Feature!
 
 </div>
 
@@ -277,144 +275,21 @@ TEST("测试名称") {
 
 ---
 
-## 📊 开发进度
+## 🧭 在 Awesome-Embedded-Learning-Studio 中的位置
 
-<details>
-<summary><b>Phase 1 · Bootloader — 100% ✅</b></summary>
+[Awesome-Embedded-Learning-Studio](https://github.com/Awesome-Embedded-Learning-Studio) 是一个面向 C++ 工程化、MCU 裸机、Embedded Linux、Qt 桌面和底层系统的一站式学习组织。[Awesome-Embedded](https://github.com/Awesome-Embedded-Learning-Studio/Awesome-Embedded) 是组织总导航，适合从那里查看完整学习地图和所有子项目。
 
-```
-✅ 000_env_toolchain         环境搭建 + 工具链
-✅ 001_boot_real_mode        实模式启动 + VESA 图形模式
-✅ 002_boot_gdt_protected    保护模式 + 串口驱动
-✅ 003_boot_long_mode        长模式 + 页表初始化
-✅ 004_boot_load_mini_kernel ELF 加载 + BootInfo（A/B/C 三个子阶段）
-```
+**Cinux-Book 的定位是组织内的稳定教学版 OS 课程仓库。** 它保留 Cinux 从 boot 到 GUI、多终端的完整实现路径，并把源码、tag、教程、实验和调试笔记收束到一条适合学习的主线里。相对更前沿的 Cinux 开发线，这里更强调可复现、可讲解、可长期维护。
 
-</details>
+相关仓库可以这样理解：
 
-<details>
-<summary><b>Phase 2 · 小内核（Bootstrap Kernel）— 100% ✅</b></summary>
-
-```
-✅ 005_mini_kernel_entry     内核入口 + kprintf
-✅ 006_mini_kernel_pmm       物理内存分配器
-✅ 007_mini_kernel_intr      IDT + 异常处理
-✅ 008_load_large_kernel     ATA 磁盘驱动 + ELF 加载器
-```
-
-</details>
-
-<details>
-<summary><b>Phase 3 · 大内核基础设施 — 100% ✅</b></summary>
-
-```
-✅ 009_large_kernel_entry    大内核入口 + 串口 + kprintf + 测试框架
-✅ 010_big_kernel_gdt_idt    GDT/IDT + 256 向量中断 + 寄存器 dump
-✅ 011_big_kernel_pic_irq    PIC 重映射 + PIT 时钟 + tick 计数
-```
-
-</details>
-
-<details>
-<summary><b>Phase 4 · 驱动三件套 — 100% ✅</b></summary>
-
-```
-✅ 012_driver_serial         串口驱动完善 + kprintf 格式化补全
-✅ 013_driver_vga_fb         VGA Framebuffer + PSF2 字体 + Console
-✅ 014_driver_keyboard       PS/2 键盘驱动 + 扫描码 + 环形队列
-```
-
-</details>
-
-<details>
-<summary><b>Phase 5 · 内存管理 — 100% ✅</b></summary>
-
-```
-✅ 015_mm_pmm                Bitmap 物理内存分配器
-✅ 016_mm_vmm                4 级页表虚拟内存管理
-✅ 017_mm_heap               内核堆 + kmalloc/kfree + new/delete
-✅ 018_mm_address_space      独立地址空间 + 用户区隔离
-```
-
-</details>
-
-<details>
-<summary><b>Phase 6 · 进程与调度 — 100% ✅</b></summary>
-
-```
-✅ 019_proc_context          上下文切换 + 内核线程
-✅ 020_proc_scheduler        Round-Robin 调度器 + idle task
-✅ 021_proc_sync             Spinlock / Mutex / Semaphore
-```
-
-</details>
-
-<details>
-<summary><b>Phase 7 · 用户态与系统调用 — 100% ✅</b></summary>
-
-```
-✅ 022_ring3_usermode        Ring 3 切换 + TSS + sysret
-✅ 023_syscall               syscall/sysret + 22 个系统调用
-✅ 024_shell                 用户态 Shell（echo/help/clear）
-```
-
-</details>
-
-<details>
-<summary><b>Phase 8 · 文件系统 — 100% ✅</b></summary>
-
-```
-✅ 025_driver_ahci           AHCI SATA 驱动 + PCI 枚举
-✅ 026_fs_ramdisk            ustar ramdisk 解析
-✅ 027_fs_vfs                VFS 抽象层 + FDTable + ramdisk 文件系统
-✅ 028_fs_ext2               Ext2 只读挂载
-✅ 028b_fs_ext2_write        Ext2 写入 + touch/mkdir/rm/echo >
-✅ 028c_fs_cwd_stat          cd/pwd/stat 系统调用
-✅ 028d_sync_safety          全局并发安全审计 + 加锁
-✅ 028e_activate_init_thread init 线程重构 + 统一虚拟内存布局
-```
-
-</details>
-
-<details>
-<summary><b>Phase 9 · GUI 桌面环境 — 100% ✅</b></summary>
-
-```
-✅ 029_gui_canvas            Canvas 双缓冲 + Bresenham 画线
-✅ 030_gui_wm_basic          窗口管理器 + PS/2 鼠标 + 拖动
-✅ 031_gui_native_app        Pipe IPC + Terminal 窗口 + Shell 集成
-✅ 032_gui_bitmap_icon       32×32 位图图标 + constexpr 像素数据
-✅ 033_gui_desktop           桌面背景 + 可点击图标 + 延迟创建终端
-```
-
-</details>
-
-<details>
-<summary><b>Phase 10 · 多进程与高级特性 — 100% ✅</b></summary>
-
-```
-✅ 034_process_fork_exec     fork/execve/CoW/waitpid + PID 管理
-✅ 035_multi_terminal        每终端独立 shell 进程 + 多终端并发
-```
-
-</details>
-
----
-
-## 📚 教程结构
-
-```
-document/
-├── hands-on/          📝 22 篇动手教程（跟着敲代码）
-│   ├── 000-env-toolchain.md           ✅ 环境搭建
-│   ├── 001-boot-real-mode.md          🔨 实模式启动
-│   ├── 005-mini-kernel-entry.md       🔨 小内核入口
-│   ├── 009A-big-kernel-boot.md        🔨 大内核启动
-│   └── ...
-├── read-through/      📖 通读版教程（完整代码 + 注释）
-├── tutorial/          📚 教学材料
-└── notes/             📋 调试笔记 & 开发记录
-```
+| 仓库 | 定位 | 推荐入口 |
+| --- | --- | --- |
+| [Awesome-Embedded](https://github.com/Awesome-Embedded-Learning-Studio/Awesome-Embedded) | 组织总导航与项目索引 | 想了解整个组织的学习路线 |
+| [Cinux-Book](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book) | 稳定教学版 x86_64 OS 课程 | 想系统学习从 MBR 到 GUI 的 OS 实现 |
+| [Cinux](https://github.com/Awesome-Embedded-Learning-Studio/Cinux) | 更前沿的 Cinux 开发线 | 想跟进新功能和实验性方向 |
+| [Cinux-Base](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Base) | Cinux 基础组件沉淀 | 想关注可复用底层组件 |
+| [PenguinLab](https://github.com/Awesome-Embedded-Learning-Studio/PenguinLab) | Linux/Embedded Linux 内核到用户态实验 | 想学习 Linux 体系内部机制 |
 
 ---
 
