@@ -33,24 +33,24 @@
 ## 🖼️ Screenshots
 
 <p align="center">
-  <img src="assets/README/static_gui.png" width="45%" alt="GUI Desktop">
-  <img src="assets/README/static_cli.png" width="45%" alt="Shell">
+  <img src="assets/README/gui.webp" width="45%" alt="GUI Desktop">
+  <img src="assets/README/cli.webp" width="45%" alt="Shell">
 </p>
 <p align="center">
   <em>GUI 桌面环境（左） · CLI 终端环境（右）</em>
 </p>
 
 <p align="center">
-  <img src="assets/README/run_example.gif" width="45%" alt="Boot to Shell">
-  <img src="assets/README/multi_shell.gif" width="45%" alt="Multi Terminal">
+  <img src="assets/README/boot.webp" width="45%" alt="Boot to Shell">
+  <img src="assets/README/multi-terminal.webp" width="45%" alt="Multi Terminal">
 </p>
 <p align="center">
   <em>从启动到 Shell（左） · 多终端窗口（右）</em>
 </p>
 
 <p align="center">
-  <img src="assets/README/parallel_work.gif" width="45%" alt="Parallel Work">
-  <img src="assets/README/filesystem.gif" width="45%" alt="Filesystem">
+  <img src="assets/README/parallel.webp" width="45%" alt="Parallel Work">
+  <img src="assets/README/filesystem.webp" width="45%" alt="Filesystem">
 </p>
 <p align="center">
   <em>多终端并发执行（左） · Ext2 文件操作（右）</em>

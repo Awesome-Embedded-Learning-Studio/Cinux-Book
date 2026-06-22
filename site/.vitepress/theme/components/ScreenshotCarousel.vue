@@ -2,9 +2,17 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { withBase } from 'vitepress'
 
-// 截图来自 site/.vitepress/public/screenshots/(publicDir,构建期整目录拷进 dist)。
-// 用动画 WebP(gif2webp 有损 + gifsicle 缩到 960):保留启动/多终端/文件操作的动态,
-// 体积比原 GIF 小 60% 左右。组件里用 withBase('/screenshots/xxx') 引用,自动补 base。
+// 截图来自仓库根 assets/README/(单一份源,README 与站点共用)。动画 WebP
+// (gif2webp 有损 + gifsicle 缩到 960):保留启动/多终端/文件操作的动态,比原 GIF 小 60%。
+// 跨 srcDir 边界用相对 import —— Vite 构建期处理成带 hash 的资源 URL(自动带 base),
+// 故图片用导入变量、不走 withBase;只有章节跳转链接(href)才用 withBase。
+import imgGui from '../../../../assets/README/gui.webp'
+import imgCli from '../../../../assets/README/cli.webp'
+import imgBoot from '../../../../assets/README/boot.webp'
+import imgMulti from '../../../../assets/README/multi-terminal.webp'
+import imgParallel from '../../../../assets/README/parallel.webp'
+import imgFs from '../../../../assets/README/filesystem.webp'
+
 interface Slide {
   img: string
   href: string
@@ -12,12 +20,12 @@ interface Slide {
 }
 
 const slides: Slide[] = [
-  { img: withBase('/screenshots/gui.webp'), href: withBase('/book/09-gui/033-gui-desktop'), title: 'GUI 桌面环境 · 窗口管理器' },
-  { img: withBase('/screenshots/cli.webp'), href: withBase('/book/07-userland/024-shell'), title: 'Shell 命令行 · Ring 3 用户态' },
-  { img: withBase('/screenshots/boot.webp'), href: withBase('/book/01-boot/001-boot-real-mode'), title: '从 Bootloader 启动 · 实/保护/长模式' },
-  { img: withBase('/screenshots/multi-terminal.webp'), href: withBase('/book/10-multitasking/035b-multi-terminal'), title: '多终端并发 · fork / exec' },
-  { img: withBase('/screenshots/parallel.webp'), href: withBase('/book/10-multitasking/034-process-fork-exec'), title: '多任务调度 · 独立地址空间' },
-  { img: withBase('/screenshots/filesystem.webp'), href: withBase('/book/08-filesystem/028-fs-ext2'), title: 'Ext2 文件系统读写 · VFS 抽象' },
+  { img: imgGui, href: withBase('/book/09-gui/033-gui-desktop'), title: 'GUI 桌面环境 · 窗口管理器' },
+  { img: imgCli, href: withBase('/book/07-userland/024-shell'), title: 'Shell 命令行 · Ring 3 用户态' },
+  { img: imgBoot, href: withBase('/book/01-boot/001-boot-real-mode'), title: '从 Bootloader 启动 · 实/保护/长模式' },
+  { img: imgMulti, href: withBase('/book/10-multitasking/035b-multi-terminal'), title: '多终端并发 · fork / exec' },
+  { img: imgParallel, href: withBase('/book/10-multitasking/034-process-fork-exec'), title: '多任务调度 · 独立地址空间' },
+  { img: imgFs, href: withBase('/book/08-filesystem/028-fs-ext2'), title: 'Ext2 文件系统读写 · VFS 抽象' },
 ]
 
 const active = ref(0)
