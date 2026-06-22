@@ -71,6 +71,8 @@ export default defineProject({
     cppTemplateEscape: true,
     kbd: true,
     math: true,
+    mermaid: true,
+    codeFold: true,
   },
 
   homeBanner: {

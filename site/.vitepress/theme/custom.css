@@ -1,8 +1,34 @@
+/* ── Font Size Switcher(五档 zoom 整页缩放)────────────────── */
+/* 由 FontSizeSwitcher.vue 切 documentElement 的 data-font-size。
+   用 CSS zoom 整页缩放:rem + 所有 px 字号 + 自定义组件一并跟随,
+   等同浏览器 Ctrl+/- 原生缩放,避免「只有正文跳动、组件不动」的割裂感。
+   首屏由 config/index.ts head 内联脚本提前设 data-font-size(默认 normal),防闪烁。 */
+
+html[data-font-size='xxsmall'] {
+  zoom: 0.85;
+}
+
+html[data-font-size='small'] {
+  zoom: 0.92;
+}
+
+html[data-font-size='normal'] {
+  zoom: 1;
+}
+
+html[data-font-size='large'] {
+  zoom: 1.08;
+}
+
+html[data-font-size='xxlarge'] {
+  zoom: 1.16;
+}
+
 /* ── Content Typography ──────────────────────────────────────── */
 
 .vp-doc {
   line-height: 1.85;
-  font-size: 0.82rem;
+  font-size: 1.05rem;
 }
 
 .vp-doc h1 { line-height: 1.4; }
@@ -15,21 +41,51 @@
 }
 
 /* ── Content Width ───────────────────────────────────────────── */
+/* 整体布局宽度,决定文档正文区最终宽度。VitePress 用它算 VPContent 的左右 padding。
+   取 1560 → 正文区天花板 ≈ 904px(中文 ~53 字/行,舒适)。 */
 
 :root {
-  --vp-layout-max-width: 80rem;
+  --vp-layout-max-width: 1560px;
+}
+
+/* 文档正文列:撑满父级 content 区。父级天花板 ≈ layout(1560) − 目录栏 − 大纲栏 − padding
+   ≈ 904px,max-width ≥ 904 即撑满;给 1380 留足余量。
+   三类选择器叠加特异性,稳压 VitePress 默认的 has-aside / 无 aside 规则。 */
+.VPDoc .content-container,
+.VPDoc.has-aside .content-container,
+.VPDoc:not(.has-aside) .content-container {
+  max-width: 1380px;
+}
+
+/* 侧栏 / 大纲:字号随正文整体放大(zoom 下避免相对正文偏小) */
+
+.VPSidebar .link {
+  font-size: 1.2rem;
+}
+
+.VPDocAsideOutline .outline-link {
+  font-size: 1.1rem;
 }
 
 /* ── Code Blocks ─────────────────────────────────────────────── */
 
 .vp-doc div[class*='language-'] {
   border-radius: 8px;
-  font-size: 0.75rem;
+  font-size: 0.96rem;
   line-height: 1.6;
 }
 
 .vp-doc div[class*='language-'] code {
-  font-size: 0.75rem;
+  font-size: 0.96rem;
+}
+
+/* 移动端代码块:取消 VitePress 默认 margin:16px -24px 的出血(<640px 时代码块
+   左右各扩 24px 顶到视口边缘,长代码右侧被遮)。改为不出血 + 恢复圆角,长行靠横滚。 */
+@media (max-width: 639px) {
+  .vp-doc div[class*='language-'] {
+    margin: 16px 0;
+    border-radius: 8px;
+  }
 }
 
 .vp-doc :not(pre) > code {
@@ -41,7 +97,7 @@
 /* ── Tables ──────────────────────────────────────────────────── */
 
 .vp-doc table {
-  font-size: 0.78rem;
+  font-size: 0.88rem;
   line-height: 1.6;
   border-radius: 8px;
   overflow: hidden;
@@ -91,6 +147,140 @@
     font-size: 11pt;
     line-height: 1.7;
   }
+}
+
+/* ================================================================
+   长代码折叠(.vp-code-fold):构建期 code-fold-plugin 把 >20 行的代码块
+   包成 <div class="vp-code-fold"><details><summary/></details><代码/></div>。
+   - 行为:收起 = 只显示 summary 条(代码完全隐藏);展开 = 代码全部显示。
+   - 代码在 <details>【外】,靠纯 CSS :has(details[open]) 控制 display;
+     零 JS、无 JS 也能点 summary 展开;@media print 强制显示,打印完整。
+   - 内部 div.language-* 兄弟链(copy/lang/pre/line-numbers)不动,复制按钮不受影响。
+   ================================================================ */
+
+.vp-doc .vp-code-fold {
+  margin: 16px 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--vp-code-block-bg);
+}
+
+.vp-doc .vp-code-fold > details > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--vp-c-text-2);
+  user-select: none;
+  background: var(--vp-code-block-bg);
+  transition: color 0.2s ease;
+}
+
+.vp-doc .vp-code-fold > details > summary:hover {
+  color: var(--vp-c-text-1);
+}
+
+.vp-doc .vp-code-fold > details > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* 展开三角:放大到 1rem,醒目;hover 变品牌色,展开时旋转 */
+.vp-doc .vp-code-fold > details > summary::before {
+  content: '▶';
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--vp-c-text-3);
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.vp-doc .vp-code-fold > details > summary:hover::before {
+  color: var(--vp-c-brand-1);
+}
+
+.vp-doc .vp-code-fold:has(details[open]) > details > summary::before {
+  transform: rotate(90deg);
+}
+
+/* 展开/收起文案随 details[open] 切换(:has 全主流浏览器 2023+ 支持) */
+.vp-doc .vp-code-fold:not(:has(details[open])) .vp-cf-open {
+  display: none;
+}
+
+.vp-doc .vp-code-fold:has(details[open]) .vp-cf-closed {
+  display: none;
+}
+
+.vp-doc .vp-code-fold:has(details[open]) .vp-cf-open {
+  display: inline;
+}
+
+.vp-doc .vp-code-fold > details > summary em {
+  font-style: normal;
+  color: var(--vp-c-text-3);
+  margin-left: 4px;
+}
+
+/* 代码块:收起态完全隐藏(不预览);展开态默认显示。margin/圆角由外层统一裁 */
+.vp-doc .vp-code-fold > div[class*='language-'] {
+  margin: 0;
+  border-radius: 0;
+}
+
+.vp-doc .vp-code-fold:not(:has(details[open])) > div[class*='language-'] {
+  display: none;
+}
+
+/* 打印:强制显示所有折叠代码,PDF 完整(代码始终在 DOM 中,纯 CSS,无需 JS) */
+@media print {
+  .vp-doc .vp-code-fold > div[class*='language-'] {
+    display: block !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vp-doc .vp-code-fold > details > summary,
+  .vp-doc .vp-code-fold > details > summary::before {
+    transition: none;
+  }
+}
+
+/* ================================================================
+   Mermaid Diagrams(客户端 CDN 懒渲染,见 mermaid-client.ts)
+   ================================================================ */
+
+.mermaid-diagram {
+  margin: 1rem 0;
+  overflow-x: auto;
+  text-align: center;
+}
+
+.mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* 节点/边标签:给足内边距与行高,避免 CJK 多行文字被节点框裁剪 */
+.mermaid-diagram .nodeLabel,
+.mermaid-diagram .edgeLabel {
+  padding: 0.15em 0.35em;
+  line-height: 1.45;
+}
+
+/* foreignObject 默认裁剪溢出内容;放开让标签自适应,不遮挡 */
+.mermaid-diagram foreignObject {
+  overflow: visible;
+}
+
+.mermaid-error {
+  padding: 12px;
+  border: 1px solid var(--vp-c-danger-2);
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 0.85em;
 }
 
 /* ================================================================

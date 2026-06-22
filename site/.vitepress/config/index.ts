@@ -3,6 +3,7 @@ import type { DefaultTheme } from 'vitepress'
 import { buildSidebar } from './sidebar'
 import { resolvePlugins } from '../plugins'
 import type { ProjectConfig } from './schema'
+import { getBuildInfo } from './build-info'
 import { resolve } from 'path'
 
 import projectConfig from '../../../project.config'
@@ -12,6 +13,9 @@ const defaultTitle = projectConfig.title[primaryLocale.code]
 const defaultDesc = projectConfig.description[primaryLocale.code]
 const githubUrl = `https://github.com/${projectConfig.github.owner}/${projectConfig.github.repo}`
 const editPatternBase = `${githubUrl}/edit/${projectConfig.github.branch}/${projectConfig.github.documentsPath}`
+
+// 构建期从 git 取版本信号,用于页脚展示(Cinux 有 42 个 tag,版本号有真实意义)。
+const buildInfo = getBuildInfo()
 
 // Resolve docsRoot relative to this file (site/.vitepress/config/)
 const docsRoot = new URL(`../../../${projectConfig.documentsDir}`, import.meta.url).pathname.replace(/\/$/, '')
@@ -74,6 +78,13 @@ export default defineConfig({
 
   head: [
     ['link', { rel: 'icon', href: projectConfig.favicon || `${projectConfig.base}favicon.ico` }],
+    // 首屏立即应用字号档(从 localStorage 读,默认 normal),防刷新闪烁。
+    // 与 FontSizeSwitcher.vue 的 STORAGE_KEY('vp-font-size')保持一致。
+    [
+      'script',
+      {},
+      `(function(){try{var s=localStorage.getItem('vp-font-size')||'normal';if(s!=='xxsmall'&&s!=='small'&&s!=='normal'&&s!=='large'&&s!=='xxlarge'){s='normal';}document.documentElement.dataset.fontSize=s;}catch(e){}})()`,
+    ],
   ],
 
   markdown: {
@@ -93,6 +104,11 @@ export default defineConfig({
     build: {
       chunkSizeWarningLimit: 5000,
     },
+    // 防御性:mermaid 只在浏览器从 CDN 加载(见 mermaid-client.ts),这里声明 external
+    // 避免 VitePress SSR / optimizeDeps 阶段对 mermaid 做无谓的预构建或报错。
+    ssr: {
+      external: ['mermaid'],
+    },
   },
 
   themeConfig: {
@@ -109,7 +125,7 @@ export default defineConfig({
     },
 
     footer: {
-      message: 'Built with VitePress',
+      message: `${buildInfo.version} · ${buildInfo.sha} · ${buildInfo.date}`,
       copyright: projectConfig.copyright,
     },
 
