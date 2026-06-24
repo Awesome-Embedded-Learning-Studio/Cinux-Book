@@ -46,15 +46,16 @@ jobs:
       - name: Restore build cache
         uses: actions/cache@v4
         with:
-          path: site/.vitepress/cache
-          key: vitepress-build-${{ runner.os }}-${{ hashFiles('document/**', 'site/.vitepress/config/**', 'site/.vitepress/plugins/**', 'site/.vitepress/public/**', 'site/.vitepress/theme/**', 'package.json', 'pnpm-lock.yaml') }}
+          path: site/.vitepress/.build-cache
+          key: cinux-build-${{ runner.os }}-${{ hashFiles('document/**', 'site/.vitepress/config/**', 'site/.vitepress/plugins/**', 'site/.vitepress/public/**', 'site/.vitepress/theme/**', 'project.config.ts', 'scripts/build.ts', 'package.json', 'pnpm-lock.yaml') }}
           restore-keys: |
-            vitepress-build-${{ runner.os }}-
+            cinux-build-${{ runner.os }}-
 
       - name: Build
         run: pnpm build
         env:
           NODE_OPTIONS: --max-old-space-size=6144
+          BUILD_CONCURRENCY: '3'
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

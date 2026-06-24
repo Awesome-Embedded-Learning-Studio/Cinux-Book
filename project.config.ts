@@ -52,6 +52,7 @@ export default defineProject({
 
   build: {
     concurrency: 4,
+    cacheDir: '.build-cache',
     rootPages: ['index.md'],
     rootAssets: [],
   },

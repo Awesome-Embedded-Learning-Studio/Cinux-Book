@@ -68,11 +68,12 @@ jobs:
   docs:
     needs: format
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0   # getBuildInfo 需要 git tag 取页脚版本号
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -88,8 +89,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Restore build cache
+        uses: actions/cache@v4
+        with:
+          path: site/.vitepress/.build-cache
+          key: cinux-build-${{ runner.os }}-${{ hashFiles('document/**', 'site/.vitepress/config/**', 'site/.vitepress/plugins/**', 'site/.vitepress/public/**', 'site/.vitepress/theme/**', 'project.config.ts', 'scripts/build.ts', 'package.json', 'pnpm-lock.yaml') }}
+          restore-keys: |
+            cinux-build-${{ runner.os }}-
+
       - name: Build docs
         run: pnpm build
+        env:
+          BUILD_CONCURRENCY: '3'
 
   kernel-tests:
     needs: format
