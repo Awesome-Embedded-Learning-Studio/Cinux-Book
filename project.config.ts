@@ -24,16 +24,8 @@ export default defineProject({
         items: [
           { text: '子系统参考', link: '/reference/' },
           { text: '调试笔记', link: '/debug-notes/' },
-        ],
-      },
-      {
-        text: '归档',
-        items: [
-          { text: '动手实践(hands-on)', link: '/hands-on/' },
-          { text: '代码通读(read-through)', link: '/read-through/' },
-          { text: '发布教程(tutorial)', link: '/tutorial/' },
-          { text: '原始笔记(notes)', link: '/notes/' },
-          { text: '开发流程(ci)', link: '/ci/' },
+          { text: '原始笔记', link: '/notes/' },
+          { text: '开发流程', link: '/ci/' },
         ],
       },
       { text: 'GitHub', link: 'https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book' },
@@ -46,9 +38,6 @@ export default defineProject({
       { name: 'labs', srcDir: 'labs', urlPrefix: '/labs' },
       { name: 'reference', srcDir: 'reference', urlPrefix: '/reference' },
       { name: 'debug-notes', srcDir: 'debug-notes', urlPrefix: '/debug-notes' },
-      { name: 'hands-on', srcDir: 'hands-on', urlPrefix: '/hands-on' },
-      { name: 'read-through', srcDir: 'read-through', urlPrefix: '/read-through' },
-      { name: 'tutorial', srcDir: 'tutorial', urlPrefix: '/tutorial' },
       { name: 'notes', srcDir: 'notes', urlPrefix: '/notes' },
       { name: 'ci', srcDir: 'ci', urlPrefix: '/ci' },
     ],
