@@ -6,7 +6,8 @@
   "packageManager": "pnpm@10.33.3",
   "scripts": {
     "dev": "vitepress dev site",
-    "build": "vitepress build site",
+    "build": "tsx scripts/build.ts",
+    "build:single": "vitepress build site",
     "preview": "vitepress preview site"
   },
   "devDependencies": {

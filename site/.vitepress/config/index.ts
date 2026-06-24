@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitepress'
 import type { DefaultTheme } from 'vitepress'
 import { buildSidebar } from './sidebar'
+import { buildLocales } from './locales'
 import { resolvePlugins } from '../plugins'
 import type { ProjectConfig } from './schema'
 import { getBuildInfo } from './build-info'
@@ -20,41 +21,7 @@ const buildInfo = getBuildInfo()
 // Resolve docsRoot relative to this file (site/.vitepress/config/)
 const docsRoot = new URL(`../../../${projectConfig.documentsDir}`, import.meta.url).pathname.replace(/\/$/, '')
 
-// Build locales config
-function buildLocales(): Record<string, any> {
-  const locales: Record<string, any> = {}
-
-  for (const locale of projectConfig.locales) {
-    const locKey = locale.default ? 'root' : (locale.prefix?.replace(/\//g, '') || locale.code)
-    const title = projectConfig.title[locale.code]
-    const desc = projectConfig.description[locale.code]
-
-    const baseConfig: any = {
-      label: locale.label,
-      lang: locale.code,
-      title,
-      description: desc,
-    }
-
-    if (!locale.default && locale.prefix) {
-      baseConfig.link = locale.prefix
-    }
-
-    if (!locale.default) {
-      baseConfig.themeConfig = {
-        nav: projectConfig.nav[locale.code] || [],
-        editLink: {
-          pattern: `${editPatternBase}${locale.dir ? `/${locale.dir}` : ''}/:path`,
-          text: `Edit this page on GitHub`,
-        },
-      }
-    }
-
-    locales[locKey] = baseConfig
-  }
-
-  return locales
-}
+// locales 配置由 ./locales.ts 的 buildLocales() 提供(单一真相源,分卷构建复用)
 
 export default defineConfig({
   srcDir: `../${projectConfig.documentsDir}`,
@@ -74,7 +41,7 @@ export default defineConfig({
     },
   },
 
-  locales: buildLocales(),
+  locales: buildLocales(projectConfig),
 
   head: [
     ['link', { rel: 'icon', href: projectConfig.favicon || `${projectConfig.base}favicon.ico` }],

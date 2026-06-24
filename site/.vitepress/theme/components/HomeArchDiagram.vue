@@ -83,7 +83,7 @@ const layers = [
       </div>
 
       <div class="home-arch-cta">
-        <a href="/cinux/hands-on/" class="arch-cta">
+        <a href="/book/" class="arch-cta">
           <span>开始动手实践</span>
           <span class="arch-cta-arrow">→</span>
         </a>
