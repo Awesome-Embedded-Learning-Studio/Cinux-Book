@@ -17,6 +17,10 @@ hero:
       link: https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book
 
 features:
+  - icon: 🚀
+    title: 前置卷 · 读正文之前
+    details: 横切基础——工具链与 CMake、GAS/AT&T 汇编、内核向 C/C++。没读过 AT&T、不懂段/分页、没用过链接脚本?先补这块,再无障碍进正文 001
+    link: /primer/
   - icon: 📖
     title: 主书 · tag 绑定的主线教程
     details: 每章绑定一个 git tag、从源码提炼，从 Real Mode bootloader 一路到多终端桌面，讲清设计、代码、踩坑与验证
@@ -29,10 +33,6 @@ features:
     title: 参考 · 子系统速查表
     details: 中断、内存、进程、文件系统、存储的跨章节速查：接口、寄存器、位常量、边界，附源码索引与权威依据
     link: /reference/
-  - icon: ⚡
-    title: C++17 现代内核
-    details: freestanding C++17，ErrorOr<T> 错误处理，concepts 约束模板，零开销抽象
-    link: /book/
   - icon: 🖥️
     title: 完整系统栈
     details: 覆盖 Bootloader、内存管理、进程调度、VFS、设备驱动、GUI 到 Shell 的全栈实现

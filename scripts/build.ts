@@ -276,6 +276,8 @@ export default defineConfig({
   themeConfig: {
     nav: projectConfig.nav[${JSON.stringify(code)}] || [],
     sidebar: { '${prefix}/': volumeSidebar(docsRoot, ${JSON.stringify(volForSidebar)}) },
+    // 关闭默认主题底部 prev/next 文字导航。开关是 themeConfig.docFooter(prevLinks/nextLinks 无效,usePrevNext 不读)。卡片版 DocNavCards 经 doc-after 插槽注入(theme symlink 共享)。与 index.ts 行为一致。
+    docFooter: { prev: false, next: false },
     search: { provider: 'local' },
     editLink: {
       pattern: \`\${editPatternBase}${localeDirPart}/:path\`,
@@ -355,6 +357,8 @@ export default defineConfig({
   themeConfig: {
     nav: projectConfig.nav[${JSON.stringify(primaryLocale.code)}] || [],
     sidebar: buildSidebar(docsRoot, projectConfig),
+    // 关闭默认主题底部 prev/next 文字导航。开关是 themeConfig.docFooter(prevLinks/nextLinks 无效,usePrevNext 不读)。卡片版 DocNavCards 经 doc-after 插槽注入。与 index.ts 行为一致。
+    docFooter: { prev: false, next: false },
     search: { provider: 'local' },
     editLink: {
       pattern: \`\${editPatternBase}/:path\`,
