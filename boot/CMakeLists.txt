@@ -128,7 +128,7 @@ SECTIONS
     
     . = 0x10000;
     
-    ASSERT(. <= 0x10000, \"stage2 too large! exceeds 32KB\")
+    ASSERT(. <= 0x10000, \"stage2 too large! exceeds 64KB\")
     /DISCARD/ : {
         *(.comment*)
         *(.note*)

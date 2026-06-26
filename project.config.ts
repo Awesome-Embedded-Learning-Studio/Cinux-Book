@@ -17,6 +17,7 @@ export default defineProject({
   nav: {
     'zh-CN': [
       { text: '首页', link: '/' },
+      { text: '前置卷', link: '/primer/' },
       { text: '主书', link: '/book/' },
       { text: '实验册', link: '/labs/' },
       {
@@ -34,6 +35,7 @@ export default defineProject({
 
   sidebar: {
     volumes: [
+      { name: 'primer', srcDir: 'primer', urlPrefix: '/primer' },
       { name: 'book', srcDir: 'book', urlPrefix: '/book' },
       { name: 'labs', srcDir: 'labs', urlPrefix: '/labs' },
       { name: 'reference', srcDir: 'reference', urlPrefix: '/reference' },

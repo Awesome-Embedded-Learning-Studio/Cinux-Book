@@ -110,3 +110,6 @@ document/_build/
 
 # Python虚拟环境
 .venv/
+
+# 一些其他开发相关的目录
+meta/

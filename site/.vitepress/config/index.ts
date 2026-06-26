@@ -82,6 +82,11 @@ export default defineConfig({
     nav: projectConfig.nav[primaryLocale.code] || [],
     sidebar: buildSidebar(docsRoot, projectConfig),
 
+    // 关闭默认主题底部 prev/next 文字导航。VitePress 1.6 的真正开关是 themeConfig.docFooter
+    // (prevLinks/nextLinks 是无效字段,usePrevNext 不读);主题已通过 doc-after 插槽注入卡片版
+    // DocNavCards(见 theme/index.ts),留着默认版会和卡片版重复显示。
+    docFooter: { prev: false, next: false },
+
     search: {
       provider: 'local',
     },
