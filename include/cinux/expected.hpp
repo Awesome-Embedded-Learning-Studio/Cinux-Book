@@ -38,6 +38,8 @@ enum class Error : uint32_t {
     TimedOut,
     Busy,
     Fault,  ///< Bad address (EFAULT): user pointer rejected by access_ok or copy fault
+    NotADirectory,  ///< ENOTDIR: a component used as a directory is not one
+    Loop,           ///< ELOOP: too many symbolic links during path resolution
 };
 
 /** @brief Convert an Error code to a human-readable string. */
@@ -73,6 +75,10 @@ constexpr const char* error_string(Error e) {
         return "Busy";
     case Error::Fault:
         return "Fault";
+    case Error::NotADirectory:
+        return "NotADirectory";
+    case Error::Loop:
+        return "Loop";
     }
     return "Unknown";
 }
