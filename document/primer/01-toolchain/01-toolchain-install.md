@@ -153,7 +153,7 @@ add_compile_options(-Wall -Wextra)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)      # 导出 compile_commands.json 给 clangd
 ```
 
-两个值得注意的点。第一,`LANGUAGES C CXX ASM` 把汇编也声明成一等语言,这样 `add_executable(mbr mbr.S)` 才能直接把 `.S` 当源文件编译(GAS,AT&T 语法)。第二,`CMAKE_EXPORT_COMPILE_COMMANDS ON` 会生成 `compile_commands.json`,这是 clangd 工作的命脉——下面"配 clangd"会用到。
+两个点。第一,`LANGUAGES C CXX ASM` 把汇编也声明成一等语言,这样 `add_executable(mbr mbr.S)` 才能直接把 `.S` 当源文件编译(GAS,AT&T 语法)。第二,`CMAKE_EXPORT_COMPILE_COMMANDS ON` 会生成 `compile_commands.json`,这是 clangd 工作的命脉——下面"配 clangd"会用到。
 
 ### Toolchain file:为什么用 `_INIT` 后缀
 
@@ -302,5 +302,3 @@ cmake --build build --target run     # make run 起 QEMU
 - OSDev — [GCC Cross-Compiler](https://wiki.osdev.org/GCC_Cross-Compiler)(为什么需要/不需要交叉编译器、`-ffreestanding` 语义)、[Bare Bones](https://wiki.osdev.org/Bare_Bones)(freestanding 编译 flag 入门)。
 - CMake `cmake_minimum_required(VERSION 3.20)` 见本仓库 [CMakeLists.txt:1](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/CMakeLists.txt);CMake `>= 4.1` 自检门槛见 [scripts/check_toolchain.sh](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/scripts/check_toolchain.sh)。
 - 本仓库源码:[toolchain-x86_64.cmake](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/cmake/toolchain-x86_64.cmake)、[qemu.cmake](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/cmake/qemu.cmake)、[boot/CMakeLists.txt](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/CMakeLists.txt)、[build_image.sh](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/scripts/build_image.sh)、[.clangd](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/.clangd)。
-
-> 参考 URL 的有效性会在全局审查阶段用 open-websearch(bing)统一核活,与本系列其它章节一致。

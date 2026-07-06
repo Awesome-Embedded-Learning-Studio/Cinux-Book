@@ -262,5 +262,3 @@ cat build/debug.log    # 期望:PL
 - 调试素材提炼自 [1.md](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/document/notes/003/1.md)。
 
 > Intel SDM 版本说明:本卷引用的 SDM 章节号沿用较早版本编号。若按项目本地 PDF(`document/reference/intel/`,2023-06 版)查阅,部分内容已重排——四级分页在 §4.5、2MB 大页见 §4.5、PAE 在 §4.4、EFER 在 §2.2.1、切换到长模式在 Chapter 10。以章节标题为准,别拘泥于编号。
-
-> 参考 URL 的有效性会在全局审查阶段用 open-websearch(bing)统一核活。

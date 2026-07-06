@@ -284,5 +284,3 @@ Cinux 的修法在注释里写得很清楚(interrupts.S 第 56–63 行):压完 
 - 本仓库源码:[context_switch.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/context_switch.S)、[long_mode.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/common/long_mode.S)、[stage2.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/stage2.S)、[serial.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/common/serial.S)、[mbr.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/mbr.S)、[interrupts.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/interrupts.S)。
 
 > Intel SDM 版本说明:本仓库本地 PDF 为 2023-06 版,章节已重排。控制寄存器在 Vol.3A §2.5、MSR 在 Vol.4、指令参考在 Vol.2A/2B。引用以**章节/指令标题**为准,别拘泥于旧版编号。
-
-> 参考 URL 的有效性会在全局审查阶段用 open-websearch(bing)统一核活,与本系列其它章节一致。

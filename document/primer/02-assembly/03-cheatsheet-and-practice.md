@@ -312,5 +312,3 @@ load_stage2:
 - GAS 文档 — *Using as*,i386 依赖章节(*i386-Syntax* / *i386-Memory* / *i386-Regs*):AT&T 的 `%`/`$` 前缀、源目顺序、`disp(base,index,scale)`、`b/w/l/q` 后缀规则:https://sourceware.org/binutils/docs/as/。
 - OSDev — [X86 Assembly](https://wiki.osdev.org/X86_Assembly)、[AT&T Syntax](https://wiki.osdev.org/AT%26T_Syntax)、[GDT Tutorial](https://wiki.osdev.org/GDT_Tutorial)(access byte / flags 速查)。
 - 本仓库源码:[mbr.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/mbr.S)、[stage2.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/stage2.S)、[boot/CMakeLists.txt](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/CMakeLists.txt)。
-
-> 参考 URL 的有效性会在全局审查阶段用 open-websearch(bing)统一核活,与本系列其它章节一致。

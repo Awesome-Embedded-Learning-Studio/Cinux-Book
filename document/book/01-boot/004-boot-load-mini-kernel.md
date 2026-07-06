@@ -178,7 +178,7 @@ _start:
     call mini_kernel_main                # ⑤ 进 C++ main
 ```
 
-这几行里其实藏着后面要讲的大坑(见调试现场)。最要命的是第 ③ 步把 `BootInfo*` 存进 `__boot_info_ptr`,而这个变量放在 `.data` 段、不是 `.bss`——这点至关重要,因为 `.bss` 紧接着就会被清零,要是存进了 `.bss`,清零动作会把刚存的指针抹掉,后面 main 读到的就是 0,这正是"boot_info 损坏"的根因。另一个顺序约束是清 BSS 必须在跑全局构造之前:`.bss` 里是未初始化的全局/静态变量,C/C++ 语义要求它们启动时为 0,不清零全局对象的状态就是随机的。而全局构造(`_init_global_ctors`)本身又必须在 `main` 之前跑完——C++ 的全局对象(比如 `main.cpp` 里的 `global_counter`)的构造函数得在 `main` 之前执行,这是 C++ 运行时的规矩。
+这几行里其实藏着后面要讲的大坑(见调试现场)。最要命的是第 ③ 步把 `BootInfo*` 存进 `__boot_info_ptr`,而这个变量放在 `.data` 段、不是 `.bss`——这点很关键,因为 `.bss` 紧接着就会被清零,要是存进了 `.bss`,清零动作会把刚存的指针抹掉,后面 main 读到的就是 0,这正是"boot_info 损坏"的根因。另一个顺序约束是清 BSS 必须在跑全局构造之前:`.bss` 里是未初始化的全局/静态变量,C/C++ 语义要求它们启动时为 0,不清零全局对象的状态就是随机的。而全局构造(`_init_global_ctors`)本身又必须在 `main` 之前跑完——C++ 的全局对象(比如 `main.cpp` 里的 `global_counter`)的构造函数得在 `main` 之前执行,这是 C++ 运行时的规矩。
 
 ### 5. crt_stub.cpp:裸机 C++ 要自己带哪些运行时
 
@@ -273,5 +273,3 @@ boot 卷到这里收尾:从 MBR 到长模式、再到第一个 C++ 内核跑起�
 - 调试素材提炼自 [kernel_load_stack_collision.md](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/document/notes/004-B/kernel_load_stack_collision.md)、[boot_info_param_corruption.md](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/document/notes/004-C/boot_info_param_corruption.md)、[bss_data_symbol_conflict.md](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/document/notes/004-C/bss_data_symbol_conflict.md)。
 
 > Intel SDM 版本说明:本卷引用的 SDM 章节号沿用较早版本编号;若按项目本地 PDF(2023-06 版)查阅,内容位置以章节标题为准(System V AMD64 ABI、OSDev 的引用不受此影响)。
-
-> 参考 URL 的有效性会在全局审查阶段用 open-websearch(bing)统一核活。

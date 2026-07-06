@@ -255,5 +255,3 @@ cat build/debug.log    # 期望看到 'P'(可能还有点尾部噪声)
 - 调试素材提炼自 [1.md](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/document/notes/002/1.md) 与 [2.md](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/document/notes/002/2.md)。
 
 > Intel SDM 版本说明:本卷引用的 SDM 章节号沿用较早版本编号。若按项目本地 PDF(`document/reference/intel/`,2023-06 版)查阅,部分内容已重排——段描述符在 §3.4.5、GDTR/LGDT 在 §2.4.1、控制寄存器(CR0/PE)在 §2.5、切换到保护模式在 §10.9。以章节标题为准,别拘泥于编号。
-
-> 参考 URL 的有效性会在全局审查阶段用 open-websearch(bing)统一核活。

@@ -364,5 +364,3 @@ Mode info OK, switching...
 - 调试素材提炼自 [notes_mbr.md](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/document/notes/001/notes_mbr.md) 与 [note2_check_framebuffer.md](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/document/notes/001/note2_check_framebuffer.md)。
 
 > Intel SDM 版本说明:本卷引用的 SDM 章节号沿用较早版本编号。若按项目本地 PDF(`document/reference/intel/`,2023-06 版)查阅,部分内容已重排——实模式地址翻译在 §21.1.1、复位/上电入口在 §10.1.4、模式切换在 Chapter 10、控制寄存器(CR0/CR4)在 §2.5。以章节标题为准,别拘泥于编号。
-
-> 参考 URL 的有效性会在全局审查阶段用 open-websearch(bing)统一核活,与本系列其它章节一致。

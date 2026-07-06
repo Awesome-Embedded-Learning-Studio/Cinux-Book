@@ -170,7 +170,7 @@ IconAction WindowManager::consume_pending_icon_action() {
 
 取出当前的 action,把槽清回 `None`,返回取到的值。关键在"取出并清零"这个语义:它是一次性的。调用方拿到 action 之后,槽就空了,下一次调用一定返回 `None`,除非中间又发生了一次图标点击。这个设计是为了避免一个动作被消费两次——你点一次 Shell,就应该只触发一次开窗,不能因为 tick 多跑了几轮就开出一串窗口。
 
-这一章里,`consume_pending_icon_action` 不仅实现好了,而且已经被接进了 `gui_tick_callback`:tick 每个滴答来问一句"有没有人点了图标",取到 `OpenShell` 就调 `create_shell_terminal` 弹出终端,取到别的就忽略。`create_shell_terminal` 的具体实现(new Terminal、绑管道、add_window)留到 [033b](033b-gui-lazy-terminal.md) 展开,这一章先把它当作"点 Shell 会触发的那个动作"。`test_desktop_click_sets_and_consumes_action` 验证的就是这套语义:点一次图标,`consume` 得到 `OpenShell`,再 `consume` 一次得到 `None`。
+这一章里,`consume_pending_icon_action` 实现好了,也接进了 `gui_tick_callback`:tick 每个滴答来问一句"有没有人点了图标",取到 `OpenShell` 就调 `create_shell_terminal` 弹出终端,取到别的就忽略。`create_shell_terminal` 的具体实现(new Terminal、绑管道、add_window)留到 [033b](033b-gui-lazy-terminal.md) 展开,这一章先把它当作"点 Shell 会触发的那个动作"。`test_desktop_click_sets_and_consumes_action` 验证的就是这套语义:点一次图标,`consume` 得到 `OpenShell`,再 `consume` 一次得到 `None`。
 
 ### draw_desktop_icons:位图加居中标签
 
