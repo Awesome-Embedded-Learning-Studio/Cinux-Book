@@ -145,7 +145,61 @@ def cmd_mark_skip(args):
     print(f"marked #{n} skip: {reason}")
 
 
-CMDS = {"list": cmd_list, "next": cmd_next, "apply": cmd_apply, "mark-skip": cmd_mark_skip}
+def cmd_notes(args):
+    """找某步命中的 CinuxOS dev note(309 篇,按日期 ±2 天 + 弧关键词)。note 是抓手不是福音。"""
+    if not args:
+        sys.exit("用法:notes <n|SHA>  # 找该步命中的 CinuxOS dev note")
+    target = args[0]
+    all_steps = steps()
+    if target.isdigit():
+        n = int(target)
+        if n < 1 or n > len(all_steps):
+            sys.exit(f"步号超界(1..{len(all_steps)})")
+        sha, date, subj = all_steps[n - 1][1], all_steps[n - 1][2], all_steps[n - 1][3]
+    else:
+        m = next((s for s in all_steps if s[1] == target), None)
+        if not m:
+            sys.exit("步不存在")
+        n, sha, date, subj = m
+    print(f"# step #{n} {sha[:7]} {date} {subj}")
+    notes_dir = CINUXOS / "document" / "notes"
+    from datetime import date as dt_date
+    import re
+    try:
+        d = dt_date.fromisoformat(date)
+    except ValueError:
+        d = None
+    by_date = []
+    if d:
+        for f in sorted(notes_dir.glob("*.md")):
+            try:
+                fd = dt_date.fromisoformat(f.name[:10])
+            except ValueError:
+                continue
+            if abs((fd - d).days) <= 2:
+                by_date.append(f)
+    # 弧关键词补搜(subject 或 PR 里的 f<N>-m<M>)
+    arc_tokens = set(re.findall(r'f\d+', subj.lower()))
+    by_arc = []
+    if arc_tokens:
+        for f in sorted(notes_dir.glob("*.md")):
+            if any(tok in f.name.lower() for tok in arc_tokens) and f not in by_date:
+                by_arc.append(f)
+    if by_date:
+        print(f"## 命中 dev note(日期 ±2 天,{len(by_date)} 篇):")
+        for f in by_date:
+            print(f"  ~/CinuxOS/document/notes/{f.name}")
+    if by_arc:
+        print(f"## 弧关键词命中({', '.join(arc_tokens)},{len(by_arc)} 篇):")
+        for f in by_arc:
+            print(f"  ~/CinuxOS/document/notes/{f.name}")
+    if not by_date and not by_arc:
+        print("## 无命中 note —— 直接看源码(`git -C ~/CinuxOS show <sha>`).")
+        print("## 提示:CinuxOS notes 从 2026-05-26 起密集;更早的步(fork 当日)可能无 note。")
+
+
+CMDS = {"list": cmd_list, "next": cmd_next, "apply": cmd_apply,
+        "mark-skip": cmd_mark_skip, "notes": cmd_notes}
 
 if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] not in CMDS:
