@@ -18,6 +18,7 @@
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/inode.hpp"
 #include "kernel/fs/vfs_mount.hpp"
+#include "kernel/lib/aslr.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/pmm.hpp"
@@ -110,8 +111,11 @@ int64_t sys_mmap(uint64_t addr, uint64_t length, uint64_t prot, uint64_t flags, 
         // munmap; here we only fix the bookkeeping).
         (void)task->addr_space->vmas().remove(map_addr, map_addr + aligned_len);
     } else {
-        auto area =
-            task->addr_space->vmas().find_free_area(cinux::arch::USER_MMAP_BASE, aligned_len);
+        // F9 batch 8 (ASLR): jitter the first-fit hint so each process's
+        // mappings start at an unpredictable address. The window bounds stay
+        // fixed; MAP_FIXED (above) still honours the caller's exact address.
+        const uint64_t hint = cinux::arch::USER_MMAP_BASE + cinux::lib::aslr_mmap_offset();
+        auto           area = task->addr_space->vmas().find_free_area(hint, aligned_len);
         if (!area.ok()) {
             return -to_errno(area.error());
         }
@@ -221,8 +225,12 @@ int64_t sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot, uint64_t, ui
     if ((prot & PROT_WRITE) != 0) {
         pte_flags |= cinux::arch::FLAG_WRITABLE;
     }
-    // NX deferred until EFER.NXE is enabled (F9 NX/SMEP/SMAP): bit 63 is
-    // reserved now and would cause a reserved-bit #PF on access.
+    // F9 batch 2: NXE is on -- non-executable mappings get the NX bit (bit 63
+    // is valid now; was a reserved-bit #PF before EFER.NXE). PROT_EXEC stays
+    // executable; everything else is NX (W^X).
+    if ((prot & PROT_EXEC) == 0) {
+        pte_flags |= cinux::arch::FLAG_NX;
+    }
     for (uint64_t v = addr; v < addr + aligned_len; v += kPageSize) {
         const uint64_t phys = task->addr_space->translate(v);
         if (phys != 0) {

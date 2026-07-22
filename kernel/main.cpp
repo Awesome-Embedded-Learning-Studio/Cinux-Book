@@ -42,6 +42,7 @@
 #include "kernel/arch/x86_64/idt.hpp"
 #include "kernel/arch/x86_64/irq_backend.hpp"
 #include "kernel/arch/x86_64/memory_layout.hpp"
+#include "kernel/arch/x86_64/paging.hpp"  // F9 batch 3: enable_smep
 #include "kernel/arch/x86_64/paging_config.hpp"
 #include "kernel/arch/x86_64/pic.hpp"
 #include "kernel/arch/x86_64/smp.hpp"
@@ -57,6 +58,7 @@
 #include "kernel/drivers/video/framebuffer.hpp"
 #include "kernel/lib/kallsyms.hpp"
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/lib/random.hpp"  // F9 batch 7: g_random
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/page_cache.hpp"
 #include "kernel/mm/pmm.hpp"
@@ -114,6 +116,7 @@ extern "C" void kernel_main() {
     // percpu() (which reads MSR_GS_BASE) works before any interrupt fires or any
     // code uses it.  Also configures STAR/EFER for SYSRET (formerly Step 18).
     cinux::arch::usermode_init();
+    cinux::arch::enable_smep_smap();  // F9 batch 3/4: SMEP+SMAP on the BSP (CR4 per-CPU)
     cinux::lib::kprintf("[BIG] PerCpu GS base anchored (BSP).\n");
 
     // Step 5: Initialise the PIC (remap IRQ0-7 -> 0x20-0x27,
@@ -126,6 +129,9 @@ extern "C" void kernel_main() {
 
     // Step 7: Initialise PIT channel 0 at 100 Hz (10 ms per tick)
     PIT::init(100);
+
+    // F9 batch 7: seed the kernel PRNG (rdrand/TSC/PIT entropy) for ASLR (b8).
+    cinux::lib::g_random.init();
 
     // Step 7b: Parse ACPI (RSDP/MADT) for the APIC base addresses and CPU list
     // that M2 consumes.  Only needs the loader's direct map, which is already up.

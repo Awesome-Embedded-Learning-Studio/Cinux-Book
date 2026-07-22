@@ -17,6 +17,7 @@
 #include <stdint.h>
 
 #include "kernel/arch/x86_64/idt.hpp"
+#include "kernel/arch/x86_64/usermode.hpp"  // F9 batch 1: USER_SIGRETURN_PAGE
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"  // DEBT-008: VMA check in signal_setup_frame
 #include "kernel/mm/vma.hpp"            // VmaFlags / VMA / has_flag
@@ -44,13 +45,6 @@ Task* g_registry_head = nullptr;
 // reads half-linked pointers / dangling registry_next -> jump-to-garbage or
 // UAF once the slab reuses a freed Task. irq-safe: add_task may run at IF=0.
 Spinlock g_registry_lock;
-
-// int $0x80 (opcode cd 80) followed by nops to fill an 8-byte slot.  This is
-// the sigreturn trampoline written onto the user stack; the handler's return
-// address points here, so `ret` lands on `int $0x80` which traps into the
-// sigreturn IDT gate (vector 0x80).  Requires the user stack to be executable
-// (NXE is off until F9 -- see GOTCHA).
-constexpr uint8_t kSigreturnTrampoline[8] = {0xCD, 0x80, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
 
 }  // namespace
 
@@ -295,13 +289,16 @@ void signal_setup_frame(InterruptFrame* frame, Signal sig, uint64_t handler_addr
     const uint64_t pad      = user_rsp & 0x0F;  // 0 or 8
 
     // Layout (low -> high address):
-    //   trampoline code (8B)        @ T
-    //   return-addr slot (= T)      @ R        <- handler RSP
-    //   SignalFrame                 @ R+8      <- sigreturn reads here
-    //   (alignment pad)             @ R+8+sizeof(SignalFrame)
-    //   original user RSP           @ U
-    const uint64_t R  = user_rsp - pad - 8 - sizeof(SignalFrame);
-    const uint64_t T  = R - 8;
+    //   return-addr slot (= USER_SIGRETURN_PAGE)  @ R    <- handler RSP
+    //   SignalFrame                               @ R+8  <- sigreturn reads here
+    //   (alignment pad)                           @ R+8+sizeof(SignalFrame)
+    //   original user RSP                         @ U
+    //
+    // F9 batch 1: the handler return address points at the fixed
+    // USER_SIGRETURN_PAGE (mapped by execve), not at code written on the stack.
+    // This keeps the user stack NX-able (F9 batch 2): the 8-byte int $0x80
+    // sigreturn stub lives off-stack, aligned with Linux's vDSO __restore_rt.
+    const uint64_t R = user_rsp - pad - sizeof(SignalFrame);
 
     // DEBT-008: before writing the frame + trampoline, validate that [T, user_rsp)
     // lands in a writable Stack VMA.  A signal received with the stack near its
@@ -314,13 +311,14 @@ void signal_setup_frame(InterruptFrame* frame, Signal sig, uint64_t handler_addr
     if (task != nullptr && task->addr_space != nullptr) {
         auto            vma_guard = task->addr_space->vma_lock().irq_guard();
         cinux::mm::VMA* v         = task->addr_space->vmas().find(R);
-        const bool      writable_stack =
-            v != nullptr && cinux::mm::has_flag(v->flags, cinux::mm::VmaFlags::Write) &&
-            cinux::mm::has_flag(v->flags, cinux::mm::VmaFlags::Stack);
+        const bool writable_stack = v != nullptr &&
+                                    cinux::mm::has_flag(v->flags, cinux::mm::VmaFlags::Write) &&
+                                    cinux::mm::has_flag(v->flags, cinux::mm::VmaFlags::Stack);
         if (!writable_stack) {
-            cinux::lib::kprintf("[SIGNAL] handler frame R=0x%lx outside writable Stack VMA; "
-                    "falling back to default action\n",
-                    static_cast<unsigned long>(R));
+            cinux::lib::kprintf(
+                "[SIGNAL] handler frame R=0x%lx outside writable Stack VMA; "
+                "falling back to default action\n",
+                static_cast<unsigned long>(R));
             signal_exec_default(task, sig);  // may not return (terminate)
             return;
         }
@@ -350,12 +348,9 @@ void signal_setup_frame(InterruptFrame* frame, Signal sig, uint64_t handler_addr
     sf->sig    = static_cast<uint64_t>(sig);
     sf->magic  = kSigFrameMagic;
 
-    // Trampoline code + return address pointing at it.
-    auto* tramp = reinterpret_cast<uint8_t*>(T);
-    for (int i = 0; i < 8; i++) {
-        tramp[i] = kSigreturnTrampoline[i];
-    }
-    *reinterpret_cast<uint64_t*>(R) = T;
+    // Return address: handler `ret` lands on the fixed sigreturn page (not
+    // stack-resident code).  See USER_SIGRETURN_PAGE / kSigreturnTrampoline.
+    *reinterpret_cast<uint64_t*>(R) = cinux::arch::USER_SIGRETURN_PAGE;
 
     // Redirect the interrupted frame to enter the handler with sig as %rdi.
     frame->rip = handler_addr;

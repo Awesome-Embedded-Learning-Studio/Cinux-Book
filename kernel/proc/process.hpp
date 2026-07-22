@@ -247,6 +247,17 @@ struct Task {
     /** Controlling terminal index (-1 = none; real tty attach deferred to F10). */
     int controlling_tty{-1};
 
+    // F9 batch 9 (M3): process credentials -- real/effective user/group IDs.
+    // Default 0 = root. Inherited across fork()/clone() via their memcpy of the
+    // whole Task (the post-memcpy override sections do not touch these), so no
+    // explicit copy code is needed. setuid-binary support (execve honoring
+    // S_ISUID) and the saved-set (suid/sgid) + fsuid/fsgid are Linux advanced
+    // semantics deferred to F6 alongside file-permission enforcement.
+    uint32_t uid{0};   ///< Real user ID (0 = root)
+    uint32_t euid{0};  ///< Effective user ID (0 = root)
+    uint32_t gid{0};   ///< Real group ID (0 = root)
+    uint32_t egid{0};  ///< Effective group ID (0 = root)
+
     /**
      * CLONE_CHILD_CLEARTID address (F3-M2 batch 4/5).  On thread exit the
      * kernel writes 0 here and futex_wakes any waiter.  0 = not set.

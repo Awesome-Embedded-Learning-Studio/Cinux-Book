@@ -20,6 +20,7 @@
 #include "kernel/syscall/sys_clone.hpp"
 #include "kernel/syscall/sys_close.hpp"
 #include "kernel/syscall/sys_creat.hpp"
+#include "kernel/syscall/sys_creds.hpp"
 #include "kernel/syscall/sys_dmesg.hpp"
 #include "kernel/syscall/sys_execve.hpp"
 #include "kernel/syscall/sys_exit.hpp"
@@ -104,6 +105,12 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_setsid, sys_setsid);
     syscall_register(SyscallNr::SYS_getpgid, sys_getpgid);
     syscall_register(SyscallNr::SYS_getsid, sys_getsid);
+    syscall_register(SyscallNr::SYS_getuid, sys_getuid);
+    syscall_register(SyscallNr::SYS_geteuid, sys_geteuid);
+    syscall_register(SyscallNr::SYS_getgid, sys_getgid);
+    syscall_register(SyscallNr::SYS_getegid, sys_getegid);
+    syscall_register(SyscallNr::SYS_setuid, sys_setuid);
+    syscall_register(SyscallNr::SYS_setgid, sys_setgid);
 }
 
 }  // anonymous namespace

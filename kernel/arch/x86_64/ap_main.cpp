@@ -16,6 +16,7 @@
 #include "kernel/arch/x86_64/irq_backend.hpp"
 #include "kernel/arch/x86_64/memory_layout.hpp"
 #include "kernel/arch/x86_64/msr.hpp"
+#include "kernel/arch/x86_64/paging.hpp"  // F9 batch 3: enable_smep (SMEP)
 #include "kernel/arch/x86_64/paging_config.hpp"
 #include "kernel/arch/x86_64/smp.hpp"
 #include "kernel/drivers/acpi/acpi.hpp"
@@ -137,6 +138,7 @@ extern "C" void ap_main(uint64_t cpu_id) {
     //     AP -- the trampoline sets only EFER.LME).  Same class of "AP didn't
     //     match the BSP's CPU config" as the missing CR4.OSFXSR.
     usermode_init_asm();
+    cinux::arch::enable_smep_smap();  // F9 batch 3/4: SMEP+SMAP on this AP (CR4 per-CPU)
 
     // 2c. LSTAR (SYSCALL entry RIP).  usermode_init_asm() sets STAR/SFMASK/
     //     EFER.SCE but NOT LSTAR; only the BSP's syscall_init() wrote it.  An AP
@@ -158,10 +160,10 @@ extern "C" void ap_main(uint64_t cpu_id) {
     //     on an empty stdin) deadlocks the AP and starves anything pinned here
     //     (F5-M5 -smp Shell keyboard).  Periodic, /16, count tuned for a
     //     few-hundred-Hz tick -- see lapic_timer_handler (mirrors the PIT path).
-    constexpr uint8_t  kTimerDivide = 0x3;        // divide by 16
-    constexpr uint32_t kTimerCount  = 200'000;    // ~300 Hz preemption (was 1e6 ~60 Hz ->
-                                                  // gui_worker only ~30 Hz = choppy cursor once
-                                                  // the usb-tablet tracks precisely)
+    constexpr uint8_t  kTimerDivide = 0x3;      // divide by 16
+    constexpr uint32_t kTimerCount  = 200'000;  // ~300 Hz preemption (was 1e6 ~60 Hz ->
+                                                // gui_worker only ~30 Hz = choppy cursor once
+                                                // the usb-tablet tracks precisely)
     drivers::apic::g_lapic.setup_periodic_timer(kLapicTimerVector, kTimerDivide, kTimerCount);
 
     lib::kprintf("[AP%lu] online (apic_id=%u)\n", cpu_id, pcpu->apic_id);

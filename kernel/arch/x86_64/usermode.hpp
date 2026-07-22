@@ -31,6 +31,14 @@ namespace cinux::arch {
 /// Default virtual address for user program entry (linker base)
 constexpr uint64_t USER_ENTRY_BASE = 0x400000;
 
+/// Fixed virtual address of the sigreturn trampoline page (F9 batch 1).
+/// A single read-only, user-executable page mapped by execve holding the
+/// 8-byte `int $0x80` sigreturn stub. Lets the user stack be marked NX (F9
+/// batch 2): the handler return address points here, not to code on the stack
+/// (aligned with Linux's vDSO __restore_rt). Sits below the ELF image in
+/// otherwise-unused low user space.
+constexpr uint64_t USER_SIGRETURN_PAGE = 0x100000;
+
 /// Default virtual address for the top of the user stack
 constexpr uint64_t USER_STACK_TOP = 0x7FFFFF000;
 

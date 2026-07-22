@@ -119,6 +119,28 @@ void test_efer_sce_bit_set() {
     TEST_ASSERT_TRUE(efer & 0x1);
 }
 
+void test_f9_nxe_smep_smap_enabled() {
+    // F9: EFER.NXE (bit 11) is x86_64 baseline -- always expected on.
+    uint64_t efer = read_msr(0xC0000080);
+    TEST_ASSERT_TRUE((efer >> 11) & 1);
+
+    // SMEP/SMAP are CPUID-gated (CPUID.07H:EBX[7]/[20], sub-leaf ecx=0). The
+    // kernel's enable_smep_smap() sets CR4[20]/[21] only when the CPU reports
+    // support; the test mirrors that. Verified on -cpu host (SMEP/SMAP exposed
+    // + asserted). -cpu max on WSL2 KVM hides CPUID leaf 7 (EBX=0) -> correctly
+    // left clear there; real HW exposes them -> asserted.
+    uint32_t a7 = 7, b7 = 0, c7 = 0, d7 = 0;
+    __asm__ volatile("cpuid" : "+a"(a7), "+c"(c7), "=b"(b7), "=d"(d7));
+    uint64_t cr4;
+    __asm__ volatile("mov %%cr4, %0" : "=r"(cr4));
+    if (b7 & (1u << 7)) {
+        TEST_ASSERT_TRUE((cr4 >> 20) & 1);  // CR4.SMEP
+    }
+    if (b7 & (1u << 20)) {
+        TEST_ASSERT_TRUE((cr4 >> 21) & 1);  // CR4.SMAP
+    }
+}
+
 void test_sfmask_if_bit() {
     // SFMASK (IA32_FMASK, 0xC0000084) controls which RFLAGS bits SYSCALL clears.
     // Our code writes 0x200 (IF mask).  QEMU silently drops the write — the wrmsr
@@ -352,6 +374,7 @@ extern "C" void run_usermode_tests() {
     RUN_TEST(test_msr::test_star_msr_sysret_base);
     RUN_TEST(test_msr::test_star_msr_syscall_cs);
     RUN_TEST(test_msr::test_efer_sce_bit_set);
+    RUN_TEST(test_msr::test_f9_nxe_smep_smap_enabled);
     RUN_TEST(test_msr::test_sfmask_if_bit);
 
     RUN_TEST(test_user_address_space::test_create_user_space);

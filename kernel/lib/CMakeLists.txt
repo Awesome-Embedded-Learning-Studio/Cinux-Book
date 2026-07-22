@@ -4,4 +4,5 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/string.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/kallsyms.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ubsan.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/random.cpp
 )

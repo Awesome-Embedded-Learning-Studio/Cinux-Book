@@ -51,8 +51,10 @@
 .type syscall_entry, @function
 syscall_entry:
 
-    # Step 1: SWAPGS -- activate kernel GS base
+    # Step 1: SWAPGS -- activate kernel GS base, then STAC (F9 batch 4: SMAP --
+    # allow user-memory access in the syscall handler; CLAC clears it before SYSRETQ).
     swapgs                              # kernel_gsbase↔user_gsbase: activate kernel GS
+    stac                                # set AC: handler may touch user memory
 
     # Step 2: Save user RSP to per-CPU scratch, load kernel stack
     movq %rsp, %gs:8                   # %rsp→%gs:8: save user RSP in scratch slot
@@ -134,6 +136,7 @@ syscall_entry:
     # the handler would run with percpu()==NULL.  Same latent -smp window-race as
     # jump_to_usermode (see usermode.S).  SYSRETQ reloads RFLAGS from R11 (user
     # RFLAGS, IF set), so user mode keeps interrupts.
+    clac                               # clear AC: re-forbid user access before SYSRETQ (F9 batch 4)
     cli                                # block IRQs across swapgs->SYSRETQ
     swapgs                             # kernel_gsbase↔user_gsbase: activate user GS
 

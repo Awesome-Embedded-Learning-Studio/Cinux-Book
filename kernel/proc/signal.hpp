@@ -247,8 +247,14 @@ struct SignalFrame {
     uint64_t magic;   ///< kSigFrameMagic
 };
 
-/// Build a signal frame on the user stack (saved context + int $0x80
-/// trampoline + return address) and redirect @p frame to enter @p handler.
+/// The 8-byte sigreturn trampoline stub (F9 batch 1): `int $0x80` (CD 80)
+/// followed by nops. Written into the fixed USER_SIGRETURN_PAGE by execve so
+/// the handler return address lands on executable code off the (NX) user
+/// stack; the int $0x80 traps into the sigreturn IDT gate (vector 0x80).
+constexpr uint8_t kSigreturnTrampoline[8] = {0xCD, 0x80, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
+
+/// Build a signal frame on the user stack (saved context + a return address
+/// into the fixed sigreturn page) and redirect @p frame to enter @p handler.
 void signal_setup_frame(cinux::arch::InterruptFrame* frame, Signal sig, uint64_t handler_addr,
                         SigSet sa_mask);
 

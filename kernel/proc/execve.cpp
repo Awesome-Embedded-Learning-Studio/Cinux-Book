@@ -16,12 +16,15 @@
 #include "kernel/arch/x86_64/memory_layout.hpp"
 #include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
+#include "kernel/arch/x86_64/usermode.hpp"  // F9 batch 1: USER_SIGRETURN_PAGE
 #include "kernel/fs/vfs_mount.hpp"
+#include "kernel/lib/aslr.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/proc/elf_types.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/signal.hpp"  // F9 batch 1: kSigreturnTrampoline
 
 namespace cinux::proc {
 
@@ -77,13 +80,14 @@ void clear_user_mappings(cinux::mm::AddressSpace& space) {
 
             // DEBT-009: a 1 GB huge PDPTE maps a data page, not a PD table --
             // descending would parse the huge-page body as PD/PT entries and
-            // free garbage.  Huge-page free (buddy order) isn't wired yet (NXE
-            // off, no user huge mappings); clear the entry and skip.  Hitting
+            // free garbage.  Huge-page free (buddy order) isn't wired yet
+            // (no user huge mappings); clear the entry and skip.  Hitting
             // this means a future huge-mapping milestone forgot this path.
             if (pdpt[j].huge) {
-                cinux::lib::kprintf("[EXEC] clear_user_mappings: 1GB huge phys=0x%lx "
-                                    "skipped (huge free unimplemented)\n",
-                                    static_cast<unsigned long>(pdpt[j].phys_addr()));
+                cinux::lib::kprintf(
+                    "[EXEC] clear_user_mappings: 1GB huge phys=0x%lx "
+                    "skipped (huge free unimplemented)\n",
+                    static_cast<unsigned long>(pdpt[j].phys_addr()));
                 pdpt[j].raw = 0;
                 continue;
             }
@@ -98,9 +102,10 @@ void clear_user_mappings(cinux::mm::AddressSpace& space) {
                 // DEBT-009: a 2 MB huge PDE maps a data page, not a PT table.
                 // See the PDPT-level note above -- skip, don't descend.
                 if (pd[k].huge) {
-                    cinux::lib::kprintf("[EXEC] clear_user_mappings: 2MB huge phys=0x%lx "
-                                        "skipped (huge free unimplemented)\n",
-                                        static_cast<unsigned long>(pd[k].phys_addr()));
+                    cinux::lib::kprintf(
+                        "[EXEC] clear_user_mappings: 2MB huge phys=0x%lx "
+                        "skipped (huge free unimplemented)\n",
+                        static_cast<unsigned long>(pd[k].phys_addr()));
                     pd[k].raw = 0;
                     continue;
                 }
@@ -331,7 +336,16 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
     // F2-M3: initialise the user heap.  brk starts at the page-aligned end of
     // the ELF image; the Heap VMA spans [brk_initial, USER_BRK_MAX) so demand
     // paging services heap growth without further bookkeeping.
-    task->brk_initial = (max_seg_end + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    //
+    // F9 batch 8 (ASLR): add a page-aligned random gap above the image so the
+    // heap start moves per-exec. Clamped to stay under USER_BRK_MAX with real
+    // heap room left (our ~4 MB image never trips the clamp).
+    uint64_t brk_start = (max_seg_end + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    uint64_t brk_gap   = cinux::lib::aslr_brk_offset();
+    if (brk_start + brk_gap >= cinux::arch::USER_BRK_MAX) {
+        brk_gap = 0;
+    }
+    task->brk_initial = brk_start + brk_gap;
     task->brk_current = task->brk_initial;
     task->brk_max     = cinux::arch::USER_BRK_MAX;
     constexpr cinux::mm::VmaFlags kHeapVma =
@@ -344,6 +358,31 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
     }
 
     task->ctx.rip = ehdr->e_entry;
+
+    // F9 batch 1: map the fixed sigreturn trampoline page.  The handler return
+    // address (set in signal_setup_frame) lands here, keeping the int $0x80
+    // sigreturn stub off the user stack so the stack can be NX (F9 batch 2).
+    // Read-only + user (executable: no FLAG_NX).  Aligned with Linux vDSO.
+    {
+        uint64_t sigret_phys = cinux::mm::g_pmm.alloc_page();
+        if (sigret_phys == 0) {
+            cinux::lib::kprintf("[EXECVE] sigreturn page alloc failed\n");
+            return ExecveResult::MapFailed;
+        }
+        auto* dst = reinterpret_cast<uint8_t*>(sigret_phys + cinux::arch::DIRECT_MAP_BASE);
+        for (uint64_t b = 0; b < cinux::arch::PAGE_SIZE; b++) {
+            dst[b] = 0;
+        }
+        for (int i = 0; i < 8; i++) {
+            dst[i] = cinux::proc::kSigreturnTrampoline[i];
+        }
+        constexpr uint64_t kSigretFlags = cinux::arch::FLAG_PRESENT | cinux::arch::FLAG_USER;
+        if (!task->addr_space->map(cinux::arch::USER_SIGRETURN_PAGE, sigret_phys, kSigretFlags)) {
+            cinux::lib::kprintf("[EXECVE] sigreturn page map failed\n");
+            cinux::mm::g_pmm.free_page(sigret_phys);
+            return ExecveResult::MapFailed;
+        }
+    }
 
     cinux::lib::kprintf("[EXECVE] loaded %s entry=%p pid=%d\n", path,
                         reinterpret_cast<void*>(ehdr->e_entry), task->pid);

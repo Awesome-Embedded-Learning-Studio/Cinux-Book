@@ -19,6 +19,7 @@
 namespace cinux {
 
 /// POSIX errno values used at the syscall boundary.
+constexpr int kEperm        = 1;    ///< Operation not permitted
 constexpr int kEnoent       = 2;    ///< No such file or directory
 constexpr int kEsrch        = 3;    ///< No such process
 constexpr int kEio          = 5;    ///< I/O error

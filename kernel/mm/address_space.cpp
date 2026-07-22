@@ -178,12 +178,13 @@ void AddressSpace::free_subtree(uint64_t table_phys, int level) {
         // DEBT-009: a huge entry (1 GB at PDPT, 2 MB at PD) maps a data page,
         // not a child page table -- descending would parse the huge-page body as
         // PT entries and free garbage.  Huge-page free (buddy order) isn't wired
-        // yet (NXE off, no user huge mappings); warn and skip.  Encountering this
+        // yet (no user huge mappings); warn and skip.  Encountering this
         // means a future huge-mapping milestone forgot to update this path.
         if (table[i].huge) {
-            cinux::lib::kprintf("[MM] free_subtree: huge entry @ level %d phys=0x%lx "
-                                "skipped (huge free unimplemented)\n",
-                                level, static_cast<unsigned long>(table[i].phys_addr()));
+            cinux::lib::kprintf(
+                "[MM] free_subtree: huge entry @ level %d phys=0x%lx "
+                "skipped (huge free unimplemented)\n",
+                level, static_cast<unsigned long>(table[i].phys_addr()));
             continue;
         }
 

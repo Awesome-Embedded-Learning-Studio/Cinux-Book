@@ -72,6 +72,7 @@
     testb $3, %al                     # CPL bits (low 2 bits of CS)
     jz 1f                             # kernel mode (CPL=0) -> skip swapgs
     swapgs                            # user mode -> activate kernel GS
+    stac                              # F9 batch 4: SMAP -- allow user access in handler
 1:
 
     /* Pass InterruptFrame* as first argument (skip alignment padding) */
@@ -94,6 +95,7 @@
     movq 136(%rsp), %rax              # saved CS→%rax
     testb $3, %al                     # CPL bits
     jz 1f                             # kernel mode -> skip swapgs
+    clac                              # F9 batch 4: SMAP -- re-forbid user access before IRETQ
     swapgs                            # user mode -> restore user GS
 1:
 
@@ -168,6 +170,7 @@
     testb $3, %al                     # CPL bits (low 2 bits of CS)
     jz 1f                             # kernel mode (CPL=0) -> skip swapgs
     swapgs                            # user mode -> activate kernel GS
+    stac                              # F9 batch 4: SMAP -- allow user access in handler
 1:
 
     /* Pass InterruptFrame* as first argument (skip alignment padding) */
@@ -190,6 +193,7 @@
     movq 136(%rsp), %rax              # saved CS→%rax
     testb $3, %al                     # CPL bits
     jz 1f                             # kernel mode -> skip swapgs
+    clac                              # F9 batch 4: SMAP -- re-forbid user access before IRETQ
     swapgs                            # user mode -> restore user GS
 1:
 
@@ -264,6 +268,7 @@
     testb $3, %al                     # CPL bits
     jz 1f                             # kernel mode -> skip swapgs
     swapgs                            # user mode -> activate kernel GS
+    stac                              # F9 batch 4: SMAP -- allow user access in handler
 1:
 
     /* Pass InterruptFrame* as first argument (skip alignment padding) */
@@ -293,6 +298,7 @@
     movq 136(%rsp), %rax              # saved CS->%rax
     testb $3, %al                     # CPL bits
     jz 1f                             # kernel mode -> skip swapgs
+    clac                              # F9 batch 4: SMAP -- re-forbid user access before IRETQ
     swapgs                            # user mode -> restore user GS
 1:
 

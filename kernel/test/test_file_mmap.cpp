@@ -226,9 +226,14 @@ void test_pf_reads_file_content() {
 
     // Read through the user mapping.  The first access is not present -> #PF
     // -> handle_pf's file path fills the page from the cache and maps it.
+    // F9 batch 4 (SMAP): this test runs in ring 0, so directly reading the
+    // user-mapped page needs STAC to bypass SMAP (same way a syscall handler
+    // gets it via the entry STAC).  CLAC restores the guard after.
+    __asm__ volatile("stac");
     volatile uint8_t first = *reinterpret_cast<volatile uint8_t*>(map_addr);
     volatile uint8_t mid   = *reinterpret_cast<volatile uint8_t*>(map_addr + PAGE_SIZE / 2);
     volatile uint8_t last  = *reinterpret_cast<volatile uint8_t*>(map_addr + PAGE_SIZE - 1);
+    __asm__ volatile("clac");
 
     // Return to the kernel PML4 before `as` is destroyed (its page tables are
     // freed on destruction).

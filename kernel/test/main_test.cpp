@@ -17,6 +17,7 @@
 #include "kernel/arch/x86_64/gdt.hpp"
 #include "kernel/arch/x86_64/idt.hpp"
 #include "kernel/arch/x86_64/memory_layout.hpp"
+#include "kernel/arch/x86_64/paging.hpp"  // F9: enable_smep_smap
 #include "kernel/arch/x86_64/syscall.hpp"
 #include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/lib/kallsyms.hpp"
@@ -101,6 +102,8 @@ void run_pmm_mapcount_tests();
 #ifdef CINUX_USB
 void run_xhci_tests();
 #endif
+void run_aslr_tests();   // F9 batch 8: ASLR offset helpers
+void run_creds_tests();  // F9 batch 9: process credentials
 }
 
 static constexpr uintptr_t BOOT_INFO_PHYS = 0x7000;
@@ -127,6 +130,7 @@ extern "C" void kernel_main() {
     // suite runs -- percpu() reads MSR_GS_BASE, so it must be set first.  This
     // also configures STAR/EFER for SYSRET; run_usermode_tests still observes them.
     cinux::arch::usermode_init();
+    cinux::arch::enable_smep_smap();  // F9 batch 3/4: mirror production main (test_f9 verifies CR4)
 
     // F2-M7 direct-map identity probe (batch 1): the loader mapped all RAM into
     // the DIRECT_MAP_BASE window with 1 GB huge pages.  Verify it is identity by
@@ -245,6 +249,8 @@ extern "C" void kernel_main() {
     // Block device tests (M4): IBlockDevice interface + RAMBlockDevice stub (M4-1)
     run_block_device_tests();
 
+    run_aslr_tests();   // F9 batch 8: ASLR offset helpers (page-align / range / vary)
+    run_creds_tests();  // F9 batch 9: process credentials
     run_usermode_tests();
 
     cinux::arch::syscall_init();

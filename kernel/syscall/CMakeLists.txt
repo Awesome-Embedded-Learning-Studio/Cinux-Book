@@ -27,4 +27,5 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_signal.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_futex.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_pgrp.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_creds.cpp
 )

@@ -55,6 +55,12 @@ enum class SyscallNr : uint64_t {
     SYS_setsid         = 112,  ///< create session + pgrp, become leader (F3-M3)
     SYS_getpgid        = 121,  ///< get process-group id (F3-M3)
     SYS_getsid         = 124,  ///< get session id (F3-M3)
+    SYS_getuid         = 102,  ///< get real user id (F9 M3)
+    SYS_getgid         = 104,  ///< get real group id (F9 M3)
+    SYS_setuid         = 105,  ///< set user id (F9 M3)
+    SYS_setgid         = 106,  ///< set group id (F9 M3)
+    SYS_geteuid        = 107,  ///< get effective user id (F9 M3)
+    SYS_getegid        = 108,  ///< get effective group id (F9 M3)
 };
 
 constexpr uint64_t SYSCALL_TABLE_SIZE = 256;

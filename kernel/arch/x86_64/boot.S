@@ -52,6 +52,13 @@ _start:
     orq   $((1 << 9) | (1 << 10)), %rax    /* OSFXSR + OSXMMEXCPT */
     movq  %rax, %cr4
 
+    /* F9 batch 6: seed the stack canary from the TSC. -fstack-protector-strong
+       guards every function with a local array; the canary must be set before
+       the first such function runs (global ctors / kernel_main). */
+    rdtsc                                    # EDX:EAX←TSC: timestamp counter
+    movl  %eax, __stack_chk_guard(%rip)      # canary low 32 = TSC low
+    movl  %edx, __stack_chk_guard+4(%rip)    # canary high 32 = TSC high
+
     movq  %cr0, %rax
     andq  $(~(1 << 2)), %rax               /* clear EM */
     orq   $(1 << 1), %rax                   /* set MP */

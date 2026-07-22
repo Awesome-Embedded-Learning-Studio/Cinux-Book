@@ -36,7 +36,9 @@ extern "C" {
  */
 [[noreturn]] void __cxa_pure_virtual() {
     __asm__ volatile("cli");
-    __asm__ volatile("outb %0, %1" : : "a"((uint8_t)'V'), "Nd"((uint16_t)0xE9));
+    __asm__ volatile("outb %0, %1"
+                     :
+                     : "a"(static_cast<uint8_t>('V')), "Nd"(static_cast<uint16_t>(0xE9)));
     while (1) {
         __asm__ volatile("cli; hlt");
     }
@@ -52,12 +54,13 @@ extern "C" {
  * With -fno-stack-protector this should never fire, but we
  * provide it anyway in case someone enables stack protectors.
  */
+// F9 batch 6: the stack canary. -mstack-protector-guard=global makes GCC
+// read/write this symbol in every protected function's prologue/epilogue.
+// Seeded at boot from the TSC (boot.S) for a per-boot random value.
+uint64_t __stack_chk_guard = 0;
+
 [[noreturn]] void __stack_chk_fail() {
-    __asm__ volatile("cli");
-    __asm__ volatile("outb %0, %1" : : "a"((uint8_t)'S'), "Nd"((uint16_t)0xE9));
-    while (1) {
-        __asm__ volatile("cli; hlt");
-    }
+    cinux::lib::kpanic("Stack smashing detected (canary corrupted)\n");
 }
 
 // ============================================================

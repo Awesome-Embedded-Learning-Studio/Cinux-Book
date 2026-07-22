@@ -148,6 +148,31 @@ int64_t sys_getsid(int pid) {
     return _syscall1(static_cast<uint64_t>(SyscallNr::SYS_getsid), (uint64_t)pid);
 }
 
+// Process credentials (F9 batch 9 / M3).
+int64_t sys_getuid(void) {
+    return _syscall1(static_cast<uint64_t>(SyscallNr::SYS_getuid), 0);
+}
+
+int64_t sys_geteuid(void) {
+    return _syscall1(static_cast<uint64_t>(SyscallNr::SYS_geteuid), 0);
+}
+
+int64_t sys_getgid(void) {
+    return _syscall1(static_cast<uint64_t>(SyscallNr::SYS_getgid), 0);
+}
+
+int64_t sys_getegid(void) {
+    return _syscall1(static_cast<uint64_t>(SyscallNr::SYS_getegid), 0);
+}
+
+int64_t sys_setuid(uint32_t uid) {
+    return _syscall1(static_cast<uint64_t>(SyscallNr::SYS_setuid), (uint64_t)uid);
+}
+
+int64_t sys_setgid(uint32_t gid) {
+    return _syscall1(static_cast<uint64_t>(SyscallNr::SYS_setgid), (uint64_t)gid);
+}
+
 int64_t sys_sigprocmask(int how, const uint64_t* set, uint64_t* old) {
     return _syscall3(static_cast<uint64_t>(SyscallNr::SYS_rt_sigprocmask), (uint64_t)how,
                      (uint64_t)set, (uint64_t)old);

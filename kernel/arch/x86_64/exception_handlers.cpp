@@ -352,6 +352,14 @@ void handle_pf(InterruptFrame* frame) {
                                        ? task->addr_space->vmas().find(fault_addr)
                                        : nullptr;
 
+            // F9 batch 2: NXE is on -- mark non-executable VMAs NX (W^X). ELF
+            // .text (Exec) stays executable; the user stack/heap and non-exec
+            // file pages can't run code. Applies to the anonymous fault below
+            // (map_flags); file-backed faults set fflags separately.
+            if (vma != nullptr && !cinux::mm::has_flag(vma->flags, cinux::mm::VmaFlags::Exec)) {
+                map_flags |= cinux::arch::FLAG_NX;
+            }
+
             if (vma == nullptr) {
                 // F2-M5: hard VMA gate. A genuine user-mode (err&0x04)
                 // not-present fault on an address with no covering VMA is a
@@ -400,9 +408,11 @@ void handle_pf(InterruptFrame* frame) {
                     if (cinux::mm::has_flag(vma->flags, cinux::mm::VmaFlags::Write)) {
                         fflags |= cinux::arch::FLAG_WRITABLE;
                     }
-                    // NX (bit 63) is reserved until EFER.NXE is enabled (F9
-                    // NX/SMEP/SMAP): setting it now triggers a reserved-bit #PF
-                    // on access, so non-exec file pages are not marked NX yet.
+                    // F9 batch 2: NXE is on -- non-exec file pages are NX (bit
+                    // 63 is valid now; was reserved-bit #PF before EFER.NXE).
+                    if (!cinux::mm::has_flag(vma->flags, cinux::mm::VmaFlags::Exec)) {
+                        fflags |= cinux::arch::FLAG_NX;
+                    }
                     uint64_t cur_cr3 = cinux::arch::read_cr3();
                     if (g_vmm.map_nolock(virt_page, gp.value()->phys, fflags, &cur_cr3)) {
                         kprintf("[VMM] File demand-read %p -> phys %p\n",

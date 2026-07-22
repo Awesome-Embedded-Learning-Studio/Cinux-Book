@@ -12,6 +12,7 @@
 
 #include "big_kernel_test.h"
 #include "kernel/arch/x86_64/idt.hpp"
+#include "kernel/arch/x86_64/usermode.hpp"  // F9 batch 1: USER_SIGRETURN_PAGE
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/signal.hpp"
@@ -315,12 +316,12 @@ void test_setup_frame_redirects_to_handler() {
     TEST_ASSERT_EQ(frame.rip, uint64_t{0x500000});
     TEST_ASSERT_EQ(frame.rdi, static_cast<uint64_t>(Signal::kSigusr1));
 
-    // The handler RSP points at a return-address slot holding the trampoline addr.
+    // The handler RSP points at a return-address slot holding the fixed
+    // sigreturn page address (F9 batch 1: the int $0x80 stub lives off-stack
+    // at USER_SIGRETURN_PAGE, mapped by execve, not on the user stack).
     const uint64_t handler_rsp = frame.rsp;
     const uint64_t ret_addr    = *reinterpret_cast<uint64_t*>(handler_rsp);
-    const uint8_t* tramp       = reinterpret_cast<const uint8_t*>(ret_addr);
-    TEST_ASSERT_EQ(tramp[0], 0xCD);  // int
-    TEST_ASSERT_EQ(tramp[1], 0x80);  // $0x80
+    TEST_ASSERT_EQ(ret_addr, cinux::arch::USER_SIGRETURN_PAGE);
 
     // SignalFrame sits just above the return-address slot.
     const SignalFrame* sf = reinterpret_cast<const SignalFrame*>(handler_rsp + 8);

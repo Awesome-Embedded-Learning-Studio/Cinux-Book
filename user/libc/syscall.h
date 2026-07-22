@@ -138,3 +138,18 @@ int64_t sys_getpgid(int pid);
 
 /// getsid(pid): pid 0 => caller.  Returns the session id / -errno.
 int64_t sys_getsid(int pid);
+
+// ============================================================
+// Process credentials (F9 batch 9 / M3)
+// ============================================================
+
+/// getuid/geteuid/getgid/getegid: return the caller's real/effective IDs.
+int64_t sys_getuid(void);
+int64_t sys_geteuid(void);
+int64_t sys_getgid(void);
+int64_t sys_getegid(void);
+
+/// setuid/setgid: set the effective ID. Root may set anything; a non-root task
+/// may only drop back to its real ID. Returns 0 / -errno (EPERM).
+int64_t sys_setuid(uint32_t uid);
+int64_t sys_setgid(uint32_t gid);

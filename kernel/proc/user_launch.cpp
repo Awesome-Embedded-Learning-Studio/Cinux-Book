@@ -13,6 +13,7 @@
 
 #include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/usermode.hpp"
+#include "kernel/lib/aslr.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/pmm.hpp"
@@ -36,10 +37,15 @@ void launch_user_program(const char* path, const char* const argv[], const char*
     // [USER_STACK_TOP - USER_STACK_GROWTH) hit no VMA -> segfault (guard).
     uint64_t entry = task->ctx.rip;
 
+    // F9 batch 8 (ASLR): randomize the user stack top. The offset is page-
+    // aligned (so USER_ABI_RSP_OFFSET still yields %16==8) and bounded by the
+    // 1 MiB demand-growth region, keeping the overflow guard page trapping.
+    // One value feeds all four stack sites so pre-map, VMA, and jump RSP agree.
+    const uint64_t stack_top = cinux::arch::USER_STACK_TOP - cinux::lib::aslr_stack_offset();
+
     constexpr uint64_t kUserPageFlags =
         cinux::arch::FLAG_PRESENT | cinux::arch::FLAG_WRITABLE | cinux::arch::FLAG_USER;
-    uint64_t stack_base =
-        cinux::arch::USER_STACK_TOP - cinux::arch::USER_STACK_PAGES * cinux::arch::PAGE_SIZE;
+    uint64_t stack_base = stack_top - cinux::arch::USER_STACK_PAGES * cinux::arch::PAGE_SIZE;
 
     for (uint64_t i = 0; i < cinux::arch::USER_STACK_PAGES; i++) {
         uint64_t phys = cinux::mm::g_pmm.alloc_page();
@@ -57,20 +63,18 @@ void launch_user_program(const char* path, const char* const argv[], const char*
 
     constexpr cinux::mm::VmaFlags kStackVma =
         cinux::mm::VmaFlags::Read | cinux::mm::VmaFlags::Write | cinux::mm::VmaFlags::Stack;
-    constexpr uint64_t kStackVmaStart =
-        cinux::arch::USER_STACK_TOP - cinux::arch::USER_STACK_GROWTH;
-    if (!task->addr_space->vmas()
-             .insert(kStackVmaStart, cinux::arch::USER_STACK_TOP, kStackVma)
-             .ok()) {
+    const uint64_t kStackVmaStart = stack_top - cinux::arch::USER_STACK_GROWTH;
+    if (!task->addr_space->vmas().insert(kStackVmaStart, stack_top, kStackVma).ok()) {
         cinux::lib::kprintf("[PROC] stack VMA record failed\n");
         Scheduler::exit_current();
     }
 
-    cinux::lib::kprintf("[PROC] jumping to user mode: entry=%p\n", reinterpret_cast<void*>(entry));
+    cinux::lib::kprintf("[PROC] jumping to user mode: entry=%p stack_top=%p\n",
+                        reinterpret_cast<void*>(entry), reinterpret_cast<void*>(stack_top));
 
     task->addr_space->activate();
     update_syscall_stack(task->kernel_stack_top);
-    jump_to_usermode(entry, cinux::arch::USER_STACK_TOP - cinux::arch::USER_ABI_RSP_OFFSET, 0);
+    jump_to_usermode(entry, stack_top - cinux::arch::USER_ABI_RSP_OFFSET, 0);
     Scheduler::exit_current();  // unreachable; jump_to_usermode does not return
 }
 

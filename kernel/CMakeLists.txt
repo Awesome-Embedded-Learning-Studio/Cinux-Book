@@ -23,7 +23,7 @@ set(BIG_KERNEL_COMPILE_OPTIONS
     -fno-exceptions
     -fno-rtti
     -fno-pie
-    -fno-stack-protector
+    -fstack-protector-strong -mstack-protector-guard=global  # F9 batch 6: stack canary
     -mcmodel=kernel
     -mno-red-zone
     -Wall
@@ -265,6 +265,8 @@ add_executable(big_kernel_test
     test/test_gui_swraster.cpp
     test/test_gui_region.cpp
     test/test_gui_dirty.cpp
+    test/test_aslr.cpp
+    test/test_creds.cpp
 )
 
 # F5-M5 xHCI: gate the USB test on CINUX_USB so a CINUX_USB=OFF build links

@@ -9,6 +9,11 @@ endif()
 # or when CINUX_NO_KVM is set (force TCG / 2MB-path for diagnosis).
 if(EXISTS "/dev/kvm" AND NOT DEFINED ENV{CINUX_NO_KVM})
     set(QEMU_ACCEL -accel kvm -cpu max)
+else()
+    # No KVM (CI runners, or CINUX_NO_KVM force-TCG). Use -cpu max so SMAP/SMEP
+    # are emulated; the default qemu64 advertises neither, so F9 batch 4's
+    # stac/clac instructions #UD (CR4.SMAP can't be set without CPUID support).
+    set(QEMU_ACCEL -cpu max)
 endif()
 
 # Headless mode for CI (no GTK/display available)

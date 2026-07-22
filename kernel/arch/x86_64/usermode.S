@@ -53,11 +53,16 @@ usermode_init_asm:
     movq $0x200, %rax                  # $0x200→%rax: mask IF bit (bit 9)
     wrmsr                              # %edx:%eax→MSR[rcx]: write SFMASK
 
-    # Enable SYSCALL/SYSRET via EFER.SCE (System Call Extensions)
+    # Enable SYSCALL/SYSRET via EFER.SCE and the No-Execute bit via EFER.NXE
+    # (F9 batch 2). NXE is x86_64 baseline: long mode uses PAE page tables,
+    # whose bit-63 NX is a reserved-bit #PF until NXE is set, and every
+    # x86_64 CPU (and QEMU) supports it -- no CPUID gate needed. Both the BSP
+    # and every AP run usermode_init_asm, so this single site enables NX on
+    # all cores (sidesteps the BSP/AP MSR-divergence class of bugs).
     movq $0xC0000080, %rcx             # MSR_EFER→%rcx: EFER MSR index
     rdmsr                              # MSR[rcx]→%edx:%eax: read current EFER
-    orq $1, %rax                       # $1|%rax→%rax: set SCE bit (bit 0)
-    wrmsr                              # %edx:%eax→MSR[rcx]: write EFER with SCE enabled
+    orq $(1 | (1 << 11)), %rax         # SCE(bit0)|NXE(bit11)→%rax: set both
+    wrmsr                              # %edx:%eax→MSR[rcx]: write EFER with SCE+NXE
 
     ret                                 # return to caller
 
