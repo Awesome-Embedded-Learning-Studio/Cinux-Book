@@ -52,9 +52,13 @@ int64_t sys_exit(uint64_t code, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t
             task->sched_class->dequeue(task);
         }
         // F3-M3 batch 4b: wake a parent blocked in waitpid() so it re-scans
-        // and reaps us (we are now Zombie).  Gated on waiting_for_child so we
-        // never touch a parent that is not actually waiting.
-        if (task->parent != nullptr && task->parent->waiting_for_child) {
+        // and reaps us (we are now Zombie).  F-QA Q4c-1 (DEBT-004): unblock
+        // unconditionally -- unblock() is idempotent (no-op unless the parent
+        // is actually Blocked), so this is safe even if the parent is not
+        // waiting.  The old waiting_for_child gate was a plain bool read
+        // cross-CPU with no barrier -> a stale read skipped the wake and
+        // leaked the parent into a permanent sleep (a top flaky-hang suspect).
+        if (task->parent != nullptr) {
             cinux::proc::Scheduler::unblock(task->parent);
         }
         cinux::lib::kprintf("[SYSCALL] sys_exit(%u) from tid=%u '%s'\n",

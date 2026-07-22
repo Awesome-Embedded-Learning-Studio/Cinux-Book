@@ -16,6 +16,7 @@
 #include "kernel/arch/x86_64/paging_config.hpp"
 #include "kernel/fs/file.hpp"
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/mm/address_space.hpp"  // Q4e-2: addr_space release/delete
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vmm.hpp"
 #include "kernel/proc/process.hpp"
@@ -166,6 +167,14 @@ void Task::release_resources() {
     if (fd_table != nullptr) {
         fd_table->release();
         fd_table = nullptr;
+    }
+    // F-QA Q4e-2 (DEBT-006): drop the address-space reference. CLONE_VM
+    // threads share one AddressSpace; the last to release frees it.
+    if (addr_space != nullptr) {
+        if (addr_space->release()) {
+            delete addr_space;
+        }
+        addr_space = nullptr;
     }
 }
 

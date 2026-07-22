@@ -91,6 +91,18 @@ public:
     FDTable();
 
     /**
+     * @brief Resource-safety backstop: free every still-open File
+     *
+     * The normal lifecycle is release(): when the refcount drops to 0 every
+     * slot is close()'d (File freed, slot set to nullptr) and the table is
+     * `delete`d.  This destructor closes the gaps release() does not cover —
+     * a stack-allocated FDTable (unit tests) or any path that skips release()
+     * — so no File can ever leak.  It is a no-op on the release() path, where
+     * every slot is already nullptr by the time this runs.
+     */
+    ~FDTable();
+
+    /**
      * @name Reference counting (F3-M2 batch 3)
      *
      * CLONE_FILES threads share one FDTable (acquire bumps the refcount); fork

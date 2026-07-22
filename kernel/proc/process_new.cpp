@@ -16,10 +16,12 @@
 #include "kernel/arch/x86_64/phys_virt.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/mm/vmm.hpp"  // Q4e-2: free_kernel_stack translate/unmap
 #include "kernel/proc/pid.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/process_internal.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/signal.hpp"  // Q4e-2: signal_unregister_task on reap
 
 namespace cinux::proc {
 
@@ -106,11 +108,50 @@ bool handle_cow_fault(uint64_t fault_vaddr) {
 
     cinux::arch::flush_tlb(fault_vaddr & ~(cinux::arch::PAGE_SIZE - 1));
 
+    // Q4b-3 (DEBT-003): this PTE no longer maps old_phys (TLB flushed above).
+    // Drop the old page's reference; free it if it was the last mapping.
+    // Without this, any CoW-shared page leaks once one mapping writes (it
+    // would stay at mapcount >= 1 forever, never reclaimed).
+    // NOTE (SMP): correct single-core and when threads do not migrate across
+    // cores mid-CoW. Cross-core TLB shootdown before freeing is a deeper
+    // follow-up; CinuxOS APs are mostly idle today.
+    if (cinux::mm::g_pmm.mapcount_dec_and_test(old_phys)) {
+        cinux::mm::g_pmm.free_page(old_phys);
+    }
+
     cinux::lib::kprintf("[COW] resolved fault at vaddr=%p old_phys=%p new_phys=%p\n",
                         reinterpret_cast<void*>(fault_vaddr), reinterpret_cast<void*>(old_phys),
                         reinterpret_cast<void*>(new_phys));
 
     return true;
+}
+
+// ============================================================
+// F-QA Q4e-2 (DEBT-002): free a reaped task's kernel stack
+// ============================================================
+
+// The stack was mapped (g_vmm.map, NOT direct-map) at [kernel_stack,
+// kernel_stack_top) with a guard page below. Recover phys via translate
+// (4K pages -- GOTCHA#13: translate cannot handle huge, but stacks are 4K),
+// unmap each page, then free the physical block. The guard+stack vaddr range
+// is not recycled (the vaddr allocator is linear; address space is large).
+//
+// Safe ONLY when the task is not running on this stack -- the caller is the
+// reaper (waitpid on the parent). exit_current() cannot use this directly
+// (it runs on its own stack); that path uses deferred free (Q4e-3).
+void free_kernel_stack(Task* task) {
+    if (task->kernel_stack == 0) {
+        return;
+    }
+    uint64_t stack_phys = cinux::mm::g_vmm.translate(task->kernel_stack);
+    for (uint64_t v = task->kernel_stack; v < task->kernel_stack_top; v += cinux::arch::PAGE_SIZE) {
+        cinux::mm::g_vmm.unmap(v);
+    }
+    if (stack_phys != 0) {
+        uint64_t count = (task->kernel_stack_top - task->kernel_stack) / cinux::arch::PAGE_SIZE;
+        cinux::mm::g_pmm.free_pages(stack_phys, count);
+    }
+    task->kernel_stack = 0;
 }
 
 // ============================================================
@@ -165,6 +206,16 @@ WaitpidResult waitpid(int pid, int* status, int options, PidAllocator& pid_alloc
             target->parent = nullptr;
             cinux::lib::kprintf("[WAITPID] reaped child pid=%d exit_status=%d by parent pid=%d\n",
                                 target->pid, target->exit_status, parent->pid);
+            // Q4e-2 (DEBT-002): the child is Zombie (not running), so freeing
+            // its kernel stack from the parent's context is safe. delete ->
+            // release_resources drops sig_actions/cwd/fd_table + the AS ref.
+            // Q4e-2: detach from the pid registry before freeing (sys_exit left
+            // the Zombie registered for sys_kill lookup; reap deletes it).
+            // exit_current already unregisters; this mirrors it for the
+            // Zombie->reap path so the registry never holds a freed Task*.
+            signal_unregister_task(target);
+            free_kernel_stack(target);
+            delete target;
             return WaitpidResult::Ok;
         }
 
@@ -192,8 +243,9 @@ WaitpidResult waitpid(int pid, int* status, int options, PidAllocator& pid_alloc
             return WaitpidResult::NotExited;
         }
 
-        // Block until a child exits.  sys_exit() sees parent->waiting_for_child
-        // and Scheduler::unblock()s us.  F4-M4 prepare-to-wait: mark Blocked
+        // Block until a child exits.  sys_exit() unconditionally Scheduler::unblock()s
+        // us (F-QA Q4c-1 / DEBT-004: was gated on a non-atomic bool, now unconditional
+        // since unblock is idempotent).  F4-M4 prepare-to-wait: mark Blocked
         // before switching so a concurrent sys_exit() racing through the window
         // finds us Blocked and wakes us (unblock() is idempotent) -- closing the
         // old single-core-only "check+block is atomic" assumption.
@@ -212,10 +264,8 @@ WaitpidResult waitpid(int pid, int* status, int options, PidAllocator& pid_alloc
         //
         // schedule_blocked() -> schedule() needs a real scheduler loop, so this
         // path runs only on real hardware, not in run-kernel-test (kWaitNoHang).
-        parent->waiting_for_child = true;
         Scheduler::prepare_to_wait(parent);
         Scheduler::schedule_blocked();
-        parent->waiting_for_child = false;
         // loop back: the exited child is now Zombie and will be reaped above.
     }
 }

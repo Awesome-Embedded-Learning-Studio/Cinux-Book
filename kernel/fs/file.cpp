@@ -23,6 +23,20 @@ FDTable::FDTable() : refcount_(1) {
 }
 
 // ============================================================
+// Destruction (resource-safety backstop)
+// ============================================================
+
+FDTable::~FDTable() {
+    // Free any File that was never close()'d. delete on nullptr is a safe
+    // no-op, so under the normal release() path (which closes every slot
+    // before `delete this`) this loop touches only nullptrs. It catches
+    // stack-allocated tables and skip-release paths so no File leaks (DEBT-017).
+    for (uint32_t i = 0; i < FD_TABLE_SIZE; ++i) {
+        delete fds_[i];
+    }
+}
+
+// ============================================================
 // Reference counting (F3-M2 batch 3)
 // ============================================================
 

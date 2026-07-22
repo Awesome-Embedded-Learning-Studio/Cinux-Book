@@ -457,8 +457,13 @@ TEST("pipe: try_write partial space") {
     memset(src, 'A', sizeof(src));
     ASSERT_EQ(pipe.try_write(src, 4000), 4000);
 
-    // Try to write 200 bytes but only 96 fit
-    int64_t w = pipe.try_write("BBBB", 200);
+    // Try to write 200 bytes but only 96 fit (free space = 4096 - 4000 = 96).
+    // Use a real 200-byte buffer, NOT a short string literal: try_write copies
+    // min(count, free_space)=96 bytes from `data`, so a 5-byte "BBBB" literal
+    // would be read 96 bytes deep -> global-buffer-overflow (DEBT-017).
+    char more[200];
+    memset(more, 'B', sizeof(more));
+    int64_t w = pipe.try_write(more, 200);
     ASSERT_EQ(w, 96);  // 4096 - 4000 = 96
 }
 

@@ -9,6 +9,26 @@
 
 set(CINUX_HOST_TEST ON)
 
+# F-QA Q1-2: ErrorOr is [[nodiscard]] (Cinux-Base expected.hpp). Host test
+# fixtures ignore some setup ErrorOr returns (e.g. ext2->mount() / pipe write);
+# suppress -Wunused-result host-side. DEBT-016 tracks cleaning these (via a
+# non-void-safe ASSERT_OK macro) so this directory-level opt-out is removed.
+add_compile_options(-Wno-unused-result)
+
+# F-QA Q1-5: opt-in AddressSanitizer + UBSan + gcov coverage for host unit
+# tests. Zero kernel changes — only host test targets. Catches UAF/OOB/UB at
+# the InodeOps/mock layer; --coverage gives gcov compile+link in one flag.
+# TSan is mutually exclusive with ASan, so it is a separate follow-up
+# (-DCINUX_HOST_TSAN build) rather than combined here.
+option(CINUX_HOST_ASAN "Host unit tests: AddressSanitizer + UBSan + gcov coverage" OFF)
+if(CINUX_HOST_ASAN)
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g --coverage)
+    add_link_options(-fsanitize=address,undefined --coverage)
+endif()
+
+# Host tests need standard library; override kernel toolchain linker flags
+set(CMAKE_EXE_LINKER_FLAGS "")
+
 set(TEST_INCLUDE_DIRS
     ${CMAKE_SOURCE_DIR}/test/framework
     ${CMAKE_SOURCE_DIR}/kernel
@@ -91,6 +111,13 @@ add_cinux_test(cinux_base_types)
 target_include_directories(test_cinux_base_types PRIVATE
     ${CMAKE_SOURCE_DIR}/third_party/Cinux-Base/include
 )
+
+# F-QA Q4a-1: RefCount (saturating atomic refcount, Linux refcount_t semantics).
+# Header-only Cinux-Base type. The submodule's own test/ is never built by the
+# main repo (third_party/CMakeLists.txt does not add_subdirectory(Cinux-Base)),
+# so coverage must live here; add_cinux_test already adds the Cinux-Base include
+# path via TEST_INCLUDE_DIRS.
+add_cinux_test(refcount)
 
 # ============================================================
 # Tests with threading support
@@ -176,6 +203,7 @@ add_cinux_integration_test(shell_redirect
 add_cinux_integration_test(fork_exec
     unit/test_fork_exec.cpp
     ${CMAKE_SOURCE_DIR}/kernel/proc/pid.cpp
+    unit/host_spinlock.cpp
     ${CMAKE_SOURCE_DIR}/kernel/proc/elf_types.cpp
 )
 
@@ -195,6 +223,7 @@ set(ALL_HOST_TESTS
     test_window_manager test_desktop test_terminal test_pipe test_sys_pipe
     test_shell_redirect test_fork_exec test_multi_terminal
     test_cinux_base_types
+    test_refcount
 )
 
 add_custom_target(test_host

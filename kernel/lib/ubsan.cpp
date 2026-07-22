@@ -66,7 +66,52 @@ void __ubsan_handle_implicit_conversion(void*, void*, void*) {
 void __ubsan_handle_out_of_bounds(void*, void*) {
     ubsan_trap("out of bounds");
 }
-void __ubsan_handle_type_mismatch_v1(void*, void*) {
+void __ubsan_handle_type_mismatch_v1(void* data_v, void* pointer_v) {
+    // UBSan ABI: TypeMismatchData { SourceLocation Loc; TypeDescriptor *Type;
+    // uint8 AlignmentLog2; uint8 Kind }. Report the concrete kind/type/addr/loc
+    // so a hit is diagnosable instead of just "type mismatch" + a raw backtrace
+    // (the KALLSYMS backtrace resolves poorly under -fsanitize instrumented RIPs).
+    struct SourceLocation {
+        const char* Filename;
+        uint32_t    Line;
+        uint32_t    Column;
+    };
+    struct TypeDescriptor {
+        uint16_t Kind;
+        uint16_t Info;
+    };
+    struct TypeMismatchData {
+        SourceLocation        Loc;
+        const TypeDescriptor* Type;
+        uint8_t               AlignmentLog2;
+        uint8_t               Kind;
+    };
+    auto*       data      = static_cast<TypeMismatchData*>(data_v);
+    auto        pointer   = reinterpret_cast<uintptr_t>(pointer_v);
+    // TypeDescriptor is followed by an inline char Name[] (flexible array); it
+    // starts right after Kind+Info (offset 4, no padding: both uint16).
+    const char* type_name = reinterpret_cast<const char*>(data->Type) + sizeof(TypeDescriptor);
+    const char* k         = "?";
+    switch (data->Kind) {
+    case 0:
+        k = "load of";
+        break;
+    case 1:
+        k = "store to";
+        break;
+    case 2:
+        k = "member access within";
+        break;
+    case 3:
+        k = "member call on";
+        break;
+    case 4:
+        k = "ctor/dtor of";
+        break;
+    }
+    cinux::lib::kprintf("[UBSAN] %s %s @ %p align=%d (%s:%u)\n", k, type_name,
+                        reinterpret_cast<void*>(pointer), 1u << data->AlignmentLog2,
+                        data->Loc.Filename ? data->Loc.Filename : "?", data->Loc.Line);
     ubsan_trap("type mismatch");
 }
 void __ubsan_handle_type_mismatch(void*, void*) {

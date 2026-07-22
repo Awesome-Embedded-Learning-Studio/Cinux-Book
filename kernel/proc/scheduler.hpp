@@ -121,6 +121,10 @@ public:
     static void remove_task(lib::NotNull<Task*> task);
     static void yield();
     static void exit_current();
+
+    /// Reap tasks whose exit_current() deferred their free (Q4e-3 / DEBT-002).
+    /// Called at schedule() entry by whichever task runs next.
+    static void reap_deferred();
     static void run_first(lib::NotNull<Task*> boot_task);
 
     // --- Per-CPU idle tasks (F4-M4 M4-2-2) ---

@@ -741,9 +741,13 @@ TEST("multi_terminal: WM max windows boundary") {
     }
     ASSERT_EQ(wm.window_count(), cinux::gui::WindowManager::MAX_WINDOWS);
 
-    // Adding one more should fail
-    uint32_t overflow_id = wm.add_window(new cinux::gui::Terminal(0, 0));
+    // Adding one more should fail. add_window does NOT take ownership on
+    // failure (returns 0), so the caller must free the rejected window —
+    // otherwise it leaks (DEBT-017 / host ASAN).
+    cinux::gui::Terminal* overflow    = new cinux::gui::Terminal(0, 0);
+    uint32_t              overflow_id = wm.add_window(overflow);
     ASSERT_EQ(overflow_id, 0u);
+    delete overflow;
 }
 
 int main() {

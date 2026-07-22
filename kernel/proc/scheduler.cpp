@@ -7,6 +7,8 @@
 #include "kernel/mm/address_space.hpp"
 #include "kernel/proc/lockdep.hpp"
 #include "kernel/proc/percpu.hpp"
+#include "kernel/proc/process_internal.hpp"  // Q4e-3: free_kernel_stack
+#include "kernel/proc/sync.hpp"              // Q4e-3: Spinlock (deferred list)
 
 namespace cinux::proc {
 
@@ -28,6 +30,18 @@ void switch_addr_space(Task* prev, Task* next) {
     } else {
         cinux::arch::write_cr3(cinux::mm::AddressSpace::kernel_pml4());
     }
+}
+
+// F-QA Q4e-3 (DEBT-002): deferred-free list. A task exiting via exit_current()
+// cannot free its own kernel stack (it runs on it); it is enqueued here and
+// freed by the next task's schedule() entry (reap_deferred).
+Spinlock g_deferred_lock;
+Task*    g_deferred_head = nullptr;
+
+void enqueue_deferred(Task* t) {
+    auto g           = g_deferred_lock.irq_guard();
+    t->deferred_next = g_deferred_head;
+    g_deferred_head  = t;
 }
 
 }  // namespace
@@ -199,6 +213,25 @@ void Scheduler::remove_task(lib::NotNull<Task*> task) {
     cinux::lib::kprintf("[SCHED] Task tid=%lu '%s' removed\n", task->tid, task->name);
 }
 
+// F-QA Q4e-3 (DEBT-002): free tasks that exit_current() deferred. A task on
+// this list is Dead and not running on any CPU (exit_current already switched
+// away from it), so freeing its stack + deleting it is safe from any caller's
+// context. Snapshot under the lock, free outside it (heavy path).
+void Scheduler::reap_deferred() {
+    Task* head = nullptr;
+    {
+        auto g          = g_deferred_lock.irq_guard();
+        head            = g_deferred_head;
+        g_deferred_head = nullptr;
+    }
+    while (head != nullptr) {
+        Task* t = head;
+        head    = t->deferred_next;
+        free_kernel_stack(t);
+        delete t;  // -> release_resources (sig/cwd/fd + addr_space refcount)
+    }
+}
+
 void Scheduler::yield() {
     if (current() == nullptr) {
         return;
@@ -215,6 +248,9 @@ void Scheduler::exit_current() {
         prev->sched_class->dequeue(prev);
         signal_unregister_task(prev);
         cinux::lib::kprintf("[SCHED] Task tid=%lu '%s' exited\n", prev->tid, prev->name);
+        // Q4e-3 (DEBT-002): defer the free -- we run on prev's kernel stack, so
+        // we cannot unmap/free it here. schedule() (next task) reaps the list.
+        enqueue_deferred(prev);
     }
 
     Task* next = pick_next_task();
@@ -305,6 +341,11 @@ void Scheduler::schedule() {
 
     Task* const my_idle = idle();  // cache this CPU's idle (avoids repeated MSR reads)
     Task*       prev    = current();
+
+    // Q4e-3 (DEBT-002): reap tasks deferred by a prior exit_current(). Safe
+    // here: those tasks are Dead (not running), and prev (current) is not on
+    // the deferred list (it is still running).
+    reap_deferred();
 
     if (prev->state == TaskState::Running) {
         prev->state = TaskState::Ready;

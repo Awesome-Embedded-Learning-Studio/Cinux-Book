@@ -47,4 +47,13 @@ uint64_t alloc_stack_vaddr(uint64_t pages);
  */
 void copy_page_table_level(uint64_t src_phys, uint64_t dst_phys, int level);
 
+/**
+ * @brief Free a task's kernel stack (mapped, not direct-map)
+ *
+ * Defined in process_new.cpp; used by waitpid reap (Q4e-2) and the scheduler's
+ * deferred-free reaper (Q4e-3). Recovers phys via translate, unmaps each page,
+ * frees the physical block. Safe only when the task is NOT running on it.
+ */
+void free_kernel_stack(Task* task);
+
 }  // namespace cinux::proc

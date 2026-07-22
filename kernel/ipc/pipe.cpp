@@ -144,7 +144,10 @@ int64_t Pipe::read(char* buf, uint64_t count) {
 
 out:
     irq_restore(orig_flags);
-    return (total_read > 0) ? static_cast<int64_t>(total_read) : (writer_open_ ? 0 : 0);
+    // total_read == 0 means EOF (all writers closed); blocking reads otherwise
+    // loop until data arrives. The prior `writer_open_ ? 0 : 0` was redundant
+    // (both arms returned 0) — simplified (F-QA Q1-1, -Wduplicated-branches).
+    return (total_read > 0) ? static_cast<int64_t>(total_read) : 0;
 }
 
 // ============================================================

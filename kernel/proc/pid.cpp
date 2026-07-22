@@ -24,6 +24,7 @@ PidAllocator::PidAllocator() : next_hint_(1) {
 }
 
 int PidAllocator::alloc() {
+    auto g = lock_.irq_guard();  // DEBT-005: check-then-set must be atomic
     // Scan from next_hint_ to PID_MAX, wrapping around to 1
     for (int i = 0; i < PID_MAX; ++i) {
         int candidate = next_hint_ + i;
@@ -44,6 +45,7 @@ int PidAllocator::alloc() {
 }
 
 void PidAllocator::free(int pid) {
+    auto g = lock_.irq_guard();  // DEBT-005
     if (pid <= 0 || pid > PID_MAX) {
         return;
     }
@@ -59,6 +61,7 @@ void PidAllocator::free(int pid) {
 }
 
 bool PidAllocator::is_allocated(int pid) const {
+    auto g = lock_.irq_guard();  // DEBT-005
     if (pid <= 0 || pid > PID_MAX) {
         return false;
     }
@@ -66,7 +69,8 @@ bool PidAllocator::is_allocated(int pid) const {
 }
 
 int PidAllocator::count() const {
-    int n = 0;
+    auto g = lock_.irq_guard();  // DEBT-005
+    int  n = 0;
     for (int i = 1; i <= PID_MAX; ++i) {
         if (in_use_[i]) {
             ++n;

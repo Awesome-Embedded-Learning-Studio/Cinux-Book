@@ -41,6 +41,29 @@ set(BIG_KERNEL_COMPILE_OPTIONS
     -Woverloaded-virtual
     -Wformat=2
     -Werror=return-type
+    # F-QA Q1-1: zero-cost warning gates. Enable the checks, then escalate the
+    # zero-noise ones to -Werror= so violations fail the build (zero-warning
+    # discipline, aligned with Linux's -Wimplicit-fallthrough / CONFIG_W* ethos).
+    # -Wnull-dereference stays a plain warning (GCC cross-function analysis
+    # occasionally false-positives). -Wframe-larger-than is DEFERRED: 9 syscall
+    # handlers currently put char[PATH_MAX] buffers on the 16 KB stack (4-8 KB
+    # frames, DEBT-015) — enabling it now would break the zero-warning build,
+    # so it lands in a dedicated stack-safety batch once those frames shrink.
+    -Wvla
+    -Wimplicit-fallthrough=3
+    -Wundef
+    -Wduplicated-branches
+    -Wduplicated-cond
+    -Wlogical-op
+    -Wnull-dereference
+    -Wformat-security
+    -Werror=vla
+    -Werror=implicit-fallthrough
+    -Werror=undef
+    -Werror=duplicated-branches
+    -Werror=duplicated-cond
+    -Werror=logical-op
+    -Werror=format-security
 )
 
 set(BIG_KERNEL_LINK_OPTIONS
@@ -199,6 +222,8 @@ add_executable(big_kernel_test
     test/test_multi_terminal.cpp
     test/test_kprintf_format.cpp
     test/test_concurrent_ring_buffer.cpp
+    test/test_user_ptr.cpp
+    test/test_pmm_mapcount.cpp
     test/test_klog.cpp
     test/test_sys_dmesg.cpp
     test/test_dma_buffer.cpp
@@ -238,6 +263,14 @@ set_target_properties(big_kernel_test PROPERTIES
 )
 
 target_link_options(big_kernel_test PRIVATE ${BIG_KERNEL_LINK_OPTIONS})
+
+# F-QA Q1-2: ErrorOr is [[nodiscard]] (Cinux-Base expected.hpp), so ignoring an
+# ErrorOr return warns under -Wunused-result. Production kernel code is clean
+# (zero ignores); kernel/test/ fixtures deliberately ignore some setup returns
+# (e.g. ramdisk/ext2 mount()) inside non-void helpers where TEST_ASSERT_TRUE's
+# bare `return;` won't compile. Suppress in the test binary only — DEBT-016
+# tracks replacing these with a non-void-safe ASSERT_OK macro so this is removed.
+target_compile_options(big_kernel_test PRIVATE -Wno-unused-result)
 
 # Build test disk image: copy the test ELF to sectors where the big kernel lives
 set(BIG_KERNEL_TEST_BIN "${CMAKE_BINARY_DIR}/kernel/big/big_kernel_test_crc.bin")

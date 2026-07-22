@@ -59,6 +59,10 @@ void copy_page_table_level(uint64_t src_phys, uint64_t dst_phys, int level) {
 
         if (src_table[i].huge) {
             dst_table[i].raw = src_table[i].raw;
+            // Q4b-2 (DEBT-003): huge pages are shared too. Userspace has no
+            // huge pages yet (GOTCHA#13 huge-split not done), so inc only the
+            // base page and leave the 2MB/1GB tail as a TODO.
+            cinux::mm::g_pmm.mapcount_inc(src_table[i].phys_addr());
             continue;
         }
 
@@ -80,6 +84,11 @@ void copy_page_table_level(uint64_t src_phys, uint64_t dst_phys, int level) {
             uint64_t entry_flags = src_table[i].raw & FLAG_MASK;
 
             dst_table[i].raw = src_table[i].raw;
+            // Q4b-2 (DEBT-003): both PTEs now point at the same physical page
+            // (writable-CoW or read-only-shared). Bump its mapcount so a later
+            // clear_user_mappings (exec) does not free it while the other side
+            // still maps it (fork+exec UAF).
+            cinux::mm::g_pmm.mapcount_inc(src_table[i].phys_addr());
 
             if (entry_flags & FLAG_WRITABLE) {
                 dst_table[i].raw &= ~FLAG_WRITABLE;

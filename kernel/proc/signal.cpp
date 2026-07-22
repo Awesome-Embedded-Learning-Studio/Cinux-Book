@@ -20,6 +20,7 @@
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/sync.hpp"  // Spinlock (F-QA Q4c-2 / DEBT-001 registry lock)
 
 namespace cinux::proc {
 
@@ -35,6 +36,13 @@ namespace {
 
 Task* g_registry_head = nullptr;
 
+// F-QA Q4c-2 (DEBT-001): the registry is a global mutable list touched by
+// add_task (register), exit (unregister), sys_kill (find), and killpg (walk).
+// All four may run on different CPUs; an unlocked head-insert racing a walk
+// reads half-linked pointers / dangling registry_next -> jump-to-garbage or
+// UAF once the slab reuses a freed Task. irq-safe: add_task may run at IF=0.
+Spinlock g_registry_lock;
+
 // int $0x80 (opcode cd 80) followed by nops to fill an 8-byte slot.  This is
 // the sigreturn trampoline written onto the user stack; the handler's return
 // address points here, so `ret` lands on `int $0x80` which traps into the
@@ -48,6 +56,7 @@ void signal_register_task(Task* task) {
     if (task == nullptr) {
         return;
     }
+    auto g              = g_registry_lock.irq_guard();  // DEBT-001
     task->registry_next = g_registry_head;
     g_registry_head     = task;
 }
@@ -56,6 +65,7 @@ void signal_unregister_task(Task* task) {
     if (task == nullptr) {
         return;
     }
+    auto   g  = g_registry_lock.irq_guard();  // DEBT-001
     Task** pp = &g_registry_head;
     while (*pp != nullptr) {
         if (*pp == task) {
@@ -68,6 +78,9 @@ void signal_unregister_task(Task* task) {
 }
 
 Task* signal_find_task_by_pid(int pid) {
+    auto g = g_registry_lock.irq_guard();  // DEBT-001
+    // Returning the pointer after release is safe only while tasks are never
+    // freed (DEBT-002 not yet fixed); Q4e must revisit (RCU-safe or re-lock).
     for (Task* t = g_registry_head; t != nullptr; t = t->registry_next) {
         if (t->pid == pid) {
             return t;
@@ -161,15 +174,26 @@ int killpg(int pgid, Signal sig) {
         }
         pgid = cur->pgid;
     }
-    // Walk the pid registry and signal every member of the group.  Note: a
-    // recipient may exit mid-iteration; signal_send() tolerates Zombie/Dead
-    // targets (returns ESRCH, no crash), so no extra locking is needed here.
-    int sent = 0;
-    for (Task* t = g_registry_head; t != nullptr; t = t->registry_next) {
-        if (t->pgid == pgid) {
-            signal_send(t, sig);
-            ++sent;
+    // F-QA Q4c-2 (DEBT-001): snapshot matching targets under the registry lock,
+    // then signal_send() AFTER releasing it. signal_send() may terminate the
+    // target (-> exit_current -> schedule); holding the lock across that would
+    // trip lockdep / deadlock. Targets stay valid while tasks are never freed
+    // (DEBT-002 not yet fixed); Q4e must revisit.
+    constexpr int kMaxKillTargets = 64;  // real process groups are far smaller
+    Task*         targets[kMaxKillTargets];
+    int           ntargets = 0;
+    {
+        auto g = g_registry_lock.irq_guard();
+        for (Task* t = g_registry_head; t != nullptr; t = t->registry_next) {
+            if (t->pgid == pgid && ntargets < kMaxKillTargets) {
+                targets[ntargets++] = t;
+            }
         }
+    }
+    int sent = 0;
+    for (int i = 0; i < ntargets; ++i) {
+        signal_send(targets[i], sig);  // tolerates Zombie/Dead (returns ESRCH)
+        ++sent;
     }
     return sent;
 }

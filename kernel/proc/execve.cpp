@@ -90,7 +90,12 @@ void clear_user_mappings(cinux::mm::AddressSpace& space) {
                         continue;
 
                     uint64_t data_phys = pt[l].phys_addr();
-                    cinux::mm::g_pmm.free_page(data_phys);
+                    // Q4b-2 (DEBT-003): only free if this was the last mapping.
+                    // A CoW-shared page (fork) has mapcount > 1 here; freeing
+                    // it would leave the other process's PTE dangling (UAF).
+                    if (cinux::mm::g_pmm.mapcount_dec_and_test(data_phys)) {
+                        cinux::mm::g_pmm.free_page(data_phys);
+                    }
                     pt[l].raw = 0;
                 }
 
