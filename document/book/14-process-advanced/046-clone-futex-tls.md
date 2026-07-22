@@ -2,87 +2,70 @@
 title: 046 · clone / futex / TLS
 ---
 
-# 046 · clone、futex、TLS:真正的线程
+# 046 · 从"复制进程"到"按需共享":clone、futex 与线程
 
-> 045 给了信号,046 给**线程原语**。`fork` 是"整个进程复制一份",而 Linux 风格的 `clone` 是"按 flag 决定哪些共享、哪些复制"——共享地址空间(`CLONE_VM`)时,生出来的就是**线程**。配上 `futex`(线程同步)、TLS(每线程局部存储)、cleartid(`pthread_join` 协议),POSIX 线程的底子就齐了。A 档:`clone` 起两个线程交错跑,是真做得到的。
+> `fork` 造的是**进程**——整个地址空间、文件描述符表、信号处理表,统统复制一份(地址空间还是写时复制的懒复制,但逻辑上是"新的一套")。可很多时候你要的不是"全新一套",而是**线程**:共享同一块地址空间、同一套文件描述符,只是各自有独立的执行流和栈。Linux 的 `clone` 就是干这个的——它按一组 flag 决定"哪些共享、哪些复制",共享到极致就是线程。这一章实现 `clone`,配上 `futex`(线程怎么同步)、TLS(每线程的局部存储)、cleartid(`pthread_join` 的底),把 POSIX 线程的内核基础铺好。
 
-## 这章咱们要点亮什么
+## clone:按 flag 共享或复制
 
-四件事:
+`clone` 和 `fork` 的区别全在一组 `CLONE_*` flag:带哪个 flag,对应资源就**共享指针**(指向同一份);不带,就**复制一份**(fork 语义)。
 
-1. **`sys_clone`(Linux 56)**:按 `CLONE_*` flag 决定共享/复制;`CLONE_THREAD` 的兄弟同 `tgid`(`getpid` 返组长 pid)。
-2. **TLS**:`CLONE_SETTLS` 设子线程的 `fs_base`,context_switch 切入时恢复(MSR_FS_BASE)。
-3. **`futex`**:wait/wake,userspace fast-path 同步原语。
-4. **cleartid**:`CLONE_CHILD_CLEARTID` —— 线程 exit 时清 `child_tid` + `futex_wake`,这就是 `pthread_join` 的内核侧。
+- `CLONE_VM` → 共享地址空间。**这就是线程**——两个执行流跑在同一套页表上;
+- `CLONE_FILES` → 共享文件描述符表;`CLONE_SIGHAND` → 共享信号处理表;`CLONE_FS` → 共享当前工作目录;
+- `CLONE_THREAD` → 兄弟关系:新线程和调用者**同属一个线程组**(同 `tgid`),`getpid` 都返组长的 pid。
 
-## fork vs clone
+```cpp
+// kernel/syscall/sys_clone.hpp —— Linux 风格 clone
+int64_t sys_clone(uint64_t flags, uint64_t stack, uint64_t parent_tid, uint64_t child_tid, ...);
+```
 
-`fork` 把整个进程复制一份(地址空间 CoW、fd_table/sig_actions/cwd 各拷一份)。`clone` 细粒度——按 flag 决定:
+> 能这么"按 flag共享指针",有赖于一个前置:这些资源(地址空间、fd 表、信号表、cwd)从"深拷贝"改成了**带引用计数的共享对象**。共享指针时 bump 引用计数,析构时减。否则共享指向的东西会被一边提前释放——这是 clone 能落地的前提。
 
-- `CLONE_VM` → 共享地址空间指针(这就是**线程**——两个执行流跑在同一套页表上);
-- `CLONE_FILES` → 共享 fd_table;`CLONE_SIGHAND` → 共享 sig_actions;`CLONE_FS` → 共享 cwd;
-- 不带这些 flag → 复制(fork 语义);
-- `CLONE_THREAD` → 兄弟关系(同 tgid,ppid 继承自父的 ppid,不入调用者 children)。
+## TLS:每个线程自己的小块地盘
 
-`Task` 加了线程组字段:`tgid`(= 组长 pid,`getpid` 返它)、`group_leader`、`clear_child_tid`/`set_child_tid`。核线程 tgid=0;fork 给子新 tgid(自身组长);`clone(CLONE_THREAD)` 给子父的 tgid(兄弟)。
+线程共享地址空间,但每个线程得有**只属于自己的存储**(比如 `errno` 的位置、线程局部变量)。这就是 TLS(Thread-Local Storage)。x86-64 上,`%fs` 段寄存器指向当前线程的 TLS 区——每个线程的 `%fs` 基址不同。
 
-## clone 实现:镜像 fork,按 flag 共享
+`clone` 带 `CLONE_SETTLS` 时,把子线程的 `fs_base` 设成调用者给的 TLS 地址;上下文切换切入这个线程时,恢复它的 `fs_base`。于是每线程访问"自己的 `%fs` 段",拿到的是各自的 TLS。
 
-`clone()`(`kernel/proc/fork.cpp`)镜像 fork 的"new Task + memcpy + 拷核栈 + ctx + `fork_child_trampoline`(rax=0)",然后按 flag 决定 share-or-copy。共享资源用 refcount 指针(acquire);复制用 create_copy。
+## futex:线程同步的底
 
-> 这一弧之前(F3-M2 批 3)先把 `sig_actions`/`cwd`/`fd_table` 从"深拷贝"改成 **refcount 共享对象**,clone 才能按 flag 真共享——否则共享指针指向的会被一边析构。这是 clone 能落地的前置。
+线程共享内存,就需要**同步**——锁、条件变量。`futex`(fast userspace mutex)是 Linux 的同步原语底座:
 
-### GOTCHA #18:子进程的用户栈返回
+```cpp
+// kernel/syscall/sys_futex.hpp
+int64_t sys_futex(uint64_t uaddr, uint64_t op, uint64_t val, ...);
+```
 
-clone 最硬的一处。fork 子进程返回**父栈**(CoW 共享);但 clone 子进程要返回**调用者给的 `stack`**(线程有自己栈)。怎么办?
+思路是"用户态快速路径 + 内核慢路径":锁没竞争时,纯用户态原子操作搞定(不进内核);冲突了才 `futex` 系统调用——`FUTEX_WAIT` 在 `*uaddr==val` 时把当前线程挂起、`FUTEX_WAKE` 唤醒等者。内核侧维护一个"按 uaddr(用户地址)的等待队列"。pthread 的 mutex / condvar 都建在它上面。
 
-syscall 入口建的 pt_regs 帧固定在 `[kernel_stack_top-96, kernel_stack_top)`(96B、12 槽),`user_rsp` 在帧的 offset 0 = `kernel_stack_top-96`。clone 复用 fork 的"拷父核栈"机制(子核栈是父栈副本,含 syscall 帧),然后**直接 patch 子帧的 user_rsp 槽**:
+## cleartid:`pthread_join` 的内核侧
+
+线程要能被"等"——`pthread_join`。怎么实现的?`clone` 带 `CLONE_CHILD_CLEARTID` 时,记一个用户地址(`child_tid`)。线程退出时(`task_exit_cleartid`),把这个地址**清零 + `futex_wake` 一个等者**。而 `pthread_join` 就是在这个地址上 `futex_wait`。于是被 join 的线程一退出、清零、唤醒,join 的线程就被唤醒——**零额外机制,完全复用 futex**。这就是 Linux `pthread_join` 的内核侧协议。
+
+## 一个不简单的点:新线程的用户栈
+
+`fork` 的子进程返回**父栈**(写时复制共享)。可 `clone` 的子线程要返回**调用者给的栈**(线程有自己的栈),不能返回父栈。怎么做到?
+
+系统调用入口建的寄存器帧(pt_regs)固定在内核栈顶的一个位置,其中 `user_rsp`(用户栈指针)在帧的 offset 0。clone 复用 fork 的"拷贝父内核栈"机制(子内核栈是父栈的副本,含这个帧),然后**直接改子帧的 `user_rsp` 槽**:
 
 ```cpp
 if (stack != 0)
-    *(uint64_t*)(child->kernel_stack_top - 96) = stack;
+    *(uint64_t*)(child->kernel_stack_top - 96) = stack;   // 帧在栈顶固定位置
 ```
 
-子进程经 `fork_child_trampoline(rax=0)` 解卷回 syscall 入口岭 → SYSRET 时 user_rsp=stack、user_rip=父的岭(`CLONE_VM` 共享代码)、rax=0。**帧在栈顶固定位置,直接按 `kernel_stack_top` 定位,不用从当前 rsp 算偏移。**
-
-## TLS:fs_base
-
-`CLONE_SETTLS` → `child->ctx.fs_base = tls`(`kernel/proc/process.hpp:92`)。`fs_base` 是每线程的 TLS 基址(MSR_FS_BASE 0xC0000100),`context_switch` 切入时恢复——所以每线程的 `%fs` 段指向各自的 TLS 区。task_builder 默认 `fs_base=0`(没 TLS 直到 clone 带 SETTLS)。
-
-## futex:wait/wake
-
-`sys_futex(uaddr, op, val, ...)`(`kernel/syscall/sys_futex.hpp:39`):`FUTEX_WAIT` 在 `*uaddr==val` 时阻塞、`FUTEX_WAKE` 唤醒等者。内核侧维护 per-uaddr 的等待队列。它是 pthread mutex/condvar 的底——userspace 先原子检查(fast-path,不进内核),冲突才 futex(慢路径)。
-
-## cleartid:pthread_join 的内核侧
-
-`CLONE_CHILD_CLEARTID` 记一个 `clear_child_tid`(用户地址)。线程 exit 时 `task_exit_cleartid`(`process.hpp:381`)把这个地址**清零 + `futex_wake` 一个等者**——这正是 `pthread_join` 的协议:join 的线程在 cleartid 地址上 futex_wait,被 join 的线程 exit 时清零 + wake。零额外机制,复用 futex。
-
-## 一个值得记的调试 saga
-
-这一弧踩到一个**极具迷惑性**的坑,记一下。批 4 改 `sys_getpid` 让它返 `tgid` 后,整套测试挂死,崩点显示在 `FDTable::alloc` 的 Spinlock,诊断打印 `current_fd_table: fd_table=0x0AFFFFFF81072946`(垃圾),像是内存踩踏。
-
-真因**不是踩踏,是悬垂指针**:getpid 返 tgid 使一条既有断言失败(`tmp.pid=42` 但 `tmp.tgid=0` → getpid 返 0 ≠ 42);`TEST_ASSERT` 失败时 `return`(早返回)→ **跳过函数末尾的 `set_current(prev)`** → `Scheduler::current_` 悬垂指向已销毁的栈 `Task tmp` → 后续测试读悬垂 current → fd_table 垃圾 → 崩。修:测试设 `tmp.tgid = tmp.pid`。
-
-> 教训:**测试 helper 改了 `current` 必须配对恢复**;`TEST_ASSERT` 的早返回会跳过清理。诊断这种"看似踩踏实为悬垂"的 bug,关键是在崩点打印 `current` 指向的 task 地址——垃圾地址 = current 悬垂。
+子线程经返回路径回到用户态时,`user_rsp` 就成了调用者给的栈、`user_rip` 是父的(共享代码)、`rax=0`(线程组里子线程 clone 返 0)。**帧在栈顶固定位置,直接按 `kernel_stack_top` 定位,不用从当前栈指针算偏移。**
 
 ## 验证
 
 ```bash
 grep -rn 'sys_clone\|sys_futex' kernel/syscall/
-grep -rn 'fs_base\|task_exit_cleartid\|CLONE_SETTLS\|CLONE_CHILD_CLEARTID' kernel/proc/process.hpp
+grep -rn 'fs_base\|task_exit_cleartid\|CLONE_SETTLS\|CLONE_CHILD_CLEARTID\|CLONE_VM' kernel/proc/process.hpp kernel/proc/fork.cpp
 ```
 
-构建 + 内核测试(这一弧 run-kernel-test 从 045 的 783 涨到 809,clone/futex/TLS/cleartid 一批):
+构建:
 
 ```bash
-cmake --build build -j$(nproc) > /tmp/b.log 2>&1; echo "build=$?"
-cmake --build build --target run-kernel-test
+cmake -B build -S . && cmake --build build -j$(nproc) > /tmp/b.log 2>&1; echo "build=$?"
 ```
 
-A 档端到端:测试里 `clone(CLONE_VM|CLONE_THREAD|CLONE_SETTLS, ...)` 起兄弟线程,两线程同 tgid、各跑各的 TLS,futex 协调。真用户态 pthread 程序要等 F10 musl 的 libpthread。
-
-## 小结与下一站
-
-线程原语齐了:clone(按 flag 共享/复制 + 线程组)、TLS(fs_base)、futex(同步)、cleartid(join)。POSIX 线程的内核底子铺好。
-
-下一站 **047** 继续进程弧:进程组 / 会话 / `waitpid` 阻塞——`kill(pid<0)` 给进程组发信号、父进程阻塞等子进程退出。
+端到端:内核测试里 `clone(CLONE_VM|CLONE_THREAD|CLONE_SETTLS, stack, ...)` 起兄弟线程——两个线程同属一个线程组(同 `tgid`)、各跑各的 TLS、用 futex 协调。真用户态的 pthread 程序要等后面 musl 的 libpthread;但内核侧的线程原语,这一章就齐了。想体会 futex 的快速路径:无竞争时拿锁、放锁全在用户态原子指令完成,一次系统调用都不用——只有真冲突才进内核。
