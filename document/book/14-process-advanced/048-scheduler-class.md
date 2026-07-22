@@ -2,75 +2,56 @@
 title: 048 · 调度类与 SIGSTOP/CONT
 ---
 
-# 048 · 调度类、优先级、SIGSTOP/CONT:F3 进程弧收官
+# 048 · 让调度策略可插拔,让 SIGSTOP/CONT 真起作用
 
-> 048 收 F3。两件事:验证 **`SchedulingClass` 插拔接口**(策略钩子 + 优先级感知轮询 + 多调度类实际查询),兑现 047 留的 **SIGSTOP/CONT 真调度**(停掉的任务真不被调度、续上真恢复)。A 档:`kill -SIGSTOP` 冻结进程、`SIGCONT` 恢复,是用户可见的。
+> 两个目标。一是把调度器从"写死的一种轮询"改成**可插拔的调度策略**(调度类),并加上**优先级**——高优先级先跑、同优先级轮询。二是兑现 047 留的债:`SIGSTOP`/`SIGCONT` 之前只改了信号状态,没有真调度效果(停掉的任务其实还在被调度)。这一章给它加上"停止"状态,让被 STOP 的任务**真不被调度**,CONT 时真恢复。
 
-## 这章咱们要点亮什么
+## 调度类:策略可插拔
 
-1. **`SchedulingClass` 策略钩子**:`task_tick`(返是否抢占)/`task_fork`(派生子参数)/`task_deadline`(实时预留),默认 no-op。
-2. **优先级感知 RoundRobin**:`pick_next` 选 `priority` 最小者(小值=高优先级,Linux 风格,idle=255),并列取 FIFO。
-3. **多调度类实际查询**:`pick_next_from` 公开数组原语,注册序即优先级。
-4. **STOP/CONT 真调度**:`TaskState::Stopped` + 信号默认动作 kStop/kContinue + 发送时恢复。
-
-## SchedulingClass 插拔
-
-`kernel/proc/scheduler.hpp:42 class SchedulingClass`。策略逻辑从 `Scheduler` 本体抽到可插拔的类:
+把调度逻辑从 `Scheduler` 本体抽到一个可插拔的**调度类**(`kernel/proc/scheduler.hpp`):
 
 ```cpp
 class SchedulingClass {
-    void  task_tick(Task* cur);          // 返是否该抢占(时间片到)
-    void  task_fork(Task* parent, Task* child);  // 派生子参数(如优先级继承)
-    Task* pick_next();                    // 选下一个任务
+    void  task_tick(Task* cur);                  // 时钟到了,返是否该抢占
+    void  task_fork(Task* parent, Task* child);   // 派生子的调度参数
+    Task* pick_next();                            // 选下一个跑谁
     void  enqueue(Task* t);
-    // task_deadline 实时类预留,默认 0
 };
 ```
 
-加一个新调度算法就是继承 `SchedulingClass` + `Scheduler::register_class(&my_class)`(scheduler.hpp 头部有伪代码示例)。时间片量子从原来的全局 `Scheduler::current_slice_` **内聚到类成员** `quantum_remaining_`(单一事实源),`tick()` 委托给当前任务的 `task_tick`。
+想加一种新调度算法(比如严格优先级、实时轮转),就继承 `SchedulingClass` + 注册进去,不用动 `Scheduler` 本体。时间片配额也从原来的"调度器全局变量"**收进调度类**自己管(单一事实源),时钟中断委托给当前任务的 `task_tick` 决定要不要抢占。
 
-## 优先级感知 RoundRobin
+## 优先级感知的轮询
 
-默认的 RoundRobin 类 `pick_next` 扫描就绪队列选 `priority` **最小**者(小值=高优先级,对齐 Linux nice,idle 是 255 垫底),并列的取最早入队(FIFO)——同优先级天然轮询,高优先级可饿死低优先级(严格优先级)。这是"优先级 + 轮询"的常见折中。
+默认的调度类,`pick_next` 不再是无脑取队头,而是扫一遍就绪队列、选**优先级数字最小**的(数字小 = 优先级高,对齐 Linux 的 nice;idle 任务是 255,垫底)。并列的取最早入队的——于是**同优先级天然轮询,高优先级可以饿死低优先级**(严格优先级)。这是"优先级 + 轮询"的常见折中。
 
-## 多调度类实际查询
+## 多调度类:真查,不是摆设
 
-一个隐藏问题被这一弧修了:`register_class` 填 `classes_[]`,但原来的 `schedule`/`exit_current`/`run_first` **直接调 `default_rr_.pick_next()`、从不遍历 `classes_[]`**——插拔名存实亡。这一弧加 `pick_next_from(classes, count)` **公开数组原语**(脱离全局 `default_rr_` 残留态,可单测),三处改走它;注册序即调度类优先级。这下"注册了就会被查到"才真。
+这里修了一个隐藏问题:本来"注册调度类"填进一个数组,可调度器实际选任务时**直调默认那个、从不遍历数组**——插拔名存实亡。这一章加了个"按数组选"的原语,让注册的调度类真被查到;注册顺序就是调度类的优先级。这下"注册了就会被用到"才成立。
 
-## STOP/CONT 真调度(兑现 047 的债)
+## SIGSTOP/CONT:真停真续
 
-047 的 SIGSTOP/CONT 只改了信号状态,没真调度效果(没有 Stopped 状态机)。048 补上:
+047 的 SIGSTOP/SIGCONT 只改了信号侧状态。这一章给任务加一个**停止状态**,让它真起调度效果:
 
-- `TaskState::Stopped` 新状态;
-- `signal_exec_default` 对 SIGSTOP 走 `kStop`(Stopped + dequeue + 也许 schedule)、SIGCONT 走 `kContinue`(恢复 Ready + enqueue);
-- schedule 守卫排除 Stopped(Stopped 任务永不被 `pick_next` 选中)。
+- 收到 SIGSTOP → 任务进**停止态**、从就绪队列摘掉、可能触发调度;
+- 收到 SIGCONT → 恢复**就绪态**、放回队列;
+- 调度器的 `pick_next` **排除停止态**的任务(它们永不被选中)。
 
-一个不直觉的点:**SIGCONT/SIGKILL 要在 `signal_send` 发送时就恢复 Stopped 目标**,不能等目标自己投递——因为 Stopped 目标永不被调度,它自己投递不了 SIGCONT/SIGKILL。所以发送时即 Ready + enqueue。
+一个不直觉的点:**SIGCONT(以及 SIGKILL)发给一个停止态的任务时,要在 `signal_send` 发送的那一刻就把它恢复**,不能等它自己投递——因为停止态的任务不被调度,它自己根本没机会投递 SIGCONT 给自己。所以发送时就把它唤醒、放回队列。
 
-## GOTCHA #22:TaskBuilder 消耗全局 tid
-
-批 4 首版用 `TaskBuilder` 建测试 victim,分到 tid 1/2/3;而 `run_signal_tests()` 在 `run_scheduler_tests()` 前跑,导致 `test_build_basic_task` 断言"首任务 tid==1"失败(实际 4+)。修:纯状态机测试用**栈 `Task t{}`**(零 tid/slab/核栈消耗)。
-
-> 通用铁律:**测试别用 `TaskBuilder` 除非真要建可调度 task**;纯逻辑/状态测试用栈对象,避免全局计数器( tid/slab)跨测污染。
+> 一个测试的坑:`TaskBuilder` 会消耗一个全局的 tid 计数器。纯状态机的测试(不真要一个可调度的任务)别用 `TaskBuilder`,用栈上的 `Task t{}`——否则 tid 计数器跨测试污染,后面断言"第一个任务 tid==1"就挂了。
 
 ## 验证
 
 ```bash
 grep -n 'class SchedulingClass\|task_tick\|task_fork\|pick_next_from\|register_class' kernel/proc/scheduler.hpp
-grep -rn 'TaskState::Stopped\|kStop\|kContinue\|SIGSTOP\|SIGCONT' kernel/proc/
+grep -rn 'TaskState::Stopped\|kStop\|kContinue' kernel/proc/
 ```
 
-构建 + 内核测试(这一弧 run-kernel-test 从 047 的 827 涨到 840):
+构建:
 
 ```bash
-cmake --build build -j$(nproc) > /tmp/b.log 2>&1; echo "build=$?"
-cmake --build build --target run-kernel-test
+cmake -B build -S . && cmake --build build -j$(nproc) > /tmp/b.log 2>&1; echo "build=$?"
 ```
 
-A 档端到端:发 SIGSTOP 给一个任务 → 它停(STOPPED,不占 CPU)→ 发 SIGCONT → 恢复运行。真 shell 的 Ctrl+Z/bg/fg 要等 TTY 弧(后面)把 SIGSTOP/SIGCONT 接到终端按键。
-
-## 小结与下一站
-
-F3 进程弧全收官(M1-M4):信号、线程、进程组/waitpid、调度类/STOP-CONT。进程/线程这一层的 v1.0.0 升级到位。
-
-下一站 **049** 是横切的 **F-INFRA**(lockdep 锁序图、freestanding 头门禁、NotNull 等基建加固)——插在 F3 和 F4(SMP)之间,给马上要来的多核并发上保险。
+端到端:给一个任务发 SIGSTOP → 它停(停止态,不占 CPU)→ 发 SIGCONT → 恢复运行。真 shell 的 Ctrl+Z / bg / fg 要等后面的终端弧把 SIGSTOP/SIGCONT 接到按键和会话概念上;但"任务能被真停、真续"这个内核能力,这一章到位了。

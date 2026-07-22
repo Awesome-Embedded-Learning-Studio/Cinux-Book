@@ -2,83 +2,44 @@
 title: 047 · 进程组与 waitpid 阻塞
 ---
 
-# 047 · 进程组、会话、waitpid 阻塞:给 job control 打地基
+# 047 · 给一组进程发信号,让父进程睡等子进程:进程组与 waitpid 阻塞
 
-> 047 收 F3 的两块:**进程组/会话身份** + **waitpid 阻塞**。前者让 `kill` 能给一组进程发信号(`kill(pid<0, sig)`)、为 job control / TTY 控制终端打地基;后者让父进程能**阻塞等子进程退出**(045/046 的 waitpid 还是轮询)。A 档:`killpg` 广播、`waitpid` 阻塞,都是用户可见的行为。
+> 两件事,都是前面留的。第一,`kill` 只能给**单个**进程发信号;可 shell 要做任务控制,得能给**一整组**进程发信号(比如 Ctrl+Z 停掉前台整组)。这需要**进程组**。第二,045 的 `waitpid` 是**轮询**——父进程想知道子进程退没退出,得反复调用、忙等;这既浪费 CPU,又不能及时知道。这一章让父进程能**阻塞睡等**子进程退出。
 
-## 这章咱们要点亮什么
+## 进程组:进程的"编组"
 
-1. **进程组/会话身份**:`Task` 加 `pgid`/`sid`/`session_leader`/`controlling_tty`;fork/clone 的继承规则集中到 `inherit_process_identity`。
-2. **身份操作 + 信号广播**:`setpgid`/`setsid`/`getpgid`/`getsid` 四个 syscall + `killpg`(按 pgid 广播信号),闭环 045 留的 `sys_kill(pid<0)`。
-3. **waitpid 阻塞 + Zombie reap**:exit 从"直接 Dead"改成"Zombie + 留给父 reap";waitpid 默认阻塞、`WNOHANG` 非阻塞;exit 唤醒等子进程的父。
+每个进程属于一个**进程组**(pgid),进程组属于一个**会话**(sid)。`Task` 加这几个字段。继承规则:内核 / 引导任务的 pgid 是 0(标记"根"),它 fork 出的第一个用户进程**自成一组**(自身组长);之后用户进程 fork,子继承父的组。
 
-## 进程组/会话身份
+身份操作有四个 syscall:`setpgid`/`setsid`/`getpgid`/`getsid`。有了组,就能**按组发信号**——`killpg(pgid, sig)` 遍历所有任务,给 pgid 匹配的都投递(`kernel/proc/signal.hpp`)。`pgid==0` 是约定"调用者自己的组",方便 shell 给自己所在组发信号。
 
-`Task` 加一组字段:`pgid`(进程组 id)、`sid`(会话 id)、`session_leader`、`controlling_tty`。继承规则集中到 `inherit_process_identity`(`kernel/proc/process_new.cpp`):
+这一章闭环了 045 留的 `sys_kill(pid<0)`:负 pid 解析成"给进程组 `-pid` 发信号",经 `killpg` 广播。于是 `kill -SIG -pgid` 这类任务控制操作有了内核支撑。
 
-```cpp
-// process_new.cpp:213 —— root fork:父 pgid==0(内核/bootstrap task),子自成组长
-if (parent->pgid == 0) {
-    child->pgid = child_pid;
-    child->sid  = child_pid;
-    // session_leader = true
-} else {
-    // 否则继承父的 pgid/sid
-}
-```
+## waitpid 阻塞:睡等,别忙等
 
-"root fork"是关键概念:内核/bootstrap task 的 `pgid==0`,它 fork 出的第一个用户进程自成一组(自身组长);之后用户进程 fork,子继承父的组。这和 Linux 一致。
+这是这一章最绕的部分,因为它牵出一条**依赖链**,不是一个改动能搞定。
 
-## 身份操作 + killpg
+原来 `sys_exit` 把任务直接设成"死"(Dead),调度器再也不理它。可父进程要 reap(收尸)的,是"已退出、但还没被收尸的子进程"——如果子进程一退出就消失,父进程就收不到了。所以:
 
-`kernel/proc/process_group.{hpp,cpp}` 提供 `setpgid`/`getpgid`/`getsid`/`setsid`(纯字段操作,`setsid` 在调用者已是 leader 时 EPERM),注册成四个 syscall(109/112/121/124)。
+- **exit 改成"僵尸"(Zombie)**:退出的任务不立刻消失,留成 Zombie 状态,等父进程收尸;
+- **调度器跳过 Zombie**:`pick_next` 不能选中 Zombie(否则把一个僵尸设成运行态,必崩)。僵尸留在队列里等收尸,但不参与调度;
+- **waitpid 默认阻塞**:父进程调 `waitpid`、子进程没退出时,父进程**睡等**(进入等待状态),不再轮询;带 `WNOHANG` 标志才是非阻塞;
+- **exit 唤醒父进程**:子进程 exit 时,唤醒正在睡等它的父进程。
 
-信号广播 `killpg`(`kernel/proc/signal.hpp:209`):
+这条链远超"给 waitpid 加个阻塞"——所以这一章**拆成两步降风险**:先把"僵尸契约"(exit 留僵尸 + 调度器跳僵尸)做对,再上 waitpid 阻塞 + 唤醒。**改默认阻塞之前,必须 grep 全部 waitpid 调用点,确认它们都能处理"子进程还没退出"的情况**(否则会实打实地挂死在那里)。
 
-```cpp
-// 遍历 pid registry,给所有 pgid 匹配的 task 发信号;pgid==0 解析为调用者自己的组
-int killpg(int pgid, Signal sig);
-```
-
-这一弧闭环了 045 留的 `sys_kill(pid<0)`:`pid<0` 解析成"给进程组 `-pid` 发信号",经 `killpg` 广播。于是 shell 的 `kill -SIG -pgid` 这类 job control 操作有了内核支撑。
-
-## waitpid 阻塞 + Zombie reap
-
-这是这一弧最绕的一块,藏着依赖链。045/046 的 `waitpid` 是**轮询**(子没退出就返"没有"),父要自己忙等。047 改成默认**阻塞**。
-
-但"阻塞"不是只改 waitpid——它牵出一串前置:
-
-- **exit 改 Zombie 契约**:原来 `sys_exit` 直接把 task 设 Dead;改成 **Dead→Zombie**(留 task 结构,等父 reap)。因为父 reap 的是"已退出但还没被收尸的子",直接消失就 reap 不到真 child。
-- **scheduler 跳过 Zombie**:`pick_next` 不能选 Zombie 状态的 task(否则把 Zombie 设成 Running → 崩)。Zombie 留在队列里等 reap,但不参与调度。
-- **waitpid 阻塞**:默认 block(`waiting_for_child`),`WNOHANG` 才非阻塞;阻塞后重扫 loop。
-- **exit 唤醒父**:子 exit 时唤醒 `waiting_for_child` 的父。
-
-这条链远超"加个 block"——所以这一弧**拆成两批降风险**:4a(契约:exit Zombie + scheduler 跳 Zombie)先行,4b(waitpid 阻塞 + 唤醒)在后。
-
-> 教训:**propose 时以为是一个改动,执行中发现是依赖链**——waitpid 阻塞的正确性依赖 exit Zombie + scheduler skip + 所有调用点改 WNOHANG。这种时候拆批(契约先行、行为在后)比一把梭稳。改默认阻塞前,务必 `grep` 全 waitpid 调用点确认 WNOHANG/zombie 就绪,否则 `test_waitpid_not_exited`(child 还 Running)会实打实挂死。
-
-## GOTCHA #21:Scheduler::current 读的是 static
-
-`Scheduler::current()` 读的是 static `current_`,**不是 `g_per_cpu.current``(单核期这俩不同步)**。单测里设 current 必须用 `Scheduler::set_current(&t)`(两个都设),不能直接 `g_per_cpu.current=&t`。test_clone 的 futex 侥幸过了(futex 路径不经 `current()`),掩盖了这层——到 waitpid 才暴露。
+> 一个调度器的坑:`Scheduler::current()` 读的是一个**静态变量**,不是 per-CPU 的那个。测试里如果要设当前任务,必须用 `Scheduler::set_current`(两个都设),不能只设 per-CPU 的——否则经过 `current()` 的路径(waitpid、killpg 都用)会读到旧值。
 
 ## 验证
 
 ```bash
 grep -rn 'killpg\|setpgid\|setsid\|pgid\|session_leader' kernel/proc/signal.hpp kernel/proc/process_group.cpp kernel/proc/process.hpp
-grep -rn 'Zombie\|waiting_for_child\|WNOHANG\|kWaitNoHang' kernel/proc/ | grep -v test | head
+grep -rn 'Zombie\|waiting_for_child\|WNOHANG' kernel/proc/ | grep -v test | head
 ```
 
-构建 + 内核测试(这一弧 run-kernel-test 从 046 的 809 涨到 827):
+构建:
 
 ```bash
-cmake --build build -j$(nproc) > /tmp/b.log 2>&1; echo "build=$?"
-cmake --build build --target run-kernel-test
+cmake -B build -S . && cmake --build build -j$(nproc) > /tmp/b.log 2>&1; echo "build=$?"
 ```
 
-A 档端到端:`killpg` 给一组发信号(组内 task 都收到)、`waitpid` 阻塞等子退出(子 exit 时父被唤醒)。真 shell 的 job control 要等 F10 + TTY(后面)。
-
-## 小结与下一站
-
-F3 进程弧近收口:进程组/会话身份有了,waitpid 能阻塞了。还差 F3-M4(调度类:SIGSTOP/CONT 真调度效果、优先级、task 状态机)。
-
-下一站 **048** 就是 F3-M4 调度器——`SchedulingClass` 策略钩子 + 优先级轮询 + SIGSTOP/CONT 真把任务停/续。
+端到端:`killpg` 给一组发信号(组内进程都收到);父进程 `waitpid` 阻塞睡等,子进程 exit 时父进程被唤醒、收尸。真 shell 的任务控制(Ctrl+Z、bg/fg)要等后面的终端(TTY)弧把 SIGSTOP/SIGCONT 接到按键上——但内核侧"按组发信号 + 睡等子进程"的能力,这一章到位了。
