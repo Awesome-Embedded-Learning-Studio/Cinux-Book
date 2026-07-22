@@ -98,7 +98,9 @@ void run_backtrace_tests();
 void run_memory_stats_tests();
 void run_user_ptr_tests();
 void run_pmm_mapcount_tests();
+#ifdef CINUX_USB
 void run_xhci_tests();
+#endif
 }
 
 static constexpr uintptr_t BOOT_INFO_PHYS = 0x7000;
@@ -261,10 +263,12 @@ extern "C" void kernel_main() {
     // AHCI tests (025): requires PMM and VMM for BAR5 mapping and DMA buffers
     run_ahci_tests();
 
+#ifdef CINUX_USB
     // xHCI tests (F5-M5): PCI find + BAR0 map + reset.  Skips (passes) when no
     // qemu-xhci is present (default config); exercises real bring-up under the
     // run-kernel-test-xhci target.
     run_xhci_tests();
+#endif
 
     // Ramdisk tests (026): verifies ustar parsing of embedded initrd
     run_ramdisk_tests();

@@ -216,7 +216,6 @@ add_executable(big_kernel_test
     test/test_ext2.cpp
     test/test_ahci_write.cpp
     test/test_ahci_block_device.cpp
-    test/test_xhci.cpp
     test/test_ext2_allocator.cpp
     test/test_ext2_ops.cpp
     test/test_ext2_inode_ops.cpp
@@ -267,6 +266,12 @@ add_executable(big_kernel_test
     test/test_gui_region.cpp
     test/test_gui_dirty.cpp
 )
+
+# F5-M5 xHCI: gate the USB test on CINUX_USB so a CINUX_USB=OFF build links
+# (the driver is absent; run_xhci_tests is #ifdef CINUX_USB'd in main_test.cpp).
+if(CINUX_USB)
+    target_sources(big_kernel_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test/test_xhci.cpp)
+endif()
 
 target_sources(big_kernel_test PRIVATE $<TARGET_OBJECTS:big_kernel_common>)
 target_link_libraries(big_kernel_test PRIVATE big_kernel_common)

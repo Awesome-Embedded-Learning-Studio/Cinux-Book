@@ -16,7 +16,9 @@
 
 #include "big_kernel_test.h"
 #include "kernel/drivers/mouse/hid.hpp"
-#include "kernel/drivers/mouse/usb_mouse.hpp"
+#ifdef CINUX_GUI
+#    include "kernel/drivers/mouse/usb_mouse.hpp"
+#endif
 #include "kernel/drivers/pci/pci.hpp"
 #include "kernel/drivers/usb/usb_descriptor.hpp"
 #include "kernel/drivers/usb/xhci_controller.hpp"
@@ -191,6 +193,11 @@ void test_address_device() {
 // mouse NAKs (no Transfer Event) -- that is correct, not a failure.
 // ============================================================
 
+// HID mouse bring-up needs UsbMouse (compiled only under CINUX_USB AND CINUX_GUI,
+// see drivers/CMakeLists.txt).  Gate the whole test + its RUN_TEST on CINUX_GUI
+// so a USB=ON+GUI=OFF build keeps the xHCI core tests without an unresolved
+// UsbMouse vtable.
+#ifdef CINUX_GUI
 void test_hid_mouse() {
     PCI pci;
     pci.init();
@@ -271,6 +278,7 @@ void test_hid_mouse() {
 
     cinux::lib::kprintf("[xHCI] no HID boot mouse found -- skipping HID test\n");
 }
+#endif
 
 }  // namespace test_xhci
 
@@ -278,6 +286,8 @@ extern "C" void run_xhci_tests() {
     TEST_SECTION("xHCI");
     RUN_TEST(test_xhci::test_find_and_reset);
     RUN_TEST(test_xhci::test_address_device);
+#ifdef CINUX_GUI
     RUN_TEST(test_xhci::test_hid_mouse);
+#endif
     TEST_SUMMARY();
 }
