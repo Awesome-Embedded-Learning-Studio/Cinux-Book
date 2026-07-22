@@ -18,6 +18,8 @@
 
 #include "kernel/arch/x86_64/idt.hpp"
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/mm/address_space.hpp"  // DEBT-008: VMA check in signal_setup_frame
+#include "kernel/mm/vma.hpp"            // VmaFlags / VMA / has_flag
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/sync.hpp"  // Spinlock (F-QA Q4c-2 / DEBT-001 registry lock)
@@ -300,7 +302,31 @@ void signal_setup_frame(InterruptFrame* frame, Signal sig, uint64_t handler_addr
     //   original user RSP           @ U
     const uint64_t R  = user_rsp - pad - 8 - sizeof(SignalFrame);
     const uint64_t T  = R - 8;
-    auto*          sf = reinterpret_cast<SignalFrame*>(R + 8);
+
+    // DEBT-008: before writing the frame + trampoline, validate that [T, user_rsp)
+    // lands in a writable Stack VMA.  A signal received with the stack near its
+    // limit (or below the guard page) would otherwise fault mid-delivery --
+    // frame written half-way, original signal in-flight, stack corrupted -> hang.
+    // Fall back to the default action (typically terminate).  Runs at IF=0 (from
+    // signal_check_deliver_isr in the ISR path), so irq_guard is a no-op lock;
+    // it only documents the critical section.
+    Task* task = Scheduler::current();
+    if (task != nullptr && task->addr_space != nullptr) {
+        auto            vma_guard = task->addr_space->vma_lock().irq_guard();
+        cinux::mm::VMA* v         = task->addr_space->vmas().find(R);
+        const bool      writable_stack =
+            v != nullptr && cinux::mm::has_flag(v->flags, cinux::mm::VmaFlags::Write) &&
+            cinux::mm::has_flag(v->flags, cinux::mm::VmaFlags::Stack);
+        if (!writable_stack) {
+            cinux::lib::kprintf("[SIGNAL] handler frame R=0x%lx outside writable Stack VMA; "
+                    "falling back to default action\n",
+                    static_cast<unsigned long>(R));
+            signal_exec_default(task, sig);  // may not return (terminate)
+            return;
+        }
+    }
+
+    auto* sf = reinterpret_cast<SignalFrame*>(R + 8);
 
     // Save the interrupted user context.
     sf->r15    = frame->r15;

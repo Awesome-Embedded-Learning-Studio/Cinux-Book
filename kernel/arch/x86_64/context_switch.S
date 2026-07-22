@@ -69,6 +69,14 @@ context_switch:
     movl %eax, 80(%rdi)             # from+80: fs_base low 32
     movl %edx, 84(%rdi)             # from+84: fs_base high 32
 
+    /* F4-followup (SMP migration race): from's ctx is now FULLY saved (all
+       callee regs + rsp + rip + fs_base).  Mark from->on_cpu = -1 so a remote
+       CPU that skipped `from` in pick_next() (because on_cpu was still set)
+       can now safely load its ctx.  %rdi still holds &from->ctx == &from
+       (ctx is at Task+0); on_cpu is at Task+sizeof(CpuContext)=96.  x86 store
+       has release semantics (TSO); pick_next() loads it with __atomic ACQUIRE. */
+    movl $-1, 96(%rdi)              # from->on_cpu = -1 (ctx save complete)
+
     /* ---- Restore callee-saved registers from `to` ---- */
 
     movq 0(%rsi), %r15               # to+0→%r15: restore R15

@@ -37,6 +37,7 @@
 #include "kernel/proc/pid.hpp"
 #include "kernel/proc/shared_cwd.hpp"
 #include "kernel/proc/signal.hpp"
+#include "kernel/proc/task_builder.hpp"
 
 namespace cinux::fs {
 class FDTable;
@@ -149,6 +150,15 @@ struct Task {
     /** Saved callee-saved registers for context switching. */
     CpuContext ctx;
 
+    /** SMP migration sync (F4-followup): the CPU this task currently runs on,
+     *  or -1 when its ctx is saved / it runs on no CPU.  schedule() sets it to
+     *  the local cpu_id just before switching TO this task; context_switch.S
+     *  stores -1 once the outgoing task's ctx is fully saved.  pick_next()
+     *  skips tasks whose on_cpu != -1 (their ctx save is still in flight on the
+     *  CPU they just left), so two CPUs never save/restore the same ctx at once
+     *  -- closing the migration race.  Plain int + __atomic_* (x86 TSO). */
+    int on_cpu;
+
     /** Current lifecycle state. */
     TaskState state;
 
@@ -157,6 +167,10 @@ struct Task {
 
     /** Scheduling priority (lower = higher priority, for future use). */
     uint64_t priority;
+    /** Time-slice quantum remaining (ticks).  per-task (DEBT-007: was a shared
+     *  RoundRobin member, which multi-core tick races shrank to slice/ncpus).
+     *  Refilled by SchedulingClass::pick_next / task_fork / TaskBuilder::build. */
+    int32_t  quantum_remaining;
 
     /** Base of the kernel stack allocation (for freeing). */
     uint64_t kernel_stack;
@@ -279,68 +293,11 @@ struct Task {
     Task* deferred_next{nullptr};
 };
 
-// ============================================================
-// TaskBuilder -- fluent builder for Task construction
-// ============================================================
-
-/**
- * @brief Fluent builder for constructing kernel Task objects
- *
- * Accumulates configuration via setter methods, then performs
- * allocation and initialisation in build().  Example usage:
- *
- *   auto* task = TaskBuilder()
- *       .set_entry(my_thread)
- *       .set_name("worker")
- *       .set_priority(1)
- *       .build();
- *
- * At minimum, set_entry() must be called before build().
- */
-class TaskBuilder {
-public:
-    TaskBuilder() = default;
-
-    /** Set the thread entry point.  Required before build(). */
-    TaskBuilder& set_entry(void (*entry)());
-
-    /** Set the human-readable task name.  Defaults to "unnamed". */
-    TaskBuilder& set_name(const char* name);
-
-    /** Set the scheduling priority.  Defaults to 0. */
-    TaskBuilder& set_priority(uint64_t priority);
-
-    /** Set the address space.  Defaults to nullptr (kernel-only). */
-    TaskBuilder& set_addr_space(cinux::mm::AddressSpace* space);
-
-    /** Set the scheduling class.  Defaults to nullptr. */
-    TaskBuilder& set_sched_class(SchedulingClass* sched_class);
-
-    /**
-     * @brief Allocate and initialise the Task
-     *
-     * Allocates a Task struct from the kernel heap and a kernel
-     * stack from the PMM.  Initialises CpuContext so that the
-     * first context_switch jumps to the entry point.  Writes a
-     * magic value at the stack bottom for overflow detection.
-     *
-     * @return Pointer to the fully initialised Task, or nullptr on failure
-     */
-    Task* build();
-
-    /** Magic value written at the bottom of every kernel stack. */
-    static constexpr uint64_t STACK_MAGIC = 0xDEADC0DE;
-
-    /** Number of 4 KB pages per kernel stack (16 KB total). */
-    static constexpr uint64_t STACK_PAGES = 4;
-
-private:
-    void (*entry_)()                      = nullptr;
-    const char*              name_        = "unnamed";
-    uint64_t                 priority_    = 0;
-    cinux::mm::AddressSpace* addr_space_  = nullptr;
-    SchedulingClass*         sched_class_ = nullptr;
-};
+// F4-followup (SMP migration race): context_switch.S writes from->on_cpu = -1
+// via a hardcoded offset, relying on rdi (=&from->ctx) being &from because ctx
+// is the first data member.  Pin both layout facts the asm depends on.
+static_assert(offsetof(Task, ctx) == 0, "ctx at Task+0 (context_switch.S rdi is Task*)");
+static_assert(offsetof(Task, on_cpu) == sizeof(CpuContext), "on_cpu offset for context_switch.S");
 
 // ============================================================
 // Fork

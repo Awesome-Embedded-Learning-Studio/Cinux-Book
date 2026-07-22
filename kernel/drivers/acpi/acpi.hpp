@@ -146,8 +146,11 @@ struct [[gnu::packed]] InterruptSourceOverrideEntry {
     uint16_t flags;       ///< polarity (bits 0-1) + trigger mode (bits 2-3)
 };
 
-/// Upper bound on CPUs we record from the MADT.
-constexpr size_t kMaxCpus = 16;
+/// Upper bound on CPUs we record from the MADT.  Distinct from the runtime CPU
+/// limit (cinux::proc::kMaxCpus = 8): ACPI may report more LAPICs than the
+/// kernel actually runs; ap_main caps AP bring-up at proc::kMaxCpus.  DEBT-018
+/// renamed this from kMaxCpus to avoid the same-name clash across namespaces.
+constexpr size_t kMaxAcpiLapics = 16;
 
 /// Decoded ACPI information consumed by M2 (APIC init).
 struct ACPIInfo {
@@ -157,7 +160,7 @@ struct ACPIInfo {
     bool     has_ioapic;
     bool     has_pcat_compat;  ///< 8259 PIC present (affects IRQ0 override)
 
-    uint8_t  cpu_apic_ids[kMaxCpus];  ///< APIC IDs of enabled CPUs
+    uint8_t  cpu_apic_ids[kMaxAcpiLapics];  ///< APIC IDs of enabled CPUs
     uint32_t cpu_count;
 
     /// One ISA IRQ -> GSI override (QEMU typically remaps IRQ0 -> GSI2).

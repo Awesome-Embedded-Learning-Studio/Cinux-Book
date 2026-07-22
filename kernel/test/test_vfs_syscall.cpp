@@ -63,7 +63,7 @@ Ramdisk* setup_vfs() {
     cinux::fs::vfs_mount_init();
 
     auto* rd = new Ramdisk();
-    rd->mount();
+    ASSERT_OK(rd->mount());
 
     cinux::fs::vfs_mount_add(MOUNT_PATH, rd);
     return rd;
@@ -107,7 +107,7 @@ void test_mount_add_null_path_fails() {
     cinux::fs::vfs_mount_init();
 
     Ramdisk rd;
-    rd.mount();
+    ASSERT_OK(rd.mount());
 
     TEST_ASSERT_FALSE(cinux::fs::vfs_mount_add(nullptr, &rd));
 }

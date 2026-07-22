@@ -171,7 +171,7 @@ private:
 
     /// F-QA Q4e-1 (DEBT-006): CLONE_VM shared refcount. Default =1 (owner);
     /// clone(CLONE_VM) acquire()s; thread exit release()s, last one frees.
-    cinux::lib::RefCount refcount_{};
+    cinux::lib::RefCount refcount_;
 
     /// Serialises access to vma_store_ (page-fault path, mmap, etc.).
     cinux::proc::Spinlock vma_lock_;

@@ -75,12 +75,35 @@ void clear_user_mappings(cinux::mm::AddressSpace& space) {
             if (!pdpt[j].is_present())
                 continue;
 
+            // DEBT-009: a 1 GB huge PDPTE maps a data page, not a PD table --
+            // descending would parse the huge-page body as PD/PT entries and
+            // free garbage.  Huge-page free (buddy order) isn't wired yet (NXE
+            // off, no user huge mappings); clear the entry and skip.  Hitting
+            // this means a future huge-mapping milestone forgot this path.
+            if (pdpt[j].huge) {
+                cinux::lib::kprintf("[EXEC] clear_user_mappings: 1GB huge phys=0x%lx "
+                                    "skipped (huge free unimplemented)\n",
+                                    static_cast<unsigned long>(pdpt[j].phys_addr()));
+                pdpt[j].raw = 0;
+                continue;
+            }
+
             auto* pd = reinterpret_cast<cinux::arch::PageEntry*>(pdpt[j].phys_addr() +
                                                                  cinux::arch::DIRECT_MAP_BASE);
 
             for (uint32_t k = 0; k < cinux::arch::PT_ENTRIES; k++) {
                 if (!pd[k].is_present())
                     continue;
+
+                // DEBT-009: a 2 MB huge PDE maps a data page, not a PT table.
+                // See the PDPT-level note above -- skip, don't descend.
+                if (pd[k].huge) {
+                    cinux::lib::kprintf("[EXEC] clear_user_mappings: 2MB huge phys=0x%lx "
+                                        "skipped (huge free unimplemented)\n",
+                                        static_cast<unsigned long>(pd[k].phys_addr()));
+                    pd[k].raw = 0;
+                    continue;
+                }
 
                 auto* pt = reinterpret_cast<cinux::arch::PageEntry*>(pd[k].phys_addr() +
                                                                      cinux::arch::DIRECT_MAP_BASE);

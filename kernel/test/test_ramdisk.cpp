@@ -84,13 +84,13 @@ namespace test_ramdisk_mount {
 
 void test_ramdisk_base_not_null() {
     Ramdisk rd;
-    rd.mount();
+    ASSERT_OK(rd.mount());
     TEST_ASSERT_NOT_NULL(rd.base());
 }
 
 void test_ramdisk_size_nonzero() {
     Ramdisk rd;
-    rd.mount();
+    ASSERT_OK(rd.mount());
     TEST_ASSERT_GT(rd.total_size(), 0ull);
 }
 
@@ -102,7 +102,7 @@ void test_ramdisk_mount_returns_true() {
 
 void test_ramdisk_mount_finds_files() {
     Ramdisk rd;
-    rd.mount();
+    ASSERT_OK(rd.mount());
     TEST_ASSERT_EQ(rd.entry_count(), 3u);
 }
 
@@ -116,7 +116,7 @@ namespace test_ramdisk_lookup {
 
 void test_lookup_hello_txt() {
     Ramdisk rd;
-    rd.mount();
+    ASSERT_OK(rd.mount());
 
     auto* inode = lookup_or_null(&rd, "hello.txt");
     TEST_ASSERT_NOT_NULL(inode);
@@ -125,7 +125,7 @@ void test_lookup_hello_txt() {
 
 void test_lookup_readme_txt() {
     Ramdisk rd;
-    rd.mount();
+    ASSERT_OK(rd.mount());
 
     auto* inode = lookup_or_null(&rd, "readme.txt");
     TEST_ASSERT_NOT_NULL(inode);
@@ -133,7 +133,7 @@ void test_lookup_readme_txt() {
 
 void test_lookup_etc_passwd() {
     Ramdisk rd;
-    rd.mount();
+    ASSERT_OK(rd.mount());
 
     auto* inode = lookup_or_null(&rd, "etc/passwd");
     TEST_ASSERT_NOT_NULL(inode);
@@ -141,7 +141,7 @@ void test_lookup_etc_passwd() {
 
 void test_lookup_nonexistent() {
     Ramdisk rd;
-    rd.mount();
+    ASSERT_OK(rd.mount());
 
     auto* inode = lookup_or_null(&rd, "nonexistent.txt");
     TEST_ASSERT_NULL(inode);
@@ -149,7 +149,7 @@ void test_lookup_nonexistent() {
 
 void test_lookup_null_path() {
     Ramdisk rd;
-    rd.mount();
+    ASSERT_OK(rd.mount());
 
     auto* inode = lookup_or_null(&rd, nullptr);
     TEST_ASSERT_NULL(inode);
@@ -157,7 +157,7 @@ void test_lookup_null_path() {
 
 void test_lookup_root_returns_dir_inode() {
     Ramdisk rd;
-    rd.mount();
+    ASSERT_OK(rd.mount());
 
     auto* inode = lookup_or_null(&rd, "");
     TEST_ASSERT_NOT_NULL(inode);
@@ -166,7 +166,7 @@ void test_lookup_root_returns_dir_inode() {
 
 void test_lookup_root_slash_returns_dir_inode() {
     Ramdisk rd;
-    rd.mount();
+    ASSERT_OK(rd.mount());
 
     auto* inode = lookup_or_null(&rd, "/");
     TEST_ASSERT_NOT_NULL(inode);
@@ -183,7 +183,7 @@ namespace test_ramdisk_inode_ops {
 
 void test_read_hello_content() {
     Ramdisk rd;
-    rd.mount();
+    ASSERT_OK(rd.mount());
 
     auto* inode = lookup_or_null(&rd, "hello.txt");
     TEST_ASSERT_NOT_NULL(inode);
@@ -201,7 +201,7 @@ void test_read_hello_content() {
 
 void test_read_with_offset() {
     Ramdisk rd;
-    rd.mount();
+    ASSERT_OK(rd.mount());
 
     auto* inode = lookup_or_null(&rd, "hello.txt");
     TEST_ASSERT_NOT_NULL(inode);
@@ -214,7 +214,7 @@ void test_read_with_offset() {
 
 void test_read_past_end_returns_zero() {
     Ramdisk rd;
-    rd.mount();
+    ASSERT_OK(rd.mount());
 
     auto* inode = lookup_or_null(&rd, "hello.txt");
     TEST_ASSERT_NOT_NULL(inode);
@@ -226,7 +226,7 @@ void test_read_past_end_returns_zero() {
 
 void test_write_returns_error() {
     Ramdisk rd;
-    rd.mount();
+    ASSERT_OK(rd.mount());
 
     auto* inode = lookup_or_null(&rd, "hello.txt");
     TEST_ASSERT_NOT_NULL(inode);
@@ -274,7 +274,7 @@ void test_vfs_open_read_close() {
     cinux::fs::vfs_mount_init();
 
     Ramdisk* rd = new Ramdisk();
-    rd->mount();
+    ASSERT_OK(rd->mount());
 
     cinux::fs::vfs_mount_add("/", rd);
 
@@ -320,7 +320,7 @@ void test_vfs_open_nonexistent_fails() {
     cinux::fs::vfs_mount_init();
 
     Ramdisk* rd = new Ramdisk();
-    rd->mount();
+    ASSERT_OK(rd->mount());
 
     cinux::fs::vfs_mount_add("/", rd);
 
@@ -346,7 +346,7 @@ void test_vfs_open_multiple_files() {
     cinux::fs::vfs_mount_init();
 
     Ramdisk* rd = new Ramdisk();
-    rd->mount();
+    ASSERT_OK(rd->mount());
 
     cinux::fs::vfs_mount_add("/", rd);
 

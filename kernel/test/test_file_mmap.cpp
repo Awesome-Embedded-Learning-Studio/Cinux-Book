@@ -77,7 +77,7 @@ AhciExt2Pair setup_ext2() {
     auto blk       = AHCIBlockDevice::create(*result.ahci, 1);
     result.blk_dev = blk.ok() ? new AHCIBlockDevice(std::move(blk.value())) : nullptr;
     result.ext2    = new Ext2(result.blk_dev);
-    result.ext2->mount();
+    ASSERT_OK(result.ext2->mount());
 
     return result;
 }

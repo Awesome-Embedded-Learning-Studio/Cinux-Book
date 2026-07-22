@@ -88,7 +88,7 @@ AhciExt2Pair setup_syscall_ext2() {
     result.blk_dev =
         blk.ok() ? new cinux::drivers::ahci::AHCIBlockDevice(std::move(blk.value())) : nullptr;
     result.ext2 = new Ext2(result.blk_dev);
-    result.ext2->mount();
+    ASSERT_OK(result.ext2->mount());
 
     // Register in VFS
     cinux::fs::vfs_mount_add("/", result.ext2);

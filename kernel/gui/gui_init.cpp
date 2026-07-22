@@ -10,6 +10,7 @@
 #include "gui_init.hpp"
 
 #include "kernel/drivers/canvas.hpp"
+#include "kernel/drivers/keyboard/keyboard.hpp"
 #include "kernel/drivers/mouse/mouse.hpp"
 #include "kernel/drivers/video/font.hpp"
 #include "kernel/fs/file.hpp"
@@ -195,11 +196,32 @@ void create_shell_terminal() {
 // gui_start() -- activate the WM (refresh driven by gui_worker pump)
 // ============================================================
 
+namespace {
+// Key listener registered with the keyboard driver: mirror each decoded
+// KeyEvent into the GUI EventQueue so the window manager sees keyboard input.
+// Lives here (not in keyboard.cpp) so the keyboard driver has no GUI/EventQueue
+// dependency -- it just calls a registered listener (CODING-TASTE §14).
+void on_key_event(const cinux::drivers::KeyEvent& ev) {
+    cinux::gui::Event gui_ev{};
+    gui_ev.type_        = ev.pressed ? cinux::gui::EventType::KeyDown : cinux::gui::EventType::KeyUp;
+    gui_ev.key.ascii    = ev.ascii;
+    gui_ev.key.scancode = ev.scancode;
+    gui_ev.key.pressed  = ev.pressed;
+    gui_ev.key.shift    = ev.shift;
+    gui_ev.key.ctrl     = ev.ctrl;
+    gui_ev.key.alt      = ev.alt;
+    cinux::drivers::Mouse::event_queue().enqueue(gui_ev);
+}
+}  // namespace
+
 void gui_start() {
     cinux::lib::kprintf("[GUI] ===== Milestone 033: GUI Desktop =====\n");
 
     // Initialise PS/2 mouse driver
     cinux::drivers::Mouse::init();
+    // Dual-dispatch keys into the GUI queue via a listener (the keyboard has no
+    // #ifdef CINUX_GUI; it just calls whoever registered -- §14).
+    cinux::drivers::Keyboard::register_key_listener(on_key_event);
 
     // Configure mouse screen bounds to match the canvas
     if (g_screen != nullptr) {

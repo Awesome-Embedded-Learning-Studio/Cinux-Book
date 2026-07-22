@@ -106,7 +106,6 @@ private:
     int              head_;
     int              tail_;
     int              count_;
-    int              quantum_remaining_;  // Ticks left for the currently running task
     mutable Spinlock lock_;  ///< mutable: is_empty() peeks count_ under lock (F4-M4 M4-2-2)
 };
 

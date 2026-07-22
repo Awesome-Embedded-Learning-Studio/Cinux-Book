@@ -54,7 +54,7 @@ ACPIInfo parse_madt(const SDTHeader* madt) {
             const auto* e = reinterpret_cast<const ProcessorLocalAPICEntry*>(p);
             const bool  enabled =
                 (e->flags & kLocalApicEnabled) != 0 || (e->flags & kLocalApicOnlineCapable) != 0;
-            if (enabled && info.cpu_count < kMaxCpus) {
+            if (enabled && info.cpu_count < kMaxAcpiLapics) {
                 info.cpu_apic_ids[info.cpu_count++] = e->apic_id;
             }
             break;

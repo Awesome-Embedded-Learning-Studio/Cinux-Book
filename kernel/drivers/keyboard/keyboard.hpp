@@ -112,6 +112,13 @@ public:
     /// @p keycodes = the up-to-6 currently-pressed usage IDs.
     static void inject_usb_report(uint8_t modifier, const uint8_t* keycodes, uint8_t n);
 
+    /// Register a listener that receives every decoded KeyEvent (after the
+    /// internal queue enqueue).  Lets the GUI dual-dispatch keys into its own
+    /// EventQueue without the keyboard driver depending on the GUI (CODING-TASTE
+    /// §14: no #ifdef CINUX_GUI in the keyboard).  Pass nullptr to unregister.
+    using KeyListener = void (*)(const KeyEvent&);
+    static void register_key_listener(KeyListener listener);
+
 private:
     static constexpr uint32_t KEY_QUEUE_SIZE = 64;
 
@@ -129,6 +136,7 @@ private:
 
     static bool    usb_primary_;       ///< USB keyboard owns input when true
     static uint8_t usb_prev_keys_[6];  ///< previous report keycodes (edge detect)
+    static KeyListener key_listener_;  ///< optional key-consumer hook (§14)
 
     /// Build + enqueue a KeyEvent and dual-dispatch to the GUI queue (shared by
     /// the PS/2 and USB paths).  @p code = HID usage ID (USB) or scan code (PS/2).

@@ -202,9 +202,9 @@ TEST("shell_redirect: multiple writes then poll read") {
 
     File* f1 = g_global_fd_table().get(1);
 
-    f1->inode->ops->write(f1->inode, 0, "cinux> ", 7);
-    f1->inode->ops->write(f1->inode, 0, "echo hello\n", 11);
-    f1->inode->ops->write(f1->inode, 0, "hello\n", 6);
+    ASSERT_OK(f1->inode->ops->write(f1->inode, 0, "cinux> ", 7));
+    ASSERT_OK(f1->inode->ops->write(f1->inode, 0, "echo hello\n", 11));
+    ASSERT_OK(f1->inode->ops->write(f1->inode, 0, "hello\n", 6));
 
     // Terminal polls all output
     char    buf[64] = {};

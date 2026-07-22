@@ -41,23 +41,20 @@ FDTable::~FDTable() {
 // ============================================================
 
 void FDTable::acquire() {
-    auto g = lock_.guard();
-    (void)g;
-    ++refcount_;
+    // F4-M5 R3 / DEBT-010: atomic refcount (aligned with SharedCwd/SharedSigActions).
+    // CLONE_FILES threads on different CPUs share one FDTable (F3-M2), so
+    // acquire/release race once APs really run threads.  ACQ_REL pairs the
+    // release-to-0 (must see all prior writes) with acquire.
+    __atomic_add_fetch(&refcount_, 1, __ATOMIC_ACQ_REL);
 }
 
 void FDTable::release() {
-    bool last = false;
-    {
-        auto g = lock_.guard();
-        (void)g;
-        if (refcount_ > 0) {
-            --refcount_;
-        }
-        last = (refcount_ == 0);
-    }
-    if (last) {
-        // Close every live descriptor, then free the table itself.
+    // F4-M5 R3 / DEBT-010: atomic refcount.  Dropped the racy `refcount_ > 0`
+    // guard (correct liveness never underflows); the release that brings it to 0
+    // owns the cleanup.  At refcount==0 no other reference exists, so reading
+    // fds_[] here is race-free; close() takes lock_ itself, so no lock held here.
+    if (__atomic_sub_fetch(&refcount_, 1, __ATOMIC_ACQ_REL) == 0) {
+        // Last reference: close every live descriptor, then free the table itself.
         for (uint32_t i = 0; i < FD_TABLE_SIZE; ++i) {
             if (fds_[i] != nullptr) {
                 close(static_cast<int>(i));

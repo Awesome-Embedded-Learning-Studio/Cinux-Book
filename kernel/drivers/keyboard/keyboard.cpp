@@ -15,11 +15,6 @@
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/proc/sync.hpp"
 
-#ifdef CINUX_GUI
-#    include "kernel/drivers/mouse/mouse.hpp"
-#    include "kernel/gui/event.hpp"
-#endif
-
 using cinux::io::io_inb;
 using cinux::io::io_outb;
 using cinux::io::io_wait;
@@ -133,6 +128,7 @@ bool Keyboard::alt_held_   = false;
 
 bool    Keyboard::usb_primary_      = false;
 uint8_t Keyboard::usb_prev_keys_[6] = {};
+Keyboard::KeyListener Keyboard::key_listener_ = nullptr;
 
 // ============================================================
 // Internal helpers
@@ -306,6 +302,10 @@ void Keyboard::set_usb_primary(bool primary) {
     usb_primary_ = primary;
 }
 
+void Keyboard::register_key_listener(KeyListener listener) {
+    key_listener_ = listener;
+}
+
 void Keyboard::dispatch_key(uint8_t code, char ascii, bool pressed, bool shift, bool ctrl,
                             bool alt) {
     KeyEvent ev{};
@@ -317,19 +317,13 @@ void Keyboard::dispatch_key(uint8_t code, char ascii, bool pressed, bool shift, 
     ev.ascii    = ascii;
     enqueue(ev);
 
-#ifdef CINUX_GUI
-    // Dual dispatch: also push into the GUI EventQueue for the window manager
-    // (same path the PS/2 irq1_handler used before it was factored here).
-    cinux::gui::Event gui_ev{};
-    gui_ev.type_        = pressed ? cinux::gui::EventType::KeyDown : cinux::gui::EventType::KeyUp;
-    gui_ev.key.ascii    = ascii;
-    gui_ev.key.scancode = code;
-    gui_ev.key.pressed  = pressed;
-    gui_ev.key.shift    = shift;
-    gui_ev.key.ctrl     = ctrl;
-    gui_ev.key.alt      = alt;
-    cinux::drivers::Mouse::event_queue().enqueue(gui_ev);
-#endif
+    // Dual dispatch: hand the event to a registered listener (e.g. the GUI
+    // pushing it into its EventQueue).  No #ifdef here -- the keyboard driver
+    // doesn't know about the GUI; whoever wants keys registers a listener
+    // (CODING-TASTE §14).
+    if (key_listener_ != nullptr) {
+        key_listener_(ev);
+    }
 }
 
 void Keyboard::inject_usb_report(uint8_t modifier, const uint8_t* keycodes, uint8_t n) {

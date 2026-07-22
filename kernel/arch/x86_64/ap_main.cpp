@@ -27,6 +27,13 @@
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
 
+// DEBT-018: ACPI MADT record capacity must cover the runtime CPU limit.  The
+// kernel only brings up proc::kMaxCpus APs, but it must record every LAPIC ACPI
+// reports; otherwise boot on hw with more LAPICs than kMaxAcpiLapics silently
+// truncates the topology.
+static_assert(cinux::proc::kMaxCpus <= cinux::drivers::acpi::kMaxAcpiLapics,
+              "ACPI LAPIC record capacity must cover the runtime CPU limit");
+
 // Trampoline blob + injected-param symbols (ap_trampoline.S).
 extern "C" uint8_t ap_trampoline_start[];
 extern "C" uint8_t ap_trampoline_end[];

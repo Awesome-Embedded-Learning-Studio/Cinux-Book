@@ -45,10 +45,14 @@ set(BIG_KERNEL_COMPILE_OPTIONS
     # zero-noise ones to -Werror= so violations fail the build (zero-warning
     # discipline, aligned with Linux's -Wimplicit-fallthrough / CONFIG_W* ethos).
     # -Wnull-dereference stays a plain warning (GCC cross-function analysis
-    # occasionally false-positives). -Wframe-larger-than is DEFERRED: 9 syscall
-    # handlers currently put char[PATH_MAX] buffers on the 16 KB stack (4-8 KB
-    # frames, DEBT-015) — enabling it now would break the zero-warning build,
-    # so it lands in a dedicated stack-safety batch once those frames shrink.
+    # occasionally false-positives). -Wframe-larger-than=1024 flags production
+    # frames > 1024 B (16 KB stack + IRQ nesting). DEBT-015 closed 2026-06-25
+    # (char[PATH_MAX] -> PathBuf heap in 8 syscalls + sys_dmesg LogEntry[16] ->
+    # heap; big_kernel now zero hits). NOTE: GCC cannot escalate this via
+    # -Werror=frame-larger-than (it rejects the parameterised warning name), so
+    # the gate is warning-level + audit grep, not a hard build failure.
+    # big_kernel_test suppresses it entirely (test fixtures place large objects
+    # on the stack by design).
     -Wvla
     -Wimplicit-fallthrough=3
     -Wundef
@@ -57,7 +61,7 @@ set(BIG_KERNEL_COMPILE_OPTIONS
     -Wlogical-op
     -Wnull-dereference
     -Wformat-security
-    -Werror=vla
+    -Wframe-larger-than=1024
     -Werror=implicit-fallthrough
     -Werror=undef
     -Werror=duplicated-branches
@@ -288,7 +292,11 @@ target_link_options(big_kernel_test PRIVATE ${BIG_KERNEL_LINK_OPTIONS})
 # (e.g. ramdisk/ext2 mount()) inside non-void helpers where TEST_ASSERT_TRUE's
 # bare `return;` won't compile. Suppress in the test binary only — DEBT-016
 # tracks replacing these with a non-void-safe ASSERT_OK macro so this is removed.
-target_compile_options(big_kernel_test PRIVATE -Wno-unused-result)
+# F-CLN 批1 (DEBT-015): exempt test binary from the production frame-size hard
+# gate above. Test fixtures legitimately place large objects (LogEntry[16], AHCI
+# request arrays, ramdisk buffers) on the stack; they do not run under IRQ
+# nesting on the 16 KB kernel stack. Production (big_kernel) stays gated.
+target_compile_options(big_kernel_test PRIVATE -Wno-frame-larger-than)
 
 # Build test disk image: copy the test ELF to sectors where the big kernel lives
 set(BIG_KERNEL_TEST_BIN "${CMAKE_BINARY_DIR}/kernel/big/big_kernel_test_crc.bin")

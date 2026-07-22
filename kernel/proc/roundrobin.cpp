@@ -9,6 +9,7 @@
  */
 
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/proc/percpu.hpp"  // F4-followup: percpu()->cpu_id in pick_next()
 #include "kernel/proc/scheduler.hpp"
 
 namespace cinux::proc {
@@ -36,8 +37,7 @@ uint64_t SchedulingClass::task_deadline(Task*) {
 // RoundRobin implementation
 // ============================================================
 
-RoundRobin::RoundRobin()
-    : head_(0), tail_(0), count_(0), quantum_remaining_(Scheduler::DEFAULT_TIME_SLICE) {
+RoundRobin::RoundRobin() : head_(0), tail_(0), count_(0) {
     for (int i = 0; i < MAX_TASKS; i++) {
         run_queue_[i] = nullptr;
     }
@@ -88,13 +88,33 @@ Task* RoundRobin::pick_next() {
     // Select the highest-priority ready task: priority is "lower value runs
     // first" (Linux style, matching the idle task's priority of 255).  Ties are
     // broken FIFO (earliest enqueued first) so equal-priority tasks round-robin.
-    int best = 0;
-    for (int i = 1; i < count_; i++) {
-        int idx      = (head_ + i) % MAX_TASKS;
-        int best_idx = (head_ + best) % MAX_TASKS;
-        if (run_queue_[idx]->priority < run_queue_[best_idx]->priority) {
+    //
+    // F4-followup (SMP migration race): skip tasks whose on_cpu != -1 -- their
+    // ctx is still being saved by the context_switch on the CPU they just left,
+    // so loading their ctx now would race that save and corrupt it.  They stay
+    // queued and become eligible once context_switch.S clears on_cpu to -1.
+    // best == -1 means no eligible task (all mid-save): caller falls to idle.
+    // F4-followup: a task with on_cpu == ANOTHER CPU is still being saved by that
+    // CPU's context_switch -- loading its ctx here would race.  Skip it.  But a
+    // task with on_cpu == THIS CPU is one we just yielded (its ctx save is our
+    // own upcoming context_switch) -- we may pick it back (next==prev), which
+    // keeps single-core round-robin correct (yield with no other runnable task
+    // continues the same task instead of bouncing to idle).
+    const int my_cpu = static_cast<int>(percpu()->cpu_id);
+    int       best   = -1;
+    for (int i = 0; i < count_; i++) {
+        int   idx    = (head_ + i) % MAX_TASKS;
+        Task* t      = run_queue_[idx];
+        int   on_cpu = __atomic_load_n(&t->on_cpu, __ATOMIC_ACQUIRE);
+        if (on_cpu != -1 && on_cpu != my_cpu) {
+            continue;  // ctx save in flight on another CPU
+        }
+        if (best == -1 || t->priority < run_queue_[(head_ + best) % MAX_TASKS]->priority) {
             best = i;
         }
+    }
+    if (best == -1) {
+        return nullptr;
     }
     Task* task = run_queue_[(head_ + best) % MAX_TASKS];
     remove_at_locked(best);
@@ -107,9 +127,9 @@ Task* RoundRobin::pick_next() {
     // (schedule() re-enqueues the yielding prev; unblock() re-enqueues a woken
     // task).  Single-core round-robin is preserved: schedule() re-enqueues the
     // yielding prev before picking, so a lone task picks itself and continues.
-    task->state        = TaskState::Running;
-    // A freshly scheduled task starts with a full time quantum.
-    quantum_remaining_ = Scheduler::DEFAULT_TIME_SLICE;
+    task->state             = TaskState::Running;
+    // A freshly scheduled task starts with a full time quantum (DEBT-007: per-task).
+    task->quantum_remaining = Scheduler::DEFAULT_TIME_SLICE;
 
     return task;
 }
@@ -133,23 +153,25 @@ void RoundRobin::clear() {
     for (int i = 0; i < MAX_TASKS; i++) {
         run_queue_[i] = nullptr;
     }
-    head_              = 0;
-    tail_              = 0;
-    count_             = 0;
-    quantum_remaining_ = Scheduler::DEFAULT_TIME_SLICE;
+    head_  = 0;
+    tail_  = 0;
+    count_ = 0;
 }
 
 bool RoundRobin::task_tick(Task* current) {
     auto g = lock_.irq_guard();
     (void)g;
-    (void)current;
-    if (quantum_remaining_ > 0) {
-        quantum_remaining_--;
+    // DEBT-007: per-task quantum (was a shared RoundRobin member -> multi-core
+    // tick races shrank the slice to DEFAULT_TIME_SLICE/ncpus, and one core's
+    // recharge reset the other's running task).  Aligned with Linux
+    // task_struct->rt.time_slice.
+    if (current->quantum_remaining > 0) {
+        current->quantum_remaining--;
     }
-    if (quantum_remaining_ == 0) {
+    if (current->quantum_remaining == 0) {
         // Quantum exhausted: request preemption and recharge so that, if no
         // other task is runnable, the same task is not re-preempted every tick.
-        quantum_remaining_ = Scheduler::DEFAULT_TIME_SLICE;
+        current->quantum_remaining = Scheduler::DEFAULT_TIME_SLICE;
         return true;
     }
     return false;
@@ -160,7 +182,10 @@ void RoundRobin::task_fork(Task* parent, Task* child) {
     // copy of the parent's today.  Centralising the rule here lets a future
     // scheduling class derive child parameters without touching fork/clone.
     if (parent != nullptr && child != nullptr) {
-        child->priority = parent->priority;
+        child->priority          = parent->priority;
+        // DEBT-007: child starts with a full quantum (memcpy copied parent's
+        // remaining ticks; a fresh task should not inherit a near-expired slice).
+        child->quantum_remaining = Scheduler::DEFAULT_TIME_SLICE;
     }
 }
 

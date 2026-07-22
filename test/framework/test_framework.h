@@ -163,6 +163,21 @@ extern int _tests_failed;
 #define ASSERT_GT(a, b) ASSERT_TRUE((a) > (b))
 #define ASSERT_LT(a, b) ASSERT_TRUE((a) < (b))
 
+/// Assert an ErrorOr expression is OK; on failure print + abort (non-void-safe:
+/// unlike ASSERT_TRUE it cannot `return;` from a helper returning a value, so
+/// it aborts the whole run).  Use for setup calls whose ErrorOr result was
+/// previously dropped (DEBT-016).
+#define ASSERT_OK(expr)                                                                            \
+    do {                                                                                           \
+        auto&& _aok_r = (expr);                                                                    \
+        if (!_aok_r.ok()) {                                                                        \
+            _TEST_PRINT("[FAIL] %s\n  ASSERT_OK(%s) error\n  at %s:%d\n",                          \
+                        _current_test_name, #expr, __FILE__, __LINE__);                            \
+            _tests_failed++;                                                                       \
+            _TEST_ABORT();                                                                         \
+        }                                                                                          \
+    } while (0)
+
 // ============================================================
 // Run all tests
 // ============================================================

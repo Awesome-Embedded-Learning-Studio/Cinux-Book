@@ -47,9 +47,9 @@ Spinlock g_deferred_lock;  // irq_guard: local IRQ safety (lists are per-CPU, un
 Task*    g_deferred_heads[kMaxCpus] = {};
 
 void enqueue_deferred(Task* t) {
-    auto g            = g_deferred_lock.irq_guard();
-    const uint32_t c  = percpu()->cpu_id;
-    t->deferred_next  = g_deferred_heads[c];
+    auto           g    = g_deferred_lock.irq_guard();
+    const uint32_t c    = percpu()->cpu_id;
+    t->deferred_next    = g_deferred_heads[c];
     g_deferred_heads[c] = t;
 }
 
@@ -108,6 +108,8 @@ Task* Scheduler::setup_ap_idle(uint32_t cpu_id) {
         TaskBuilder().set_entry(ap_idle_entry).set_name("ap_idle").set_priority(255).build();
     if (idle_tasks_[cpu_id] != nullptr) {
         idle_tasks_[cpu_id]->state = TaskState::Running;  // this AP's current()
+        idle_tasks_[cpu_id]->on_cpu =
+            static_cast<int>(cpu_id);  // F4-followup: AP idle runs on this AP, never via ctx save
         cinux::lib::kprintf("[SCHED] AP%u idle task created tid=%lu\n", cpu_id,
                             idle_tasks_[cpu_id]->tid);
     }
@@ -229,9 +231,9 @@ void Scheduler::remove_task(lib::NotNull<Task*> task) {
 void Scheduler::reap_deferred() {
     Task* head = nullptr;
     {
-        auto g           = g_deferred_lock.irq_guard();
-        const uint32_t c = percpu()->cpu_id;
-        head             = g_deferred_heads[c];
+        auto           g    = g_deferred_lock.irq_guard();
+        const uint32_t c    = percpu()->cpu_id;
+        head                = g_deferred_heads[c];
         g_deferred_heads[c] = nullptr;
     }
     while (head != nullptr) {
@@ -275,6 +277,8 @@ void Scheduler::exit_current() {
     }
 
     percpu()->current = next;
+    // F4-followup (SMP migration race): claim next for this CPU (see schedule()).
+    __atomic_store_n(&next->on_cpu, static_cast<int>(percpu()->cpu_id), __ATOMIC_RELEASE);
     if (next != my_idle) {
         cinux::arch::GDT::tss_set_rsp0(next->kernel_stack_top);
         update_syscall_stack(next->kernel_stack_top);
@@ -287,6 +291,7 @@ void Scheduler::exit_current() {
 
 void Scheduler::run_first(lib::NotNull<Task*> boot_task) {
     percpu()->current = boot_task;
+    boot_task->on_cpu = 0;  // F4-followup: runs on BSP, never went through ctx save
     cinux::arch::GDT::tss_set_rsp0(boot_task->kernel_stack_top);
 
     Task* next = pick_next_task();
@@ -295,6 +300,7 @@ void Scheduler::run_first(lib::NotNull<Task*> boot_task) {
     }
 
     percpu()->current = next;
+    next->on_cpu      = 0;  // F4-followup: claim next for the BSP before context_switch
     cinux::arch::GDT::tss_set_rsp0(next->kernel_stack_top);
     update_syscall_stack(next->kernel_stack_top);
     __asm__ volatile("fxsave %0" : : "m"(boot_task->fpu_state));
@@ -403,6 +409,10 @@ void Scheduler::schedule() {
     }
 
     percpu()->current = next;
+
+    // F4-followup: claim next for this CPU before context_switch loads its ctx
+    // (see Task::on_cpu).  pick_next() only returns on_cpu == -1 tasks.
+    __atomic_store_n(&next->on_cpu, static_cast<int>(percpu()->cpu_id), __ATOMIC_RELEASE);
 
     if (next != my_idle) {
         cinux::arch::GDT::tss_set_rsp0(next->kernel_stack_top);

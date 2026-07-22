@@ -13,7 +13,7 @@ set(CINUX_HOST_TEST ON)
 # fixtures ignore some setup ErrorOr returns (e.g. ext2->mount() / pipe write);
 # suppress -Wunused-result host-side. DEBT-016 tracks cleaning these (via a
 # non-void-safe ASSERT_OK macro) so this directory-level opt-out is removed.
-add_compile_options(-Wno-unused-result)
+# add_compile_options(-Wno-unused-result)  # F-CLN 批2 removed (ASSERT_OK replaces ignores)
 
 # F-QA Q1-5: opt-in AddressSanitizer + UBSan + gcov coverage for host unit
 # tests. Zero kernel changes — only host test targets. Catches UAF/OOB/UB at

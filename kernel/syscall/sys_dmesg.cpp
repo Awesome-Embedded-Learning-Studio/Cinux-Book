@@ -83,9 +83,16 @@ int64_t sys_dmesg(uint64_t buf_virt, uint64_t len, uint64_t, uint64_t, uint64_t,
 
     char* buf = reinterpret_cast<char*>(buf_virt);
 
-    // Drain up to 16 entries per call.
-    LogEntry    entries[16];
-    std::size_t n = KernelLog::instance().read(entries, 16);
+    // Drain up to 16 entries per call.  Heap-allocated: LogEntry is 272 B, so
+    // 16 entries = ~4.4 KB -- too large for the 16 KB kernel stack + IRQ
+    // nesting (DEBT-015).  operator new[] routes through kmalloc (F2-M7b slab);
+    // freed before the single return after the loop.
+    constexpr std::size_t kMaxEntries = 16;
+    LogEntry*    entries = new LogEntry[kMaxEntries];
+    if (entries == nullptr) {
+        return -kEnomem;
+    }
+    std::size_t n = KernelLog::instance().read(entries, kMaxEntries);
 
     uint64_t pos = 0;
     for (std::size_t i = 0; i < n; i++) {
@@ -105,6 +112,7 @@ int64_t sys_dmesg(uint64_t buf_virt, uint64_t len, uint64_t, uint64_t, uint64_t,
         append_char(buf, pos, len, '\n');
     }
 
+    delete[] entries;
     return static_cast<int64_t>(pos);
 }
 

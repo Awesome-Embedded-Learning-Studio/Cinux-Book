@@ -45,10 +45,7 @@ bool in_kernel_stack(uint64_t addr) {
     }
     const uint64_t bot = reinterpret_cast<uint64_t>(__boot_guard_end);
     const uint64_t top = reinterpret_cast<uint64_t>(__kernel_stack_top);
-    if (addr >= bot && addr < top) {
-        return true;
-    }
-    return false;
+    return addr >= bot && addr < top;
 }
 
 // Read the saved-RBP (slot +0) and return-address (slot +8) of the frame at

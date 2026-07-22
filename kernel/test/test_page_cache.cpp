@@ -234,7 +234,7 @@ void test_release_decrements() {
     fill_fake(f, 2 * PAGE_SIZE);
     Inode ino = make_fake_inode(f);
 
-    cache.get_page(&ino, 0);
+    ASSERT_OK(cache.get_page(&ino, 0));
     auto r2 = cache.get_page(&ino, 0);  // ref -> 2
     TEST_ASSERT_EQ(r2.value()->ref_count, 2u);
 

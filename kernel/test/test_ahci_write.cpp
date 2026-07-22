@@ -379,7 +379,7 @@ Ext2Pair setup_ext2() {
     result.blk_dev =
         blk.ok() ? new cinux::drivers::ahci::AHCIBlockDevice(std::move(blk.value())) : nullptr;
     result.ext2 = new Ext2(result.blk_dev);
-    result.ext2->mount();
+    ASSERT_OK(result.ext2->mount());
 
     return result;
 }
