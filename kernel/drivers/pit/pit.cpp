@@ -79,7 +79,10 @@ void PIT::init(uint32_t freq_hz) {
 
 void PIT::irq0_handler(InterruptFrame* /*frame*/) {
     // Increment the global tick counter
-    tick_count_.fetch_add(1, lib::MemoryOrder::Relaxed);
+    uint64_t t = tick_count_.fetch_add(1, lib::MemoryOrder::Relaxed) + 1;
+    if (t == 1 || t == 50) {
+        cinux::lib::kprintf("[PIT] IRQ0 tick #%lu\n", t);
+    }
 
     // Signal End-Of-Interrupt so the next IRQ can arrive (PIC or LAPIC).
     cinux::arch::irq_eoi(0);

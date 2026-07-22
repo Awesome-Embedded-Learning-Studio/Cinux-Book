@@ -201,8 +201,64 @@ void WindowManager::composite() {
     // Draw the mouse cursor on top of everything
     draw_cursor(*screen_);
 
-    // Present the composed frame to the hardware framebuffer
-    screen_->flip();
+    // F13 §4c: the frame is NOT presented here. The cinux::gui pump flushes the dirty
+    // region to the host (which forwards to the framebuffer) after composite()
+    // returns. See pump(). Behaviour is identical to the old flip(); the
+    // display path now runs through the Host ABI so it is host-agnostic.
+}
+
+// ============================================================
+// Dirty region (F13 §4c)
+// ============================================================
+
+void WindowManager::invalidate(const cinux::gui::Rect& r) {
+    if (screen_ == nullptr || r.empty()) {
+        return;
+    }
+    /* Clip to the screen so we never track off-screen area. */
+    cinux::gui::Rect clipped =
+        cinux::gui::rect_intersect(r, cinux::gui::Rect{0, 0, static_cast<int32_t>(screen_->width()),
+                                             static_cast<int32_t>(screen_->height())});
+    if (!clipped.empty()) {
+        dirty_.add(clipped);
+    }
+}
+
+void WindowManager::invalidate_all() {
+    if (screen_ == nullptr) {
+        return;
+    }
+    invalidate(cinux::gui::Rect{0, 0, static_cast<int32_t>(screen_->width()),
+                           static_cast<int32_t>(screen_->height())});
+}
+
+void WindowManager::invalidate_cursor_move() {
+    if (screen_ == nullptr) {
+        return;
+    }
+    const int32_t cx = cinux::drivers::Mouse::x();
+    const int32_t cy = cinux::drivers::Mouse::y();
+
+    /* First frame: no previous footprint -- flush everything to be safe. */
+    if (last_cursor_x_ == kCursorInvalid || last_cursor_y_ == kCursorInvalid) {
+        invalidate_all();
+        last_cursor_x_ = cx;
+        last_cursor_y_ = cy;
+        return;
+    }
+
+    if (cx != last_cursor_x_ || cy != last_cursor_y_) {
+        /* The cursor bitmap is 16x16 with a 1px outline; pad by 2px each side
+         * so the old + new footprints (outline included) are fully covered.
+         * Over-cover is safe; the back buffer is always fully repainted. */
+        const int32_t pad      = 2;
+        const int32_t cur_size = static_cast<int32_t>(CURSOR_SIZE);
+        invalidate(cinux::gui::Rect{last_cursor_x_ - pad, last_cursor_y_ - pad,
+                               last_cursor_x_ + cur_size + pad, last_cursor_y_ + cur_size + pad});
+        invalidate(cinux::gui::Rect{cx - pad, cy - pad, cx + cur_size + pad, cy + cur_size + pad});
+    }
+    last_cursor_x_ = cx;
+    last_cursor_y_ = cy;
 }
 
 // ============================================================
@@ -252,9 +308,11 @@ void WindowManager::draw_desktop_icons(cinux::drivers::Canvas& screen) {
     for (uint32_t i = 0; i < icon_count_; i++) {
         const DesktopIcon& icon = icons_[i];
 
-        // Draw the icon bitmap (transparent pixels are skipped by draw_bitmap)
-        screen.draw_bitmap(static_cast<uint32_t>(icon.x), static_cast<uint32_t>(icon.y), icon.width,
-                           icon.height, icon.bitmap);
+        // Draw the icon bitmap via its 1-bpp alpha mask (§4d): transparency is
+        // mask-driven, not the legacy 0x00000000 colorkey, so opaque pure-black
+        // icon pixels are now draw-able.
+        screen.draw_bitmap_masked(static_cast<uint32_t>(icon.x), static_cast<uint32_t>(icon.y),
+                                  icon.width, icon.height, icon.bitmap, icon.mask);
 
         // Compute label length
         uint32_t label_len = 0;
@@ -272,109 +330,6 @@ void WindowManager::draw_desktop_icons(cinux::drivers::Canvas& screen) {
 
             screen.draw_text(label_x, label_y, icon.label, ICON_LABEL_COLOR, *font_);
         }
-    }
-}
-
-// ============================================================
-// Input handling
-// ============================================================
-
-void WindowManager::handle_mouse(Event& ev) {
-    // Update tracked mouse position
-    mouse_x_ = ev.mouse.x;
-    mouse_y_ = ev.mouse.y;
-
-    switch (ev.type_) {
-    case EventType::MouseDown: {
-        // Only handle left button press
-        if (!ev.mouse.left) {
-            break;
-        }
-
-        // Hit test from top-most window downward
-        Window* hit = hit_test(ev.mouse.x, ev.mouse.y);
-
-        if (hit == nullptr) {
-            // No window hit -- check if a desktop icon was clicked
-            const DesktopIcon* icon_hit = hit_test_icon(ev.mouse.x, ev.mouse.y);
-            if (icon_hit != nullptr) {
-                pending_icon_action_ = icon_hit->action;
-                if (focused_ != nullptr) {
-                    focused_->set_focused(false);
-                    focused_ = nullptr;
-                }
-            } else {
-                // Clicked on the desktop background -- clear focus
-                if (focused_ != nullptr) {
-                    focused_->set_focused(false);
-                    focused_ = nullptr;
-                }
-            }
-            break;
-        }
-
-        int32_t local_y = ev.mouse.y - hit->y();
-        int     is_title_bar =
-            (local_y >= 0 && local_y < static_cast<int32_t>(Window::TITLE_BAR_HEIGHT)) ? 1 : 0;
-
-        // Check if the close button was hit
-        if (hit->is_close_button_hit(ev.mouse.x, ev.mouse.y)) {
-            uint32_t dead_id = hit->id();
-            destroy(dead_id);
-            composite();
-            break;
-        }
-
-        // Raise the clicked window to the top
-        raise(hit->id());
-
-        // Check if the click landed on the title bar
-        // The title bar spans from window y_ to y_ + TITLE_BAR_HEIGHT
-        if (is_title_bar) {
-            // Begin dragging: record the offset from window origin
-            dragging_      = true;
-            drag_offset_x_ = ev.mouse.x - hit->x();
-            drag_offset_y_ = ev.mouse.y - hit->y();
-        }
-
-        composite();
-        break;
-    }
-
-    case EventType::MouseMove: {
-        if (dragging_ && focused_ != nullptr) {
-            // Move the focused window to follow the cursor
-            int32_t new_x = ev.mouse.x - drag_offset_x_;
-            int32_t new_y = ev.mouse.y - drag_offset_y_;
-            focused_->set_position(new_x, new_y);
-
-            // Redraw the window (title bar + content) at the new position
-            if (font_ != nullptr) {
-                focused_->draw_title_bar(*font_);
-            }
-            focused_->draw_content();
-
-            composite();
-        }
-        break;
-    }
-
-    case EventType::MouseUp: {
-        if (dragging_) {
-            dragging_ = false;
-        }
-        break;
-    }
-
-    default:
-        break;
-    }
-}
-
-void WindowManager::handle_key(Event& ev) {
-    // Forward keyboard events to the focused window, if any
-    if (focused_ != nullptr) {
-        focused_->on_key(ev.key);
     }
 }
 

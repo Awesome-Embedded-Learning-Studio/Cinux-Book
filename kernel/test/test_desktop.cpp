@@ -316,6 +316,7 @@ void test_desktop_composite_icons_only() {
 
     g_fb.clear(0);
     wm.composite();
+    g_screen.flip(); /* §4c: composite renders the back buffer; flip presents it */
 
     // Desktop colour at a pixel far from icons
     TEST_ASSERT_EQ(g_fb.get_pixel(400, 400), WindowManager::DESKTOP_COLOR);
@@ -331,6 +332,7 @@ void test_desktop_composite_icons_and_windows() {
 
     g_fb.clear(0);
     wm.composite();
+    g_screen.flip(); /* §4c: composite renders the back buffer; flip presents it */
 
     // Desktop colour at a pixel not covered by icon or window
     TEST_ASSERT_EQ(g_fb.get_pixel(400, 400), WindowManager::DESKTOP_COLOR);
@@ -343,6 +345,7 @@ void test_desktop_composite_empty() {
 
     g_fb.clear(0);
     wm.composite();
+    g_screen.flip(); /* §4c: composite renders the back buffer; flip presents it */
 
     // Desktop colour (cursor may overlap at (0,0), so check far away)
     TEST_ASSERT_EQ(g_fb.get_pixel(400, 300), WindowManager::DESKTOP_COLOR);
@@ -362,6 +365,7 @@ void test_desktop_composite_icons_behind_windows() {
 
     g_fb.clear(0);
     wm.composite();
+    g_screen.flip(); /* §4c: composite renders the back buffer; flip presents it */
 
     // At (5, 25): inside window content area (y = 0 + 20 = 20, so y=25 is content)
     // Window content should overwrite icon pixels
@@ -429,6 +433,7 @@ void test_desktop_full_scenario() {
     // Composite should not crash
     g_fb.clear(0);
     wm.composite();
+    g_screen.flip(); /* §4c: composite renders the back buffer; flip presents it */
 
     TEST_ASSERT_EQ(g_fb.get_pixel(400, 400), WindowManager::DESKTOP_COLOR);
 }

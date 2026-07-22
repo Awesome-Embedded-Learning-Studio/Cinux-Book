@@ -204,11 +204,29 @@ public:
     /**
      * @brief Non-blocking poll of the stdout pipe for shell output
      *
-     * Reads available bytes from the stdout pipe (if set) via
-     * try_read() and writes them into the terminal buffer via
-     * write().  Should be called from the GUI tick callback.
+     * Reads available bytes from the stdout pipe (if set) via try_read() and
+     * writes them into the terminal buffer via write(). Should be called from
+     * the GUI pump each iteration.
+     *
+     * @return true if at least one byte was read (the terminal buffer changed
+     *              and the screen region should be re-flushed this frame),
+     *         false if no output was pending
      */
-    void poll_output();
+    bool poll_output();
+
+    /**
+     * @brief Consume the "content changed outside the stdout pipe" flag
+     *
+     * on_key() with no stdin pipe mutates the screen buffer directly (process_char)
+     * instead of through the stdout pipe, so poll_output() does not signal it. This
+     * returns (and clears) a flag set on that path so the pump can invalidate the
+     * frame -- otherwise a direct key echo would never reach the screen under the
+     * §4c dirty-gated composite (the live desktop always wires pipes, so this only
+     * matters for a pipe-less / direct-echo terminal).
+     *
+     * @return true if content changed via a non-stdout path since the last call
+     */
+    bool consume_content_dirty();
 
     // ============================================================
     // Rendering
@@ -287,16 +305,20 @@ private:
     // Members
     // ============================================================
 
-    TerminalCell             screen_[ROWS][COLS];
-    uint32_t                 cursor_x_       = 0;
-    uint32_t                 cursor_y_       = 0;
-    uint32_t                 fg_             = 0x00FFFFFF;
-    uint32_t                 bg_             = 0x00000000;
-    bool                     cursor_visible_ = true;
-    cinux::drivers::PSFFont* font_           = nullptr;
-    ipc::Pipe*               stdin_pipe_     = nullptr;
-    ipc::Pipe*               stdout_pipe_    = nullptr;
-    int                      shell_pid_      = 0;  ///< PID of the shell child process (0 = none)
+    TerminalCell screen_[ROWS][COLS];
+    uint32_t     cursor_x_       = 0;
+    uint32_t     cursor_y_       = 0;
+    uint32_t     fg_             = 0x00FFFFFF;
+    uint32_t     bg_             = 0x00000000;
+    bool         cursor_visible_ = true;
+
+    /// Set when content mutates via a non-stdout path (on_key with no stdin pipe).
+    /// The pump consumes it to invalidate the frame (§4c dirty-gating).
+    bool                     content_dirty_ = false;
+    cinux::drivers::PSFFont* font_          = nullptr;
+    ipc::Pipe*               stdin_pipe_    = nullptr;
+    ipc::Pipe*               stdout_pipe_   = nullptr;
+    int                      shell_pid_     = 0;  ///< PID of the shell child process (0 = none)
 };
 
 }  // namespace cinux::gui

@@ -466,6 +466,68 @@ void test_desktop_icon_1x1() {
 }
 
 // ============================================================
+// draw_bitmap_masked: 1-bpp alpha-mask bitmap (F13 §4d colorkey -> alpha)
+// ============================================================
+
+/// Verify draw_bitmap_masked draws only masked pixels (MSB-first per row)
+void test_bitmap_masked_draws_only_set_bits() {
+    Canvas canvas;
+    canvas.init(g_fb);
+    canvas.clear(0);
+
+    /* 2x2 bitmap, colours include a 0x00000000 that MUST be drawn (mask set):
+     *   row0: pixel0=0x00FF0000 (mask bit set)  pixel1=0x00FF00FF (mask clear)
+     *   row1: pixel0=0x00000000 (mask set)      pixel1=0x00FFFFFF (mask set) */
+    uint32_t pixels[4] = {0x00FF0000, 0x00FF00FF, 0x00000000, 0x00FFFFFF};
+    /* mask: 2 rows x 1 byte each (2 wide -> 1 byte/row). bits: row0=0b10, row1=0b11. */
+    uint8_t  mask[2]   = {0b10000000, 0b11000000};
+
+    canvas.draw_bitmap_masked(10, 10, 2, 2, pixels, mask);
+    canvas.flip();
+
+    TEST_ASSERT_EQ(g_fb.get_pixel(10, 10), 0x00FF0000u);  // masked
+    TEST_ASSERT_EQ(g_fb.get_pixel(11, 10), 0u);           // mask clear -> skipped (cleared bg)
+    TEST_ASSERT_EQ(g_fb.get_pixel(10, 11),
+                   0x00000000u);  // masked: opaque BLACK drawn (colorkey fix)
+    TEST_ASSERT_EQ(g_fb.get_pixel(11, 11), 0x00FFFFFFu);  // masked
+}
+
+/// Verify draw_bitmap_masked with a null mask draws every pixel opaque
+void test_bitmap_masked_null_mask_all_opaque() {
+    Canvas canvas;
+    canvas.init(g_fb);
+    canvas.clear(0);
+
+    /* A 0x00000000 pixel is drawn (not skipped) when the mask is null. */
+    uint32_t pixels[2] = {0x00000000, 0x00FF0000};
+    canvas.draw_bitmap_masked(5, 5, 2, 1, pixels, nullptr);
+    canvas.flip();
+
+    TEST_ASSERT_EQ(g_fb.get_pixel(5, 5), 0x00000000u);  // drawn opaque (null mask)
+    TEST_ASSERT_EQ(g_fb.get_pixel(6, 5), 0x00FF0000u);
+}
+
+/// Verify draw_bitmap_masked clips to the canvas bounds
+void test_bitmap_masked_clip_edge() {
+    Canvas canvas;
+    canvas.init(g_fb);
+    canvas.clear(0);
+
+    uint32_t pixels[4] = {0x00FFFFFF, 0x00FFFFFF, 0x00FFFFFF, 0x00FFFFFF};
+    uint8_t  mask[1]   = {0b11110000};  // 4 set bits (cols 0-3)
+    /* Start one pixel before the right edge of a 4-wide draw near the edge:
+     * canvas width minus 3 -> only 3 columns fit. */
+    uint32_t start_x   = g_fb.width() - 3;
+    canvas.draw_bitmap_masked(start_x, 0, 4, 1, pixels, mask);
+    canvas.flip();
+
+    TEST_ASSERT_EQ(g_fb.get_pixel(start_x, 0), 0x00FFFFFFu);
+    TEST_ASSERT_EQ(g_fb.get_pixel(start_x + 2, 0), 0x00FFFFFFu);  // last in-bounds col
+    /* The 4th column (start_x+3) is out of bounds -> clipped, no write. */
+    TEST_ASSERT_EQ(g_fb.get_pixel(start_x + 3, 0), 0u);
+}
+
+// ============================================================
 // Entry point
 // ============================================================
 
@@ -504,6 +566,11 @@ extern "C" void run_bitmap_icon_tests() {
     RUN_TEST(test_desktop_icon_contains_negative_position);
     RUN_TEST(test_icon_action_values);
     RUN_TEST(test_desktop_icon_1x1);
+
+    // F13 §4d: draw_bitmap_masked (1-bpp alpha mask, colorkey removal).
+    RUN_TEST(test_bitmap_masked_draws_only_set_bits);
+    RUN_TEST(test_bitmap_masked_null_mask_all_opaque);
+    RUN_TEST(test_bitmap_masked_clip_edge);
 
     TEST_SUMMARY();
 }

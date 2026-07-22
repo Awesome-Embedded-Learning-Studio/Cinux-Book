@@ -66,6 +66,11 @@ enable_testing()
 
 add_subdirectory(boot)
 add_subdirectory(user)
+# F13 cinux-gui: host-neutral core is now a git submodule (third_party/Cinux-GUI),
+# added BEFORE kernel/ so the cinux-gui target exists when the kernel links it.
+if(CINUX_GUI)
+    add_subdirectory(third_party/Cinux-GUI)
+endif()
 add_subdirectory(kernel)
 
 include(cmake/qemu.cmake)

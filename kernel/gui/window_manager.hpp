@@ -26,6 +26,7 @@
 #include "kernel/drivers/canvas.hpp"
 #include "kernel/gui/desktop_icon.hpp"
 #include "kernel/gui/event.hpp"
+#include "third_party/Cinux-GUI/core/region.hpp"
 #include "kernel/gui/window.hpp"
 
 namespace cinux::gui {
@@ -190,13 +191,52 @@ public:
     // ============================================================
 
     /**
-     * @brief Composite all visible windows onto the screen and flip
+     * @brief Composite all visible windows into the screen back buffer
      *
-     * Clears the screen back buffer with the desktop colour, then blits
-     * each window from lowest Z-order to highest.  Finally calls
-     * flip() on the screen canvas to present the frame.
+     * Clears the back buffer with the desktop colour, draws the desktop icons,
+     * blits each window from lowest Z-order to highest, then draws the mouse
+     * cursor. This renders the frame but does NOT present it: the cinux::gui pump
+     * (F13 §4c) flushes the dirty region to the host afterwards. Previously
+     * this called Canvas::flip() (full-frame copy); the display now goes
+     * through the Host ABI flush so behaviour is identical but the path is
+     * host-agnostic.
      */
     void composite();
+
+    // ============================================================
+    // Dirty region (F13 §4c) -- what the pump flushes this frame
+    // ============================================================
+
+    /**
+     * @brief Mark a screen-space rect as changed (needs re-flush)
+     *
+     * Clips @p r to the screen bounds and adds it to the dirty region. The
+     * region is a conservative over-approximation: callers may over-mark
+     * freely (extra flush cost) but must never under-mark (stale pixels).
+     */
+    void invalidate(const cinux::gui::Rect& r);
+
+    /** Mark the whole screen dirty (structural / z-order / drag changes). */
+    void invalidate_all();
+
+    /**
+     * @brief Mark the cursor's previous + current footprint dirty if it moved
+     *
+     * Compares the live Mouse position against the last frame's. On the first
+     * frame (no previous position) it marks the whole screen dirty; otherwise,
+     * if the cursor moved, it marks padded rects around the old and new
+     * positions (the 16x16 cursor plus its 1px outline). No-op when still.
+     */
+    void invalidate_cursor_move();
+
+    /** The accumulated dirty region for this frame (read by the pump). */
+    const cinux::gui::Region& dirty() const { return dirty_; }
+
+    /** Reset the dirty region (called by the pump after flushing). */
+    void clear_dirty() { dirty_.clear(); }
+
+    /** The screen canvas used for compositing (nullptr until init()). */
+    cinux::drivers::Canvas* screen() const { return screen_; }
 
     // ============================================================
     // Input handling
@@ -372,6 +412,16 @@ private:
     // External dependencies (not owned)
     cinux::drivers::Canvas*  screen_ = nullptr;  ///< Screen canvas for compositing
     cinux::drivers::PSFFont* font_   = nullptr;  ///< Font for title bar rendering
+
+    // Dirty region (F13 §4c) -- what the pump flushes to the host this frame.
+    // Conservatively over-approximated; cleared by the pump after flushing.
+    cinux::gui::Region dirty_;  ///< Accumulated dirty rects for the current frame
+
+    // Cursor footprint tracking for invalidate_cursor_move(). Sentinel value
+    // (kCursorInvalid) until the first frame, which marks the whole screen.
+    static constexpr int32_t kCursorInvalid = -100000;
+    int32_t                  last_cursor_x_ = kCursorInvalid;
+    int32_t                  last_cursor_y_ = kCursorInvalid;
 };
 
 }  // namespace cinux::gui

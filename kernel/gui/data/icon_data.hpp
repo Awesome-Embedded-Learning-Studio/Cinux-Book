@@ -1,11 +1,21 @@
 /**
  * @file kernel/gui/data/icon_data.hpp
- * @brief Constexpr 32x32 pixel icon data for desktop applications
+ * @brief Constexpr 32x32 pixel data + 1-bpp alpha masks for desktop icons
  *
- * Contains the raw compile-time bitmap data for application icons.
- * Each icon is an IconBitmap of 1024 uint32_t values in 0x00RRGGBB
- * format (row-major, top-to-bottom).  A pixel value of 0x00000000
- * is treated as transparent by Canvas::draw_bitmap().
+ * Each icon is authored as 32 row-strings of hex nibbles (one char per pixel)
+ * mapped through a 16-entry palette. Two artefacts are generated at compile
+ * time from the SAME row-strings:
+ *   - IconBitmap : the 1024 uint32_t colour pixels (0x00RRGGBB, row-major).
+ *   - IconMask   : a 1-bpp alpha mask (32 rows x 4 bytes, MSB-first per row).
+ *
+ * F13 §4d (colorkey -> alpha): transparency is governed by the MASK, not by the
+ * colour value. A mask bit is set iff the source nibble is non-zero (the
+ * authored "nibble 0 = transparent" convention) -- independent of what colour
+ * that nibble maps to. So an opaque pure-black pixel (a non-zero nibble whose
+ * palette entry is 0x00000000) is now draw-able, which the old
+ * "0x00000000 == transparent" colorkey hack made impossible. Existing icons
+ * (whose palette[0] is the only transparent entry) render identically either
+ * way; the mask just removes the fragile colour-value coupling.
  *
  * This header is only compiled when CINUX_GUI is defined.
  *
@@ -23,7 +33,8 @@ namespace cinux::gui::icons::data {
 // ============================================================
 
 namespace palette {
-constexpr uint32_t BLACK       = 0x00000000;  // Transparent (skipped by draw_bitmap)
+constexpr uint32_t BLACK =
+    0x00000000;  // Transparent slot (palette[0]); mask-driven, NOT a color value
 constexpr uint32_t DARK_BLACK  = 0x00101010;  // Near-black (opaque)
 constexpr uint32_t WHITE       = 0x00FFFFFF;
 constexpr uint32_t GREEN       = 0x0033CC33;  // Terminal prompt green
@@ -106,6 +117,45 @@ constexpr IconBitmap build_icon(const uint32_t (&palette)[16], const char* const
     return pixels;
 }
 
+/// Fixed 32x32 1-bpp alpha mask (32 rows x 4 bytes). A set bit = opaque pixel.
+/// Freestanding aggregate (no STL); MSB-first within each row, matching the
+/// cinux::gui glyph-mask convention so a single blitter handles both.
+struct IconMask {
+    uint8_t bytes[128];
+
+    constexpr uint8_t&       operator[](uint32_t i) { return bytes[i]; }
+    constexpr const uint8_t* data() const { return bytes; }
+};
+
+/**
+ * @brief Build a 1-bpp alpha mask from the same 32 row-strings as build_icon
+ *
+ * A mask bit is set iff the source nibble is non-zero (nibble 0 is the authored
+ * "transparent" slot). This is independent of the palette COLOUR that nibble
+ * maps to -- the mask encodes authoring intent, not the colour value, so an
+ * opaque pure-black pixel becomes representable (F13 §4d colorkey removal).
+ *
+ * @tparam Rows  Number of row strings (must be 32)
+ * @param rows   Array of 32 string literal pointers, each 32 chars + NUL
+ * @return       128-byte 1-bpp mask (set bit = opaque)
+ */
+template <uint32_t Rows>
+constexpr IconMask build_mask(const char* const (&rows)[Rows]) {
+    static_assert(Rows == 32, "Icon mask must have exactly 32 rows");
+
+    IconMask m{};
+    for (uint32_t r = 0; r < 32; r++) {
+        for (uint32_t c = 0; c < 32; c++) {
+            if (hex_nibble(rows[r][c]) != 0) {
+                const uint32_t byte_idx = r * 4u + c / 8u;
+                const uint32_t bit_idx  = 7u - (c % 8u); /* MSB-first per row */
+                m.bytes[byte_idx] |= static_cast<uint8_t>(1u << bit_idx);
+            }
+        }
+    }
+    return m;
+}
+
 }  // namespace detail
 
 // ============================================================
@@ -132,30 +182,37 @@ inline constexpr uint32_t k_shell_palette[16] = {
 };
 
 /**
- * @brief 32x32 shell icon pixel data
+ * @brief 32x32 shell icon -- authored row-strings (single source of truth)
  *
  * Visual: dark rounded-corner terminal body with three traffic-light
- * dots in the title bar and a white ">_" command prompt.
+ * dots in the title bar and a white ">_" command prompt. The colour pixels
+ * (k_shell_icon) and the alpha mask (k_shell_mask) are both generated from
+ * these rows.
  */
-inline constexpr auto k_shell_icon = detail::build_icon(
-    k_shell_palette, {
-                         "00222222222222222222222222222220", "02255672222222222222222222222220",
-                         "02222222222222222222222222222220", "02111111111111111111111111111110",
-                         "01111111111111111111111111111110", "01111111111111111111111111111110",
-                         "01111111111111111111111111111110", "01331111111111111111111111111110",
-                         "01134111111111111111111111111110", "01111111111111111111111111111110",
-                         "01111111111111111111111111111110", "01111111111111111111111111111110",
-                         "01111111111111111111111111111110", "01111111111111111111111111111110",
-                         "01111111111111111111111111111110", "01111111111111111111111111111110",
-                         "01111111111111111111111111111110", "01111111111111111111111111111110",
-                         "01111111111111111111111111111110", "01111111111111111111111111111110",
-                         "01111111111111111111111111111110", "01111111111111111111111111111110",
-                         "01111111111111111111111111111110", "01111111111111111111111111111110",
-                         "01111111111111111111111111111110", "01111111111111111111111111111110",
-                         "01111111111111111111111111111110", "01111111111111111111111111111110",
-                         "01111111111111111111111111111110", "01111111111111111111111111111110",
-                         "01111111111111111111111111111110", "00222222222222222222222222222220",
-                     });
+inline constexpr const char* const k_shell_rows[32] = {
+    "00222222222222222222222222222220", "02255672222222222222222222222220",
+    "02222222222222222222222222222220", "02111111111111111111111111111110",
+    "01111111111111111111111111111110", "01111111111111111111111111111110",
+    "01111111111111111111111111111110", "01331111111111111111111111111110",
+    "01134111111111111111111111111110", "01111111111111111111111111111110",
+    "01111111111111111111111111111110", "01111111111111111111111111111110",
+    "01111111111111111111111111111110", "01111111111111111111111111111110",
+    "01111111111111111111111111111110", "01111111111111111111111111111110",
+    "01111111111111111111111111111110", "01111111111111111111111111111110",
+    "01111111111111111111111111111110", "01111111111111111111111111111110",
+    "01111111111111111111111111111110", "01111111111111111111111111111110",
+    "01111111111111111111111111111110", "01111111111111111111111111111110",
+    "01111111111111111111111111111110", "01111111111111111111111111111110",
+    "01111111111111111111111111111110", "01111111111111111111111111111110",
+    "01111111111111111111111111111110", "01111111111111111111111111111110",
+    "01111111111111111111111111111110", "00222222222222222222222222222220",
+};
+
+/// Shell icon colour pixels (generated from k_shell_rows).
+inline constexpr auto k_shell_icon = detail::build_icon(k_shell_palette, k_shell_rows);
+
+/// Shell icon 1-bpp alpha mask (generated from k_shell_rows; §4d).
+inline constexpr auto k_shell_mask = detail::build_mask(k_shell_rows);
 
 // ============================================================
 // Calculator icon — grey body with LCD display and button grid
@@ -182,29 +239,36 @@ inline constexpr uint32_t k_calc_palette[16] = {
 };
 
 /**
- * @brief 32x32 calculator icon pixel data
+ * @brief 32x32 calculator icon -- authored row-strings (single source of truth)
  *
  * Visual: rounded grey body, greenish LCD display showing "123",
  * 4-column button grid (C, +/-, %, /, 7-9, *, 4-6, -, 1-3, +, 0, ., =).
+ * Colour pixels (k_calc_icon) and alpha mask (k_calc_mask) both derive from
+ * these rows.
  */
-inline constexpr auto k_calc_icon = detail::build_icon(
-    k_calc_palette, {
-                        "00222222222222222222222222222220", "02111111111111111111111111111120",
-                        "01244444444444444444444444444110", "01245551111111111111111111111110",
-                        "01244444444444444444444444444110", "01222222222222222222222222222210",
-                        "01273273273273273273273273273210", "01233233233233233233233233233210",
-                        "01273273273273273273273273273210", "01233233233233233233233233233210",
-                        "01273273273273273273273273273210", "01233233233233233233233233233210",
-                        "01273273273273273273273273273210", "01233233233233233233233233233210",
-                        "01273333333333333333333333673210", "01233333333333333333333333363210",
-                        "01222222222222222222222222222210", "02111111111111111111111111111120",
-                        "00222222222222222222222222222220", "00000000000000000000000000000000",
-                        "00000000000000000000000000000000", "00000000000000000000000000000000",
-                        "00000000000000000000000000000000", "00000000000000000000000000000000",
-                        "00000000000000000000000000000000", "00000000000000000000000000000000",
-                        "00000000000000000000000000000000", "00000000000000000000000000000000",
-                        "00000000000000000000000000000000", "00000000000000000000000000000000",
-                        "00000000000000000000000000000000", "00000000000000000000000000000000",
-                    });
+inline constexpr const char* const k_calc_rows[32] = {
+    "00222222222222222222222222222220", "02111111111111111111111111111120",
+    "01244444444444444444444444444110", "01245551111111111111111111111110",
+    "01244444444444444444444444444110", "01222222222222222222222222222210",
+    "01273273273273273273273273273210", "01233233233233233233233233233210",
+    "01273273273273273273273273273210", "01233233233233233233233233233210",
+    "01273273273273273273273273273210", "01233233233233233233233233233210",
+    "01273273273273273273273273273210", "01233233233233233233233233233210",
+    "01273333333333333333333333673210", "01233333333333333333333333363210",
+    "01222222222222222222222222222210", "02111111111111111111111111111120",
+    "00222222222222222222222222222220", "00000000000000000000000000000000",
+    "00000000000000000000000000000000", "00000000000000000000000000000000",
+    "00000000000000000000000000000000", "00000000000000000000000000000000",
+    "00000000000000000000000000000000", "00000000000000000000000000000000",
+    "00000000000000000000000000000000", "00000000000000000000000000000000",
+    "00000000000000000000000000000000", "00000000000000000000000000000000",
+    "00000000000000000000000000000000", "00000000000000000000000000000000",
+};
+
+/// Calculator icon colour pixels (generated from k_calc_rows).
+inline constexpr auto k_calc_icon = detail::build_icon(k_calc_palette, k_calc_rows);
+
+/// Calculator icon 1-bpp alpha mask (generated from k_calc_rows; §4d).
+inline constexpr auto k_calc_mask = detail::build_mask(k_calc_rows);
 
 }  // namespace cinux::gui::icons::data

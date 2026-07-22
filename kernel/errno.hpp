@@ -11,8 +11,7 @@
  * mirror the Linux numeric values and carry the @c k prefix per CODING-TASTE.
  */
 
-#ifndef CINUX_KERNEL_ERRNO_HPP
-#define CINUX_KERNEL_ERRNO_HPP
+#pragma once
 
 #include <cinux/expected.hpp>  // cinux::lib::Error
 #include <cstdint>
@@ -84,5 +83,3 @@ constexpr int to_errno(cinux::lib::Error e) {
 }
 
 }  // namespace cinux
-
-#endif  // CINUX_KERNEL_ERRNO_HPP

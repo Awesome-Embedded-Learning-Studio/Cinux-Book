@@ -59,6 +59,7 @@ struct DesktopIcon {
     int32_t         x;       ///< Icon left edge in screen pixels
     int32_t         y;       ///< Icon top edge in screen pixels
     const uint32_t* bitmap;  ///< Pointer to pixel data (w*h uint32_t values)
+    const uint8_t*  mask;    ///< 1-bpp alpha mask (set bit = opaque); null = all opaque (§4d)
     const char*     label;   ///< Null-terminated icon label string
     uint32_t        width;   ///< Bitmap width in pixels
     uint32_t        height;  ///< Bitmap height in pixels

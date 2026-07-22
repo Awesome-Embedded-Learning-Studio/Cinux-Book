@@ -1,3 +1,6 @@
 [submodule "third_party/Cinux-Base"]
 	path = third_party/Cinux-Base
 	url = https://github.com/CinuxOS/Cinux-Base
+[submodule "third_party/Cinux-GUI"]
+	path = third_party/Cinux-GUI
+	url = https://github.com/Awesome-Embedded-Learning-Studio/Cinux-GUI.git

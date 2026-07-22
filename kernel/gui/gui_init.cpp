@@ -9,32 +9,27 @@
 
 #include "gui_init.hpp"
 
-#include "kernel/arch/x86_64/paging.hpp"
-#include "kernel/arch/x86_64/paging_config.hpp"
-#include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/drivers/canvas.hpp"
 #include "kernel/drivers/mouse.hpp"
-#include "kernel/drivers/pit/pit.hpp"
 #include "kernel/drivers/video/font.hpp"
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/inode.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/gui/desktop_icon.hpp"
-#include "kernel/gui/event.hpp"
 #include "kernel/gui/icon.hpp"
 #include "kernel/gui/terminal.hpp"
+#include "kernel/gui/host_cinux.hpp"
 #include "kernel/gui/window_manager.hpp"
 #include "kernel/ipc/pipe.hpp"
 #include "kernel/ipc/pipe_ops.hpp"
-#include "kernel/lib/atomic.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/lib/string.hpp"
 #include "kernel/mm/address_space.hpp"
-#include "kernel/mm/pmm.hpp"
 #include "kernel/proc/percpu.hpp"
 #include "kernel/proc/pid.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/user_launch.hpp"
 
 namespace cinux::gui {
 
@@ -49,9 +44,6 @@ cinux::drivers::PSFFont* g_font   = nullptr;
 /// Counter for generating unique terminal titles
 uint32_t g_terminal_counter = 0;
 
-/// Deferred work queue: ISR enqueues, gui_worker thread drains.
-cinux::lib::Atomic<IconAction> g_pending_action{IconAction::None};
-
 }  // anonymous namespace
 
 // ============================================================
@@ -65,34 +57,13 @@ void gui_init(cinux::drivers::Canvas& screen, cinux::drivers::PSFFont& font) {
     g_screen = &screen;
     g_font   = &font;
 
-    // Initialise the window manager with the screen canvas and font
+    // Initialise the window manager. The desktop itself is NOT drawn here --
+    // gui_start() composites it once after icons are registered, and ongoing
+    // refresh is driven by the gui_worker thread calling pump() (see
+    // init.cpp), not by a PIT IRQ callback.
     WindowManager::instance().init(&screen, &font);
 
-    // Draw the GUI demo: dark background + random-coloured rectangles + title
-    screen.clear(0x001A1A2E);
-    uint32_t rng_state = 12345;
-    auto     lcg_next  = [&rng_state]() {
-        rng_state = rng_state * 1103515245u + 12345u;
-        return (rng_state >> 16) & 0x7FFF;
-    };
-    for (int i = 0; i < 10; i++) {
-        uint32_t x     = lcg_next() % (screen.width() - 100);
-        uint32_t y     = lcg_next() % (screen.height() - 60);
-        uint32_t w     = 40 + (lcg_next() % 120);
-        uint32_t h     = 30 + (lcg_next() % 80);
-        uint32_t r     = 0x40 + (lcg_next() % 0xC0);
-        uint32_t g     = 0x40 + (lcg_next() % 0xC0);
-        uint32_t b     = 0x40 + (lcg_next() % 0xC0);
-        uint32_t color = (r << 16) | (g << 8) | b;
-        screen.draw_rect(x, y, w, h, color);
-    }
-    const char* title  = "Cinux GUI";
-    uint32_t    text_w = 9 * font.width();
-    uint32_t    text_x = (screen.width() - text_w) / 2;
-    screen.draw_text(text_x, 10, title, 0x00FFFFFF, font);
-    screen.flip();
-
-    cinux::lib::kprintf("[GUI] Demo rendered to framebuffer.\n");
+    cinux::lib::kprintf("[GUI] GUI subsystem initialised (refresh via gui_worker pump).\n");
 }
 
 // ============================================================
@@ -105,7 +76,7 @@ namespace {
 struct ShellLaunchInfo {
     cinux::fs::Inode* stdin_read;
     cinux::fs::Inode* stdout_write;
-    const char* path;
+    const char*       path;
 };
 
 /// Entry function for shell child tasks.  Runs on a clean kernel stack
@@ -121,62 +92,18 @@ static void shell_child_entry() {
 
     task->fd_table = new cinux::fs::FDTable();
     task->fd_table->set(0, new cinux::fs::File(info->stdin_read, 0, cinux::fs::OpenFlags::RDONLY));
-    task->fd_table->set(1, new cinux::fs::File(info->stdout_write, 0, cinux::fs::OpenFlags::WRONLY));
+    task->fd_table->set(1,
+                        new cinux::fs::File(info->stdout_write, 0, cinux::fs::OpenFlags::WRONLY));
 
     const char* argv[] = {info->path, nullptr};
     const char* envp[] = {nullptr};
-    auto result = cinux::proc::execve(info->path, argv, envp);
-    if (result != cinux::proc::ExecveResult::Ok) {
-        cinux::lib::kprintf("[GUI] execve(%s) failed: %d\n", info->path,
-                            static_cast<int>(result));
-        cinux::proc::Scheduler::exit_current();
-    }
-
-    uint64_t entry = task->ctx.rip;
-
-    constexpr uint64_t kUserPageFlags =
-        cinux::arch::FLAG_PRESENT | cinux::arch::FLAG_WRITABLE | cinux::arch::FLAG_USER;
-    uint64_t stack_base =
-        cinux::arch::USER_STACK_TOP - cinux::arch::USER_STACK_PAGES * cinux::arch::PAGE_SIZE;
-
-    for (uint64_t i = 0; i < cinux::arch::USER_STACK_PAGES; i++) {
-        uint64_t phys = cinux::mm::g_pmm.alloc_page();
-        if (phys == 0) {
-            cinux::lib::kprintf("[GUI] user stack alloc failed\n");
-            cinux::proc::Scheduler::exit_current();
-        }
-        uint64_t virt = stack_base + i * cinux::arch::PAGE_SIZE;
-        if (!task->addr_space->map(virt, phys, kUserPageFlags)) {
-            cinux::lib::kprintf("[GUI] user stack map failed at %p\n",
-                                reinterpret_cast<void*>(virt));
-            cinux::proc::Scheduler::exit_current();
-        }
-    }
-
-    // Record the user stack VMA spanning the full growth region so PF-driven
-    // growth works under the F2-M5 hard VMA gate. Only the top USER_STACK_PAGES
-    // are pre-mapped above; the rest is demand-paged as the stack grows down.
-    // Accesses below [USER_STACK_TOP - GROWTH) hit no VMA -> segfault (guard).
-    constexpr cinux::mm::VmaFlags kStackVma =
-        cinux::mm::VmaFlags::Read | cinux::mm::VmaFlags::Write | cinux::mm::VmaFlags::Stack;
-    constexpr uint64_t kStackVmaStart =
-        cinux::arch::USER_STACK_TOP - cinux::arch::USER_STACK_GROWTH;
-    if (!task->addr_space->vmas()
-             .insert(kStackVmaStart, cinux::arch::USER_STACK_TOP, kStackVma)
-             .ok()) {
-        cinux::lib::kprintf("[GUI] stack VMA record failed\n");
-        cinux::proc::Scheduler::exit_current();
-    }
-
-    cinux::lib::kprintf("[GUI] Shell child jumping to user mode: entry=%p\n",
-                        reinterpret_cast<void*>(entry));
-
-    task->addr_space->activate();
-    cinux::proc::update_syscall_stack(task->kernel_stack_top);
-
-    jump_to_usermode(entry, cinux::arch::USER_STACK_TOP - cinux::arch::USER_ABI_RSP_OFFSET, 0);
-    cinux::proc::Scheduler::exit_current();
+    // Load the program, set up the user stack, and jump to user mode.
+    // Consolidated with the non-GUI shell launch in init.cpp into
+    // launch_user_program(); never returns (jumps to user mode or exits).
+    cinux::proc::launch_user_program(info->path, argv, envp);
 }
+
+}  // anonymous namespace
 
 void create_shell_terminal() {
     auto& wm = WindowManager::instance();
@@ -246,13 +173,13 @@ void create_shell_terminal() {
     }
 
     // PID + parent/child linkage (TaskBuilder handles TCB + stack only)
-    child->pid       = cinux::proc::g_pid_alloc.alloc();
+    child->pid          = cinux::proc::g_pid_alloc.alloc();
     child->private_data = info;
-    auto* parent     = cinux::proc::Scheduler::current();
-    child->ppid      = parent->pid;
-    child->parent    = parent;
-    child->wait_next = parent->children;
-    parent->children = child;
+    auto* parent        = cinux::proc::Scheduler::current();
+    child->ppid         = parent->pid;
+    child->parent       = parent;
+    child->wait_next    = parent->children;
+    parent->children    = child;
 
     cinux::proc::Scheduler::add_task(child);
 
@@ -264,68 +191,8 @@ void create_shell_terminal() {
                         reinterpret_cast<void*>(stdin_pipe), reinterpret_cast<void*>(stdout_pipe));
 }
 
-}  // anonymous namespace
-
 // ============================================================
-// PIT tick callback: process events + composite
-// ============================================================
-
-namespace {
-
-/**
- * @brief Called on every PIT tick to drain input and refresh the screen
- *
- * @param ctx  Unused context pointer
- */
-void gui_tick_callback(void* /*ctx*/) {
-    using cinux::drivers::Mouse;
-    using cinux::gui::Event;
-    using cinux::gui::EventType;
-
-    auto& wm = WindowManager::instance();
-    auto& eq = Mouse::event_queue();
-
-    // Drain all pending events from the queue
-    Event ev;
-    while (eq.dequeue(ev)) {
-        switch (ev.type_) {
-        case EventType::MouseMove:
-        case EventType::MouseDown:
-        case EventType::MouseUp:
-            wm.handle_mouse(ev);
-            break;
-        case EventType::KeyDown:
-        case EventType::KeyUp:
-            wm.handle_key(ev);
-            break;
-        }
-    }
-
-    // Check if a desktop icon was clicked -- enqueue for deferred processing
-    IconAction action = wm.consume_pending_icon_action();
-    if (action != IconAction::None) {
-        g_pending_action.store(action, cinux::lib::MemoryOrder::Release);
-    }
-
-    // Poll all terminal windows for shell output (not just the focused one)
-    // so that multiple concurrent shell sessions all update their displays.
-    for (uint32_t i = 0; i < wm.window_count(); i++) {
-        auto* win = wm.window_at(i);
-        if (win != nullptr && win->is_terminal()) {
-            auto* term = static_cast<Terminal*>(win);
-            term->poll_output();
-            term->render_to_canvas();
-        }
-    }
-
-    // Composite all windows onto the screen
-    wm.composite();
-}
-
-}  // anonymous namespace
-
-// ============================================================
-// gui_start() -- activate the WM tick loop from kernel_init_thread
+// gui_start() -- activate the WM (refresh driven by gui_worker pump)
 // ============================================================
 
 void gui_start() {
@@ -346,6 +213,7 @@ void gui_start() {
         .x      = 40,
         .y      = 40,
         .bitmap = icons::data::k_shell_icon.data(),
+        .mask   = icons::data::k_shell_mask.data(),
         .label  = "Shell",
         .width  = icons::ICON_SIZE,
         .height = icons::ICON_SIZE,
@@ -357,6 +225,7 @@ void gui_start() {
         .x      = 40,
         .y      = 120,
         .bitmap = icons::data::k_calc_icon.data(),
+        .mask   = icons::data::k_calc_mask.data(),
         .label  = "Calculator",
         .width  = icons::ICON_SIZE,
         .height = icons::ICON_SIZE,
@@ -366,21 +235,23 @@ void gui_start() {
 
     cinux::lib::kprintf("[GUI] Desktop icons registered: Shell, Calculator.\n");
 
-    // Register the GUI tick callback for event processing + compositing
-    cinux::drivers::PIT::set_tick_callback(gui_tick_callback, nullptr);
-    cinux::lib::kprintf("[GUI] GUI tick callback registered on PIT.\n");
-}
+    // Composite the desktop once now (icons registered) so the staging back
+    // buffer is populated. Ongoing refresh is driven by the gui_worker thread
+    // calling pump() in a loop (see init.cpp), NOT by a PIT IRQ callback.
+    // This removes the GUI's dependency on PIT tick delivery, which only fires
+    // once under APIC routing on the production path (pre-existing F4 issue) --
+    // the worker pump keeps the screen live regardless of whether PIT ticks
+    // arrive. F13 §4c: composite() renders the back buffer only; the pump
+    // flushes the dirty region to the host. Mark the whole screen dirty so the
+    // first pump iteration pushes the initial desktop.
+    wm.composite();
+    wm.invalidate_all();
+    cinux::lib::kprintf("[GUI] desktop composited; refresh driven by gui_worker pump loop.\n");
 
-// ============================================================
-// gui_process_pending() -- drain deferred work from ISR
-// ============================================================
-
-void gui_process_pending() {
-    IconAction action =
-        g_pending_action.exchange(IconAction::None, cinux::lib::MemoryOrder::AcqRel);
-    if (action == IconAction::OpenShell) {
-        create_shell_terminal();
-    }
+    // Initialise the cinux::gui Host ABI adapter (F13 §3b/§4c): fills the host table
+    // that the gui_worker's pump() drives. The callbacks forward to the
+    // facilities wired above; flush forwards dirty rects to the framebuffer.
+    cinux_host_init(g_screen != nullptr ? g_screen->framebuffer() : nullptr);
 }
 
 }  // namespace cinux::gui

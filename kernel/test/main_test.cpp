@@ -69,6 +69,9 @@ void run_gui_integration_tests();
 void run_bitmap_icon_tests();
 void run_desktop_tests();
 void run_terminal_tests();
+void run_gui_swraster_tests();
+void run_gui_region_tests();
+void run_gui_dirty_tests();
 void run_pipe_tests();
 void run_sys_pipe_tests();
 void run_terminal_shell_tests();
@@ -201,6 +204,12 @@ extern "C" void kernel_main() {
     run_terminal_tests();
 #ifdef CINUX_GUI
     run_terminal_shell_tests();
+    // F13 cinux::gui §4a: SwRaster primitive unit tests.
+    run_gui_swraster_tests();
+    // F13 cinux::gui §4b: region algebra unit tests.
+    run_gui_region_tests();
+    // F13 cinux::gui §4c: dirty-region + flush path tests.
+    run_gui_dirty_tests();
 #endif
     cinux::mm::AddressSpace::init_kernel();
     run_address_space_tests();

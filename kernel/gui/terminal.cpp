@@ -97,6 +97,7 @@ void Terminal::on_key(KeyEvent& ev) {
 
     // No pipe connected -- write directly to the screen buffer
     process_char(ev.ascii);
+    content_dirty_ = true; /* not seen by poll_output; pump consumes this (§4c) */
 }
 
 void Terminal::on_paint(cinux::drivers::Canvas& /*canvas*/) {
@@ -180,20 +181,29 @@ int Terminal::shell_pid() const {
     return shell_pid_;
 }
 
-void Terminal::poll_output() {
+bool Terminal::poll_output() {
     if (stdout_pipe_ == nullptr) {
-        return;
+        return false;
     }
 
     // Read available data in chunks from the stdout pipe
     char buf[256];
+    bool got_any = false;
     while (true) {
         int64_t n = stdout_pipe_->try_read(buf, sizeof(buf));
         if (n <= 0) {
             break;
         }
         write(buf, static_cast<uint64_t>(n));
+        got_any = true;
     }
+    return got_any;
+}
+
+bool Terminal::consume_content_dirty() {
+    bool was       = content_dirty_;
+    content_dirty_ = false;
+    return was;
 }
 
 // ============================================================

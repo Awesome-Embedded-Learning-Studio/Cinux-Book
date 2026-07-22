@@ -555,6 +555,7 @@ void test_tick_callback_composite_renders() {
         // nothing
     }
     wm.composite();
+    g_screen.flip(); /* §4c: composite renders the back buffer; flip presents it */
 
     // Desktop should be visible at a pixel not covered by any window
     TEST_ASSERT_EQ(g_fb.get_pixel(400, 400), WindowManager::DESKTOP_COLOR);

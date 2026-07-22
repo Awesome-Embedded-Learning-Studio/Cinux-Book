@@ -159,6 +159,10 @@ add_executable(big_kernel
 
 target_sources(big_kernel PRIVATE $<TARGET_OBJECTS:big_kernel_common>)
 target_link_libraries(big_kernel PRIVATE big_kernel_common)
+# F13 cinux::gui: link the host-neutral core (third_party/Cinux-GUI/, GUI only).
+if(CINUX_GUI)
+    target_link_libraries(big_kernel PRIVATE cinux-gui)
+endif()
 add_dependencies(big_kernel user_binary_obj initrd_obj)
 target_sources(big_kernel PRIVATE
     ${CMAKE_BINARY_DIR}/user/user_binary.o
@@ -247,10 +251,16 @@ add_executable(big_kernel_test
     test/test_kallsyms.cpp
     test/test_backtrace.cpp
     test/test_memory_stats.cpp
+    test/test_gui_swraster.cpp
+    test/test_gui_region.cpp
+    test/test_gui_dirty.cpp
 )
 
 target_sources(big_kernel_test PRIVATE $<TARGET_OBJECTS:big_kernel_common>)
 target_link_libraries(big_kernel_test PRIVATE big_kernel_common)
+if(CINUX_GUI)
+    target_link_libraries(big_kernel_test PRIVATE cinux-gui)
+endif()
 add_dependencies(big_kernel_test user_binary_obj initrd_obj)
 target_sources(big_kernel_test PRIVATE
     ${CMAKE_BINARY_DIR}/user/user_binary.o

@@ -43,13 +43,12 @@ void gui_init(cinux::drivers::Canvas& screen, cinux::drivers::PSFFont& font);
 void gui_start();
 
 /**
- * @brief Process deferred GUI work enqueued by the PIT tick callback
+ * @brief Spawn a shell terminal window (Desktop icon action)
  *
- * Drains the pending action queue and executes any heavy operations
- * (e.g. creating a new terminal window via fork/execve) that cannot
- * safely run in interrupt context.  Should be called in a loop by a
- * dedicated kernel worker thread.
+ * Creates a centred Terminal window, wires per-terminal stdin/stdout pipes,
+ * forks a shell child task running /bin/sh, and adds the window to the WM.
+ * Used by the cinux::gui host desktop->spawn callback (cinux::gui §3b adapter).
  */
-void gui_process_pending();
+void create_shell_terminal();
 
 }  // namespace cinux::gui

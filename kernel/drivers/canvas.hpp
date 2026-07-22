@@ -176,9 +176,52 @@ public:
      */
     void draw_bitmap(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint32_t* pixels);
 
+    /**
+     * @brief Draw a pixel bitmap with a 1-bpp alpha mask (true alpha, no colorkey)
+     *
+     * Renders a w x h bitmap from @p pixels, but only where the corresponding
+     * bit in @p mask is set; clear mask bits are transparent (skipped). The mask
+     * is 1-bpp, MSB-first within each row, (w+7)/8 bytes per row. This is the
+     * F13 §4d icon path: transparency is governed by the mask, not by the pixel
+     * colour value, so an opaque pure-black pixel (0x00000000 with its mask bit
+     * set) is drawn -- which the legacy draw_bitmap() colorkey hack (treating
+     * 0x00000000 as transparent) made impossible. Clipped to the canvas bounds.
+     *
+     * @p mask may be null, in which case every pixel is drawn opaque (no
+     * transparency) -- callers that need transparency must supply a mask.
+     *
+     * @param x       Left edge on the canvas
+     * @param y       Top edge on the canvas
+     * @param w       Bitmap width in pixels
+     * @param h       Bitmap height in pixels
+     * @param pixels  Span of w*h pixel values (row-major, top-to-bottom)
+     * @param mask    1-bpp mask span (set bit = opaque); null = all opaque
+     */
+    void draw_bitmap_masked(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint32_t* pixels,
+                            const uint8_t* mask);
+
     uint32_t width() const { return width_; }
     uint32_t height() const { return height_; }
     uint32_t pitch() const { return pitch_; }
+
+    /**
+     * @brief Underlying back (staging) buffer, as a flat uint32_t row-major span
+     *
+     * The cinux::gui render engine treats this as its staging Surface (F13 §4c): the
+     * compositor renders into it and the host flushes dirty rects out of it.
+     * Rows are spaced @p pitch() bytes apart, so row r column c is at
+     * `back_buffer()[r * (pitch()/4) + c]`.
+     */
+    uint32_t* back_buffer() const { return back_buf_; }
+
+    /**
+     * @brief The hardware framebuffer this canvas flips onto (nullptr if none)
+     *
+     * A standalone canvas (init(w,h)) has no framebuffer; the screen canvas
+     * references the VBE framebuffer it was initialised from. The Cinux host
+     * adapter reads this to forward flushed rects to the display (F13 §4c).
+     */
+    Framebuffer* framebuffer() const { return front_buf_; }
 
 private:
     Framebuffer* front_buf_ = nullptr;

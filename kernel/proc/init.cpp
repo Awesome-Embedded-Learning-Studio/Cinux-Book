@@ -16,9 +16,12 @@
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/sync.hpp"
+#include "kernel/proc/user_launch.hpp"
 
 #ifdef CINUX_GUI
 #    include "kernel/gui/gui_init.hpp"
+#    include "kernel/gui/host_cinux.hpp"
+#    include "third_party/Cinux-GUI/core/pump.hpp"
 #endif
 
 namespace cinux::proc {
@@ -29,7 +32,10 @@ namespace {
 void gui_worker_thread() {
     cinux::lib::kprintf("[GUI] Worker thread started\n");
     while (true) {
-        cinux::gui::gui_process_pending();
+        // Drive the desktop through the cinux::gui Host ABI table (F13 §3b): input,
+        // time and spawn all go via host->core.* / host->desktop->*. The same
+        // pump body runs unchanged on a different host fill.
+        cinux::gui::pump(&cinux::gui::cinux_host());
         Scheduler::yield();
     }
 }
@@ -89,56 +95,7 @@ void kernel_init_thread() {
         const char* argv[] = {path, nullptr};
         const char* envp[] = {nullptr};
 
-        auto result = cinux::proc::execve(path, argv, envp);
-        if (result != cinux::proc::ExecveResult::Ok) {
-            cinux::lib::kprintf("[INIT] execve(%s) failed: %d\n", path, static_cast<int>(result));
-            cinux::proc::Scheduler::exit_current();
-        }
-
-        // Set up user stack
-        uint64_t           entry = task->ctx.rip;
-        constexpr uint64_t kUserPageFlags =
-            cinux::arch::FLAG_PRESENT | cinux::arch::FLAG_WRITABLE | cinux::arch::FLAG_USER;
-        uint64_t stack_base =
-            cinux::arch::USER_STACK_TOP - cinux::arch::USER_STACK_PAGES * cinux::arch::PAGE_SIZE;
-
-        for (uint64_t i = 0; i < cinux::arch::USER_STACK_PAGES; i++) {
-            uint64_t phys = cinux::mm::g_pmm.alloc_page();
-            if (phys == 0) {
-                cinux::lib::kprintf("[INIT] user stack alloc failed\n");
-                cinux::proc::Scheduler::exit_current();
-            }
-            uint64_t virt = stack_base + i * cinux::arch::PAGE_SIZE;
-            if (!task->addr_space->map(virt, phys, kUserPageFlags)) {
-                cinux::lib::kprintf("[INIT] user stack map failed at %p\n",
-                                    reinterpret_cast<void*>(virt));
-                cinux::proc::Scheduler::exit_current();
-            }
-        }
-
-        // Record the user stack VMA spanning the full growth region so PF-
-        // driven growth works under the F2-M5 hard VMA gate. Only the top
-        // USER_STACK_PAGES are pre-mapped above; the rest is demand-paged as
-        // the stack grows down. Accesses below [USER_STACK_TOP - GROWTH) hit
-        // no VMA -> segfault (stack overflow guard).
-        constexpr cinux::mm::VmaFlags kStackVma =
-            cinux::mm::VmaFlags::Read | cinux::mm::VmaFlags::Write | cinux::mm::VmaFlags::Stack;
-        constexpr uint64_t kStackVmaStart =
-            cinux::arch::USER_STACK_TOP - cinux::arch::USER_STACK_GROWTH;
-        if (!task->addr_space->vmas()
-                 .insert(kStackVmaStart, cinux::arch::USER_STACK_TOP, kStackVma)
-                 .ok()) {
-            cinux::lib::kprintf("[INIT] stack VMA record failed\n");
-            cinux::proc::Scheduler::exit_current();
-        }
-
-        cinux::lib::kprintf("[INIT] Shell jumping to user mode: entry=%p\n",
-                            reinterpret_cast<void*>(entry));
-
-        task->addr_space->activate();
-        cinux::proc::update_syscall_stack(task->kernel_stack_top);
-        jump_to_usermode(entry, cinux::arch::USER_STACK_TOP - cinux::arch::USER_ABI_RSP_OFFSET, 0);
-        cinux::proc::Scheduler::exit_current();
+        cinux::proc::launch_user_program(path, argv, envp);
     } else if (child_pid > 0) {
         cinux::lib::kprintf("[INIT] Shell spawned pid=%d\n", child_pid);
     } else {

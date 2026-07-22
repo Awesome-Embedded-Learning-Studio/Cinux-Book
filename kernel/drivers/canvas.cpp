@@ -316,4 +316,34 @@ void Canvas::draw_bitmap(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const u
     }
 }
 
+void Canvas::draw_bitmap_masked(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
+                                const uint32_t* pixels, const uint8_t* mask) {
+    if (back_buf_ == nullptr || pixels == nullptr)
+        return;
+
+    uint32_t pixels_per_row = pitch_ / 4;
+    uint32_t bytes_per_row  = (w + 7u) / 8u;  // 1-bpp, MSB-first within each row
+
+    for (uint32_t row = 0; row < h; row++) {
+        // Clip to canvas bounds (vertical)
+        if (y + row >= height_)
+            break;
+
+        for (uint32_t col = 0; col < w; col++) {
+            // Clip to canvas bounds (horizontal)
+            if (x + col >= width_)
+                break;
+
+            bool opaque = true;
+            if (mask != nullptr) {
+                uint8_t byte = mask[row * bytes_per_row + col / 8u];
+                opaque       = (byte >> (7u - (col % 8u))) & 1u;
+            }
+
+            if (opaque)
+                back_buf_[(y + row) * pixels_per_row + (x + col)] = pixels[row * w + col];
+        }
+    }
+}
+
 }  // namespace cinux::drivers

@@ -227,6 +227,7 @@ void test_wm_composite_multiple_windows() {
 
     g_fb.clear(0);
     wm.composite();
+    g_screen.flip(); /* §4c: composite renders the back buffer; flip presents it */
 
     // Window B is on top. At (50, 40) -- B's title bar.
     TEST_ASSERT_EQ(g_fb.get_pixel(50, 40), Window::COLOR_TITLE_BG);
@@ -248,6 +249,7 @@ void test_wm_composite_after_raise() {
     // Raise A to top
     wm.raise(id_a);
     wm.composite();
+    g_screen.flip(); /* §4c: composite renders the back buffer; flip presents it */
 
     // Now A is on top. At (50, 40):
     // A's content area starts at y=20. (50, 40) is in A's content area.
@@ -268,6 +270,7 @@ void test_wm_composite_after_destroy() {
 
     g_fb.clear(0);
     wm.composite();
+    g_screen.flip(); /* §4c: composite renders the back buffer; flip presents it */
 
     // A was at (0,0). At (0, 20): A's content area.
     // After destroy, should be desktop colour.
@@ -285,6 +288,7 @@ void test_wm_composite_no_windows() {
 
     g_fb.clear(0);
     wm.composite();
+    g_screen.flip(); /* §4c: composite renders the back buffer; flip presents it */
 
     // Cursor is drawn at Mouse::x()/Mouse::y() (default 0,0),
     // so (0,0) will be white.  Check pixels outside the 16x16 cursor area.
@@ -327,6 +331,8 @@ void test_wm_drag_updates_composite_position() {
 
     g_fb.clear(0);
     wm.handle_mouse(ev_move);
+    wm.composite();  /* §4c: handle_mouse only invalidates now */
+    g_screen.flip(); /* present the back buffer for inspection */
 
     // Content area should now start at y = 95 + 20 = 115
     TEST_ASSERT_EQ(g_fb.get_pixel(150, 115), Window::COLOR_CONTENT_BG);
@@ -374,6 +380,8 @@ void test_wm_close_button_destroys_and_composites() {
 
     g_fb.clear(0);
     wm.handle_mouse(ev);
+    wm.composite();  /* §4c: handle_mouse only invalidates now */
+    g_screen.flip(); /* present the back buffer for inspection */
 
     // Window A should be destroyed
     TEST_ASSERT_EQ(wm.window_count(), 1u);
@@ -411,6 +419,8 @@ void test_wm_content_click_raises_and_composites() {
 
     g_fb.clear(0);
     wm.handle_mouse(ev);
+    wm.composite();  /* §4c: handle_mouse only invalidates now */
+    g_screen.flip(); /* present the back buffer for inspection */
 
     // A should be raised to top and focused
     TEST_ASSERT_EQ(wm.focused()->id(), id_a);
@@ -593,6 +603,7 @@ void test_wm_zorder_multiple_raises_composite() {
     wm.raise(id_a);
     g_fb.clear(0);
     wm.composite();
+    g_screen.flip(); /* §4c: composite renders the back buffer; flip presents it */
 
     // At overlap (50, 40): A on top, A's content grey
     TEST_ASSERT_EQ(g_fb.get_pixel(50, 40), Window::COLOR_CONTENT_BG);
@@ -601,6 +612,7 @@ void test_wm_zorder_multiple_raises_composite() {
     wm.raise(id_b);
     g_fb.clear(0);
     wm.composite();
+    g_screen.flip(); /* §4c: composite renders the back buffer; flip presents it */
 
     // At overlap (50, 40): B on top, B's title bar blue (y=30..49)
     TEST_ASSERT_EQ(g_fb.get_pixel(50, 40), Window::COLOR_TITLE_BG);
@@ -633,6 +645,7 @@ void test_wm_zorder_destroy_recreate() {
 
     g_fb.clear(0);
     wm.composite();
+    g_screen.flip(); /* §4c: composite renders the back buffer; flip presents it */
 
     // C at stagger (30, 30). C's title bar at y=30..49.
     TEST_ASSERT_EQ(g_fb.get_pixel(50, 40), Window::COLOR_TITLE_BG);
