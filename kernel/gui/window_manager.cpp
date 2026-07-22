@@ -5,7 +5,7 @@
 
 #include "window_manager.hpp"
 
-#include "drivers/mouse.hpp"
+#include "drivers/mouse/mouse.hpp"
 #include "drivers/video/font.hpp"
 
 namespace cinux::gui {

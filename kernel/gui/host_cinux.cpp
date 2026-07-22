@@ -16,7 +16,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 
-#include "kernel/drivers/mouse.hpp"
+#include "kernel/drivers/mouse/mouse.hpp"
 #include "kernel/drivers/pit/pit.hpp"
 #include "kernel/drivers/video/framebuffer.hpp"  // Framebuffer (flush target)
 #include "kernel/gui/event.hpp"
@@ -315,26 +315,38 @@ void cinux_flush(void* ctx, int x, int y, int w, int h, const void* pixels, uint
     if (h > static_cast<int>(fb_h)) {
         h = static_cast<int>(fb_h);
     }
-    const uint8_t*    src           = static_cast<const uint8_t*>(pixels);
-    volatile uint8_t* dst           = reinterpret_cast<volatile uint8_t*>(g_fb->data());
-    const uint32_t    bytes_per_row = static_cast<uint32_t>(w) * 4u;
+    /* XRGB8888: the framebuffer is 32-bit aligned (Framebuffer::data() is a
+     * volatile uint32_t*), both strides (staging pitch + VBE pitch) are whole-
+     * pixel multiples, and dirty rects are pixel-aligned -- so every row
+     * transfers an integral number of uint32 stores with no byte tail. Writing
+     * one uint32 (4 bytes) per store instead of one byte cuts the volatile
+     * store count -- and with it any uncached/MMIO write cost -- by 4x. The
+     * compiler cannot widen these stores itself: every volatile access is an
+     * observable side effect it must preserve verbatim, so the old byte loop
+     * stayed a byte loop even under -O2. */
+    const uint32_t     src_stride_px = stride / 4u;
+    const uint32_t     dst_stride_px = fb_pitch / 4u;
+    const uint32_t     px_w          = static_cast<uint32_t>(w);
+    const uint32_t*    src           = static_cast<const uint32_t*>(pixels);
+    volatile uint32_t* dst           = g_fb->data();
 
     for (int row = 0; row < h; row++) {
         const int py = y + row;
-        /* Dirty rects are clipped to screen bounds by WindowManager::invalidate,
-         * but defend against a misbehaving caller regardless. */
+        /* Dirty rects are clipped to screen bounds by WindowManager::invalidate;
+         * defend against a misbehaving caller regardless. */
         if (py < 0 || static_cast<uint32_t>(py) >= fb_h || x < 0 ||
             static_cast<uint32_t>(x) >= fb_w) {
             continue;
         }
-        const uint32_t cols = (static_cast<uint32_t>(x) + bytes_per_row / 4u <= fb_w)
-                                  ? bytes_per_row
-                                  : (fb_w - static_cast<uint32_t>(x)) * 4u;
-        const uint8_t* srow = src + static_cast<size_t>(py) * stride + static_cast<size_t>(x) * 4u;
-        volatile uint8_t* drow =
-            dst + static_cast<size_t>(py) * fb_pitch + static_cast<size_t>(x) * 4u;
-        for (uint32_t b = 0; b < cols; b++) {
-            drow[b] = srow[b];
+        const uint32_t cols_px = (static_cast<uint32_t>(x) + px_w <= fb_w)
+                                     ? px_w
+                                     : (fb_w - static_cast<uint32_t>(x));
+        const uint32_t* srow =
+            src + static_cast<size_t>(py) * src_stride_px + static_cast<uint32_t>(x);
+        volatile uint32_t* drow =
+            dst + static_cast<size_t>(py) * dst_stride_px + static_cast<uint32_t>(x);
+        for (uint32_t p = 0; p < cols_px; p++) {
+            drow[p] = srow[p];
         }
     }
 }

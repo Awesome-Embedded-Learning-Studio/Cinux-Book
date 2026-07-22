@@ -101,6 +101,17 @@ public:
      */
     static bool poll(KeyEvent& out);
 
+    /// Select the active input source (PS/2 vs USB).  When USB is primary the
+    /// PS/2 IRQ1 handler stops feeding the queue (single producer, SPSC safe).
+    static void set_usb_primary(bool primary);
+
+    /// Inject a decoded USB boot-keyboard report (hard-IRQ context, from the
+    /// xHCI TransferListener).  Detects press/release edges vs the previous
+    /// report, maps HID keycodes to ASCII, and enqueues KeyEvents (mirrors the
+    /// PS/2 irq1_handler path).  @p modifier = report modifier bitmask;
+    /// @p keycodes = the up-to-6 currently-pressed usage IDs.
+    static void inject_usb_report(uint8_t modifier, const uint8_t* keycodes, uint8_t n);
+
 private:
     static constexpr uint32_t KEY_QUEUE_SIZE = 64;
 
@@ -115,6 +126,14 @@ private:
     static bool shift_held_;
     static bool ctrl_held_;
     static bool alt_held_;
+
+    static bool    usb_primary_;       ///< USB keyboard owns input when true
+    static uint8_t usb_prev_keys_[6];  ///< previous report keycodes (edge detect)
+
+    /// Build + enqueue a KeyEvent and dual-dispatch to the GUI queue (shared by
+    /// the PS/2 and USB paths).  @p code = HID usage ID (USB) or scan code (PS/2).
+    static void dispatch_key(uint8_t code, char ascii, bool pressed, bool shift, bool ctrl,
+                             bool alt);
 };
 
 }  // namespace cinux::drivers

@@ -84,16 +84,17 @@ void WindowManager::handle_mouse(Event& ev) {
 
     case EventType::MouseMove: {
         if (dragging_ && focused_ != nullptr) {
-            // Move the focused window to follow the cursor
+            // Move the focused window to follow the cursor. The window's
+            // off-screen canvas (title bar + content) is PERSISTENT -- only its
+            // screen position changes, so do NOT repaint it here: composite()
+            // blits the existing canvas to the new position. The old code called
+            // draw_title_bar()+draw_content() on every move, and draw_content()
+            // -> on_paint -> render_to_canvas re-rendered the whole terminal
+            // (2000 cells, pixel-by-pixel) each frame even though the content
+            // never changed -- that redundant re-render was the drag stall.
             int32_t new_x = ev.mouse.x - drag_offset_x_;
             int32_t new_y = ev.mouse.y - drag_offset_y_;
             focused_->set_position(new_x, new_y);
-
-            // Redraw the window (title bar + content) at the new position
-            if (font_ != nullptr) {
-                focused_->draw_title_bar(*font_);
-            }
-            focused_->draw_content();
 
             invalidate_all(); /* window moved -> full re-flush (exposure-safe) */
         }

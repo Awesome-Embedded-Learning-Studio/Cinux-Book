@@ -79,12 +79,12 @@ void PIT::init(uint32_t freq_hz) {
 
 void PIT::irq0_handler(InterruptFrame* /*frame*/) {
     // Increment the global tick counter
-    uint64_t t = tick_count_.fetch_add(1, lib::MemoryOrder::Relaxed) + 1;
-    if (t == 1 || t == 50) {
-        cinux::lib::kprintf("[PIT] IRQ0 tick #%lu\n", t);
-    }
-
-    // Signal End-Of-Interrupt so the next IRQ can arrive (PIC or LAPIC).
+    tick_count_.fetch_add(1, lib::MemoryOrder::Relaxed);
+    // EOI early (before Scheduler::tick's preemption switch) so the timer is
+    // free to re-fire and preempt the task we switch to.  The PIT is the one
+    // IRQ that owns its EOI (it uses ISR_NOERRCODE, not ISR_IRQ) precisely so
+    // it can place the EOI before the inline preemption switch; every device
+    // IRQ instead gets a stub-owned EOI via the ISR_IRQ macro.
     cinux::arch::irq_eoi(0);
 
 #ifdef CINUX_GUI

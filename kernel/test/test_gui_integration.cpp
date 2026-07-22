@@ -32,7 +32,7 @@
 #ifdef CINUX_GUI
 
 #    include "kernel/drivers/canvas.hpp"
-#    include "kernel/drivers/mouse.hpp"
+#    include "kernel/drivers/mouse/mouse.hpp"
 #    include "kernel/gui/event.hpp"
 #    include "kernel/gui/gui_init.hpp"
 #    include "kernel/gui/window_manager.hpp"

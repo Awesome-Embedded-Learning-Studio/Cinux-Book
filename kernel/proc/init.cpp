@@ -23,6 +23,10 @@
 #    include "kernel/gui/host_cinux.hpp"
 #    include "third_party/Cinux-GUI/core/pump.hpp"
 #endif
+#ifdef CINUX_USB
+#    include "kernel/drivers/usb/usb_init.hpp"
+#    include "kernel/drivers/usb/xhci_controller.hpp"  // poll_events() in gui_worker
+#endif
 
 namespace cinux::proc {
 
@@ -36,6 +40,19 @@ void gui_worker_thread() {
         // time and spawn all go via host->core.* / host->desktop->*. The same
         // pump body runs unchanged on a different host fill.
         cinux::gui::pump(&cinux::gui::cinux_host());
+#if defined(CINUX_USB)
+        // Service the xHCI event ring each frame.  On QEMU under nested-KVM the
+        // interrupter's IMAN.IE does not latch, so the MSI-X transfer-complete
+        // interrupt is not reliably delivered to the CPU; polling the ring here
+        // is the production event-service path (mouse/keyboard Transfer Events
+        // are dequeued -> on_transfer_complete -> decode + inject + re-arm).  It
+        // is cheap when the mouse is idle (dequeue finds the ring empty).  The
+        // MSI-X setup in XHCIController::start() is left in place -- it is
+        // spec-correct and works on real hardware / a future QEMU.
+        if (cinux::drivers::usb::XHCIController::has_controller()) {
+            cinux::drivers::usb::XHCIController::instance().poll_events();
+        }
+#endif
         Scheduler::yield();
     }
 }
@@ -101,6 +118,14 @@ void kernel_init_thread() {
     } else {
         cinux::lib::kprintf("[INIT] fork() failed: %d\n", child_pid);
     }
+#endif
+
+#ifdef CINUX_USB
+    // Bring up USB input (xHCI + HID boot mouse + keyboard).  Runs AFTER the
+    // GUI/shell is up so its synchronous enumeration does not delay the desktop
+    // (gui_worker is an independent thread that keeps rendering).  Interrupt-
+    // driven once armed.  Graceful no-op if no xHCI controller is present.
+    cinux::drivers::usb::init();
 #endif
 
     Scheduler::exit_current();

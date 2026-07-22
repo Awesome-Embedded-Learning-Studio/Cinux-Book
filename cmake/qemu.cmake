@@ -28,7 +28,7 @@ set(QEMU_COMMON_FLAGS
     -global isa-debugcon.iobase=0xe9
     ${QEMU_ACCEL}
     ${QEMU_DISPLAY}
-    -usb -device usb-tablet
+    -usb
 )
 
 set(QEMU_DEVELOP_FLAG     
@@ -115,8 +115,11 @@ add_custom_target(image ALL
 )
 
 add_custom_target(run
-    COMMAND ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} ${QEMU_DEVELOP_FLAG}
+    COMMAND ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} -smp 2 ${QEMU_DEVELOP_FLAG}
         -drive file=${CINUX_IMAGE_PATH},format=raw,index=0,media=disk
+        -device qemu-xhci,id=xhci
+        -device usb-kbd,bus=xhci.0
+        -device usb-tablet,bus=xhci.0
         -device ahci,id=ahci
         -drive file=${AHCI_TEST_IMAGE},format=raw,if=none,id=ahci-disk
         -device ide-hd,drive=ahci-disk,bus=ahci.0
@@ -284,6 +287,24 @@ add_custom_target(run-kernel-test
     DEPENDS test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
     USES_TERMINAL
     COMMENT "Starting QEMU with TEST kernel (auto-exit)"
+    VERBATIM
+)
+
+# F5-M5: run the test kernel with a qemu-xHCI controller + usb-kbd/usb-tablet
+# attached, so the xHCI tests (find_xhci + reset + enumeration + HID) have a
+# real controller to exercise.  The pointing device is a usb-tablet (absolute):
+# the guest decodes its absolute X/Y report so the cursor tracks the host cursor
+# exactly (a relative usb-mouse drifts at the screen edge -- two-cursor skew).
+# QEMU_COMMON_FLAGS still carries the default -usb + legacy usb-tablet (on the
+# UHCI bus, ignored by the guest's xHCI driver, which only scans the xhci bus).
+add_custom_target(run-kernel-test-xhci
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/qemu_test_wrapper.sh
+        ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} ${QEMU_TEST_EXTRA_FLAGS}
+        -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb-tablet,bus=xhci.0
+        -drive file=${CINUX_TEST_IMAGE_PATH},format=raw,index=0,media=disk
+    DEPENDS test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
+    USES_TERMINAL
+    COMMENT "Starting QEMU with TEST kernel + qemu-xhci (auto-exit)"
     VERBATIM
 )
 

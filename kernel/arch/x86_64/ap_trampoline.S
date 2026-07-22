@@ -83,9 +83,12 @@ ap_trampoline_pmode:
     movb    $0x32, %al              # '2': protected mode reached
     outb    %al, $DEBUGCON
 
-    # Enable PAE (CR4.PAE).
+    # Enable PAE + OSFXSR + OSXMMEXCPT.  The scheduler fxsave/fxrstor's FPU
+    # state on every context switch; without CR4.OSFXSR those instructions
+    # raise #UD on the AP (the BSP sets the same bits in boot.S, so its FPU
+    # switches are fine -- the AP booted straight to a PAE-only CR4).
     movl    %cr4, %eax
-    orl     $0x20, %eax
+    orl     $0x620, %eax          # PAE(0x20) | OSFXSR(0x200) | OSXMMEXCPT(0x400)
     movl    %eax, %cr4
 
     # Load CR3 with the BSP-prepared temporary PML4 (identity-maps low memory

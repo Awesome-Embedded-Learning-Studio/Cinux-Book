@@ -34,8 +34,8 @@ int64_t sys_stat(uint64_t path_virt, uint64_t st_virt, uint64_t, uint64_t, uint6
     }
 
     // Step 1: Resolve the path (cwd-aware)
-    char resolved[cinux::fs::PATH_MAX];
-    if (!resolve_user_path(path_virt, resolved)) {
+    cinux::fs::PathBuf resolved;
+    if (!resolve_user_path(path_virt, resolved.data())) {
         return -kEfault;
     }
 
@@ -44,14 +44,14 @@ int64_t sys_stat(uint64_t path_virt, uint64_t st_virt, uint64_t, uint64_t, uint6
     cinux::fs::FileSystem* fs       = cinux::fs::vfs_resolve(resolved, &rel_path);
 
     if (fs == nullptr) {
-        kprintf("[SYS_STAT] No filesystem mounted for '%s'\n", resolved);
+        kprintf("[SYS_STAT] No filesystem mounted for '%s'\n", resolved.data());
         return -kEnoent;
     }
 
     // Step 3: Look up the inode
     auto inode_result = fs->lookup(rel_path);
     if (!inode_result.ok()) {
-        kprintf("[SYS_STAT] File not found: '%s'\n", resolved);
+        kprintf("[SYS_STAT] File not found: '%s'\n", resolved.data());
         return -to_errno(inode_result.error());
     }
     cinux::fs::Inode* inode = inode_result.value();

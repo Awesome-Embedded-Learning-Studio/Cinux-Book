@@ -48,6 +48,18 @@ struct PCIDevice {
     uint32_t bar[BAR_COUNT];
 };
 
+/**
+ * @brief True iff the class/subclass/prog_if triple is an xHCI host controller
+ *
+ * xHCI = class 0x0C (serial bus) / subclass 0x03 (USB) / prog_if 0x30 (xHCI).
+ * prog_if is MANDATORY: 0x00=UHCI, 0x10=OHCI, 0x20=EHCI would all match a
+ * class+subclass-only test.  Pure (host-testable).
+ */
+constexpr bool is_xhci_device(uint8_t cls, uint8_t sub, uint8_t prog_if) {
+    return cls == PciClass::SERIAL_BUS && sub == PciClass::USB_SUBCLASS &&
+           prog_if == PciClass::XHCI_PROG_IF;
+}
+
 // ============================================================
 // PCI Class
 // ============================================================
@@ -106,6 +118,18 @@ public:
      * @return     true if an AHCI device was found, false otherwise
      */
     bool find_ahci(PCIDevice& out) const;
+
+    /**
+     * @brief Enumerate PCI buses and locate an xHCI host controller
+     *
+     * Scans all bus/slot/function combinations for a device whose class /
+     * subclass / prog_if match is_xhci_device() (0x0C / 0x03 / 0x30).  The
+     * first match is written to @p out with its BARs decoded.
+     *
+     * @param out  Reference to a PCIDevice to fill with the match
+     * @return     true if an xHCI controller was found, false otherwise
+     */
+    bool find_xhci(PCIDevice& out) const;
 
     /**
      * @brief Read all six BAR values from a PCI device

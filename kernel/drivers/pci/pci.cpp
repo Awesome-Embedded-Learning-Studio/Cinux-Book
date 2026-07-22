@@ -173,4 +173,32 @@ bool PCI::find_ahci(PCIDevice& out) const {
     return false;
 }
 
+bool PCI::find_xhci(PCIDevice& out) const {
+    for (uint8_t bus = 0; bus < MAX_BUS; ++bus) {
+        for (uint8_t slot = 0; slot < MAX_SLOT; ++slot) {
+            for (uint8_t func = 0; func < MAX_FUNC; ++func) {
+                PCIDevice dev{};
+                if (!scan_function(bus, slot, func, dev)) {
+                    if (func == 0) {
+                        break;
+                    }
+                    continue;
+                }
+
+                if (is_xhci_device(dev.class_code, dev.subclass, dev.prog_if)) {
+                    read_bars(dev);
+                    out = dev;
+
+                    cinux::lib::kprintf("[PCI] xHCI found: %02x:%02x.%x BAR0=0x%lx\n", dev.bus,
+                                        dev.slot, dev.func, static_cast<uint64_t>(dev.bar[0]));
+                    return true;
+                }
+            }
+        }
+    }
+
+    cinux::lib::kprintf("[PCI] No xHCI controller found.\n");
+    return false;
+}
+
 }  // namespace cinux::drivers::pci

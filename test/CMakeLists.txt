@@ -87,6 +87,17 @@ add_cinux_test(usermode)
 add_cinux_test(syscall)
 add_cinux_test(shell)
 add_cinux_test(ahci)
+add_cinux_test(pci)
+# xHCI: register layout is header-only; Batch 2A links the real ring-math
+# (xhci_ring.cpp) so host tests exercise the actual enqueue/dequeue cycle logic.
+add_cinux_integration_test(xhci
+    unit/test_xhci.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/drivers/usb/xhci_ring.cpp
+)
+# F5-M5 Batch 3A: USB SETUP packet + descriptor encoding (header-only, pure).
+add_cinux_test(usb)
+# F5-M5 Batch 4A: HID boot-mouse decode + config-descriptor walk (header-only).
+add_cinux_test(hid)
 add_cinux_test(ext2)
 add_cinux_test(ahci_write)
 add_cinux_test(ext2_allocator)
@@ -143,6 +154,14 @@ target_compile_features(test_kprintf PRIVATE cxx_std_23)
 add_cinux_integration_test(kprintf_format
     unit/test_kprintf_format.cpp
     ${CMAKE_SOURCE_DIR}/kernel/mini/lib/private/format.cpp
+)
+
+# F5-M5 Batch 0A: MSI-X capability discovery (pure, reader-injected). Links
+# the real kernel/drivers/pci/msix.cpp; the test supplies a mock config-space
+# reader so no real 0xCF8/0xCFC I/O is needed.
+add_cinux_integration_test(msix
+    unit/test_msix.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/drivers/pci/msix.cpp
 )
 
 add_cinux_integration_test(vmm
@@ -212,11 +231,12 @@ add_cinux_integration_test(fork_exec
 # ============================================================
 
 set(ALL_HOST_TESTS
+    test_msix
     test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader
     test_big_kernel_loader test_kprintf test_pic test_pit test_font
     test_console test_framebuffer test_keyboard test_pmm test_vmm
     test_address_space test_scheduler test_sync test_sync_concurrent
-    test_usermode test_syscall test_shell test_ahci test_ramdisk test_fd_table
+    test_usermode test_syscall test_shell test_ahci test_pci test_xhci test_usb test_hid test_ramdisk test_fd_table
     test_vfs_mount test_ext2 test_ahci_write test_ext2_allocator test_ext2_ops
     test_ext2_inode_ops test_syscall_ext2 test_shell_write test_cwd_stat
     test_canvas test_bitmap_icon test_mouse test_event_queue test_window

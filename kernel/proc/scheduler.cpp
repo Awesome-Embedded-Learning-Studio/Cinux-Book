@@ -35,13 +35,22 @@ void switch_addr_space(Task* prev, Task* next) {
 // F-QA Q4e-3 (DEBT-002): deferred-free list. A task exiting via exit_current()
 // cannot free its own kernel stack (it runs on it); it is enqueued here and
 // freed by the next task's schedule() entry (reap_deferred).
-Spinlock g_deferred_lock;
-Task*    g_deferred_head = nullptr;
+//
+// PER-CPU lists (SMP correctness): exit_current() puts prev on THIS CPU's list
+// and then keeps using prev (fxsave/context_switch) until the switch completes.
+// With a single global list, another CPU's schedule()->reap_deferred() could
+// free prev mid-switch (use-after-free -> #GP at kernel_init exit, rare race).
+// Indexing by cpu_id means each CPU reaps only what it deferred -- and a CPU
+// only reaps in its own schedule(), which runs AFTER that CPU's exit_current
+// switch is done, so prev is never freed while still in use.
+Spinlock g_deferred_lock;  // irq_guard: local IRQ safety (lists are per-CPU, uncontended cross-CPU)
+Task*    g_deferred_heads[kMaxCpus] = {};
 
 void enqueue_deferred(Task* t) {
-    auto g           = g_deferred_lock.irq_guard();
-    t->deferred_next = g_deferred_head;
-    g_deferred_head  = t;
+    auto g            = g_deferred_lock.irq_guard();
+    const uint32_t c  = percpu()->cpu_id;
+    t->deferred_next  = g_deferred_heads[c];
+    g_deferred_heads[c] = t;
 }
 
 }  // namespace
@@ -220,9 +229,10 @@ void Scheduler::remove_task(lib::NotNull<Task*> task) {
 void Scheduler::reap_deferred() {
     Task* head = nullptr;
     {
-        auto g          = g_deferred_lock.irq_guard();
-        head            = g_deferred_head;
-        g_deferred_head = nullptr;
+        auto g           = g_deferred_lock.irq_guard();
+        const uint32_t c = percpu()->cpu_id;
+        head             = g_deferred_heads[c];
+        g_deferred_heads[c] = nullptr;
     }
     while (head != nullptr) {
         Task* t = head;

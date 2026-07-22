@@ -28,8 +28,8 @@ using cinux::lib::kprintf;
 
 int64_t sys_chdir(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) {
     // Step 1: Resolve the path (cwd-aware)
-    char resolved[cinux::fs::PATH_MAX];
-    if (!resolve_user_path(path_virt, resolved)) {
+    cinux::fs::PathBuf resolved;
+    if (!resolve_user_path(path_virt, resolved.data())) {
         return -kEfault;
     }
 
@@ -38,21 +38,21 @@ int64_t sys_chdir(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, ui
     cinux::fs::FileSystem* fs       = cinux::fs::vfs_resolve(resolved, &rel_path);
 
     if (fs == nullptr) {
-        kprintf("[SYS_CHDIR] No filesystem mounted for '%s'\n", resolved);
+        kprintf("[SYS_CHDIR] No filesystem mounted for '%s'\n", resolved.data());
         return -kEnoent;
     }
 
     // Step 3: Look up the inode
     auto inode_result = fs->lookup(rel_path);
     if (!inode_result.ok()) {
-        kprintf("[SYS_CHDIR] Path not found: '%s'\n", resolved);
+        kprintf("[SYS_CHDIR] Path not found: '%s'\n", resolved.data());
         return -to_errno(inode_result.error());
     }
     cinux::fs::Inode* inode = inode_result.value();
 
     // Step 4: Verify it is a directory
     if (inode->type != cinux::fs::InodeType::Directory) {
-        kprintf("[SYS_CHDIR] Not a directory: '%s'\n", resolved);
+        kprintf("[SYS_CHDIR] Not a directory: '%s'\n", resolved.data());
         return -kEnotdir;
     }
 

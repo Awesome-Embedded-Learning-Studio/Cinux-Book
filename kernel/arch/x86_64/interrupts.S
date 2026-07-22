@@ -218,6 +218,109 @@
 .endm
 
 # ============================================================
+# ISR Stub macro: hardware IRQ
+# ============================================================
+# IRQs push no hardware error code, so the frame mirrors ISR_NOERRCODE exactly.
+# The difference: the C handler does NOT EOI -- THIS stub sends irq_eoi_isr()
+# after the handler returns, then runs irq_exit() (deferred preemption) before
+# signal delivery.  EOI lives in one place, so an IRQ handler cannot forget it
+# or call the wrong back-end (the keyboard PIC::send_eoi bug: in APIC mode the
+# PIC EOI is a no-op, so vector 0x21 stayed in the LAPIC ISR, raised the
+# processor priority, and blocked the PIT + every lower/equal-priority IRQ).
+#
+# Prologue/epilogue are a copy of ISR_NOERRCODE's; if the swapgs discipline
+# there changes, keep this in sync (a future cleanup could factor the shared
+# frame push/pop into a helper macro).
+# ============================================================
+
+.macro ISR_IRQ name handler irq
+.global \name
+.type \name, @function
+\name:
+    /* Push dummy error code 0 */
+    pushq $0                          # $0->(%rsp): push dummy error code 0
+
+    /* Save all general-purpose registers */
+    pushq %rax
+    pushq %rbx
+    pushq %rcx
+    pushq %rdx
+    pushq %rbp
+    pushq %rsi
+    pushq %rdi
+    pushq %r8
+    pushq %r9
+    pushq %r10
+    pushq %r11
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
+
+    pushq $0                          # alignment padding (8 bytes)
+
+    /* conditional swapgs on entry (CPL=3 -> activate kernel GS) */
+    movq 144(%rsp), %rax              # saved CS->%rax
+    testb $3, %al                     # CPL bits
+    jz 1f                             # kernel mode -> skip swapgs
+    swapgs                            # user mode -> activate kernel GS
+1:
+
+    /* Pass InterruptFrame* as first argument (skip alignment padding) */
+    leaq 8(%rsp), %rdi                # (RSP+8)->%rdi: past padding to r15
+
+    /* Call the C handler.  It must NOT EOI -- this stub owns the EOI below. */
+    call \handler
+
+    /* EOI the active back-end (PIC or LAPIC).  \irq is the ISA IRQ number
+       (used by PIC EOI; ignored in APIC mode, where lapic.eoi takes no arg).
+       MSI-X (0x40) and the reschedule IPI (0xE0) are APIC-only, so their
+       \irq is unused.  (The PIT is NOT an ISR_IRQ stub -- it keeps an early
+       EOI inside its handler so the timer can re-fire across the inline
+       preemption switch; see pit.cpp.  Device IRQs do not preempt, so no
+       deferred-switch is needed here.) */
+    mov $\irq, %edi                   # ISA IRQ for PIC EOI
+    call irq_eoi_isr                  # EOI via the active back-end
+
+    /* deliver one pending signal before returning to user mode */
+    leaq 8(%rsp), %rdi                # (RSP+8)->%rdi: InterruptFrame* (past padding)
+    call signal_check_deliver_isr     # may rewrite the frame to enter a handler
+
+    /* Remove alignment padding */
+    addq $8, %rsp                     # $8->%rsp: skip alignment padding
+
+    /* conditional swapgs on exit (CPL=3 -> restore user GS) */
+    movq 136(%rsp), %rax              # saved CS->%rax
+    testb $3, %al                     # CPL bits
+    jz 1f                             # kernel mode -> skip swapgs
+    swapgs                            # user mode -> restore user GS
+1:
+
+    /* Restore all general-purpose registers */
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %r11
+    popq %r10
+    popq %r9
+    popq %r8
+    popq %rdi
+    popq %rsi
+    popq %rbp
+    popq %rdx
+    popq %rcx
+    popq %rbx
+    popq %rax
+
+    /* Remove error code from stack */
+    addq $8, %rsp                     # $8->%rsp: skip error code
+
+    /* Interrupt return */
+    iretq
+.endm
+
+# ============================================================
 # ISR Stub instantiation
 # ============================================================
 
@@ -252,36 +355,64 @@ ISR_NOERRCODE isr_sigreturn_stub, sigreturn_handler
 #
 # For milestone 014, IRQ0 (PIT) and IRQ1 (Keyboard) have real handlers.
 # All other IRQs get a default no-op handler for safety.
-# Note: The C handlers are responsible for PIC::send_eoi().
+# Note: The ISR_IRQ stub owns the EOI (irq_eoi_isr) -- C handlers do NOT EOI.
 # ============================================================
 
-/* Master PIC IRQs */
-ISR_NOERRCODE irq0_stub,  pit_irq0_handler     /* IRQ0(0x20): PIT Timer */
-ISR_NOERRCODE irq1_stub,  keyboard_irq1_handler /* IRQ1(0x21): Keyboard */
-ISR_NOERRCODE irq2_stub,  irq_default_handler   /* IRQ2(0x22): Cascade */
-ISR_NOERRCODE irq3_stub,  irq_default_handler   /* IRQ3(0x23): COM2 */
-ISR_NOERRCODE irq4_stub,  irq_default_handler   /* IRQ4(0x24): COM1 */
-ISR_NOERRCODE irq5_stub,  irq_default_handler   /* IRQ5(0x25): LPT2 */
-ISR_NOERRCODE irq6_stub,  irq_default_handler   /* IRQ6(0x26): Floppy */
-ISR_NOERRCODE irq7_stub,  irq_default_handler   /* IRQ7(0x27): LPT1 */
+/* Master PIC IRQs -- the 3rd arg is the ISA IRQ number (for PIC EOI; ignored
+ * in APIC mode).  The ISR_IRQ stub owns the EOI; the C handlers do not EOI.
+ * EXCEPTION: IRQ0 (PIT) uses ISR_NOERRCODE and EOIs early inside its handler
+ * (before Scheduler::tick's inline preemption switch) so the timer is free to
+ * re-fire and preempt the task we switch to.  Device IRQs do not preempt, so
+ * they use ISR_IRQ (stub-owned EOI) and need no early-EOI trick. */
+ISR_NOERRCODE irq0_stub,  pit_irq0_handler      /* IRQ0(0x20): PIT (early EOI in handler) */
+ISR_IRQ irq1_stub,  keyboard_irq1_handler, 1    /* IRQ1(0x21): Keyboard */
+ISR_IRQ irq2_stub,  irq_default_handler, 2   /* IRQ2(0x22): Cascade */
+ISR_IRQ irq3_stub,  irq_default_handler, 3   /* IRQ3(0x23): COM2 */
+ISR_IRQ irq4_stub,  irq_default_handler, 4   /* IRQ4(0x24): COM1 */
+ISR_IRQ irq5_stub,  irq_default_handler, 5   /* IRQ5(0x25): LPT2 */
+ISR_IRQ irq6_stub,  irq_default_handler, 6   /* IRQ6(0x26): Floppy */
+ISR_IRQ irq7_stub,  irq_default_handler, 7   /* IRQ7(0x27): LPT1 */
 
 /* Slave PIC IRQs */
-ISR_NOERRCODE irq8_stub,  irq_default_handler   /* IRQ8(0x28):  RTC */
-ISR_NOERRCODE irq9_stub,  irq_default_handler   /* IRQ9(0x29):  Free */
-ISR_NOERRCODE irq10_stub, irq_default_handler   /* IRQ10(0x2A): Free */
-ISR_NOERRCODE irq11_stub, irq_default_handler   /* IRQ11(0x2B): Free */
-ISR_NOERRCODE irq12_stub, mouse_irq12_handler   /* IRQ12(0x2C): PS/2 Mouse */
-ISR_NOERRCODE irq13_stub, irq_default_handler   /* IRQ13(0x2D): FPU */
-ISR_NOERRCODE irq14_stub, irq_default_handler   /* IRQ14(0x2E): Primary ATA */
-ISR_NOERRCODE irq15_stub, irq_default_handler   /* IRQ15(0x2F): Secondary ATA */
+ISR_IRQ irq8_stub,  irq_default_handler, 8   /* IRQ8(0x28):  RTC */
+ISR_IRQ irq9_stub,  irq_default_handler, 9   /* IRQ9(0x29):  Free */
+ISR_IRQ irq10_stub, irq_default_handler, 10  /* IRQ10(0x2A): Free */
+ISR_IRQ irq11_stub, irq_default_handler, 11  /* IRQ11(0x2B): Free */
+ISR_IRQ irq12_stub, mouse_irq12_handler, 12  /* IRQ12(0x2C): PS/2 Mouse */
+ISR_IRQ irq13_stub, irq_default_handler, 13  /* IRQ13(0x2D): FPU */
+ISR_IRQ irq14_stub, irq_default_handler, 14  /* IRQ14(0x2E): Primary ATA */
+ISR_IRQ irq15_stub, irq_default_handler, 15  /* IRQ15(0x2F): Secondary ATA */
 
 # ============================================================
 # Reschedule IPI (F4-M4 M4-2)
 # ============================================================
 # Vector 0xE0, sent by the BSP (wake_idle_ap) to pull an idle AP out of hlt
-# so it re-checks the shared run queue.  The handler is a LAPIC EOI no-op --
-# the AP's idle loop does the actual reschedule after the stub returns.  Uses
-# the same ISR_NOERRCODE frame as IRQs (signal_check_deliver_isr included;
-# harmless on an IPI return path).
+# so it re-checks the shared run queue.  The handler body is now empty (the
+# ISR_IRQ stub EOIs); the AP's idle loop does the actual reschedule after the
+# stub returns.  \irq=0 is unused (IPIs are APIC-only).
 # ============================================================
-ISR_NOERRCODE reschedule_ipi_stub, reschedule_ipi_handler
+ISR_IRQ reschedule_ipi_stub, reschedule_ipi_handler, 0
+
+# ============================================================
+# xHCI event-ring MSI-X interrupt (F5-M5 Batch 0C)
+# ============================================================
+# Vector 0x40 (kXhciIrqVector), registered in irq_init.  MSI-X is not
+# programmed until Batch 2C, so this never fires prematurely; the handler
+# (usb/xhci_irq.cpp, or a default stub when CINUX_USB is off) counts the
+# interrupt and runs the controller's event-ring hook.  The ISR_IRQ stub
+# EOIs.  \irq=0 is unused (MSI-X is APIC-only).
+# ============================================================
+ISR_IRQ xhci_irq_stub, xhci_irq_handler, 0
+
+# ============================================================
+# LAPIC timer (F5-M5 -smp per-CPU preemption)
+# ============================================================
+# Vector 0x30 (kLapicTimerVector), fired by each AP's local APIC timer
+# (programmed in ap_main).  Drives Scheduler::tick() on APs -- the BSP is
+# preempted by the PIT, which the IOAPIC redirects to the BSP only, so APs
+# need their own timer or a spin-waiting task (e.g. shell on stdin) deadlocks
+# the AP.  Uses ISR_NOERRCODE with an EARLY EOI inside the handler, exactly
+# like irq0_stub: the timer must be re-armed (EOI'd) before the inline
+# preemption switch in Scheduler::tick(), or the next tick could be missed.
+# ============================================================
+ISR_NOERRCODE lapic_timer_stub, lapic_timer_handler

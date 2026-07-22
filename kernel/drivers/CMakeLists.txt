@@ -20,6 +20,24 @@ target_sources(big_kernel_common PRIVATE
 if(CINUX_GUI)
     target_sources(big_kernel_common PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/canvas.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/mouse.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/mouse/mouse.cpp
+    )
+endif()
+
+# F5-M5 xHCI: USB host controller + reusable PCI MSI-X subsystem.
+# MSI-X (pci/msix.cpp) is a generic PCI capability helper; the xHCI driver
+# (usb/*.cpp) is added in later batches under the same gate.
+if(CINUX_USB)
+    target_sources(big_kernel_common PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/pci/msix.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/pci/msix_controller.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/usb/xhci_irq.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/usb/xhci_controller.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/usb/xhci_ring.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/usb/xhci_slot.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usb_init.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/mouse/usb_mouse.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/mouse/usb_tablet.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/keyboard/usb_keyboard.cpp
     )
 endif()

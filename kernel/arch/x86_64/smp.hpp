@@ -14,6 +14,11 @@ namespace cinux::arch {
 /// range (0x20-0x2F), the spurious vector (0xFF) and the sigreturn trap (0x80).
 constexpr uint8_t kRescheduleIpiVector = 0xE0;
 
+/// LAPIC timer vector (F5-M5 -smp).  Each AP's local APIC timer fires here to
+/// drive Scheduler::tick() (the BSP uses the PIT for the same role; the PIT
+/// reaches the BSP only).  0x30 avoids the PIC range and xHCI (0x40).
+constexpr uint8_t kLapicTimerVector = 0x30;
+
 /// Wake an idle AP (if any) so it picks up a newly runnable task from the
 /// shared run queue.  Sends a reschedule IPI to every online AP; redundant
 /// IPIs are harmless (an AP that finds the queue empty just halts again), so

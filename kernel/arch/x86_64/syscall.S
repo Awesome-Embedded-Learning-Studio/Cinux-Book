@@ -127,7 +127,14 @@ syscall_entry:
     # Step 8: Restore return value to RAX
     movq %gs:16, %rax                  # scratch→%rax: restore syscall return value
 
-    # Step 9: SWAPGS back to user GS base
+    # Step 9: SWAPGS back to user GS base.
+    # Hardening (F5-M5 -smp): cli across swapgs->SYSRETQ.  After this swapgs we
+    # are still CPL=0 but GS_BASE holds the user value (0); an IRQ in the gap is
+    # delivered in kernel mode, so the ISR's CPL-based swapgs does not fire and
+    # the handler would run with percpu()==NULL.  Same latent -smp window-race as
+    # jump_to_usermode (see usermode.S).  SYSRETQ reloads RFLAGS from R11 (user
+    # RFLAGS, IF set), so user mode keeps interrupts.
+    cli                                # block IRQs across swapgs->SYSRETQ
     swapgs                             # kernel_gsbase↔user_gsbase: activate user GS
 
     # Step 10: Return to Ring 3

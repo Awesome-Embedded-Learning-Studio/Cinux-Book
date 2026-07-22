@@ -106,6 +106,16 @@ jump_to_usermode:
     # MSR_GS_BASE = this CPU's PerCpu block and MSR_KERNEL_GS_BASE = user GS;
     # swapgs flips them so user mode sees MSR_GS_BASE = user GS (0) and the
     # next SYSCALL/IRQ entry's swapgs restores the kernel PerCpu pointer.
+    #
+    # Hardening (F5-M5 -smp): cli across the swapgs->SYSRETQ window.  After this
+    # swapgs we are STILL CPL=0 but GS_BASE is the user value (0); an IRQ taken
+    # in the gap is delivered in kernel mode, so the ISR stub's CPL-based entry
+    # swapgs does NOT fire, and the handler would run with percpu()==NULL.  This
+    # is a latent -smp landmine (a second CPU's timer/IPI landing in a
+    # two-instruction window); Linux keeps this whole window at IF=0 for the same
+    # reason.  cli blocks maskable IRQs for the two instructions; SYSRETQ then
+    # reloads RFLAGS from R11 (IF set) so user mode keeps interrupts.
+    cli                                 # block IRQs across swapgs->SYSRETQ
     swapgs                              # kernel_gs↔user_gs: activate user GS
 
     # Execute SYSRET to enter Ring 3

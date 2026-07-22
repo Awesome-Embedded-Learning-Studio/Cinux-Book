@@ -10,7 +10,7 @@
 #include "gui_init.hpp"
 
 #include "kernel/drivers/canvas.hpp"
-#include "kernel/drivers/mouse.hpp"
+#include "kernel/drivers/mouse/mouse.hpp"
 #include "kernel/drivers/video/font.hpp"
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/inode.hpp"

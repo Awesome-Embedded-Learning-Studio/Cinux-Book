@@ -26,8 +26,8 @@ using cinux::lib::kprintf;
 
 int64_t sys_creat(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) {
     // Step 1: Resolve the path (cwd-aware)
-    char resolved[cinux::fs::PATH_MAX];
-    if (!resolve_user_path(path_virt, resolved)) {
+    cinux::fs::PathBuf resolved;
+    if (!resolve_user_path(path_virt, resolved.data())) {
         return -kEfault;
     }
 
@@ -36,24 +36,24 @@ int64_t sys_creat(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, ui
     cinux::fs::FileSystem* fs       = cinux::fs::vfs_resolve(resolved, &rel_path);
 
     if (fs == nullptr) {
-        kprintf("[SYS_CREAT] No filesystem mounted for '%s'\n", resolved);
+        kprintf("[SYS_CREAT] No filesystem mounted for '%s'\n", resolved.data());
         return -kEnoent;
     }
 
     // Step 3: Split relative path into parent dir and leaf name
-    char        parent_buf[cinux::fs::PATH_MAX];
+    cinux::fs::PathBuf parent_buf;
     const char* leaf_name = nullptr;
     uint32_t    name_len  = 0;
 
     if (!split_pathname(rel_path, parent_buf, &leaf_name, &name_len)) {
-        kprintf("[SYS_CREAT] Invalid path: '%s'\n", resolved);
+        kprintf("[SYS_CREAT] Invalid path: '%s'\n", resolved.data());
         return -kEinval;
     }
 
     // Step 4: Look up the parent directory inode
     auto parent_result = fs->lookup(parent_buf);
     if (!parent_result.ok()) {
-        kprintf("[SYS_CREAT] Parent directory not found for '%s'\n", resolved);
+        kprintf("[SYS_CREAT] Parent directory not found for '%s'\n", resolved.data());
         return -to_errno(parent_result.error());
     }
     cinux::fs::Inode* parent = parent_result.value();
@@ -73,7 +73,7 @@ int64_t sys_creat(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, ui
     // Truncate it to 0 bytes (POSIX creat semantics).
     auto existing_result = fs->lookup(rel_path);
     if (!existing_result.ok() || existing_result.value()->ops == nullptr) {
-        kprintf("[SYS_CREAT] Failed to create or truncate '%s'\n", resolved);
+        kprintf("[SYS_CREAT] Failed to create or truncate '%s'\n", resolved.data());
         if (!existing_result.ok()) {
             return -to_errno(existing_result.error());
         }

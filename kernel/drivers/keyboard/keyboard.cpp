@@ -10,18 +10,16 @@
 
 #include <stdint.h>
 
+#include "hid.hpp"  // HID keycode->ASCII tables + modifier bits (USB keyboard)
 #include "kernel/arch/x86_64/io.hpp"
-#include "kernel/arch/x86_64/irq_backend.hpp"
-#include "kernel/arch/x86_64/pic.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/proc/sync.hpp"
 
 #ifdef CINUX_GUI
-#    include "kernel/drivers/mouse.hpp"
+#    include "kernel/drivers/mouse/mouse.hpp"
 #    include "kernel/gui/event.hpp"
 #endif
 
-using cinux::arch::PIC;
 using cinux::io::io_inb;
 using cinux::io::io_outb;
 using cinux::io::io_wait;
@@ -133,6 +131,9 @@ bool Keyboard::shift_held_ = false;
 bool Keyboard::ctrl_held_  = false;
 bool Keyboard::alt_held_   = false;
 
+bool    Keyboard::usb_primary_      = false;
+uint8_t Keyboard::usb_prev_keys_[6] = {};
+
 // ============================================================
 // Internal helpers
 // ============================================================
@@ -225,12 +226,16 @@ void Keyboard::init() {
 // ============================================================
 
 void Keyboard::irq1_handler(cinux::arch::InterruptFrame* /*frame*/) {
-    // Read the scan code from the PS/2 data port
     uint8_t sc = io_inb(Ps2Port::DATA);
+
+    // USB keyboard owns input: drain the PS/2 byte but do not feed the queue
+    // (single producer for the SPSC event queue + ring buffer).
+    if (usb_primary_) {
+        return;
+    }
 
     // Handle extended scan code prefix (0xE0) -- skip for now
     if (sc == ScanCode::EXTENDED) {
-        cinux::arch::irq_eoi(1);
         return;
     }
 
@@ -242,49 +247,21 @@ void Keyboard::irq1_handler(cinux::arch::InterruptFrame* /*frame*/) {
     if (make_code == ScanCode::LSHIFT || make_code == ScanCode::RSHIFT) {
         shift_held_ = pressed;
     }
-
     if (make_code == ScanCode::LCTRL) {
         ctrl_held_ = pressed;
     }
-
     if (make_code == ScanCode::LALT) {
         alt_held_ = pressed;
     }
 
-    // Build the event
-    KeyEvent ev{};
-    ev.scancode = sc;
-    ev.pressed  = pressed;
-    ev.shift    = shift_held_;
-    ev.ctrl     = ctrl_held_;
-    ev.alt      = alt_held_;
-    ev.ascii    = 0;
-
     // Translate to ASCII only on key press and if the make code is in range
+    char ascii = 0;
     if (pressed && make_code < SCAN_TABLE_SIZE) {
-        ev.ascii = shift_held_ ? kScToUpper[make_code] : kScToLower[make_code];
+        ascii = shift_held_ ? kScToUpper[make_code] : kScToLower[make_code];
     }
 
-    // Enqueue the event
-    enqueue(ev);
-
-#ifdef CINUX_GUI
-    // Dual dispatch: also push into the GUI EventQueue for the window manager
-    {
-        cinux::gui::Event gui_ev{};
-        gui_ev.type_ = ev.pressed ? cinux::gui::EventType::KeyDown : cinux::gui::EventType::KeyUp;
-        gui_ev.key.ascii    = ev.ascii;
-        gui_ev.key.scancode = ev.scancode;
-        gui_ev.key.pressed  = ev.pressed;
-        gui_ev.key.shift    = ev.shift;
-        gui_ev.key.ctrl     = ev.ctrl;
-        gui_ev.key.alt      = ev.alt;
-        cinux::drivers::Mouse::event_queue().enqueue(gui_ev);
-    }
-#endif
-
-    // Signal End-Of-Interrupt for IRQ1
-    PIC::send_eoi(1);
+    dispatch_key(sc, ascii, pressed, shift_held_, ctrl_held_, alt_held_);
+    // EOI is sent by the ISR_IRQ stub after this handler returns.
 }
 
 // ============================================================
@@ -306,6 +283,89 @@ void Keyboard::enqueue(const KeyEvent& ev) {
     // Drop the event if the buffer is full -- RingBuffer::push returns
     // false when full, matching the previous drop-newest semantics.
     (void)buf_.push(ev);
+}
+
+// ============================================================
+// Keyboard::set_usb_primary() / dispatch_key() / inject_usb_report()
+// (USB boot-keyboard input path -- Batch 5B)
+// ============================================================
+
+namespace {
+/// True if @p code appears in the first @p n entries of @p keys (edge detect).
+bool key_in(const uint8_t* keys, uint8_t n, uint8_t code) {
+    for (uint8_t i = 0; i < n; ++i) {
+        if (keys[i] == code) {
+            return true;
+        }
+    }
+    return false;
+}
+}  // namespace
+
+void Keyboard::set_usb_primary(bool primary) {
+    usb_primary_ = primary;
+}
+
+void Keyboard::dispatch_key(uint8_t code, char ascii, bool pressed, bool shift, bool ctrl,
+                            bool alt) {
+    KeyEvent ev{};
+    ev.scancode = code;
+    ev.pressed  = pressed;
+    ev.shift    = shift;
+    ev.ctrl     = ctrl;
+    ev.alt      = alt;
+    ev.ascii    = ascii;
+    enqueue(ev);
+
+#ifdef CINUX_GUI
+    // Dual dispatch: also push into the GUI EventQueue for the window manager
+    // (same path the PS/2 irq1_handler used before it was factored here).
+    cinux::gui::Event gui_ev{};
+    gui_ev.type_        = pressed ? cinux::gui::EventType::KeyDown : cinux::gui::EventType::KeyUp;
+    gui_ev.key.ascii    = ascii;
+    gui_ev.key.scancode = code;
+    gui_ev.key.pressed  = pressed;
+    gui_ev.key.shift    = shift;
+    gui_ev.key.ctrl     = ctrl;
+    gui_ev.key.alt      = alt;
+    cinux::drivers::Mouse::event_queue().enqueue(gui_ev);
+#endif
+}
+
+void Keyboard::inject_usb_report(uint8_t modifier, const uint8_t* keycodes, uint8_t n) {
+    const bool shift = (modifier & (usb::HidKbdMod::kLShift | usb::HidKbdMod::kRShift)) != 0;
+    const bool ctrl  = (modifier & (usb::HidKbdMod::kLCtrl | usb::HidKbdMod::kRCtrl)) != 0;
+    const bool alt   = (modifier & (usb::HidKbdMod::kLAlt | usb::HidKbdMod::kRAlt)) != 0;
+    shift_held_      = shift;
+    ctrl_held_       = ctrl;
+    alt_held_        = alt;
+
+    // Press edges: held now but absent from the previous report.
+    for (uint8_t i = 0; i < n; ++i) {
+        const uint8_t code = keycodes[i];
+        if (code <= 1 || key_in(usb_prev_keys_, 6, code)) {
+            continue;  // 0 = none, 1 = rollover error; or already held
+        }
+        char ascii = 0;
+        if (code < usb::kHidKeymapSize) {
+            ascii = shift ? usb::kHidShifted[code] : usb::kHidUnshifted[code];
+        }
+        dispatch_key(code, ascii, /*pressed=*/true, shift, ctrl, alt);
+    }
+
+    // Release edges: in the previous report but not held now.
+    for (uint8_t i = 0; i < 6; ++i) {
+        const uint8_t code = usb_prev_keys_[i];
+        if (code <= 1 || key_in(keycodes, n, code)) {
+            continue;
+        }
+        dispatch_key(code, 0, /*pressed=*/false, shift, ctrl, alt);
+    }
+
+    // Save this report for the next edge comparison.
+    for (uint8_t i = 0; i < 6; ++i) {
+        usb_prev_keys_[i] = (i < n) ? keycodes[i] : 0;
+    }
 }
 
 }  // namespace cinux::drivers

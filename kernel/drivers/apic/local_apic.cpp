@@ -68,6 +68,14 @@ void LocalAPIC::clear_error() {
     write(kRegErrorStatus, 0);
 }
 
+void LocalAPIC::setup_periodic_timer(uint8_t vector, uint8_t divide_bits, uint32_t init_count) {
+    // Order: divide, then LVT (vector + periodic + unmasked), then the initial
+    // count (writing it arms/starts the timer).  LVT timer bit 17 = periodic.
+    write(kRegTimerDivide, static_cast<uint32_t>(divide_bits & 0xF));
+    write(kRegLvtTimer, (1u << 17) | static_cast<uint32_t>(vector));
+    write(kRegTimerInit, init_count);
+}
+
 void LocalAPIC::send_ipi(uint8_t dest_apic_id, uint8_t vector) {
     write(kRegIcrHigh, static_cast<uint32_t>(dest_apic_id) << 24);
     while ((read(kRegIcrLow) & kIcrDeliveryStatus) != 0) {

@@ -1,5 +1,5 @@
 /**
- * @file kernel/drivers/mouse.cpp
+ * @file kernel/drivers/mouse/mouse.cpp
  * @brief PS/2 mouse driver implementation
  *
  * Implements 8042 controller initialisation for the auxiliary device,
@@ -12,7 +12,6 @@
 #include <stdint.h>
 
 #include "kernel/arch/x86_64/io.hpp"
-#include "kernel/arch/x86_64/irq_backend.hpp"
 #include "kernel/arch/x86_64/pic.hpp"
 #include "kernel/lib/kprintf.hpp"
 
@@ -83,6 +82,8 @@ uint32_t Mouse::screen_width_  = 1024;
 uint32_t Mouse::screen_height_ = 768;
 
 uint8_t Mouse::prev_buttons_ = 0;
+
+bool Mouse::usb_primary_ = false;
 
 cinux::gui::EventQueue Mouse::g_event_queue_ = {};
 
@@ -189,8 +190,7 @@ void Mouse::irq12_handler(cinux::arch::InterruptFrame* /*frame*/) {
     // Process the byte (assembles 3-byte packets internally)
     process_byte(byte);
 
-    // Signal End-Of-Interrupt for IRQ12 (slave PIC, cascaded on IRQ2)
-    cinux::arch::irq_eoi(12);
+    // EOI is sent by the ISR_IRQ stub after this handler returns.
 }
 
 // ============================================================
@@ -198,6 +198,11 @@ void Mouse::irq12_handler(cinux::arch::InterruptFrame* /*frame*/) {
 // ============================================================
 
 void Mouse::process_byte(uint8_t byte) {
+    // When USB is the primary input source, ignore PS/2 bytes so the SPSC
+    // event queue has a single producer (Batch 4B).
+    if (usb_primary_) {
+        return;
+    }
     // Byte 0 of a new packet must have bit 3 set (ALWAYS_1 flag).
     // If we are not in sync, resynchronise by looking for this marker.
     if (packet_idx_ == 0) {
@@ -228,19 +233,29 @@ void Mouse::decode_packet(uint8_t b0, uint8_t b1, uint8_t b2) {
         dx -= 256;  // Sign-extend from 8 to 9 bits
     }
 
-    // Extract 9-bit signed delta Y from byte2 + sign bit in byte0
-    // PS/2 Y axis: positive dy = mouse moves UP (physical),
-    //              which is screen Y- direction, so subtract.
+    // Extract 9-bit signed delta Y from byte2 + sign bit in byte0.
+    // PS/2 Y axis: positive dy = mouse moves UP (physical) = screen Y-, so the
+    // screen-space delta passed to apply_motion is negated.
     int32_t dy = static_cast<int32_t>(b2);
     if (b0 & Packet0::Y_SIGN) {
         dy -= 256;  // Sign-extend from 8 to 9 bits
     }
 
-    // Update absolute cursor position
-    mouse_x_ += dx;
-    mouse_y_ -= dy;
+    uint8_t new_buttons = b0 & (Packet0::LEFT_BTN | Packet0::RIGHT_BTN | Packet0::MIDDLE_BTN);
+    apply_motion(dx, -dy, new_buttons);  // PS/2 Y inverted to screen space
+}
 
-    // Clamp to screen bounds
+// ============================================================
+// Mouse::apply_motion() -- shared cursor + event-queue update
+// (Batch 4B: factored out so the USB HID path reuses it with the
+// HID Y convention -- dy NOT inverted).
+// ============================================================
+
+void Mouse::update_absolute(int32_t new_x, int32_t new_y, int32_t ev_dx, int32_t ev_dy,
+                            uint8_t new_buttons) {
+    // Set the absolute cursor position (clamp to screen bounds).
+    mouse_x_ = new_x;
+    mouse_y_ = new_y;
     if (mouse_x_ < 0) {
         mouse_x_ = 0;
     }
@@ -254,26 +269,25 @@ void Mouse::decode_packet(uint8_t b0, uint8_t b1, uint8_t b2) {
         mouse_y_ = static_cast<int32_t>(screen_height_) - 1;
     }
 
-    // Extract button state from byte 0
-    uint8_t new_buttons = b0 & (Packet0::LEFT_BTN | Packet0::RIGHT_BTN | Packet0::MIDDLE_BTN);
-
     // Detect button transitions (press/release) for event generation
     uint8_t pressed  = new_buttons & ~prev_buttons_;  // Bits newly set
     uint8_t released = prev_buttons_ & ~new_buttons;  // Bits newly cleared
 
-    // Build a MouseEvent with the current state
+    // Build a MouseEvent with the current state.  The reported delta is the
+    // caller-supplied (ev_dx, ev_dy): the relative path passes its input delta,
+    // the absolute (tablet) path passes the actual cursor move.
     MouseEvent me{};
     me.x       = mouse_x_;
     me.y       = mouse_y_;
-    me.dx      = dx;
-    me.dy      = -dy;  // Convert to screen-space (positive = downward)
+    me.dx      = ev_dx;
+    me.dy      = ev_dy;  // screen-space delta (positive = downward)
     me.buttons = new_buttons;
     me.left    = (new_buttons & Packet0::LEFT_BTN) != 0;
     me.right   = (new_buttons & Packet0::RIGHT_BTN) != 0;
     me.middle  = (new_buttons & Packet0::MIDDLE_BTN) != 0;
 
     // If there was any movement, enqueue a MouseMove event
-    if (dx != 0 || dy != 0) {
+    if (ev_dx != 0 || ev_dy != 0) {
         Event ev{};
         ev.type_ = EventType::MouseMove;
         ev.mouse = me;
@@ -323,6 +337,46 @@ void Mouse::decode_packet(uint8_t b0, uint8_t b1, uint8_t b2) {
     // Update state for next packet
     buttons_      = new_buttons;
     prev_buttons_ = new_buttons;
+}
+
+void Mouse::apply_motion(int32_t dx, int32_t dy_screen, uint8_t new_buttons) {
+    // Relative path: new absolute position = old + delta; report the input delta.
+    update_absolute(mouse_x_ + dx, mouse_y_ + dy_screen, dx, dy_screen, new_buttons);
+}
+
+// ============================================================
+// Mouse::inject_usb_absolute() -- USB tablet (absolute pointer)
+// ============================================================
+
+void Mouse::inject_usb_absolute(uint16_t tx, uint16_t ty, uint8_t buttons) {
+    // QEMU usb-tablet reports X/Y in the logical range 0..32767 (0x7FFF).  Map
+    // linearly to screen pixels and set the cursor absolutely -- the host cursor
+    // and the Cinux cursor then coincide (no two-cursor edge drift).  Buttons
+    // share the boot-mouse bit layout (0=left, 1=right, 2=middle).
+    const int32_t span_x = static_cast<int32_t>(screen_width_);
+    const int32_t span_y = static_cast<int32_t>(screen_height_);
+    const int32_t sx     = (static_cast<int32_t>(tx) * span_x) / 32768;
+    const int32_t sy     = (static_cast<int32_t>(ty) * span_y) / 32768;
+    const uint8_t mask   = Packet0::LEFT_BTN | Packet0::RIGHT_BTN | Packet0::MIDDLE_BTN;
+    // Report the actual move (new - old) so a move event fires on real changes.
+    update_absolute(sx, sy, sx - mouse_x_, sy - mouse_y_, buttons & mask);
+}
+
+// ============================================================
+// Mouse::inject_usb_motion() / set_usb_primary() (Batch 4B)
+// ============================================================
+
+void Mouse::inject_usb_motion(int8_t dx, int8_t dy, uint8_t buttons) {
+    // HID boot-mouse byte0 uses the SAME button bit layout as PS/2 Packet0
+    // (bit0=left / 1=right / 2=middle), so no per-bit remapping is needed --
+    // just mask the three button bits.  HID Y is screen-DOWN positive, passed
+    // as-is (NOT inverted like PS/2).
+    const uint8_t mapped = buttons & (Packet0::LEFT_BTN | Packet0::RIGHT_BTN | Packet0::MIDDLE_BTN);
+    apply_motion(static_cast<int32_t>(dx), static_cast<int32_t>(dy), mapped);
+}
+
+void Mouse::set_usb_primary(bool primary) {
+    usb_primary_ = primary;
 }
 
 // ============================================================

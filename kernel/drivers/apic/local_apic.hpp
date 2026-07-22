@@ -80,6 +80,18 @@ public:
     uint32_t error_status();
     void     clear_error();
 
+    // ---- LAPIC timer (per-CPU periodic preemption, F5-M5 -smp) ----
+    // BSP is preempted by the legacy PIT; the PIT reaches the BSP only (the
+    // IOAPIC redirect in switch_to_apic targets the BSP), so APs would run
+    // without any periodic timer -> no preemption -> a task that spin-waits
+    // (e.g. shell on stdin) deadlocks its AP.  This programs the LAPIC's
+    // built-in timer in periodic mode so each AP self-preempts at the same
+    // Scheduler::tick() path the PIT drives on the BSP.
+    /// Program the LAPIC timer: periodic, unmasked, @p vector, decrementing at
+    /// (APIC clock / divide) from @p init_count.  divide_bits is the raw 3-bit
+    /// divide code (e.g. 0x3 = /16); init_count is the reload value.
+    void setup_periodic_timer(uint8_t vector, uint8_t divide_bits, uint32_t init_count);
+
     // ---- Inter-Processor Interrupts (F4-M3 P2-1) ----
     // All IPIs use physical destination mode + edge trigger.  Each waits for
     // the ICR delivery status to go Idle before writing, so a previous IPI is
