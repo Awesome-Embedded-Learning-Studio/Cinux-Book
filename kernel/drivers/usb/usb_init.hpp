@@ -24,4 +24,15 @@ namespace cinux::drivers::usb {
 /// at most one xHCI controller + one boot mouse.
 void init();
 
+/// Service the xHCI event ring once.  Called each frame from the GUI worker:
+/// dequeues transfer events -> device listeners -> decode + inject + re-arm.
+/// Cheap when idle (dequeue finds the ring empty).  No-op if no controller was
+/// enumerated (e.g. run-kernel-test's QEMU has no qemu-xhci).
+///
+/// On QEMU under nested-KVM the MSI-X transfer-complete interrupt is not
+/// reliably latched, so this poll is the production event-service path for
+/// mouse/keyboard reports.  When USB is compiled out, a no-op stub of the same
+/// name is linked instead (CMake file gate) -- callers need no #ifdef.
+void poll_input();
+
 }  // namespace cinux::drivers::usb

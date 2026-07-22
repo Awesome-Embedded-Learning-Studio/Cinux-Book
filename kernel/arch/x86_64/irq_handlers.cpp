@@ -118,36 +118,6 @@ void irq_default_handler(InterruptFrame* /*frame*/) {
     // EOI is owned by the ISR stub.
 }
 
-#ifndef CINUX_GUI
-/**
- * @brief Default IRQ12 handler when GUI mode is disabled
- *
- * In non-GUI builds the mouse driver is not compiled, so we provide this stub.
- * In GUI builds the real implementation lives in mouse.cpp and overrides this
- * weak alias.  EOI is sent by the ISR stub in both cases.
- *
- * @param frame  Interrupt stack frame (unused)
- */
-void mouse_irq12_handler(InterruptFrame* /*frame*/) {
-    // EOI is owned by the ISR stub.
-}
-#endif
-
-#ifndef CINUX_USB
-/**
- * @brief Default xHCI IRQ handler when the USB driver is not compiled
- *
- * With CINUX_USB off, usb/xhci_irq.cpp is absent, so we provide this stub.
- * MSI-X is never programmed without the driver, so this handler should never
- * actually fire -- it exists only to satisfy the asm stub's link reference to
- * xhci_irq_handler.  (Mirrors the mouse #ifndef CINUX_GUI stub.)  EOI is sent
- * by the ISR stub.
- */
-extern "C" void xhci_irq_handler(InterruptFrame* /*frame*/) {
-    // EOI is owned by the ISR stub.
-}
-#endif
-
 }  // extern "C"
 
 // ============================================================

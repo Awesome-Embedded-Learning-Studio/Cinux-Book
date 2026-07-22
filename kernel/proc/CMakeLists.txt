@@ -16,3 +16,13 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/signal.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/process_group.cpp
 )
+
+# §14: shell_launch.cpp is the non-GUI userspace entry (fork + exec /bin/sh).
+# GUI builds link kernel/gui/desktop_launch.cpp instead (the gui/ subdirectory is
+# added only under if(CINUX_GUI) in kernel/CMakeLists.txt).  Exactly one of the
+# two launch_userspace() impls is linked.
+if(NOT CINUX_GUI)
+    target_sources(big_kernel_common PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/shell_launch.cpp
+    )
+endif()

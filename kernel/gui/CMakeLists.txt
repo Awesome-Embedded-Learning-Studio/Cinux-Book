@@ -40,3 +40,10 @@ target_sources(big_kernel_common PRIVATE
 target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/host_cinux.cpp
 )
+
+# Desktop launch: GUI-side impl of cinux::proc::launch_userspace (§14).  The
+# non-GUI counterpart shell_launch.cpp lives in proc/ and is linked under
+# if(NOT CINUX_GUI) in proc/CMakeLists.txt.
+target_sources(big_kernel_common PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/desktop_launch.cpp
+)

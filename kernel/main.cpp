@@ -55,10 +55,6 @@
 #include "kernel/drivers/video/console.hpp"
 #include "kernel/drivers/video/font.hpp"
 #include "kernel/drivers/video/framebuffer.hpp"
-#ifdef CINUX_GUI
-#    include "kernel/drivers/canvas.hpp"
-#    include "kernel/gui/gui_init.hpp"
-#endif
 #include "kernel/lib/kallsyms.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
@@ -69,6 +65,7 @@
 #include "kernel/proc/init.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/userspace.hpp"  // handoff_framebuffer_to_gui (§14: GUI init or no-op stub)
 
 using cinux::arch::PIC;
 using cinux::drivers::Console;
@@ -176,18 +173,11 @@ extern "C" void kernel_main() {
     cinux::lib::kprintf_register_sink(Console::console_sink_adapter, &console);
     cinux::lib::kprintf("[BIG] Console initialised -- dual output active.\n");
 
-#ifdef CINUX_GUI
-    // Step 15b: Initialise GUI canvas and window manager
-    static cinux::drivers::Canvas g_canvas;
-    g_canvas.init(fb);
-    cinux::gui::gui_init(g_canvas, font);
-
-    // The GUI now owns the framebuffer.  Detach the text console from kprintf
-    // so routine logs stop overlaying the desktop (they still go to serial +
-    // the klog ring, viewable via dmesg).  kpanic re-enables all sinks, so a
-    // crash still reaches the screen.
-    cinux::lib::kprintf_set_sink_enabled(Console::console_sink_adapter, &console, false);
-#endif
+    // Step 15b: hand the framebuffer + console off to the GUI (canvas + window
+    // manager init; console detached so routine logs stop overlaying the
+    // desktop).  No-op when GUI is compiled out (§14 stub linked).  kpanic
+    // re-enables all sinks, so a crash still reaches the screen.
+    cinux::proc::handoff_framebuffer_to_gui(fb, font, console);
 
     // Step 16: Initialise the PS/2 keyboard controller
     Keyboard::init();

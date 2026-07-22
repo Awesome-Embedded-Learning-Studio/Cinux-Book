@@ -124,7 +124,7 @@ TEST("shell_redirect: write through stdout fd goes into pipe") {
 
     const char msg[] = "Hello from shell";
     File*      f1    = g_global_fd_table().get(1);
-    int64_t    w     = f1->inode->ops->write(f1->inode, f1->offset, msg, 16);
+    int64_t    w     = f1->inode->ops->write(f1->inode, f1->offset, msg, 16).value();
     ASSERT_EQ(w, 16);
 
     // Verify data is in the stdout pipe
@@ -152,7 +152,7 @@ TEST("shell_redirect: read through stdin fd gets pipe data") {
     // Read through fd 0
     File*   f0      = g_global_fd_table().get(0);
     char    buf[32] = {};
-    int64_t r       = f0->inode->ops->read(f0->inode, f0->offset, buf, 32);
+    int64_t r       = f0->inode->ops->read(f0->inode, f0->offset, buf, 32).value();
     ASSERT_EQ(r, 11);
     ASSERT_TRUE(memcmp(buf, "echo test\n", 11) == 0);
 }
@@ -175,14 +175,14 @@ TEST("shell_redirect: full round-trip terminal to shell and back") {
     // Shell reads from stdin pipe (via fd 0 InodeOps)
     File*   f0           = g_global_fd_table().get(0);
     char    read_buf[32] = {};
-    int64_t r            = f0->inode->ops->read(f0->inode, f0->offset, read_buf, 32);
+    int64_t r            = f0->inode->ops->read(f0->inode, f0->offset, read_buf, 32).value();
     ASSERT_EQ(r, 5);
     ASSERT_TRUE(memcmp(read_buf, "help\n", 5) == 0);
 
     // Shell writes response to stdout pipe (via fd 1 InodeOps)
     const char response[] = "Cinux shell - type 'help' for commands\n";
     File*      f1         = g_global_fd_table().get(1);
-    w                     = f1->inode->ops->write(f1->inode, f1->offset, response, 40);
+    w                     = f1->inode->ops->write(f1->inode, f1->offset, response, 40).value();
     ASSERT_EQ(w, 40);
 
     // Terminal polls stdout pipe and reads response
@@ -249,7 +249,7 @@ TEST("shell_redirect: try_write stdin then read via ops") {
     // Shell reads all 3 bytes at once
     File*   f0      = g_global_fd_table().get(0);
     char    buf[16] = {};
-    int64_t r       = f0->inode->ops->read(f0->inode, f0->offset, buf, 16);
+    int64_t r       = f0->inode->ops->read(f0->inode, f0->offset, buf, 16).value();
     ASSERT_EQ(r, 3);
     ASSERT_TRUE(memcmp(buf, "ls\n", 3) == 0);
 }
@@ -265,20 +265,18 @@ TEST("shell_redirect: cannot read from stdout fd") {
     // Write some data to stdout pipe first
     setup.stdout_pipe->try_write("data", 4);
 
-    File*   f1      = g_global_fd_table().get(1);
-    // PipeWriteOps inherits read() from InodeOps which returns -1
-    char    buf[16] = {};
-    int64_t r       = f1->inode->ops->read(f1->inode, f1->offset, buf, 16);
-    ASSERT_EQ(r, -1);
+    File* f1      = g_global_fd_table().get(1);
+    // PipeWriteOps inherits read() from InodeOps which returns an error
+    char  buf[16] = {};
+    ASSERT_TRUE(!f1->inode->ops->read(f1->inode, f1->offset, buf, 16).ok());
 }
 
 // PipeReadOps (on stdin fd) does not support write.
 TEST("shell_redirect: cannot write to stdin fd") {
     PipeRedirect setup;
 
-    File*   f0 = g_global_fd_table().get(0);
-    int64_t w  = f0->inode->ops->write(f0->inode, f0->offset, "data", 4);
-    ASSERT_EQ(w, -1);
+    File* f0 = g_global_fd_table().get(0);
+    ASSERT_TRUE(!f0->inode->ops->write(f0->inode, f0->offset, "data", 4).ok());
 }
 
 // ============================================================

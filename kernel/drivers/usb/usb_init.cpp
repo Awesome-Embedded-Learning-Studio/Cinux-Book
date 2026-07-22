@@ -156,4 +156,14 @@ void init() {
     }
 }
 
+void poll_input() {
+    // Dequeue transfer events off the event ring -> device listeners (tablet /
+    // keyboard) decode + inject + re-arm.  No-op until init() enumerated a
+    // controller.  See header: this is the production event-service path under
+    // nested-KVM where the MSI-X interrupt is not reliably latched.
+    if (XHCIController::has_controller()) {
+        XHCIController::instance().poll_events();
+    }
+}
+
 }  // namespace cinux::drivers::usb

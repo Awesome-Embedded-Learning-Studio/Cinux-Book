@@ -37,7 +37,11 @@ SKIP_DEFAULT: dict[int, str] = {
     7: "ci: clone submodules",
     10: "docs(ai) plan/directives", 12: "docs(ai) CODING-TASTE",
     14: "docs(ai) DEVLOG", 15: "docs(ai) M0 收尾",
-    16: "merge clang-format", 17: "host 单测跟进", 18: "ci format 禁用",
+    16: "merge clang-format", 18: "ci format 禁用",
+    # NOTE: step 17 (d0d7b56 "host 单测跟进 InodeOps→ErrorOr") is a REAL code step
+    # (4 test/*.cpp get .value()/!.ok()), NOT skip-able. It was wrongly skip-flagged
+    # here once, which left test_shell_redirect/test_pipe/test_sys_pipe/test_ext2_inode_ops
+    # broken from the ErrorOr step on; caught up during 054b. Do not re-skip.
     19: "merge origin/main", 20: "docs(ai) DIRECTIVES",
     51: "docs sync f13/f5m5", 52: "tidy debt",
     73: "docs 5 弧审核", 78: "docs notes",
