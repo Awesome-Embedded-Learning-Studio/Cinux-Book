@@ -2,94 +2,42 @@
 title: 036 · Cinux-Base 与 ErrorOr
 ---
 
-# 036 · Cinux-Base 与 ErrorOr:在系统长大之前,先把「错误」和「公共类型」扶正
+# 036 · 给错误一个名字,给公共类型一个家:Cinux-Base 与 ErrorOr
 
-> 得先跟你交个底:这是 **v1.0.0 回迁弧的第一章**,但它**一行让用户能看到的新功能都没有**。咱们在 035 把系统推到了多终端——能 fork、能开几个 shell 并行跑;从这一章起,咱们要把这条教学线逐步对齐到真正发过 v1.0.0 的那条 CinuxOS 主线。而那条主线回迁过来的第一件事,不是加功能,是**返工两个地基**:把散落各处、各自为政的公共类型收拢进一个共享库(Cinux-Base),把满内核的「出错就 `return -1`」换成类型安全的 `ErrorOr`。
+> 先给你看个场景。你写了个用户程序,调 `read()`,内核返回 `-1`。然后呢?是文件读到尾了(EOF)?盘 IO 出错了?文件根本不存在?你没权限?——`-1` 把这四件完全不同的事揉成了一个数,你对着日志里一句 `[SYS_MKDIR] failed` 干瞪眼,不知道下一步该查哪。
 >
-> 所以这是一章**重构**(对应验证档里的 B 档:没有新的用户可见现象,但有清晰的 before/after 信号)。它的价值不在「现在能干什么」,而在「后面 SMP、网络、musl 那些大弧,都得站在这两个地基上才扛得住」。先把它扶正。
+> 这一章治两件越往后越扎手的事。第一,给内核的错误**一个名字、一个类型**——`ErrorOr`,让"出错了"不再是含糊的 `-1`,而是"什么错"。第二,把散在内核各处、东一份西一份的公共类型(`StringView`、`Span`、`RingBuffer`、`CRC32`…)收进一个共享库 `Cinux-Base`,别再每个子系统自己造一遍。这两件是后面文件系统、多进程、网络那些大特性的地基——地基不夯实,越往上晃得越厉害。
 
-## 这一章咱们要点亮什么
+## 先看清病:-1 是个什么都能装的筐
 
-两件看得见的事,外加一条边界。
+在只有只读 ext2 + 单进程 shell 的小体量下,"出错返 `-1`、调用方看着办"勉强够用——出错路径就那么几条,`-1` 大致等于"没找到 / 读崩了 / 你给错了"三合一。可一旦系统要长大,这套就崩了。三个具体的疼:
 
-第一件,**内核从此有了一个共享的类型/工具库**。`ErrorOr`、`StringView`、`Span`、`RingBuffer`、`optional`、`CRC32`…… 这些东西以前在内核里东一处西一处地各写一份;现在它们被收进一个独立的子模块 `third_party/Cinux-Base`,21 个头文件,谁要用谁 `#include <cinux/expected.hpp>`。
+**三态歧义。** `int read(...)` 这个返回值,`-1` 是错、`0` 是 EOF、正数是字节数。调用方得记着这套不成文的约定,稍不留神就把 EOF 当成错误处理了。
 
-第二件,**错误从「裸 int」升级成「类型」**。内核内部一律用 `ErrorOr<T>` 传错误:成功了 `value()` 拿值,失败了 `error()` 拿一个有名字的错误码。`-1` 那套「正数/0/-1 三态歧义」退场。
+**错误信息丢了。** `-1` 不会告诉你"没找到"还是"盘崩了"还是"权限不够"。排查时日志只剩一句含糊的失败,对着猜。
 
-那条边界:**`ErrorOr` 是内核的私事,绝不泄给用户态**。系统调用是 `ErrorOr` 和用户程序之间的翻译关——trap 入口把内核的 `Error` 枚举经 `to_errno()` 翻成 Linux 约定的 `-errno` 返回给用户。这一层翻译是这一章真正精巧的地方。
+**类型不帮你。** `-1` 是个 `int`,编译器没法在你**忘了检查错误**时提醒你。它就是个普通的返回值,你爱忽略就忽略,忽略了就把一个错误值一路传进文件系统深处,某天炸在一个莫名其妙的地方。
 
-## 为什么现在需要它
+这三疼,根源是同一个:**错误没有身份**。它只是个约定俗成的数,没有名字、没有类型、没有"非处理不可"的强制性。
 
-先说为什么是现在,而不是更早或更晚。
+## ErrorOr:让错误变成类型
 
-035 之前,内核的错误处理基本是「能返就返个 -1,调用方看着办」。在只读 ext2 + 单进程 shell 的体量下,这套**勉强够用**——出错路径就那么几条,`-1` 大致等于「没找到 / 读崩了 / 你给错了」三合一。可一旦要往 v1.0.0 走(多进程并发、AHCI DMA、后面的网络栈、musl 动态链接),「-1」就崩盘了:
-
-- **三态歧义**:`int read(...)` 返回 `-1` 是错、返回 `0` 是 EOF、返回正数是字节数——调用方得记住这套不成文约定,稍不留神就把 EOF 当错误;
-- **错误信息丢失**:`-1` 不告诉你「没找到」还是「盘 IO 崩了」还是「权限不够」,排查时只剩一句 `[SYS_MKDIR] failed`,对着日志猜;
-- **类型不帮你**:`-1` 是个 `int`,编译器没法在你忘了检查错误时提醒你。`ErrorOr<T>` 不一样——你不 `ok()` 就敢 `value()`,它直接 assert 给你看。
-
-CinuxOS 那条主线的迁移笔记里把这条铁律写得很直白:**禁异常**(`throw`/`try`/`catch` 一律不许),错误只能走 `ErrorOr`。理由很实际——内核没有运行时,异常的 unwind 表、栈展开都是负担;而 `ErrorOr` 是个判别联合体,零额外开销,还能把「这是个可能失败的调用」写进函数签名里。
-
-至于「为什么不更早做」——因为更早的时候,内核里连 `StringView` 都只有一处在用,提前抽库是过度设计;而现在,FS 层、syscall 层、proc 层都在重复造同样的轮子,抽库的成本被摊薄了,收益开始大于成本。这是个**时机问题**,不是对错问题。
-
-## Cinux-Base:把公共类型扶正
-
-Cinux-Base 是一个**独立的仓库**,以 git 子模块的形式挂在 `third_party/Cinux-Base` 下。打开它的 `include/cinux/`,21 个头文件,大致分四家:
-
-| 一类 | 头文件 | 干什么 |
-|---|---|---|
-| 控制 / 错误 | `expected.hpp` `optional.hpp` `function.hpp` | `ErrorOr<T>`、`optional<T>`、函数对象(回调用) |
-| 字符串 / 视图 | `string_view.hpp` `static_string.hpp` `span.hpp` | 只读视图、定长串、内存视图——不分配 |
-| 容器 / 结构 | `ring_buffer.hpp` `intrusive_list.hpp` `bitmap.hpp` `static_hash_map.hpp` | 无锁环形缓冲(键盘/pipe 用)、侵入链表、位图 |
-| 算法 / 工具 | `crc32.hpp` `checksum.hpp` `endian.hpp` `algorithm.hpp` `bit_ops.hpp` `random.hpp` `numeric.hpp` `logger.hpp` `scope_guard.hpp` `buffer.hpp` | 校验、字节序、位运算、日志、RAII 守卫 |
-
-> 这一张表不是 API 手册——你现在不用记住每一项。记住一句话就够:**它是内核的「公共地基」,后面每一弧都会从里面拿东西。** 比如 037 弧会让 `pipe` 和键盘驱动复用 `ring_buffer.hpp`;文件系统弧会用 `crc32.hpp` 校验 ext2 超级块。
-
-### 怎么接进构建:一个必须讲的坑
-
-Cinux-Base 自带一份很严的编译开关(`-Wpedantic -Werror -Wold-style-cast -Wshadow` 之类)。最直觉的接法是 `add_subdirectory(Cinux-Base)`,让它作为一个普通子项目链进来——**但这一章偏偏不这么干**。看 `third_party/CMakeLists.txt`:
-
-```cmake
-# Exposes only the include path and .cpp sources — does NOT call
-# add_subdirectory(Cinux-Base) to avoid its INTERFACE compile flags
-# (-Wpedantic -Werror -Wold-style-cast -Wshadow) leaking into
-# big_kernel_common and breaking existing kernel code.
-
-target_include_directories(big_kernel_common PUBLIC
-    ${CINUX_BASE_DIR}/include
-)
-
-file(GLOB_RECURSE CINUX_BASE_SOURCES ${CINUX_BASE_DIR}/src/*.cpp)
-```
-
-原因写在注释里了:`add_subdirectory` 会把 Cinux-Base 的 `INTERFACE` 编译选项**传染**给 `big_kernel_common`(内核的对象库),而内核里那些早就写好的代码,根本经不起 `-Werror` 这么一拧——会瞬间爆出几百个 warning-as-error,构建直接挂。所以这里只取两样东西:
-
-1. **头文件路径**(`target_include_directories`):让内核能写 `#include <cinux/expected.hpp>`;
-2. **源文件**(`file(GLOB_RECURSE ... src/*.cpp)`):把 Cinux-Base 那几个有 `.cpp` 的实现(crc32、checksum、logger、vformat)**直接编进内核对象库**,而不是让它作为一个独立 target。
-
-换句话说,Cinux-Base 在这里是**「无头无尾地被吸收」**的——它的头随便用,它的少数实现直接长进内核。这是一个**刻意为之的隔离**:把「库的严纪律」和「内核的现状」分开,等内核代码慢慢打磨到能扛 `-Werror` 了,再考虑合 target。这种「先隔离、后收敛」的手法,在引入任何带严纪律的第三方库时都值得照搬。
-
-根 `CMakeLists.txt` 只负责把 `third_party/` 整个挂上来(`kernel/CMakeLists.txt:52` 的 `add_subdirectory(${CMAKE_SOURCE_DIR}/third_party ...)`),其余的隔离逻辑全在 `third_party/CMakeLists.txt` 里。子模块本身用 `git submodule update --init third_party/Cinux-Base` 拉到 pin 死的 commit。
-
-## ErrorOr:把错误变成类型
-
-`ErrorOr<T>` 住在 `third_party/Cinux-Base/include/cinux/expected.hpp`。它的本质是一个**值/错判别联合体**(discriminated union):要么持有一个 `T`,要么持有一个 `Error`,用一个 `is_ok_` 标志区分。核心 API(全是 `constexpr`,零开销):
+解法是给错误一个类型。`ErrorOr<T>`(`third_party/Cinux-Base/include/cinux/expected.hpp`)——一个**值或错**的判别联合体:要么持有一个 `T`(成功),要么持有一个 `Error`(失败),用一个内部标志区分。核心长这样:
 
 ```cpp
-// expected.hpp:97
+// expected.hpp
 template <typename T>
 class ErrorOr {
-    ErrorOr(T value)   : is_ok_(true)  { /* 存值 */ }   // :108 成功构造
-    ErrorOr(Error err) : is_ok_(false) { /* 存错 */ }   // :113 失败构造
+    ErrorOr(T value);      // 成功:存值
+    ErrorOr(Error err);    // 失败:存错
 
-    constexpr bool ok() const { return is_ok_; }                 // :168
-    constexpr explicit operator bool() const { return is_ok_; }  // :171
-    T& value();   // :174 —— 失败时调它,直接 assert
-    Error error();
+    bool ok() const;       // 成了吗
+    T&   value();          // 取值——失败时调它,直接 assert 给你看
+    Error error();         // 取错
 };
 ```
 
-那个 `Error` 是个 `enum class : uint32_t`,一共 14 个变体,每个都有人话名字(`expected.hpp` 上半段):
+那个 `Error` 不是个数字,是个有名字的枚举:
 
 ```
 Ok / OutOfMemory / InvalidArgument / NotFound / IOError / AlreadyExists /
@@ -97,108 +45,112 @@ PermissionDenied / WouldBlock / BufferOverflow / NotImplemented /
 BrokenPipe / ConnectionRefused / TimedOut / Busy
 ```
 
-配一个 `error_string(Error)`,把 `Error::NotFound` 翻成 `"NotFound"`,日志里再也不是光秃秃的 `-1`。
+配一个 `error_string(Error)`,把 `Error::NotFound` 翻成 `"NotFound"`。从此日志里再也不是光秃秃的 `-1`,而是"这是个 NotFound"——一眼就知道往哪查。
 
-### 三种用法,看真实签名
+两个设计决定值得讲:
 
-这一章把内核里 14 个文件改成了 `ErrorOr`,三种形态各司其职。直接看 `kernel/fs/ext2_common.hpp:35-55` 的真实签名:
+**为什么不抛异常?** 内核没有运行时,异常要靠 unwind 表和栈展开,那是用户态 C++ 的奢侈品,内核背不起。`ErrorOr` 是个判别联合体,**零额外开销**,还能把"这是个可能失败的调用"明明白白写进函数签名里——光看 `ErrorOr<Inode*> lookup(...)`,你就知道它可能失败、失败时拿到的是个 `Error`。
+
+**`value()` 失败时为什么 assert?** 这是刻意的。它把"你忘了先 `ok()` 检查、就直接取值"这种最常见的误用,从"静默用一个错误值"变成"当场炸给你看"。在内核里,炸在 assert 上,比把一个垃圾指针一路传到文件系统深处要好排查一万倍——编译器和 assert 替你盯着,而不是等用户态收到一个莫名其妙的 `-1`。
+
+## 三种"会失败的调用",三种 ErrorOr
+
+会失败的调用,失败的样子各不相同,`ErrorOr` 用三种形态对应。看 `kernel/fs/ext2_common.hpp` 的真实签名:
 
 ```cpp
-ErrorOr<int64_t> read (const Inode*, uint64_t off, void* buf, uint64_t cnt);  // 读:返回字节数(0=EOF)
-ErrorOr<int64_t> write(Inode*, uint64_t off, const void* buf, uint64_t cnt);  // 写:返回字节数
-ErrorOr<void>    stat(const Inode*, struct stat* st);                          // 查属性:只关心成/败
-ErrorOr<Inode*>  lookup / create / mkdir(...);                                 // 找/建:返回 inode 指针
+ErrorOr<int64_t> read (const Inode*, uint64_t off, void* buf, uint64_t cnt);  // 读:返回字节数
+ErrorOr<void>    stat(const Inode*, struct stat* st);                          // 查属性:只关心成不成
+ErrorOr<Inode*>  lookup(...);                                                  // 找一个对象:成功返指针
 ```
 
-- `ErrorOr<int64_t>`(全内核 25 处):read/write/readdir 这类「返回一个数量」的——`value()==0` 干干净净地表示 EOF,不再是「0 到底是 EOF 还是错」的歧义;
-- `ErrorOr<Inode*>`(19 处):lookup/create/mkdir 这类「返回一个对象」的——失败时不用再用「返 `nullptr`」这种和「合法的空值」混在一起的约定;
-- `ErrorOr<void>`(18 处):stat/mkdir/unlink 这类「只关心成不成」的——`ok()` 就行,不占返回位。
+- **`ErrorOr<int64_t>`**:像 `read`/`write` 这种"返回一个数量"的。成功时 `value()` 是字节数,`0` 干干净净表示 EOF——不再是"0 到底是 EOF 还是错"的歧义;
+- **`ErrorOr<Inode*>`**:像 `lookup`/`create` 这种"返回一个对象"的。失败时不用再靠"返 `nullptr`"这种和"合法的空值"混在一起的约定;
+- **`ErrorOr<void>`**:像 `stat`/`unlink` 这种"只关心成不成"的。`ok()` 就行,不占返回位。
 
-> 注意 `value()` 在失败路径上会 `assert`。这是**刻意的**——它把「你忘了检查 `ok()`」从「静默用错值」变成「当场炸给你看」。在内核里,炸在 assert 上比把一个垃圾指针一路传到文件系统深处要好排查一万倍。
+这套用下来,错误有了名字、有了类型、有了"非处理不可"的强制性——三态歧义、信息丢失、编译器帮不上忙,三个老病一起治。
 
-## syscall 边界:Error 怎么变回 `-errno`
+## 用户态看不懂 ErrorOr:syscall 关口的翻译
 
-到这一层为止,内核里全是 `ErrorOr`,干净。可用户程序看不懂 `ErrorOr`——它是个 C++ 类型,而系统调用是 ABI,用户态可能是 musl、busybox 写的 C 程序。**Linux 的约定是:syscall 失败返回 `-errno`**(负数,绝对值是 errno,如 `-ENOENT`、 `-EACCES`)。
+到这,内核内部全是 `ErrorOr`,干净。可用户程序看不懂 `ErrorOr`——它是个 C++ 类型,而系统调用是 ABI,用户态可能是 musl、busybox 写的 **C 程序**。Linux 的 ABI 约定是:syscall 失败返回**负的 errno**(比如 `-ENOENT`、`-EACCES`),C 库的 `strerror(errno)` 能把它说成人话。
 
-所以内核在 syscall trap 这道关口上做一次翻译。新建的 `kernel/errno.hpp:52`:
+所以内核在 syscall 这道关上做一次**翻译**。`kernel/errno.hpp` 有个 `to_errno`:
 
 ```cpp
+// kernel/errno.hpp —— 把内核的 Error 翻成 POSIX errno
 constexpr int to_errno(cinux::lib::Error e);
+// NotFound→ENOENT、PermissionDenied→EACCES、IOError→EIO ……
 ```
 
-它把 14 个 `Error` 变体一一映射到 POSIX errno(`NotFound→ENOENT`、`PermissionDenied→EACCES`、`IOError→EIO`……)。syscall handler 失败路径上长这样(`kernel/syscall/sys_mkdir.cpp:57`,真实代码):
+syscall handler 失败时这么写(`kernel/syscall/sys_mkdir.cpp`,真实代码):
 
 ```cpp
 auto parent_result = fs->lookup(parent_buf);
 if (!parent_result.ok()) {
-    kprintf("[SYS_MKDIR] Parent directory not found for '%s'\n", resolved);
-    return -to_errno(parent_result.error());          // Error → -errno,翻给用户态
+    return -to_errno(parent_result.error());   // Error 翻成 -errno,交给用户态
 }
-cinux::fs::Inode* parent = parent_result.value();     // ok 了才敢取值
-...
-auto mkdir_result = parent->ops->mkdir(parent, leaf_name, name_len);
-if (!mkdir_result.ok()) {
-    return -to_errno(mkdir_result.error());
-}
-return 0;                                              // 成功才是非负
+cinux::fs::Inode* parent = parent_result.value();  // ok 了才敢取值
 ```
 
-这套翻译的好处是双向的:
+这套翻译是**双向**的好:内核内部全程 `ErrorOr`(错误有名字有类型,编译器帮你盯);用户态看到的还是标准 `-errno`(musl 的 `strerror`、busybox 的 `perror` 全照常工作,不用适配)。`ErrorOr` 这个 C++ 类型被这道翻译关**死死挡在内核里**,绝不泄到 ABI。
 
-- **对内核**:内部全程 `ErrorOr`,错误有名字、有类型,编译器帮你盯着;
-- **对用户态**:看到的还是标准 `-errno`,musl 的 `strerror(errno)`、busybox 的 `perror` 全照常工作,无需任何适配。
+这背后是一条值得记住的原则:**内核用什么语言、什么范式,是它自己的事;但它对外的 ABI,得跟 Linux 对齐。** 内核内部用 C++ 的 `ErrorOr` 提升工程质量,对外老老实实讲 Linux 的 `-errno`——两不耽误。
 
-`ErrorOr` 这种 C++ 类型,被这道翻译关**死死挡在内核里**,绝不泄到 ABI。这是「内核用什么语言/范式是自己的事,ABI 跟 Linux 对齐」这条原则的一次干净落地。
+## Cinux-Base:公共类型的家
 
-## 踩坑(从 CinuxOS 的迁移笔记里搬来)
+第二个病:公共类型各处重复。在 `ErrorOr` 之前,`StringView`、`Span`、`RingBuffer` 这些东西在内核里东一处西一处地各写一份,口径还不一样。这一章把它们收进一个独立的共享库 `Cinux-Base`(`third_party/Cinux-Base`),21 个头文件,大致四家:
 
-这一弧是返工,返工的坑最值得记。笔者把 CinuxOS 那条主线的迁移笔记扒了一遍,挑出三个真的会绊人的——全是真事,不是编的。
+| 家 | 例子 | 干什么 |
+|---|---|---|
+| 控制 / 错误 | `expected`(`ErrorOr`)、`optional`、`function` | 表达"可能失败/可能空/回调" |
+| 字符串 / 视图 | `string_view`、`span` | 只读地看一段内存,不分配 |
+| 容器 / 结构 | `ring_buffer`、`intrusive_list`、`bitmap` | 不分配的容器(键盘、pipe 要用环形缓冲) |
+| 算法 / 工具 | `crc32`、`checksum`、`endian`、`bit_ops` | 校验、字节序、位运算 |
 
-**坑一:CMake 别 `add_subdirectory(Cinux-Base)`**。这条前面讲构建时已经说过——它的 `-Werror` 等 INTERFACE 标志会泄漏进内核对象库,瞬间几百个 error。正解:只取 include + glob 它的 `.cpp`。**教训:引入带严纪律的第三方库时,先隔离它的编译选项,别让它替你的代码定纪律。**
+你不用记每一项。记一句话:**它是内核的公共地基,后面每加一个子系统,都从里面拿东西,而不是自己再写一遍。**
 
-**坑二:grep 调用方,箭头和点号两种形态都得查**。`InodeOps` 的方法有两种调法——通过指针的 `inode->ops->read(...)`(箭头)和通过局部对象的 `ops_obj.read(...)`(点号,比如 `test_pipe.cpp` 里的 `PipeReadOps`)。批 2b 只 grep 了箭头形态,点号形态漏改,最后是**编译器**把它们揪出来的(成了编译错而不是逻辑错,算走运)。**教训:重构接口时,grep 别只信一种语法形态;`PipeReadOps`/`PipeWriteOps` 这种「局部实现的 InodeOps 子类」最容易被漏。**
+### 引入一个"严纪律"的库:别让它替你的代码定纪律
 
-**坑三:`fork` 故意不迁 `ErrorOr`**。这一弧把 FS 全迁了,但 `proc` 层的 `fork` 故意留在 errno 层不动。原因是 `fork` 的子进程返回路径要**在汇编里锻造返回值**(`fork_child_trampoline` 里 `xorq %rax,%rax` 让子进程的 `fork()` 看到 0)。一旦改成 `ErrorOr<int>`,这个 `rax=0` 会让判别标志 `is_ok_=0`,子进程**误以为自己 fork 失败了**。要修就得把锻造指令改成 `movq $0x100000000,%rax` 去拼 `{value=0, ok}`——asm 死耦合 C++ 对象布局,纯成本零收益。所以 `fork`/`execve`/`waitpid` 这几个本来就用结构化 errno 的,留在 errno 层。**教训:不是所有「能上 ErrorOr 的」都「值得上」;asm 耦合的地方,动它之前先算清成本。**
+引入 `Cinux-Base` 时有个**特别值得讲**的工程细节。这个库自带一份很严的编译开关(`-Wpedantic -Werror -Wold-style-style-cast -Wshadow` 之类)。最直觉的接法是 `add_subdirectory(Cinux-Base)`,把它当一个普通子项目链进来——**但偏偏不这么干**。看 `third_party/CMakeLists.txt`:
 
-> 还有一条小尾巴:`to_errno` 表和 `proc` 里原有的 `errno_values` 是两套 errno 来源。这一弧故意**不归一**(批 4 让 `to_errno` 自包含,不动 `errno_values`、不碰 proc 测试),归一留作可选清理。重构要懂得「见好就收,别在一个里程碑里顺带改全世界」。
+```cmake
+# 只取 include 路径和 .cpp 源文件,不 add_subdirectory(Cinux-Base)——
+# 免得它的 INTERFACE 编译开关(-Wpedantic -Werror ...)泄漏进 big_kernel_common,
+# 把内核里早就写好的代码瞬间拧出几百个 warning-as-error。
+
+target_include_directories(big_kernel_common PUBLIC ${CINUX_BASE_DIR}/include)
+file(GLOB_RECURSE CINUX_BASE_SOURCES ${CINUX_BASE_DIR}/src/*.cpp)
+```
+
+原因:`add_subdirectory` 会把库的 `INTERFACE` 编译选项**传染**给内核的对象库,而内核里那些老代码,经不起 `-Werror` 这么一拧。所以这里只取两样:**头文件路径**(让内核能 `#include <cinux/expected.hpp>`)+ **它的几个 `.cpp` 实现**(直接编进内核对象库),不让它成为一个独立 target。
+
+换句话说,`Cinux-Base` 在这里是**"只取所需、不连纪律"**地被吸收:它的头随便用,它的少数实现直接长进内核,但它那套严编译纪律**不替内核定**。等内核代码慢慢打磨到能扛 `-Werror` 了,再考虑合成一个 target。这种"先隔离依赖的纪律、后慢慢收敛"的手法,引入任何带严纪律的第三方库时都值得照搬。
+
+## 两个真坑
+
+**坑一:重构一个接口,grep 调用方别只信一种写法。** `InodeOps` 的方法有两种调法——通过指针的 `inode->ops->read(...)`(箭头),和通过局部对象的 `ops_obj.read(...)`(点号)。重构接口时只 grep 箭头形态、漏了点号形态,是常见的错。靠谱的做法是两种都查,或者干脆靠编译器把它们一个个揪出来——漏改的会成为编译错(算走运),而不是藏到运行时的逻辑错。
+
+**坑二:不是所有"能上 ErrorOr 的"都"值得上"。** `fork` 这一处就故意**没**迁成 `ErrorOr`,留在老的 errno 层。原因是个有意思的耦合:`fork` 的子进程返回值是在**汇编里锻造**的(`fork_child_trampoline` 用 `xorq %rax,%rax` 让子进程的 `fork()` 看到 0)。一旦改成 `ErrorOr<int>`,这个 `rax=0` 会让"成功/失败"标志位变成"失败",子进程**误以为自己 fork 失败了**。要修就得拿汇编去拼 `ErrorOr` 的二进制布局——汇编死耦合 C++ 对象布局,纯成本零收益。所以 `fork`、`execve`、`waitpid` 这几个本来就用结构化 errno 的,留在 errno 层。**教训:asm 紧耦合的地方,动它之前先算清成本,别为了"统一"硬上。**
 
 ## 验证
 
-这是一章重构,验证靠「构建 + 测试 + 看签名」,不是跑个用户程序。三步:
-
-```bash
-# 1. 拉 Cinux-Base 子模块(到 pin 死的 commit)
-git submodule update --init third_party/Cinux-Base
-
-# 2. 重新 configure(让 CMake 认 third_party)+ 构建
-cmake -B build -S . && cmake --build build -j$(nproc)
-# 期望:[100%] Built target big_kernel, 0 error
-
-# 3. 内核测试跑一遍(ErrorOr 迁移后 run-kernel-test 仍应全绿)
-cmake --build build --target run-kernel-test
-```
-
-再人肉确认两件事,证明「错误真的变成了类型」:
+这是一章重构,验证靠"构建 + 看签名 + 亲手触发一个有名字的错误",不是跑个用户功能。
 
 ```bash
 # 内核内部:签名是不是都 ErrorOr 了
 grep -rnE 'ErrorOr<(void|Inode\*|int64_t)>' kernel/fs/
-# 期望:能看到 read/write/stat/lookup/create/mkdir 都返 ErrorOr<...>
+# 期望:read/write/stat/lookup/create/mkdir 都返 ErrorOr<...>
 
-# syscall 边界:是不是都走 to_errno
+# syscall 关口:是不是都走 to_errno 翻译
 grep -rn 'to_errno' kernel/syscall/
-# 期望:sys_mkdir/sys_creat/sys_read/sys_stat/sys_getdents/sys_chdir 等失败路径 return -to_errno(...)
+# 期望:各 syscall 失败路径 return -to_errno(...)
 ```
 
-如果哪天你把一个 `ErrorOr` 失败了却忘了 `ok()` 就去 `value()`——内核会直接 assert 在 `expected.hpp` 的 `value()` 里,栈回溯一眼可见。这就是「错误变成类型」最实在的回报:**编译器和 assert 替你盯着,而不是等用户态收到一个莫名其妙的 -1。**
+构建:
 
-## 小结与下一站
+```bash
+cmake -B build -S . && cmake --build build -j$(nproc) > /tmp/b.log 2>&1; echo "build=$?"
+```
 
-这一章没给系统加任何新本事,但它在底下换了两根承重柱:
+想亲眼看"错误有了名字":对一个**不存在的路径**做 `mkdir`(让 `lookup` 返 `NotFound`)。在 `ErrorOr` 之前,你只能看到一句含糊的失败和 `-1`;现在日志里是命名的 `NotFound`,用户态收到的是标准 `-ENOENT`,`strerror(errno)` 直接说出 "No such file or directory"。
 
-- **Cinux-Base 子模块**——公共类型有了正经的家,后面每一弧都从这里取;
-- **ErrorOr + to_errno**——内核内部错误有了名字和类型,在 syscall 关口翻回 Linux 的 `-errno`,谁也不耽误。
-
-它们是 v1.0.0 那些大家伙(SMP、网络、musl、文件系统升级)的地基。地基不夯实,后面每一层都会跟着晃。
-
-下一站 **037** 咱们继续在这个地基上干活:把 `RingBuffer`(pipe 和键盘驱动都要用)、内核日志、DMA 池也搬上 Cinux-Base,顺带把块设备的抽象(`IBlockDevice`)立起来——那是文件系统升级的前置。
+如果你想体会 `value()` 的 assert 有多实在:临时在某个 syscall 里把 `if (!result.ok())` 检查去掉、直接调 `result.value()`,然后构造一个失败场景跑一遍——内核会 assert 在 `expected.hpp` 的 `value()` 里,栈回溯直指"你在失败路径上取了值"。**这就是"错误变成类型"最实在的回报:你忘了检查,它当场炸给你看,而不是把垃圾值一路传进文件系统深处。看完记得改回来。**
