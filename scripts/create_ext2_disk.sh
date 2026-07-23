@@ -91,6 +91,14 @@ cat > "$TMPDIR/etc/group" << 'GROUP_EOF'
 root:x:0:
 GROUP_EOF
 
+# B3b busybox init: /etc/inittab consumed by the init applet (PID1).  Minimal --
+# a sysinit banner then respawn /bin/sh on the console.  getty/login and real
+# runlevels are a staged follow-up.
+cat > "$TMPDIR/etc/inittab" << 'INITTAB_EOF'
+::sysinit:/bin/echo CinuxOS init: filesystems mounted
+::respawn:/bin/sh
+INITTAB_EOF
+
 # Build the debugfs command script
 DEBUGFS_CMDS=""
 DEBUGFS_CMDS+="mkdir etc\n"
@@ -98,6 +106,7 @@ DEBUGFS_CMDS+="mkdir bin\n"
 DEBUGFS_CMDS+="write $TMPDIR/etc/motd etc/motd\n"
 DEBUGFS_CMDS+="write $TMPDIR/etc/passwd etc/passwd\n"
 DEBUGFS_CMDS+="write $TMPDIR/etc/group etc/group\n"
+DEBUGFS_CMDS+="write $TMPDIR/etc/inittab etc/inittab\n"
 DEBUGFS_CMDS+="write $TMPDIR/hello.txt hello.txt\n"
 
 # /bin/sh: prefer busybox (interactive `sh` applet) when built -- argv[0]
@@ -180,6 +189,13 @@ readlink
         DEBUGFS_CMDS+="ln /bin/busybox /bin/$applet\n"
         busybox_links=$((busybox_links + 1))
     done
+    # B3b: /sbin/init -> busybox hardlink.  argv[0] "/sbin/init" -> basename
+    # "init" -> busybox init applet (CONFIG_INIT=y), which reads /etc/inittab
+    # and respawns /bin/sh as a PID1 child.  kernel_init_thread execves this
+    # path directly (shell_launch.cpp launch_userspace).
+    DEBUGFS_CMDS+="mkdir sbin\n"
+    DEBUGFS_CMDS+="ln /bin/busybox /sbin/init\n"
+    busybox_links=$((busybox_links + 1))
     DEBUGFS_CMDS+="sif /bin/busybox links_count $busybox_links\n"
 fi
 

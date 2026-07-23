@@ -27,9 +27,11 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/gui_init.cpp
 )
 
-# Terminal window (80x25 character buffer, cursor, ANSI sequences)
+# Terminal window (80x25 character buffer, cursor, ANSI sequences).  ANSI
+# escape handling is split into terminal_ansi.cpp (CI 500-line limit).
 target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/terminal.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/terminal_ansi.cpp
 )
 
 # F13 cinux-gui: the host-neutral core now lives at third_party/Cinux-GUI/ (built as the

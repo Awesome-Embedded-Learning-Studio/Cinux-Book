@@ -202,9 +202,14 @@ int signal_send(Task* target, Signal sig) {
         }
     }
     sig_set_add(target->sig_pending, sig);
-    // TODO(future): wake a Blocked target for SIGKILL/SIGTERM (interruptible
-    // sleep).  Stopped targets are resumed above; Blocked waits (futex/waitpid)
-    // remain non-interruptible until that work lands.
+    // B3b (busybox init): wake a task blocked in rt_sigtimedwait waiting for a
+    // matching signal.  Precise and opt-in (only sigwait_blocked targets), so
+    // futex/waitpid Blocked waits stay non-interruptible until the broader
+    // "interruptible sleep" TODO above lands.
+    if (target->sigwait_blocked) {
+        target->sigwait_blocked = false;
+        Scheduler::unblock(target);
+    }
     return 0;
 }
 

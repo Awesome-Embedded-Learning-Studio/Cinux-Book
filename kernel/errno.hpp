@@ -89,6 +89,8 @@ constexpr int to_errno(cinux::lib::Error e) {
         return kEconnrefused;
     case cinux::lib::Error::TimedOut:
         return kEtimedout;
+    case cinux::lib::Error::Fault:
+        return kEfault;
     }
     return kEio;  // unmapped Error falls back to a generic I/O failure
 }

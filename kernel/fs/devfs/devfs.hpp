@@ -63,6 +63,32 @@ public:
 };
 
 /**
+ * @brief Optional console read/ioctl backend for /dev/console (B3b busybox-init)
+ *
+ * CharSink above only covers writes.  busybox init opens /dev/console, dups it
+ * onto fds 0/1/2, setsid + TIOCSCTTY, and the ash it forks calls isatty
+ * (TCGETS) and reads command lines -- all of which route through the console
+ * inode's ops.  This interface injects the kernel-side console TTY (cooked
+ * stdin + terminal ioctls) so devfs.cpp stays host-testable (no console_tty /
+ * user-access dependency); the kernel-only devfs_init.cpp supplies the concrete
+ * implementation.  When null (host unit tests, or before boot wiring),
+ * /dev/console read/ioctl return NotImplemented.
+ */
+class ConsoleInput {
+public:
+    virtual ~ConsoleInput() = default;
+
+    /// Read a cooked line into the KERNEL buffer @p buf (InodeOps::read hands a
+    /// kernel staging buffer, never a user pointer).  Returns the byte count.
+    virtual cinux::lib::ErrorOr<int64_t> read(void* buf, uint64_t count) = 0;
+
+    /// Terminal ioctl (TCGETS / TCSETS / TIOCGWINSZ / TIOCGPGRP / TIOCSPGRP /
+    /// TIOCSCTTY).  @p arg is the opaque USER payload; the implementation
+    /// crosses the user/kernel boundary itself (copy_to/from_user).
+    virtual cinux::lib::ErrorOr<int64_t> ioctl(uint32_t request, uint64_t arg) = 0;
+};
+
+/**
  * @brief In-memory /dev filesystem (device-file inodes, no on-disk backend)
  *
  * Mounts at /dev.  mount() registers the standard nodes (/dev/null,
@@ -79,8 +105,10 @@ public:
  */
 class DevFs : public FileSystem {
 public:
-    /// @param console_sink  Sink used by /dev/console writes; null = discard.
-    explicit DevFs(CharSink* console_sink = nullptr);
+    /// @param console_sink   Sink used by /dev/console writes; null = discard.
+    /// @param console_input  Optional /dev/console read+ioctl backend (B3b);
+    ///                       null => read/ioctl return NotImplemented (host).
+    explicit DevFs(CharSink* console_sink = nullptr, ConsoleInput* console_input = nullptr);
 
     /// Releases the device ops instances allocated in mount().
     ~DevFs() override;
@@ -137,6 +165,9 @@ private:
 
     /// Sink wired into the console device; null => console writes discard.
     CharSink* console_sink_;
+    /// Read+ioctl backend for /dev/console (B3b); null => read/ioctl return
+    /// NotImplemented (host unit tests).
+    ConsoleInput* console_input_;
 };
 
 /**

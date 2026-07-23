@@ -5,6 +5,7 @@
 
 #include "kernel/drivers/tty/console_tty.hpp"
 
+#include "kernel/arch/x86_64/user_access.hpp"  // copy_to/from_user (console_tty_ioctl)
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/proc/process.hpp"  // Task::pgid
 #include "kernel/proc/scheduler.hpp"
@@ -113,6 +114,67 @@ int ConsoleTty::foreground_pgid() const {
 
 void ConsoleTty::set_foreground_pgid(int pgid) {
     foreground_pgid_ = pgid;
+}
+
+cinux::lib::ErrorOr<int64_t> console_tty_ioctl(uint32_t request, uint64_t arg) {
+    void*       uptr = reinterpret_cast<void*>(arg);
+    ConsoleTty& ct   = console_tty();
+    switch (request) {
+    case kTcgets: {
+        const Termios& tm = ct.tty().termios();
+        if (!cinux::user::copy_to_user(uptr, &tm, sizeof(Termios))) {
+            return cinux::lib::Error::Fault;  // EFAULT: bad user pointer
+        }
+        return 0;
+    }
+    case kTcsets: {
+        Termios tm;
+        if (!cinux::user::copy_from_user(&tm, uptr, sizeof(Termios))) {
+            return cinux::lib::Error::Fault;
+        }
+        ct.tty().set_termios(tm);
+        return 0;
+    }
+    case kTiocgwinsz: {
+        // Console geometry: the live framebuffer Console is not globally
+        // reachable from here; 80x25 is the classic Linux text-mode default and
+        // all libc needs to pick a buffering mode + wrap width.
+        constexpr Winsize kConsoleWinsize{25, 80, 0, 0};
+        if (!cinux::user::copy_to_user(uptr, &kConsoleWinsize, sizeof(Winsize))) {
+            return cinux::lib::Error::Fault;
+        }
+        return 0;
+    }
+    case kTiocgpgrp: {
+        int pgid = ct.foreground_pgid();
+        if (!cinux::user::copy_to_user(uptr, &pgid, sizeof(int))) {
+            return cinux::lib::Error::Fault;
+        }
+        return 0;
+    }
+    case kTiocspgrp: {
+        int pgid;
+        if (!cinux::user::copy_from_user(&pgid, uptr, sizeof(int))) {
+            return cinux::lib::Error::Fault;
+        }
+        if (pgid < 0) {
+            return cinux::lib::Error::InvalidArgument;  // EINVAL
+        }
+        ct.set_foreground_pgid(pgid);
+        return 0;
+    }
+    case kTiocsctty: {
+        // B3b: acquire the system console as the controlling terminal.  Minimal
+        // accept-without-steal semantics (a B3b follow-up item): busybox init
+        // calls this once right after setsid(), and the spawned ash needs to
+        // own /dev/console for input.  The full session-leader / steal
+        // enforcement PTY does (pty_device.cpp) is deferred -- /dev/console is
+        // not a PTY and does not route through task->controlling_tty.
+        return 0;
+    }
+    default:
+        return cinux::lib::Error::NotImplemented;  // -> -ENOTTY
+    }
 }
 
 }  // namespace cinux::drivers

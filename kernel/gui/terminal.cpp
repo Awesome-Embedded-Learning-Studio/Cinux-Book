@@ -346,79 +346,8 @@ void Terminal::tab() {
     }
 }
 
-// ============================================================
-// ANSI escape sequence handling
-// ============================================================
-
-bool Terminal::is_escape(char ch) {
-    return ch == '\033';
-}
-
-void Terminal::handle_ansi(const char* str, uint64_t len, uint64_t& pos) {
-    // Expect ESC followed by '[' (CSI sequence)
-    if (pos + 1 >= len || str[pos + 1] != '[') {
-        // Not a CSI sequence, skip the ESC character
-        pos++;
-        return;
-    }
-
-    // Skip ESC and '['
-    pos += 2;
-
-    // Collect parameter bytes (digits and semicolons)
-    // and the final byte (letter)
-    uint32_t param = 0;
-
-    while (pos < len) {
-        char ch = str[pos];
-
-        if (ch >= '0' && ch <= '9') {
-            // Build numeric parameter
-            param = param * 10 + static_cast<uint32_t>(ch - '0');
-            pos++;
-        } else if (ch == ';') {
-            // Skip separator
-            pos++;
-        } else if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')) {
-            // Final byte -- dispatch
-            pos++;
-
-            switch (ch) {
-            case 'J':
-                // ESC[J or ESC[2J: clear screen
-                if (param == 2) {
-                    clear();
-                }
-                return;
-
-            case 'H':
-                // ESC[H: cursor home (row 1, col 1 in ANSI -> row 0, col 0 here)
-                cursor_x_ = 0;
-                cursor_y_ = 0;
-                return;
-
-            case 'K':
-                // ESC[K: clear from cursor to end of line
-                for (uint32_t c = cursor_x_; c < COLS; c++) {
-                    screen_[cursor_y_][c] = TerminalCell{};
-                }
-                return;
-
-            case 'm':
-                // ESC[m: SGR (Select Graphic Rendition)
-                // For now, just ignore (no colour support in basic terminal)
-                return;
-
-            default:
-                // Unknown sequence, stop parsing
-                return;
-            }
-        } else {
-            // Unexpected character, stop parsing
-            return;
-        }
-    }
-}
+// ANSI escape handling (is_escape / handle_ansi) lives in terminal_ansi.cpp --
+// split off to keep this TU under the 500-line CI line-limit.
 
 // ============================================================
 // Font / rendering

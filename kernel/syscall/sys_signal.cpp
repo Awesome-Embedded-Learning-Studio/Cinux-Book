@@ -26,6 +26,7 @@
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/signal.hpp"
+#include "kernel/proc/sync.hpp"  // B3b: InterruptGuard (rt_sigtimedwait atomic park)
 
 namespace cinux::syscall {
 
@@ -214,6 +215,44 @@ int64_t sys_rt_sigprocmask(uint64_t how, uint64_t set, uint64_t oset, uint64_t, 
         }
     }
     return 0;
+}
+
+int64_t sys_rt_sigtimedwait(uint64_t set, uint64_t info, uint64_t /*timeout*/, uint64_t, uint64_t,
+                            uint64_t) {
+    Task* task = cinux::proc::Scheduler::current();
+    if (task == nullptr || set == 0) {
+        return -cinux::kEfault;
+    }
+    SigSet wait_set;
+    if (!cinux::user::get_user(&wait_set, reinterpret_cast<const SigSet*>(set))) {
+        return -cinux::kEfault;
+    }
+
+    // B3b: busybox init's main loop polls SIGCHLD here.  Return -EAGAIN when no
+    // matching signal is pending -- init treats it as a timeout and loops to
+    // check respawn actions (fork /bin/sh) and reap children.  busybox init
+    // drives respawn from sigtimedwait's return, so a pure block (that only a
+    // signal can wake) deadlocks when no child has been forked yet.  The
+    // round-robin scheduler's timeslice keeps this loop from starving sh.  The
+    // opt-in Task::sigwait_blocked wake in signal_send() stays wired for a
+    // future blocking+timeout variant.
+    cinux::proc::InterruptGuard guard;
+    (void)guard;
+    SigSet avail = task->sig_pending & wait_set;
+    if (avail != 0) {
+        for (int n = 1; n <= cinux::proc::kSignalMax; ++n) {
+            if (avail & (SigSet{1} << n)) {
+                task->sig_pending &= ~(SigSet{1} << n);
+                if (info != 0) {
+                    // siginfo_t (~128B) zeroed -- busybox init ignores it.
+                    uint64_t zero[16] = {};
+                    cinux::user::copy_to_user(reinterpret_cast<void*>(info), zero, sizeof(zero));
+                }
+                return n;
+            }
+        }
+    }
+    return -cinux::kEagain;
 }
 
 }  // namespace cinux::syscall

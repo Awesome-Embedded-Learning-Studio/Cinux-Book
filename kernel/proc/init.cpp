@@ -29,7 +29,23 @@ namespace cinux::proc {
 
 void kernel_init_thread() {
     auto* self = Scheduler::current();
-    cinux::lib::kprintf("[INIT] kernel_init started tid=%lu\n", self ? self->tid : 0);
+
+    // B3b (GCC self-host): this kthread becomes PID 1, the real init -- the
+    // Linux kernel_init model.  TaskBuilder leaves kernel threads at pid=0
+    // (they never touch g_pid_alloc), and no fork() precedes this point in
+    // boot, so the first alloc() returns 1.  execve preserves pid, so busybox
+    // init -- execved below -- inherits PID1 and reaps orphaned children: the
+    // hard prerequisite for the cc1/as/ld fork chains that B4 GCC runs.  (The
+    // old handoff's "reorder start_poll_driver" note was a misread: net_poll is
+    // also pid=0; only fork() draws from g_pid_alloc.)
+    if (self != nullptr) {
+        self->pid          = g_pid_alloc.alloc();
+        self->tgid         = self->pid;
+        self->group_leader = self;
+    }
+
+    cinux::lib::kprintf("[INIT] kernel_init started tid=%lu pid=%d\n", self ? self->tid : 0,
+                        self ? self->pid : 0);
 
     cinux::lib::kprintf("[INIT] ===== Milestone 028: ext2 Filesystem =====\n");
     static auto blk_dev =
@@ -53,19 +69,24 @@ void kernel_init_thread() {
     // /proc/<pid>/{stat,cmdline} pseudo-files (F6-M2).
     cinux::fs::procfs::init();
 
+    // B3b: arm USB input (xHCI + HID boot mouse + keyboard) BEFORE
+    // launch_userspace -- the non-GUI launch_userspace execves /sbin/init and
+    // never returns, so anything placed after it never runs.  Interrupt-driven
+    // once armed; graceful no-op if no xHCI controller is present or USB is
+    // compiled out (usb_stub.cpp is linked).  (The GUI build's desktop_launch
+    // spawns a separate gui_worker, so USB ordering there is unchanged.)
+    cinux::drivers::usb::init();
+
     // Bring up userspace.  GUI build: desktop + gui_worker thread
-    // (kernel/gui/desktop_launch.cpp).  Non-GUI build: fork + exec /bin/sh
-    // (kernel/proc/shell_launch.cpp).  §14: one interface, two impl files,
+    // (kernel/gui/desktop_launch.cpp).  Non-GUI build: execve /sbin/init as
+    // PID1 (kernel/proc/shell_launch.cpp) -- busybox init, which forks /
+    // respawns /bin/sh per /etc/inittab.  §14: one interface, two impl files,
     // CMake selects which to link -- no #ifdef here.
     launch_userspace();
 
-    // Bring up USB input (xHCI + HID boot mouse + keyboard).  Runs AFTER the
-    // GUI/shell is up so its synchronous enumeration does not delay the desktop
-    // (gui_worker is an independent thread that keeps rendering).  Interrupt-
-    // driven once armed.  Graceful no-op if no xHCI controller is present, or
-    // if USB is compiled out (usb_stub.cpp is linked).
-    cinux::drivers::usb::init();
-
+    // Unreachable in the non-GUI build: launch_userspace jumps to user mode
+    // (busybox init).  Kept as a safety net for any future launch_userspace
+    // variant that returns.
     Scheduler::exit_current();
 }
 

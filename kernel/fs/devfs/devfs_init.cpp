@@ -17,7 +17,8 @@
 #include <stdint.h>
 
 #include "kernel/drivers/serial/serial.hpp"
-#include "kernel/drivers/tty/pty_device.hpp"  // /dev/ptmx clone + /dev/pts/N
+#include "kernel/drivers/tty/console_tty.hpp"  // console_tty + console_tty_ioctl (B3b)
+#include "kernel/drivers/tty/pty_device.hpp"   // /dev/ptmx clone + /dev/pts/N
 #include "kernel/fs/devfs/devfs.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/ipc/fifo.hpp"  // named FIFO dynamic lookup (F8-M2)
@@ -52,10 +53,36 @@ private:
     cinux::drivers::Serial serial_{cinux::drivers::SERIAL_COM1};
 };
 
-// Boot-owned DevFs + console sink.  Static locals live for the whole kernel
-// run; the VFS mount table holds the DevFs pointer for the process lifetime.
+/**
+ * @brief ConsoleInput backend wiring /dev/console read+ioctl to the system
+ * console TTY (B3b busybox-init).
+ *
+ * read() blocks on the console TTY's cooked line (a KERNEL buffer -- sys_read
+ * hands InodeOps::read a kernel staging buffer, never the user pointer, so the
+ * block is AC=0 safe with no sti/hlt in the syscall).  ioctl() delegates to the
+ * shared console_tty_ioctl (TCGETS/TCSETS/TIOCGWINSZ/TIOCGPGRP/TIOCSPGRP/
+ * TIOCSCTTY) -- the same handler sys_ioctl's fd 0/1/2 fallback uses.
+ */
+class ConsoleTtyInput : public ConsoleInput {
+public:
+    cinux::lib::ErrorOr<int64_t> read(void* buf, uint64_t count) override {
+        if (buf == nullptr && count > 0) {
+            return cinux::lib::Error::InvalidArgument;
+        }
+        return static_cast<int64_t>(
+            cinux::drivers::console_tty().read(static_cast<char*>(buf), count));
+    }
+    cinux::lib::ErrorOr<int64_t> ioctl(uint32_t request, uint64_t arg) override {
+        return cinux::drivers::console_tty_ioctl(request, arg);
+    }
+};
+
+// Boot-owned DevFs + console sink + console input.  Static locals live for the
+// whole kernel run; the VFS mount table holds the DevFs pointer for the process
+// lifetime.
 SerialConsoleSink g_devfs_sink;
-DevFs             g_devfs{&g_devfs_sink};
+ConsoleTtyInput   g_devfs_input;
+DevFs             g_devfs{&g_devfs_sink, &g_devfs_input};
 
 // Resolve a dynamic /dev name the fixed DevFs node table cannot hold:
 //   - a named FIFO (mkfifo-registered) -> its stable FIFO inode (F8-M2)

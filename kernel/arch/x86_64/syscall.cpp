@@ -31,6 +31,7 @@
 #include "kernel/syscall/sys_exit.hpp"
 #include "kernel/syscall/sys_fcntl.hpp"  // F-ECO batch 4
 #include "kernel/syscall/sys_fork.hpp"
+#include "kernel/syscall/sys_reboot.hpp"  // B3b: busybox init
 #include "kernel/syscall/sys_futex.hpp"
 #include "kernel/syscall/sys_getcwd.hpp"
 #include "kernel/syscall/sys_getdents.hpp"
@@ -132,6 +133,7 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_getpid, sys_getpid);
     syscall_register(SyscallNr::SYS_getppid, sys_getppid);
     syscall_register(SyscallNr::SYS_fork, sys_fork);
+    syscall_register(SyscallNr::SYS_vfork, sys_vfork);  // B3b: busybox init respawn
     syscall_register(SyscallNr::SYS_clone, sys_clone);
     syscall_register(SyscallNr::SYS_execve, sys_execve);
     syscall_register(SyscallNr::SYS_waitpid, sys_waitpid);
@@ -143,6 +145,8 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_kill, sys_kill);
     syscall_register(SyscallNr::SYS_rt_sigaction, sys_rt_sigaction);
     syscall_register(SyscallNr::SYS_rt_sigprocmask, sys_rt_sigprocmask);
+    syscall_register(SyscallNr::SYS_rt_sigtimedwait, sys_rt_sigtimedwait);  // B3b
+    syscall_register(SyscallNr::SYS_reboot, sys_reboot);                    // B3b
     syscall_register(SyscallNr::SYS_futex, sys_futex);
     syscall_register(SyscallNr::SYS_setpgid, sys_setpgid);
     syscall_register(SyscallNr::SYS_setsid, sys_setsid);

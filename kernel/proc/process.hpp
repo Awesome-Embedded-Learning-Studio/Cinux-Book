@@ -318,6 +318,13 @@ struct Task {
      *  cannot free its own kernel stack (it runs on it); it is enqueued here
      *  and freed by the next task's schedule() entry (reap_deferred). */
     Task* deferred_next{nullptr};
+
+    /** B3b (busybox init): true while this task is blocked in rt_sigtimedwait
+     *  waiting for a signal in its wait set.  signal_send() checks it to wake
+     *  the sleeper the moment a matching signal lands -- a precise, opt-in wake
+     *  (futex/waitpid Blocked waits stay non-interruptible until the broader
+     *  "interruptible sleep" TODO at signal_send lands).  After fpu_state. */
+    bool sigwait_blocked{false};
 };
 
 // F4-followup (SMP migration race): context_switch.S writes from->on_cpu = -1

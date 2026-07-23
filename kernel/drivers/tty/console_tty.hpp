@@ -11,6 +11,11 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+
+#include <cinux/expected.hpp>  // ErrorOr (console_tty_ioctl return)
+
 #include "kernel/drivers/tty/tty.hpp"
 
 namespace cinux::proc {
@@ -58,5 +63,21 @@ private:
 
 /// The system console TTY singleton.  Valid after ConsoleTty::init().
 ConsoleTty& console_tty();
+
+/// Shared terminal-ioctl handler for the system console TTY (B3b busybox-init).
+/// One implementation of TCGETS / TCSETS / TIOCGWINSZ / TIOCGPGRP / TIOCSPGRP /
+/// TIOCSCTTY consumed by BOTH callers that reach the console TTY:
+///   - sys_ioctl's legacy fd 0/1/2 fallback (no File installed), and
+///   - the /dev/console inode (devfs ConsoleDevOps::ioctl, after busybox init
+///     open("/dev/console") + dup 0/1/2).
+/// @p arg is the opaque USER payload; every crossing goes through
+/// copy_to/from_user (SMAP/extable-safe).  Returns ErrorOr<int64_t>: success
+/// -> 0; NotImplemented -> the caller maps to -ENOTTY (unknown request);
+/// Fault -> -EFAULT (bad user pointer, extable fixup); InvalidArgument ->
+/// -EINVAL (bad arg, e.g. negative pgid).  TIOCSCTTY uses minimal
+/// accept-without-steal semantics (a B3b follow-up item): busybox init calls it
+/// once after setsid() and the spawned ash needs it to read through
+/// /dev/console.
+cinux::lib::ErrorOr<int64_t> console_tty_ioctl(uint32_t request, uint64_t arg);
 
 }  // namespace cinux::drivers

@@ -46,6 +46,14 @@ int64_t sys_rt_sigaction(uint64_t sig, uint64_t act, uint64_t oact, uint64_t, ui
 /// SIG_BLOCK(0) / SIG_UNBLOCK(1) / SIG_SETMASK(2).
 int64_t sys_rt_sigprocmask(uint64_t how, uint64_t set, uint64_t oset, uint64_t, uint64_t, uint64_t);
 
+/// Wait for a signal in @p set (Linux syscall 128, B3b).  Blocks until one of
+/// the signals in the user sigset is pending, then dequeues it and returns the
+/// signo.  @p info (optional) is zeroed (siginfo_t detail deferred).  @p timeout
+/// is accepted but ignored (block until a signal lands) -- busybox init's
+/// respawn loop only needs to wake on SIGCHLD.
+int64_t sys_rt_sigtimedwait(uint64_t set, uint64_t info, uint64_t timeout, uint64_t, uint64_t,
+                            uint64_t);
+
 /// P0d (SMAP): pure kernel-to-kernel signal logic (no user memory). Tests and
 /// kernel-internal callers use these; sys_* are the user boundaries.
 int64_t do_kill_kernel(cinux::proc::Task* cur, int32_t pid, int sig);

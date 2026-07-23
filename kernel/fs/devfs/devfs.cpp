@@ -92,12 +92,27 @@ public:
 
 class ConsoleDevOps : public InodeOps {
 public:
-    explicit ConsoleDevOps(CharSink* sink) : sink_(sink) {}
+    explicit ConsoleDevOps(CharSink* sink, ConsoleInput* input)
+        : sink_(sink), input_(input) {}
 
-    cinux::lib::ErrorOr<int64_t> read(const Inode*, uint64_t, void*, uint64_t) override {
-        // Console is output-only this milestone; stdin arrives via the TTY
-        // (F10-M3 Phase 2).  Reading /dev/console is unsupported for now.
-        return cinux::lib::Error::InvalidArgument;
+    cinux::lib::ErrorOr<int64_t> read(const Inode*, uint64_t, void* buf, uint64_t count) override {
+        // B3b: route /dev/console reads through the injected console backend
+        // (busybox init's ash reads command lines this way).  No backend (host
+        // tests / pre-boot) -> NotImplemented, preserving the prior
+        // "output-only" behaviour for unit tests.
+        if (input_ == nullptr) {
+            return cinux::lib::Error::NotImplemented;
+        }
+        return input_->read(buf, count);
+    }
+    cinux::lib::ErrorOr<int64_t> ioctl(const Inode*, uint32_t request, uint64_t arg) override {
+        // B3b: terminal ioctls (TCGETS / TIOCSCTTY / ...) reach the console TTY
+        // via the injected backend.  No backend -> NotImplemented -> sys_ioctl
+        // maps to -ENOTTY.
+        if (input_ == nullptr) {
+            return cinux::lib::Error::NotImplemented;
+        }
+        return input_->ioctl(request, arg);
     }
     cinux::lib::ErrorOr<int64_t> write(Inode*, uint64_t, const void* buf, uint64_t count) override {
         if (buf == nullptr) {
@@ -117,7 +132,8 @@ public:
     }
 
 private:
-    CharSink* sink_;  ///< Output sink; null => writes discard.
+    CharSink*     sink_;   ///< Output sink; null => writes discard.
+    ConsoleInput* input_;  ///< Read+ioctl backend (B3b); null => NotImplemented.
 };
 
 // ============================================================
@@ -187,7 +203,8 @@ cinux::lib::ErrorOr<int64_t> DevDirOps::readdir(const Inode* inode, uint64_t ind
 // DevFs
 // ============================================================
 
-DevFs::DevFs(CharSink* console_sink) : console_sink_(console_sink) {}
+DevFs::DevFs(CharSink* console_sink, ConsoleInput* console_input)
+    : console_sink_(console_sink), console_input_(console_input) {}
 
 DevFs::~DevFs() {
     // ops_ are nullptr before mount() or already freed; deleting nullptr is safe.
@@ -209,7 +226,7 @@ cinux::lib::ErrorOr<void> DevFs::mount() {
     // lookup result (Inode::ops points at them) and are freed in ~DevFs.
     null_ops_    = new NullDevOps();
     zero_ops_    = new ZeroDevOps();
-    console_ops_ = new ConsoleDevOps(console_sink_);
+    console_ops_ = new ConsoleDevOps(console_sink_, console_input_);
     dir_ops_     = new DevDirOps();
 
     register_node("null", null_ops_);

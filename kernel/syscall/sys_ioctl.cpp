@@ -28,25 +28,12 @@
 
 #include <cinux/expected.hpp>  // cinux::lib::Error (NotImplemented -> ENOTTY mapping)
 
-#include "kernel/arch/x86_64/user_access.hpp"  // copy_to/from_user (SMAP/extable)
-#include "kernel/drivers/tty/console_tty.hpp"  // console_tty() singleton
-#include "kernel/drivers/tty/tty.hpp"          // Termios/Winsize/ioctl UAPI consts
+#include "kernel/drivers/tty/console_tty.hpp"  // console_tty_ioctl (shared handler)
 #include "kernel/errno.hpp"
 #include "kernel/fs/file.hpp"       // FDTable / File (fd -> inode)
 #include "kernel/fs/vfs_mount.hpp"  // current_fd_table()
 
 namespace cinux::syscall {
-
-using cinux::drivers::Termios;
-using cinux::drivers::Winsize;
-using cinux::drivers::console_tty;
-using cinux::drivers::kTcgets;
-using cinux::drivers::kTcsets;
-using cinux::drivers::kTiocgwinsz;
-using cinux::drivers::kTiocgpgrp;
-using cinux::drivers::kTiocspgrp;
-using cinux::user::copy_from_user;
-using cinux::user::copy_to_user;
 
 namespace {
 // Legacy boot/test fds 0/1/2 can still back onto the system console TTY when no
@@ -56,67 +43,24 @@ bool is_console_tty_fd(uint64_t fd) {
     return fd <= 2;
 }
 
-// Console geometry. The live Console (a main.cpp local that knows the
-// framebuffer-derived cols/rows) is not globally reachable from the syscall
-// layer; 80x25 is the classic Linux text-mode default and is all libc needs to
-// choose a buffering mode + wrap width. Surfacing the real geometry is a
-// follow-up.
-constexpr Winsize kConsoleWinsize{25, 80, 0, 0};
-
-// Terminal ioctls on the console TTY (fds 0/1/2). Returns the raw value the
-// syscall hands back to user space: 0 on success, -errno on failure. Extracted
-// unchanged from the old monolithic sys_ioctl so the fd>2 dispatch path could
-// be added without touching console behaviour.
+// Terminal ioctls on the console TTY (fds 0/1/2 legacy fallback).  B3b: the
+// per-request logic now lives in console_tty_ioctl (shared with the /dev/console
+// inode), so this fallback is just the ErrorOr -> -errno adapter.  Returns the
+// raw value the syscall hands back to user space: 0 on success, -errno on
+// failure.
 int64_t console_ioctl(uint32_t request, void* uptr) {
-    switch (request) {
-    case kTcgets: {
-        // Hand the caller the console TTY's current termios.
-        const Termios& tm = console_tty().tty().termios();
-        if (!copy_to_user(uptr, &tm, sizeof(Termios))) {
-            return -cinux::kEfault;
-        }
-        return 0;
+    // B3b: the per-request logic lives in console_tty_ioctl (shared with the
+    // /dev/console inode).  Map its ErrorOr back into the -errno convention:
+    // NotImplemented -> -ENOTTY (unknown request); everything else goes through
+    // to_errno (Fault -> EFAULT, InvalidArgument -> EINVAL).
+    auto r = cinux::drivers::console_tty_ioctl(request, reinterpret_cast<uint64_t>(uptr));
+    if (r.ok()) {
+        return *r;
     }
-    case kTcsets: {
-        // Adopt a caller-supplied termios; set_termios discards the line
-        // being edited (matches Linux: a termios change invalidates it).
-        Termios tm;
-        if (!copy_from_user(&tm, uptr, sizeof(Termios))) {
-            return -cinux::kEfault;
-        }
-        console_tty().tty().set_termios(tm);
-        return 0;
-    }
-    case kTiocgwinsz: {
-        if (!copy_to_user(uptr, &kConsoleWinsize, sizeof(Winsize))) {
-            return -cinux::kEfault;
-        }
-        return 0;
-    }
-    case kTiocgpgrp: {
-        // Read the console TTY's foreground process group.
-        int pgid = console_tty().foreground_pgid();
-        if (!copy_to_user(uptr, &pgid, sizeof(int))) {
-            return -cinux::kEfault;
-        }
-        return 0;
-    }
-    case kTiocspgrp: {
-        // Install a caller-supplied foreground process group.
-        int pgid;
-        if (!copy_from_user(&pgid, uptr, sizeof(int))) {
-            return -cinux::kEfault;
-        }
-        if (pgid < 0) {
-            return -cinux::kEinval;
-        }
-        console_tty().set_foreground_pgid(pgid);
-        return 0;
-    }
-    default:
-        // Unknown request -- not a terminal ioctl this driver handles.
+    if (r.error() == cinux::lib::Error::NotImplemented) {
         return -cinux::kEnotty;
     }
+    return -cinux::to_errno(r.error());
 }
 }  // namespace
 
