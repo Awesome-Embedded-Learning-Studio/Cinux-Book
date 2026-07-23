@@ -51,11 +51,20 @@ add_custom_command(
 # ext2 filesystem disk image (4 MB, mounted at AHCI port 1)
 set(EXT2_IMAGE "${CMAKE_BINARY_DIR}/ext2.img")
 set(USER_SHELL_ELF "${CMAKE_BINARY_DIR}/user/shell")
+# F10-M1 batch 6: musl static hello at /hello when present (built by
+# tools/musl/build-musl.sh + build-hello.sh; not a CMake target, so not a hard
+# dependency — the script includes it iff the file exists, and the ring-3 smoke
+# test skips when /hello is absent).
+set(MUSL_HELLO_ELF "${CMAKE_BINARY_DIR}/musl/hello")
+# F-VERIFY M5-2: musl static SMP CoW-race reproducer at /forktest when present
+# (built by tools/musl/build-forktest.sh; same conditional-include pattern as
+# /hello).  The ring-3 smoke execve's it under -smp 2 to gate the F10 CoW fixes.
+set(MUSL_FORKTEST_ELF "${CMAKE_BINARY_DIR}/musl/forktest")
 add_custom_command(
     OUTPUT ${EXT2_IMAGE}
-    COMMAND ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh ${EXT2_IMAGE} ${USER_SHELL_ELF}
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh ${EXT2_IMAGE} ${USER_SHELL_ELF} ${MUSL_HELLO_ELF} ${MUSL_FORKTEST_ELF}
     DEPENDS ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh user_shell
-    COMMENT "Creating ext2 filesystem image with /bin/sh"
+    COMMENT "Creating ext2 filesystem image with /bin/sh (+ /hello, /forktest if musl built)"
     VERBATIM
 )
 
@@ -280,7 +289,7 @@ add_custom_target(run-stress-test
 # 每次 run-kernel-test 前强制重建 ext2.img，确保磁盘状态干净
 add_custom_target(regenerate-ext2-image
     COMMAND ${CMAKE_COMMAND} -E remove -f ${EXT2_IMAGE}
-    COMMAND ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh ${EXT2_IMAGE} ${USER_SHELL_ELF}
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh ${EXT2_IMAGE} ${USER_SHELL_ELF} ${MUSL_HELLO_ELF} ${MUSL_FORKTEST_ELF}
     DEPENDS ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh user_shell
     COMMENT "Regenerating ext2 disk image for clean test state"
     VERBATIM
@@ -335,6 +344,25 @@ add_custom_target(run-kernel-test-smp
     DEPENDS test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
     USES_TERMINAL
     COMMENT "Starting QEMU with TEST kernel + 2 CPUs (auto-exit)"
+    VERBATIM
+)
+
+# F-VERIFY: 统一入口 -- 一条命令顺序跑 单核 → -smp 2 两套内核测试。
+# 目的:AI/CI 验证时"一个指令全跑",消除"忘跑 -smp 变体"的流程盲区(47/47
+# SMP 空转就是没人跑 -smp 的流程漏洞,不只是代码漏洞)。两条 COMMAND 顺序执行
+# (不用 DEPENDS,免得 -j 并发两个 QEMU 抢同一 ext2/serial)。run-kernel-test /
+# run-kernel-test-smp 保留为单独入口供聚焦调试。改单/双核 flag 时三处同步。
+add_custom_target(run-kernel-test-all
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/qemu_test_wrapper.sh
+        ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} ${QEMU_TEST_EXTRA_FLAGS}
+        -device e1000,netdev=net0 -netdev user,id=net0
+        -drive file=${CINUX_TEST_IMAGE_PATH},format=raw,index=0,media=disk
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/qemu_test_wrapper.sh
+        ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} -smp 2 ${QEMU_TEST_EXTRA_FLAGS}
+        -drive file=${CINUX_TEST_IMAGE_PATH},format=raw,index=0,media=disk
+    DEPENDS test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
+    USES_TERMINAL
+    COMMENT "F-VERIFY: kernel tests under single-CPU THEN -smp 2 (unified AI/CI entry; individuals kept for debug)"
     VERBATIM
 )
 

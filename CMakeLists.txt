@@ -19,6 +19,11 @@ option(CINUX_LOCKDEP "Enable lockdep schedule-while-locked debug checks" OFF)
 # default; enable for UB hunting: cmake -DCINUX_UBSAN=ON ...
 option(CINUX_UBSAN "Enable -fsanitize=undefined with freestanding UBSan stubs" OFF)
 
+# F10-M1 batch 6: opt-in musl /hello ring-3 smoke in the kernel test harness.
+# Requires the musl sysroot + /hello on the ext2 image (tools/musl/build-musl.sh
+# + build-hello.sh, then regenerate-ext2-image). Off by default (CI-safe).
+option(CINUX_MUSL_HELLO_SMOKE "Enable musl /hello ring-3 smoke in run-kernel-test" OFF)
+
 # Toolchain version gate (G2). CinuxOS is freestanding C++17 with -mcmodel=kernel
 # codegen, inline asm, and (F-INFRA) GCC-sensitive UBSAN (-fsanitize=undefined) and
 # strict warning flags whose behavior varies across major GCC releases. Fail fast at
