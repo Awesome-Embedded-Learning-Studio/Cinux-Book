@@ -7,26 +7,55 @@
 
 #include <cinux/string_view.hpp>
 
+#include "kernel/arch/x86_64/user_access.hpp"  // P0g (SMAP): access_ok / get_user
 #include "kernel/lib/string.hpp"
 #include "kernel/proc/scheduler.hpp"
 
 namespace cinux::syscall {
 
-bool resolve_user_path(uint64_t path_virt, char* out) {
-    if (!validate_user_ptr(path_virt)) {
+bool read_user_path(uint64_t path_virt, char* out, size_t cap) {
+    // access_ok rejects NULL, non-user addresses, and wraparound up front.
+    if (!cinux::user::access_ok(reinterpret_cast<const void*>(path_virt), 1)) {
         return false;
     }
+    // Copy the user string byte-by-byte through the SMAP accessor (get_user
+    // raises AC only for the 1-byte read window). Stop at NUL or at cap-1.
+    size_t len = 0;
+    while (len + 1 < cap) {
+        char c;
+        if (!cinux::user::get_user(&c, reinterpret_cast<const char*>(path_virt + len))) {
+            return false;
+        }
+        if (c == '\0') {
+            break;
+        }
+        out[len++] = c;
+    }
+    // Verify the string actually ended within cap (no NUL => too long).
+    char term = 0;
+    if (!cinux::user::get_user(&term, reinterpret_cast<const char*>(path_virt + len))) {
+        return false;
+    }
+    if (term != '\0') {
+        return false;  // no NUL within cap
+    }
+    out[len] = '\0';
+    return len > 0;  // reject empty path (matches the old resolve_user_path)
+}
 
-    auto* path = reinterpret_cast<const char*>(path_virt);
-
-    if (path[0] == '\0') {
+bool resolve_user_path(uint64_t path_virt, char* out) {
+    // Stage the raw user path on the heap (PathBuf), not the kernel stack: a
+    // 4 KB char[PATH_MAX] plus the canonicaliser scratch overflowed the 16 KB
+    // kernel stack on the first path syscall (see kernel/fs/path.hpp PathBuf).
+    cinux::fs::PathBuf raw;
+    if (!read_user_path(path_virt, raw.data(), cinux::fs::PATH_MAX)) {
         return false;
     }
 
     cinux::proc::Task* current = cinux::proc::Scheduler::current();
     const char* cwd = (current != nullptr && current->cwd != nullptr) ? current->cwd->path : "/";
 
-    return cinux::fs::path_resolve(cwd, path, out);
+    return cinux::fs::path_resolve(cwd, raw.data(), out);
 }
 
 bool split_pathname(const char* path, char* parent_out,

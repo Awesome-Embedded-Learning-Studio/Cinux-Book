@@ -254,3 +254,24 @@ void operator delete(void* ptr, std::align_val_t) noexcept {
 void operator delete(void* ptr, unsigned long, std::align_val_t) noexcept {
     cinux::mm::kfree(ptr);
 }
+
+// ============================================================
+// libstdc++ Assertion Failure Handler (_GLIBCXX_ASSERTIONS)
+// ============================================================
+
+// GCC 16 libstdc++ compiles bounds checks into std::unique_ptr<T[]>::operator[]
+// (and other container accessors) even without -D_GLIBCXX_ASSERTIONS; on
+// violation it calls std::__glibcxx_assert_fail. A freestanding kernel links no
+// libstdc++, so we provide the symbol and route the failure to kpanic -- the
+// same pattern as __assert_fail / __stack_chk_fail. This lets the kernel use
+// modern C++ (std::unique_ptr, std::array bounds checks, etc.) without shunning
+// it: a violated assertion is a real bug, so we halt loudly rather than UB.
+namespace std {
+[[noreturn]] void __glibcxx_assert_fail(const char* file, int line, const char* function,
+                                        const char* condition) noexcept {
+    cinux::lib::kpanic("libstdc++ assertion failed: %s (%s:%d: %s)\n",
+                       condition != nullptr ? condition : "(null)",
+                       file != nullptr ? file : "(null)", line,
+                       function != nullptr ? function : "(null)");
+}
+}  // namespace std

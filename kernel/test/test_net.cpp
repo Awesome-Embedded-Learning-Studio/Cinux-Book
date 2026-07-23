@@ -169,7 +169,16 @@ void test_production_ping() {
     E1000Controller::set_instance(&nic);  // mimic production drivers::net::init()
 
     cinux::net::init();  // builds the stack over the singleton + attaches
-    auto r = cinux::net::ping(cinux::net::kSlirpGateway, 0xBEEF, 1);
+    // The test kernel runs no net_poll kthread, so ping()'s production default
+    // (yield) would never drain RX. Use the legacy inline sti/hlt pump as the
+    // default here (safe: the test timer handler does not tick) -- this covers
+    // sys_ping too, which calls ping() with no pump argument.
+    cinux::net::set_default_rx_pump(cinux::net::rx_pump_sti_hlt);
+    // Drive RX with the legacy inline sti/hlt+poll pump: the test kernel's
+    // LAPIC-timer handler does not tick, so sti here is safe (it is the #DF
+    // hazard in production, where ping() instead yields + the net_poll kthread
+    // drains). Keeps this a REAL SLIRP round-trip, not a mock.
+    auto r = cinux::net::ping(cinux::net::kSlirpGateway, 0xBEEF, 1, cinux::net::rx_pump_sti_hlt);
     TEST_ASSERT_TRUE(r.ok());
     TEST_ASSERT_TRUE(r.value().got_reply);
     TEST_ASSERT_EQ(r.value().id, 0xBEEFu);

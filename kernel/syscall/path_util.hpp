@@ -39,10 +39,24 @@ inline bool validate_user_ptr(uint64_t ptr) {
 }
 
 /**
+ * @brief Read one NUL-terminated user path into a kernel buffer via the SMAP
+ *        accessor (get_user byte-by-byte; never raw-dereferences user memory).
+ *
+ * Rejects bad addresses (access_ok), empty strings, and strings that do not
+ * fit in @p cap. @p out is NUL-terminated on success.
+ *
+ * @param path_virt  User virtual address of the path string
+ * @param out        Kernel buffer (at least @p cap bytes)
+ * @param cap        Capacity of @p out (use cinux::fs::PATH_MAX)
+ * @return true on success, false on access failure / empty / too long
+ */
+bool read_user_path(uint64_t path_virt, char* out, size_t cap);
+
+/**
  * @brief Resolve a user-space path to an absolute kernel-side path
  *
- * Validates the user pointer, then resolves the path relative to
- * the current task's cwd.  The result is canonicalised.
+ * Reads the user path via read_user_path (SMAP accessor), then resolves it
+ * relative to the current task's cwd.  The result is canonicalised.
  *
  * @param path_virt  User virtual address of the path string
  * @param out        Output buffer (at least cinux::fs::PATH_MAX bytes)

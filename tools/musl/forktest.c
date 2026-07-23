@@ -115,7 +115,7 @@ int main(void) {
          * other CPU while we poll). */
         int  st = 0;
         long rr = 0;
-        for (int spins = 0; spins < 2'000'000; spins++) {
+        for (int spins = 0; spins < 2000000; spins++) {
             rr = sys_wait4((int)pid, &st, 1 /*WNOHANG*/);
             if (rr != 0)
                 break;

@@ -58,7 +58,7 @@ syscall_entry:
     # Step 1: SWAPGS -- activate kernel GS base, then STAC (F9 batch 4: SMAP --
     # allow user-memory access in the syscall handler; CLAC clears it before SYSRETQ).
     swapgs                              # kernel_gsbase↔user_gsbase: activate kernel GS
-    stac                                # set AC: handler may touch user memory
+    # stac  (P3: global STAC removed -- SMAP real; user mem only via accessor stac)
 
     # Step 2: Save user RSP to per-CPU scratch, load kernel stack
     movq %rsp, %gs:8                   # %rsp→%gs:8: save user RSP in scratch slot
@@ -168,3 +168,67 @@ syscall_entry:
     sysretq                            # return to Ring 3
 
 .size syscall_entry, . - syscall_entry
+
+# ============================================================
+# Function: ret_from_fork
+# Purpose: First-chance resume of a user fork()/clone() child
+# Input:   %rsp -> a 128-byte pt_regs frame (identical layout to the one
+#          syscall_entry builds) copied to the top of the child's CLEAN
+#          kernel stack.  Set by prepare_user_fork_context(): ctx.rsp =
+#          child->kernel_stack_top - 128, ctx.rip = ret_from_fork.
+# Output:  never returns -- SYSRETQs to Ring 3 with RAX=0 (child fork
+#          return value), user RIP/RSP/RFLAGS + callee-saved restored
+#          from the frame.
+#
+# This is the Linux-style fork child path: the child does NOT run on a
+# copy of the parent's kernel stack and does not unwind a copied RBP
+# chain.  It reads the user register state the parent's syscall captured
+# straight out of the frame and returns to user mode exactly like
+# syscall_entry's tail.
+#
+# Frame layout (must match syscall_entry -- see the block comment above):
+#   rsp+0:    user_rsp
+#   rsp+8:    user_rip
+#   rsp+16:   user_rflags
+#   rsp+80:   callee-saved r12
+#   rsp+88:   callee-saved r13
+#   rsp+96:   callee-saved r14
+#   rsp+104:  callee-saved r15
+#   rsp+112:  callee-saved rbx
+#   rsp+120:  callee-saved rbp
+#
+# GS state on entry: context_switch.S keeps the kernel GS (per-CPU) for
+# the whole of kernel mode (it does not swapgs), so like syscall_entry we
+# swapgs to the user GS before SYSRETQ.  Interrupts were enabled by
+# context_switch's trailing `sti`; we cli across swapgs->SYSRETQ for the
+# same SMP window-race reason as syscall_entry (an IRQ in the gap would
+# run a CPL=0 handler with the user GS / percpu()==NULL).
+# ============================================================
+.global ret_from_fork
+.type ret_from_fork, @function
+ret_from_fork:
+
+    # Restore the user callee-saved registers + SYSRETQ control regs from
+    # the frame.  %rsp (user_rsp at frame+0) is loaded LAST -- once %rsp
+    # leaves the kernel frame we can no longer address it.
+    movq 8(%rsp), %rcx                 # frame+8→%rcx: user RIP (SYSRETQ loads RIP from RCX)
+    movq 16(%rsp), %r11                # frame+16→%r11: user RFLAGS (SYSRETQ loads RFLAGS from R11)
+    movq 80(%rsp), %r12                # frame+80→%r12: user R12 (callee-saved)
+    movq 88(%rsp), %r13                # frame+88→%r13: user R13 (callee-saved)
+    movq 96(%rsp), %r14                # frame+96→%r14: user R14 (callee-saved)
+    movq 104(%rsp), %r15               # frame+104→%r15: user R15 (callee-saved)
+    movq 112(%rsp), %rbx               # frame+112→%rbx: user RBX (callee-saved)
+    movq 120(%rsp), %rbp               # frame+120→%rbp: user RBP (callee-saved)
+    movq 0(%rsp), %rsp                 # frame+0→%rsp: switch to the user stack
+
+    # Child sees fork()/clone() return 0.
+    xorq %rax, %rax                    # 0→%rax: child return value
+
+    # Mirror syscall_entry's SYSRETQ tail exactly (clac re-forbids user
+    # access; cli blocks IRQs across the swapgs->SYSRETQ window).
+    clac                               # clear AC before leaving kernel mode
+    cli                                # block IRQs across swapgs->SYSRETQ
+    swapgs                             # kernel_gsbase↔user_gsbase: activate user GS
+    sysretq                            # RCX→RIP, R11→RFLAGS -> return to Ring 3
+
+.size ret_from_fork, . - ret_from_fork

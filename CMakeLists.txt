@@ -19,10 +19,15 @@ option(CINUX_LOCKDEP "Enable lockdep schedule-while-locked debug checks" OFF)
 # default; enable for UB hunting: cmake -DCINUX_UBSAN=ON ...
 option(CINUX_UBSAN "Enable -fsanitize=undefined with freestanding UBSan stubs" OFF)
 
-# F10-M1 batch 6: opt-in musl /hello ring-3 smoke in the kernel test harness.
-# Requires the musl sysroot + /hello on the ext2 image (tools/musl/build-musl.sh
-# + build-hello.sh, then regenerate-ext2-image). Off by default (CI-safe).
-option(CINUX_MUSL_HELLO_SMOKE "Enable musl /hello ring-3 smoke in run-kernel-test" OFF)
+# F10-M1 batch 6 / P3: musl /hello ring-3 smoke in the kernel test harness.
+# ON by default -- this is the ONLY test that exercises real user-space
+# syscall paths under SMAP. run-kernel-test uses kernel addresses, so SMAP
+# never fires there (the F9 "4-batch 931/0 假绿" blind spot); only ring-3
+# smoke catches cleartid/futex/signal/path accessor regressions. Requires the
+# musl sysroot + /hello + /forktest on ext2: tools/musl/build-musl.sh +
+# build-hello.sh + build-forktest.sh (CI caches the sysroot; ~30s one-time
+# locally). Set -DCINUX_MUSL_HELLO_SMOKE=OFF to skip.
+option(CINUX_MUSL_HELLO_SMOKE "Enable musl /hello ring-3 smoke in run-kernel-test" ON)
 
 # Toolchain version gate (G2). CinuxOS is freestanding C++17 with -mcmodel=kernel
 # codegen, inline asm, and (F-INFRA) GCC-sensitive UBSAN (-fsanitize=undefined) and
@@ -77,6 +82,13 @@ add_subdirectory(user)
 # added BEFORE kernel/ so the cinux-gui target exists when the kernel links it.
 if(CINUX_GUI)
     add_subdirectory(third_party/Cinux-GUI)
+    # F13/PF-gate: cinux-gui is added BEFORE kernel/, so it does NOT inherit
+    # kernel/CMakeLists.txt's -mstack-protector-guard=global. Without this the
+    # core's canary reads fs:0x28 (TLS default), which faults in the kernel
+    # (no TLS canary slot); the legacy PF handler's zero-page demand-paging
+    # masked it (read 0, canary 0==0 false-OK), so pump() silently ran with a
+    # dead canary. Point the canary at the kernel's global __stack_chk_guard.
+    target_compile_options(cinux-gui PRIVATE -mstack-protector-guard=global)
 endif()
 add_subdirectory(kernel)
 

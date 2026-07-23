@@ -20,6 +20,22 @@
 
 namespace cinux::net {
 
+namespace {
+
+// Local RAII heap buffer (no <memory>): owns a new[]/delete[] byte slice so the
+// ~1504B IP TX buffer stays off the stack. new/delete route through the
+// freestanding crt_stub operator new / kmalloc, which the CI freestanding
+// header gate permits (unlike the hosted <memory> header).
+struct HeapBuf {
+    uint8_t* p;
+    explicit HeapBuf(size_t n) : p(new uint8_t[n]) {}
+    ~HeapBuf() { delete[] p; }
+    HeapBuf(const HeapBuf&)            = delete;
+    HeapBuf& operator=(const HeapBuf&) = delete;
+};
+
+}  // namespace
+
 void Ipv4Module::on_frame(const L2Info& /*l2*/, FrameView payload, NetDevice& dev,
                           NetStack& stack) {
     if (payload.size() < sizeof(Ipv4Header)) {
@@ -81,15 +97,18 @@ cinux::lib::ErrorOr<void> Ipv4Module::send(NetDevice& dev, Ipv4Addr dst, uint8_t
     ip.src        = cfg->local;
     ip.dst        = dst;
 
-    uint8_t buf[kBuf];
-    build_ipv4_header(ip, buf);  // checksum field still 0
+    // Heap-allocated: kBuf (1504B) > 1024B frame budget. Network path uses the
+    // heap (not a static buffer) so concurrent TX on SMP does not share storage.
+    HeapBuf buf(kBuf);
+    uint8_t* p = buf.p;
+    build_ipv4_header(ip, p);  // checksum field still 0
     for (uint32_t i = 0; i < len; ++i) {
-        buf[sizeof(Ipv4Header) + i] = l4[i];
+        p[sizeof(Ipv4Header) + i] = l4[i];
     }
     // Header checksum over the 20-byte header (checksum field zeroed).
-    const uint16_t cs = cinux::lib::internet_checksum(buf, sizeof(Ipv4Header));
-    buf[10]           = static_cast<uint8_t>(cs >> 8);
-    buf[11]           = static_cast<uint8_t>(cs & 0xFF);
+    const uint16_t cs = cinux::lib::internet_checksum(p, sizeof(Ipv4Header));
+    p[10]             = static_cast<uint8_t>(cs >> 8);
+    p[11]             = static_cast<uint8_t>(cs & 0xFF);
 
     // Next hop: Ethernet resolves dst via ARP (async); loopback skips L2.
     EthAddr next_hop{};
@@ -98,7 +117,7 @@ cinux::lib::ErrorOr<void> Ipv4Module::send(NetDevice& dev, Ipv4Addr dst, uint8_t
             return {};  // ARP request sent; IP packet deferred to the next poll
         }
     }
-    return stack.send_l3(dev, next_hop, kEtherTypeIpv4, buf, sizeof(Ipv4Header) + len);
+    return stack.send_l3(dev, next_hop, kEtherTypeIpv4, p, sizeof(Ipv4Header) + len);
 }
 
 }  // namespace cinux::net

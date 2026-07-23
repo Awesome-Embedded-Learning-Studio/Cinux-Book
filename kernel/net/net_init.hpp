@@ -10,10 +10,13 @@
  * net_stub.cpp covers a CINUX_NET=OFF build (§14 -- main.cpp's call site has no
  * #ifdef).
  *
- * ping() drives its OWN sti/hlt+poll loop for the duration of the echo, so no
- * persistent net thread is needed for "ping out" (the syscall is the poll
- * driver while it runs).  Passive RX (answering pings TO us) needs a resident
- * poll driver -- a follow-up, not this batch.
+ * RX is driven by a resident net_poll kernel thread (start_poll_driver()) that
+ * polls NetStack + sti/hlt's to keep QEMU's main loop running.  ping() drives
+ * an INJECTABLE pump: the production default yields (no sti/hlt inside the
+ * syscall -- sti mid-syscall re-enables the timer IRQ and corrupts the syscall
+ * trap frame -> #DF), while tests inject rx_pump_sti_hlt (or a mock).  This
+ * "driven method" seam is what lets the #DF-safe production path coexist with
+ * the test kernel's non-preemptive inline-sti/hlt RX driver.
  *
  * Namespace: cinux::net
  */
@@ -40,11 +43,34 @@ struct PingResult {
 ///        No-op (graceful) if no NIC is present.  Call once after drivers::net::init().
 void init();
 
-/// @brief Send one ICMP echo request to @p dst and poll (sti/hlt) until the
-///        reply lands or the budget is exhausted.  Drives NetStack::poll() for
-///        the duration -- the syscall that calls this is the poll driver.
+/// RX pump: drive net receive one step; return true once the ICMP reply has
+/// landed.  Inject a mock (or rx_pump_sti_hlt) for tests; production uses the
+/// default yield-pump (see ping()).
+using RxPump = bool (*)();
+
+/// @brief Send one ICMP echo request to @p dst and drive @p pump until the
+///        reply lands (drained by the net_poll kthread) or the budget is
+///        exhausted (-ETIMEDOUT).  @p pump defaults to the production
+///        yield-pump (NO sti/hlt inside the syscall -- the #DF hazard);
+///        tests pass rx_pump_sti_hlt or a mock.
 /// @return PingResult (got_reply set on success); Error::NotImplemented if the
 ///         stack is not up (no NIC / init() not called).
-cinux::lib::ErrorOr<PingResult> ping(Ipv4Addr dst, uint16_t id, uint16_t seq);
+cinux::lib::ErrorOr<PingResult> ping(Ipv4Addr dst, uint16_t id, uint16_t seq,
+                                     RxPump pump = nullptr);
+
+/// @brief Legacy inline RX pump (poll + sti/hlt) for tests exercising real
+///        SLIRP delivery.  Safe in the test kernel (its timer handler does not
+///        tick); NEVER call from a production syscall (sti there is the #DF).
+bool rx_pump_sti_hlt();
+
+/// @brief Spawn the background net RX poll-driver kernel thread.  Call ONCE
+///        after Scheduler::init(); a no-op if no NIC was found at init().
+void start_poll_driver();
+
+/// @brief Override the default RX pump used when ping() is called with no pump
+///        (e.g. via sys_ping).  Test kernels set this to rx_pump_sti_hlt (no
+///        net_poll kthread runs there); production leaves the yield default.
+///        Pass nullptr to restore the production default.
+void set_default_rx_pump(RxPump pump);
 
 }  // namespace cinux::net

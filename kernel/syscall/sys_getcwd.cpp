@@ -1,61 +1,62 @@
 /**
  * @file kernel/syscall/sys_getcwd.cpp
- * @brief sys_getcwd handler implementation
+ * @brief sys_getcwd handler (P0e SMAP-layered)
  *
- * Copies the current task's cwd into the user-supplied buffer.
+ * Layered: do_getcwd_kernel writes the cwd into a KERNEL buffer; sys_getcwd
+ * is the boundary that copy_to_user's it out. The old memcpy into the user
+ * buffer is gone.
  */
 
 #include "kernel/syscall/sys_getcwd.hpp"
 
 #include <stdint.h>
 
+#include "kernel/arch/x86_64/user_access.hpp"  // P0e (SMAP): copy_to_user
 #include "kernel/errno.hpp"
+#include "kernel/fs/path.hpp"  // PathBuf
 #include "kernel/lib/string.hpp"
 #include "kernel/proc/scheduler.hpp"
 
 namespace cinux::syscall {
 
-int64_t sys_getcwd(uint64_t buf_virt, uint64_t size, uint64_t, uint64_t, uint64_t, uint64_t) {
-    // Validate user pointer
-    if (buf_virt == 0) {
-        return -kEfault;
-    }
-    uint64_t bit47 = (buf_virt >> 47) & 1;
-    uint64_t upper = buf_virt >> 48;
-    if (bit47 == 0 && upper != 0) {
-        return -kEfault;
-    }
-    if (bit47 == 1 && upper != 0xFFFF) {
-        return -kEfault;
-    }
-
+int64_t do_getcwd_kernel(char* dst, uint32_t size) {
     if (size == 0) {
-        return -kEinval;
+        return -cinux::kEinval;
     }
-
-    // Step 1: Get current task
     cinux::proc::Task* current = cinux::proc::Scheduler::current();
     if (current == nullptr) {
-        return -kEsrch;
+        return -cinux::kEsrch;
     }
-
-    // Step 2: Compute cwd length (including NUL)
     const char* cwd_str = (current->cwd != nullptr) ? current->cwd->path : "";
     uint32_t    cwd_len = 0;
     while (cwd_str[cwd_len] != '\0') {
         ++cwd_len;
     }
     ++cwd_len;  // include NUL
-
     if (cwd_len > size) {
-        return -kErange;
+        return -cinux::kErange;
     }
-
-    // Step 3: Copy cwd to user buffer
-    auto* dst = reinterpret_cast<char*>(buf_virt);
     memcpy(dst, cwd_str, cwd_len);
-
     return static_cast<int64_t>(cwd_len);
+}
+
+int64_t sys_getcwd(uint64_t buf_virt, uint64_t size, uint64_t, uint64_t, uint64_t, uint64_t) {
+    if (!cinux::user::access_ok(reinterpret_cast<void*>(buf_virt), size)) {
+        return -cinux::kEfault;
+    }
+    // Stage into a kernel PATH_MAX buffer (cwd cannot exceed PATH_MAX).
+    cinux::fs::PathBuf kpath;
+    uint32_t           stage =
+        (size < cinux::fs::PATH_MAX) ? static_cast<uint32_t>(size) : cinux::fs::PATH_MAX;
+    int64_t n = do_getcwd_kernel(kpath.data(), stage);
+    if (n < 0) {
+        return n;
+    }
+    if (!cinux::user::copy_to_user(reinterpret_cast<void*>(buf_virt), kpath.data(),
+                                   static_cast<uint64_t>(n))) {
+        return -cinux::kEfault;
+    }
+    return n;
 }
 
 }  // namespace cinux::syscall

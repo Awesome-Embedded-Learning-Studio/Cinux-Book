@@ -30,7 +30,9 @@ void cinux::drivers::usb::set_xhci_irq_hook(XhciIrqHook hook) {
 }
 
 extern "C" void xhci_irq_handler(cinux::arch::InterruptFrame* /*frame*/) {
-    ++cinux::drivers::usb::g_xhci_irq_count;
+    // GCC 16 deprecated `++` on volatile-qualified types (-Wvolatile); do an
+    // explicit read+write instead. Same volatile access semantics.
+    cinux::drivers::usb::g_xhci_irq_count = cinux::drivers::usb::g_xhci_irq_count + 1;
     if (g_xhci_hook != nullptr) {
         g_xhci_hook();
     }

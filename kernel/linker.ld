@@ -67,6 +67,19 @@ SECTIONS
     }
 
     /* ----------------------------------------------------------
+     * __ex_table -- RIP-based exception table for user accessors
+     * (F-EXTABLE). Each entry is (fault_rip, fixup_rip); handle_pf
+     * binary-searches it for kernel-mode accessor faults. Mutable:
+     * sort_extable reorders entries by fault_rip once at boot, so the
+     * section stays in writable .data space.
+     * ---------------------------------------------------------- */
+    __ex_table : AT(ADDR(__ex_table) - KERNEL_VMA) ALIGN(8) {
+        __start___ex_table = .;
+        KEEP(*(__ex_table))
+        __stop___ex_table  = .;
+    }
+
+    /* ----------------------------------------------------------
      * .initrd -- embedded initial ramdisk (ustar archive)
      * ---------------------------------------------------------- */
     .initrd : AT(ADDR(.initrd) - KERNEL_VMA) ALIGN(4096) {

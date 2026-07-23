@@ -25,4 +25,13 @@ namespace cinux::syscall {
  */
 int64_t sys_creat(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 
+// ============================================================
+// P0g (SMAP): pure kernel-to-kernel create logic (no user memory).
+// Kernel-internal callers and tests use this; sys_creat is the user boundary.
+// ============================================================
+
+/// Create a regular file at an already-resolved (canonicalised) path. Returns
+/// 0 or -errno.
+int64_t do_creat_kernel(const char* resolved_path);
+
 }  // namespace cinux::syscall

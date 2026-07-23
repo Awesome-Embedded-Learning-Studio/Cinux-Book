@@ -327,6 +327,10 @@ extern "C" void lapic_timer_handler(InterruptFrame* /*frame*/) {
     cinux::proc::Scheduler::tick();
 }
 
+uint32_t online_ap_count() {
+    return __atomic_load_n(&g_aps_online, __ATOMIC_SEQ_CST);
+}
+
 void wake_idle_ap() {
     // Best-effort wake: IPI every AP that has signalled online.  A redundant
     // IPI to an AP that is already busy is harmless -- its idle loop re-checks

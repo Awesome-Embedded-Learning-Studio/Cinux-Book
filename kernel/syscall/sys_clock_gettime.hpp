@@ -13,8 +13,18 @@
 
 namespace cinux::syscall {
 
+/// Linux struct timespec layout on x86-64: { time_t tv_sec; long tv_nsec; }.
+struct ktimespec {
+    int64_t tv_sec;
+    int64_t tv_nsec;
+};
+
 /// clock_gettime(clk_id, tp) -- fill tp from the uptime clock; returns 0.
 int64_t sys_clock_gettime(uint64_t clk_id, uint64_t tp_virt, uint64_t, uint64_t, uint64_t,
                           uint64_t);
+
+/// P0e (SMAP): fill a KERNEL ktimespec from the uptime clock (no user memory).
+/// Tests call this; sys_clock_gettime is the user boundary (copy_to_user).
+int64_t do_clock_gettime_kernel(uint64_t clk_id, ktimespec* out);
 
 }  // namespace cinux::syscall

@@ -18,6 +18,7 @@
 #include "kernel/arch/x86_64/backtrace.hpp"
 #include "kernel/drivers/serial/serial.hpp"
 #include "kernel/lib/private/vkprintf_impl.hpp"
+#include "kernel/proc/sync.hpp"  // Spinlock: SMP-line-atomic kprintf (concurrent emits were byte-interleaving)
 
 namespace {
 
@@ -43,6 +44,17 @@ static uint32_t g_sink_count                           = 0;
 // ============================================================
 
 static Serial g_serial(SERIAL_COM1);
+
+// SMP line-atomicity: without this, two CPUs calling kprintf concurrently each
+// drive Serial::putc byte-by-byte with no serialization, so their characters
+// hit the port in arbitrary order and the log becomes unreadable garbage
+// (e.g. "[SWAYSI...]" instead of two distinct lines). Linux printk holds
+// console/logbuf lock across each whole message; we do the same here under
+// irq_guard, which also closes same-CPU reentrancy (a timer/PF tick mid-format
+// cannot nest another kprintf because irqs are off for the duration of one
+// message). Held only across the format+emit of a single message, never across
+// the panic halt loop, so a panicking CPU does not wedge the others.
+static cinux::proc::Spinlock g_printf_lock;
 
 void serial_sink_adapter(char c, void* /*ctx*/) {
     g_serial.putc(c);
@@ -101,15 +113,18 @@ void kprintf_init() {
 void kprintf(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    vkprintf_impl(
-        [&](char c) {
-            for (uint32_t i = 0; i < g_sink_count; i++) {
-                if (g_sinks[i].enabled) {
-                    g_sinks[i].fn(c, g_sinks[i].ctx);
+    {
+        auto g = g_printf_lock.irq_guard();  // SMP line-atomic (see g_printf_lock)
+        vkprintf_impl(
+            [&](char c) {
+                for (uint32_t i = 0; i < g_sink_count; i++) {
+                    if (g_sinks[i].enabled) {
+                        g_sinks[i].fn(c, g_sinks[i].ctx);
+                    }
                 }
-            }
-        },
-        fmt, args);
+            },
+            fmt, args);
+    }
     va_end(args);
 }
 
@@ -118,6 +133,7 @@ void kprintf(const char* fmt, ...) {
 // ============================================================
 
 void kvprintf(const char* fmt, va_list args) {
+    auto g = g_printf_lock.irq_guard();  // SMP line-atomic (see g_printf_lock)
     vkprintf_impl(
         [&](char c) {
             for (uint32_t i = 0; i < g_sink_count; i++) {
@@ -141,21 +157,32 @@ void kpanic(const char* fmt, ...) {
 
     va_list args;
     va_start(args, fmt);
-    vkprintf_impl(
-        [&](char c) {
-            for (uint32_t i = 0; i < g_sink_count; i++) {
-                if (g_sinks[i].enabled) {
-                    g_sinks[i].fn(c, g_sinks[i].ctx);
+    {
+        // Scoped to the message only: the lock MUST release before the halt
+        // loop so a panicking CPU does not wedge every other CPU's kprintf.
+        auto g = g_printf_lock.irq_guard();  // SMP line-atomic (see g_printf_lock)
+        vkprintf_impl(
+            [&](char c) {
+                for (uint32_t i = 0; i < g_sink_count; i++) {
+                    if (g_sinks[i].enabled) {
+                        g_sinks[i].fn(c, g_sinks[i].ctx);
+                    }
                 }
-            }
-        },
-        fmt, args);
+            },
+            fmt, args);
+    }
     va_end(args);
 
     // FO batch 3: dump the call stack so the kpanic() caller is identifiable
     // even without an exception frame.  Safe at any init stage -- falls back
     // to the boot-stack range and shows raw addresses until KALLSYMS injection.
     cinux::arch::backtrace();
+
+    // isa-debug-exit with a generic-panic code so CI fails fast (see the
+    // vector-coded exit in exception_handlers.cpp::panic() for exception faults).
+    // value 64 -> QEMU exit 129. No-op without the isa-debug-exit device
+    // (production `run` target); the cli;hlt below is the fallback.
+    __asm__ volatile("outl %0, $0xf4" : : "a"(static_cast<uint32_t>(64)));
 
     while (1) {
         __asm__ volatile("cli; hlt");

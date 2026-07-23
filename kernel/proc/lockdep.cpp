@@ -67,10 +67,14 @@ bool reaches(const void* from, const void* to) {
     if (from == to) {
         return true;
     }
-    const void* visited[kMaxDfs];
-    int         nvis = 0;
-    const void* stack[kMaxDfs];
-    int         sp  = 0;
+    // static: reaches() runs under g_edge_lock (single-threaded, see caller
+    // contract above), so these DFS buffers are reused safely across calls and
+    // stay off the stack (frame < 1024B for -Wframe-larger-than under
+    // CINUX_LOCKDEP, which is what makes lockdep.cpp big_kernel_common -Werror).
+    static const void* visited[kMaxDfs];
+    int                nvis = 0;
+    static const void* stack[kMaxDfs];
+    int                sp   = 0;
     stack[sp++]     = from;
     visited[nvis++] = from;
     while (sp > 0) {

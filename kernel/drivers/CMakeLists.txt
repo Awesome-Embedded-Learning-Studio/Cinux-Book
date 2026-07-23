@@ -6,6 +6,8 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/video/font.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/video/font_data.S
     ${CMAKE_CURRENT_SOURCE_DIR}/video/console.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tty/tty.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tty/console_tty.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/pci/pci.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/acpi/rsdp.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/acpi/sdt.cpp

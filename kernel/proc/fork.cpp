@@ -113,28 +113,75 @@ static uint64_t relocate_copied_stack_addr(uint64_t value, uint64_t parent_stack
     return child_stack_start + (value - parent_stack_start);
 }
 
-void prepare_copied_kernel_stack_context(Task* child, uint64_t parent_stack_start,
-                                         uint64_t parent_stack_top, uint64_t child_stack_start,
-                                         uint64_t current_rbp) {
-    child->ctx.rsp = relocate_copied_stack_addr(current_rbp + sizeof(uint64_t), parent_stack_start,
-                                                parent_stack_top, child_stack_start);
-    child->ctx.rbp =
-        relocate_copied_stack_addr(*reinterpret_cast<uint64_t*>(current_rbp), parent_stack_start,
+// ============================================================
+// Child resume-context setup (Linux-style fork child)
+// ============================================================
+//
+// Two paths, selected by whether the caller has a user address space:
+//
+//   A. User fork/clone (parent->addr_space != nullptr) -- the shell
+//      command-fork (sys_fork) and user pthreads (sys_clone).  The child
+//      gets a CLEAN kernel stack carrying only the parent's 128-byte syscall
+//      pt_regs frame at the top, then runs ret_from_fork, which restores the
+//      user register state from that frame and SYSRETQs to Ring 3 with rax=0.
+//      It never copies the parent's kernel stack and never touches an RBP
+//      chain, so it cannot be tripped by a compiler-specific frame layout.
+//
+//   B. Kernel fork/clone (parent->addr_space == nullptr) -- a kernel/bootstrap
+//      thread forking (shell launch, ring-3 smoke).  The child must resume the
+//      kernel caller mid-execution, so the parent's used stack is copied and
+//      the child resumes at the fork return address via fork_child_trampoline.
+//      The frame base comes from __builtin_frame_address(0) (compiler-tracked,
+//      robust where a raw `movq %rbp` is not), and NO RBP-chain walk is done:
+//      the kernel child runs forward into launch_user_program (which does not
+//      return) and never unwinds back up through the copied frames.
+
+void prepare_user_fork_context(Task* child, uint64_t parent_kernel_stack_top) {
+    // Copy the parent's syscall pt_regs frame (128 B) to the top of the child's
+    // clean kernel stack.  ret_from_fork reads user RIP/RSP/RFLAGS + the
+    // callee-saved registers out of it and SYSRETQs back to user mode (rax=0).
+    std::memcpy(reinterpret_cast<void*>(child->kernel_stack_top - kSyscallFrameSize),
+                reinterpret_cast<void*>(parent_kernel_stack_top - kSyscallFrameSize),
+                kSyscallFrameSize);
+    child->ctx.rsp = child->kernel_stack_top - kSyscallFrameSize;
+    child->ctx.rip = reinterpret_cast<uint64_t>(ret_from_fork);
+}
+
+void prepare_kernel_fork_context(Task* child, uint64_t parent_stack_start,
+                                 uint64_t parent_stack_top, uint64_t child_stack_start,
+                                 uint64_t parent_frame_base) {
+    // ctx.rsp -> the fork/clone return-address slot (frame_base + 8) in the
+    // copied stack; fork_child_trampoline does `xor rax,rax; ret`, so the child
+    // pops that slot and continues at the caller's return site, with its own
+    // rsp/rbp relocated into the child stack.  ctx.rbp is the saved caller rbp
+    // ([frame_base]); only the immediate caller frame needs a valid rbp because
+    // the kernel child never returns up through the deeper copied frames.
+    child->ctx.rsp =
+        relocate_copied_stack_addr(parent_frame_base + sizeof(uint64_t), parent_stack_start,
                                    parent_stack_top, child_stack_start);
+    child->ctx.rbp =
+        relocate_copied_stack_addr(*reinterpret_cast<uint64_t*>(parent_frame_base),
+                                   parent_stack_start, parent_stack_top, child_stack_start);
     child->ctx.rip = reinterpret_cast<uint64_t>(fork_child_trampoline);
 
-    uint64_t frame = current_rbp;
-    while (copied_stack_contains(frame, parent_stack_start, parent_stack_top)) {
-        uint64_t next        = *reinterpret_cast<uint64_t*>(frame);
-        uint64_t child_frame = relocate_copied_stack_addr(frame, parent_stack_start,
-                                                          parent_stack_top, child_stack_start);
-        *reinterpret_cast<uint64_t*>(child_frame) = relocate_copied_stack_addr(
-            next, parent_stack_start, parent_stack_top, child_stack_start);
-
-        if (next <= frame || !copied_stack_contains(next, parent_stack_start, parent_stack_top)) {
-            break;
+    // CRITICAL (gcc-13 -O2 #GP root cause): the kernel caller may save stack
+    // POINTERS in its own frame beyond the saved-rbp chain.  musl_hello_smoke_entry
+    // under gcc-13 computes argv_base = rbp-0x60 at function entry and stores it
+    // in a frame slot; gcc-16 recomputes it inline, which is why only gcc-13 #GPs.
+    // The child inherited the parent's copy of that slot UNRELOCATED, so it ends
+    // up addressing argv[] through the parent's stack -> overwritten ->
+    // str_len(garbage argv[i]) -> #GP.  The deleted RBP-chain walk only fixed the
+    // saved-rbp links; this scans the WHOLE copied region and relocates every
+    // qword that points back into the parent's (now-copied) stack -- saved rbp,
+    // argv_base, and any other spill alike.  Non-stack values (return addresses,
+    // small integers, foreign pointers) fall outside the range and are untouched.
+    uint64_t copied_bytes = parent_stack_top - parent_stack_start;
+    for (uint64_t off = 0; off + sizeof(uint64_t) <= copied_bytes; off += sizeof(uint64_t)) {
+        uint64_t* slot = reinterpret_cast<uint64_t*>(child_stack_start + off);
+        if (copied_stack_contains(*slot, parent_stack_start, parent_stack_top)) {
+            *slot = relocate_copied_stack_addr(*slot, parent_stack_start, parent_stack_top,
+                                               child_stack_start);
         }
-        frame = next;
     }
 }
 
@@ -142,7 +189,7 @@ void prepare_copied_kernel_stack_context(Task* child, uint64_t parent_stack_star
 // fork implementation
 // ============================================================
 
-__attribute__((optimize("no-omit-frame-pointer"), noinline)) int fork(PidAllocator& pid_alloc) {
+__attribute__((noinline)) int fork(PidAllocator& pid_alloc) {
     auto* parent = Scheduler::current();
     if (parent == nullptr) {
         cinux::lib::kprintf("[PROC] fork: no current task\n");
@@ -235,28 +282,46 @@ __attribute__((optimize("no-omit-frame-pointer"), noinline)) int fork(PidAllocat
 
     *reinterpret_cast<uint64_t*>(child_stack_virt) = TaskBuilder::STACK_MAGIC;
 
-    uint64_t current_rsp;
-    uint64_t current_rbp;
-    __asm__ volatile("movq %%rsp, %0" : "=r"(current_rsp));
-    __asm__ volatile("movq %%rbp, %0" : "=r"(current_rbp));
-
-    uint64_t full_stack_used = parent->kernel_stack_top - current_rsp;
-    // Defensive: cap the copied region at the child stack size so a
-    // pathologically-deep parent (or a synthetic test parent) cannot make
-    // child_stack_start underflow below the stack mapping.
-    if (full_stack_used > stack_size) {
-        full_stack_used = stack_size;
-    }
-    uint64_t child_stack_start = child_stack_virt + stack_size - full_stack_used;
-    std::memcpy(reinterpret_cast<void*>(child_stack_start), reinterpret_cast<void*>(current_rsp),
-                full_stack_used);
-
     child->kernel_stack            = child_stack_virt;
     child->kernel_stack_top        = child_stack_virt + stack_size;
     child->kernel_stack_guard_page = child_guard_virt;
 
-    prepare_copied_kernel_stack_context(child, current_rsp, current_rsp + full_stack_used,
-                                        child_stack_start, current_rbp);
+    // ---- Child resume context (Linux-style fork child) ----
+    if (parent->addr_space != nullptr) {
+        // Path A -- USER fork (shell command-fork via sys_fork).  The child
+        // gets a CLEAN kernel stack carrying only the parent's syscall pt_regs
+        // frame at the top, then runs ret_from_fork back to Ring 3 (rax=0).
+        // No parent-stack copy, no RBP chain: immune to compiler frame-layout
+        // quirks.  fs_base is inherited from the memcpy above (child TLS).
+        prepare_user_fork_context(child, parent->kernel_stack_top);
+    } else {
+        // Path B -- KERNEL fork (a kernel/bootstrap thread forking, e.g. the
+        // shell-launch and ring-3 smoke path whose child later installs its own
+        // address space and launch_user_program's).  Copy the parent's used
+        // stack so the caller's frame survives, and resume at the fork return
+        // address via fork_child_trampoline.  The frame base is captured with
+        // __builtin_frame_address(0) -- compiler-tracked, robust where a raw
+        // `movq %rbp` is not under gcc-13 -O2+ubsan.  The kernel is built
+        // globally with -fno-omit-frame-pointer, so the SysV layout
+        // (ret addr at [frame+8], saved rbp at [frame]) holds.
+        uint64_t current_rsp;
+        __asm__ volatile("movq %%rsp, %0" : "=r"(current_rsp));
+
+        uint64_t full_stack_used = parent->kernel_stack_top - current_rsp;
+        // Defensive: cap the copied region at the child stack size so a
+        // pathologically-deep parent (or a synthetic test parent) cannot make
+        // child_stack_start underflow below the stack mapping.
+        if (full_stack_used > stack_size) {
+            full_stack_used = stack_size;
+        }
+        uint64_t child_stack_start = child_stack_virt + stack_size - full_stack_used;
+        std::memcpy(reinterpret_cast<void*>(child_stack_start),
+                    reinterpret_cast<void*>(current_rsp), full_stack_used);
+
+        uint64_t frame_base = reinterpret_cast<uint64_t>(__builtin_frame_address(0));
+        prepare_kernel_fork_context(child, current_rsp, current_rsp + full_stack_used,
+                                    child_stack_start, frame_base);
+    }
 
     // CoW page table handling
     if (parent->addr_space != nullptr) {

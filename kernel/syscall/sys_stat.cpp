@@ -1,23 +1,31 @@
 /**
  * @file kernel/syscall/sys_stat.cpp
- * @brief sys_stat and sys_fstat handler implementations
+ * @brief sys_stat and sys_fstat handler implementations (P0a SMAP-layered)
  *
- * sys_stat resolves a path through the VFS, calls InodeOps::stat(),
- * and copies the result to the user buffer.
- * sys_fstat looks up an FD in the global FD table and does the same.
+ * Layered, Linux-aligned (see SMAP plan):
+ *   - do_stat_kernel / do_fstat_kernel: pure kernel-to-kernel stat logic
+ *     (resolved path / fd -> kernel stat). No user memory, may be called by
+ *     kernel-internal callers and tests. This is the layer tests target.
+ *   - sys_stat / sys_fstat / sys_newfstatat: thin syscall boundaries. They
+ *     resolve the user path (still via resolve_user_path today; the path-util
+ *     accessor move is a later batch) and copy the result out via copy_to_user.
+ *
+ * The stat output buffer is the only user pointer owned by the boundary, and it
+ * goes through copy_to_user (access_ok + stac). The path side stays on
+ * resolve_user_path until the path-family batch retires it.
  */
 
 #include "kernel/syscall/sys_stat.hpp"
 
 #include <stdint.h>
 
+#include "kernel/arch/x86_64/user_access.hpp"  // P0a (SMAP): copy_to_user
 #include "kernel/errno.hpp"
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/path.hpp"
 #include "kernel/fs/stat.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
-#include "kernel/lib/string.hpp"
 #include "kernel/syscall/path_util.hpp"
 
 namespace cinux::syscall {
@@ -26,83 +34,80 @@ namespace {
 
 using cinux::lib::kprintf;
 
+// Shared inode->stat() step for do_stat_kernel / do_fstat_kernel.
+int64_t do_stat_inode_kernel(cinux::fs::Inode* inode, cinux::fs::stat* kst) {
+    if (inode == nullptr || inode->ops == nullptr) {
+        return -kEio;
+    }
+    auto stat_result = inode->ops->stat(inode, kst);
+    if (!stat_result.ok()) {
+        return -to_errno(stat_result.error());
+    }
+    return 0;
+}
+
+constexpr uint64_t kAtEmptyPath = 0x1000;  ///< AT_EMPTY_PATH: stat dirfd itself
+constexpr int64_t  kAtFdcwdStat = -100;    ///< AT_FDCWD
+
 }  // anonymous namespace
 
-int64_t sys_stat(uint64_t path_virt, uint64_t st_virt, uint64_t, uint64_t, uint64_t, uint64_t) {
-    if (!validate_user_ptr(st_virt)) {
-        return -kEfault;
-    }
+// ============================================================
+// do_*_kernel: pure kernel-to-kernel stat logic (no user memory)
+// ============================================================
 
-    // Step 1: Resolve the path (cwd-aware)
+int64_t do_stat_kernel(const char* resolved_path, cinux::fs::stat* kst) {
+    const char*            rel_path = nullptr;
+    cinux::fs::FileSystem* fs       = cinux::fs::vfs_resolve(resolved_path, &rel_path);
+    if (fs == nullptr) {
+        kprintf("[SYS_STAT] No filesystem mounted for '%s'\n", resolved_path);
+        return -kEnoent;
+    }
+    auto inode_result = fs->lookup(rel_path);
+    if (!inode_result.ok()) {
+        kprintf("[SYS_STAT] File not found: '%s'\n", resolved_path);
+        return -to_errno(inode_result.error());
+    }
+    return do_stat_inode_kernel(inode_result.value(), kst);
+}
+
+int64_t do_fstat_kernel(int fd, cinux::fs::stat* kst) {
+    cinux::fs::File* file = cinux::fs::current_fd_table().get(fd);
+    if (file == nullptr || file->inode == nullptr) {
+        return -kEbadf;
+    }
+    return do_stat_inode_kernel(file->inode, kst);
+}
+
+// ============================================================
+// sys_* boundaries: accessor owns the user stat output buffer
+// ============================================================
+
+int64_t sys_stat(uint64_t path_virt, uint64_t st_virt, uint64_t, uint64_t, uint64_t, uint64_t) {
     cinux::fs::PathBuf resolved;
     if (!resolve_user_path(path_virt, resolved.data())) {
         return -kEfault;
     }
 
-    // Step 2: Resolve through the VFS mount table
-    const char*            rel_path = nullptr;
-    cinux::fs::FileSystem* fs       = cinux::fs::vfs_resolve(resolved, &rel_path);
-
-    if (fs == nullptr) {
-        kprintf("[SYS_STAT] No filesystem mounted for '%s'\n", resolved.data());
-        return -kEnoent;
-    }
-
-    // Step 3: Look up the inode
-    auto inode_result = fs->lookup(rel_path);
-    if (!inode_result.ok()) {
-        kprintf("[SYS_STAT] File not found: '%s'\n", resolved.data());
-        return -to_errno(inode_result.error());
-    }
-    cinux::fs::Inode* inode = inode_result.value();
-
-    // Step 4: Call stat()
-    if (inode->ops == nullptr) {
-        return -kEio;
-    }
-
     cinux::fs::stat kst;
-    auto            stat_result = inode->ops->stat(inode, &kst);
-    if (!stat_result.ok()) {
-        return -to_errno(stat_result.error());
+    int64_t         rc = do_stat_kernel(resolved.data(), &kst);
+    if (rc < 0) {
+        return rc;
     }
-
-    // Step 5: Copy to user buffer
-    auto* user_st = reinterpret_cast<cinux::fs::stat*>(st_virt);
-    memcpy(user_st, &kst, sizeof(cinux::fs::stat));
-
+    if (!cinux::user::copy_to_user(reinterpret_cast<void*>(st_virt), &kst, sizeof(kst))) {
+        return -kEfault;
+    }
     return 0;
 }
 
 int64_t sys_fstat(uint64_t fd, uint64_t st_virt, uint64_t, uint64_t, uint64_t, uint64_t) {
-    if (!validate_user_ptr(st_virt)) {
+    cinux::fs::stat kst;
+    int64_t         rc = do_fstat_kernel(static_cast<int>(fd), &kst);
+    if (rc < 0) {
+        return rc;
+    }
+    if (!cinux::user::copy_to_user(reinterpret_cast<void*>(st_virt), &kst, sizeof(kst))) {
         return -kEfault;
     }
-
-    // Step 1: Look up the FD
-    cinux::fs::File* file = cinux::fs::current_fd_table().get(static_cast<int>(fd));
-
-    if (file == nullptr || file->inode == nullptr) {
-        return -kEbadf;
-    }
-
-    cinux::fs::Inode* inode = file->inode;
-
-    // Step 2: Call stat()
-    if (inode->ops == nullptr) {
-        return -kEio;
-    }
-
-    cinux::fs::stat kst;
-    auto            stat_result = inode->ops->stat(inode, &kst);
-    if (!stat_result.ok()) {
-        return -to_errno(stat_result.error());
-    }
-
-    // Step 3: Copy to user buffer
-    auto* user_st = reinterpret_cast<cinux::fs::stat*>(st_virt);
-    memcpy(user_st, &kst, sizeof(cinux::fs::stat));
-
     return 0;
 }
 
@@ -110,63 +115,33 @@ int64_t sys_fstat(uint64_t fd, uint64_t st_virt, uint64_t, uint64_t, uint64_t, u
 // sys_newfstatat (F10-M1 batch 4) -- musl stat/fstat/lstat entry point
 // ============================================================
 
-namespace {
-
-constexpr uint64_t kAtEmptyPath = 0x1000;  ///< operate on dirfd itself (empty path)
-constexpr int64_t  kAtFdcwdStat = -100;    ///< AT_FDCWD
-
-/// Fill a user stat buffer from an inode; returns 0 or -errno.
-int64_t fill_user_stat(cinux::fs::Inode* inode, uint64_t st_virt) {
-    if (inode == nullptr || inode->ops == nullptr) {
-        return -kEio;
-    }
-    cinux::fs::stat kst;
-    auto            stat_result = inode->ops->stat(inode, &kst);
-    if (!stat_result.ok()) {
-        return -to_errno(stat_result.error());
-    }
-    memcpy(reinterpret_cast<cinux::fs::stat*>(st_virt), &kst, sizeof(cinux::fs::stat));
-    return 0;
-}
-
-}  // anonymous namespace
-
 int64_t sys_newfstatat(uint64_t dirfd, uint64_t path_virt, uint64_t st_virt, uint64_t flags,
                        uint64_t, uint64_t) {
-    if (!validate_user_ptr(st_virt)) {
-        return -kEfault;
-    }
+    cinux::fs::stat kst;
+    int64_t         rc;
 
-    // AT_EMPTY_PATH: stat the dirfd itself (fstat semantics).
     if (flags & kAtEmptyPath) {
-        cinux::fs::File* file = cinux::fs::current_fd_table().get(static_cast<int>(dirfd));
-        if (file == nullptr || file->inode == nullptr) {
-            return -kEbadf;
+        // stat the dirfd itself (fstat semantics).
+        rc = do_fstat_kernel(static_cast<int>(dirfd), &kst);
+    } else {
+        // Path-based: resolve cwd-relative. A real dirfd would need per-fd path
+        // tracking; AT_FDCWD (the only case musl passes) is handled correctly.
+        cinux::fs::PathBuf resolved;
+        if (!resolve_user_path(path_virt, resolved.data())) {
+            return -kEfault;
         }
-        return fill_user_stat(file->inode, st_virt);
+        (void)dirfd;
+        (void)kAtFdcwdStat;
+        rc = do_stat_kernel(resolved.data(), &kst);
     }
 
-    // Path-based: resolve cwd-relative.  A real dirfd would need per-fd path
-    // tracking; AT_FDCWD (the only case musl passes) is handled correctly.
-    (void)dirfd;
-
-    cinux::fs::PathBuf resolved;
-    if (!resolve_user_path(path_virt, resolved.data())) {
+    if (rc < 0) {
+        return rc;
+    }
+    if (!cinux::user::copy_to_user(reinterpret_cast<void*>(st_virt), &kst, sizeof(kst))) {
         return -kEfault;
     }
-
-    const char*            rel_path = nullptr;
-    cinux::fs::FileSystem* fs       = cinux::fs::vfs_resolve(resolved, &rel_path);
-    if (fs == nullptr) {
-        return -kEnoent;
-    }
-
-    auto inode_result = fs->lookup(rel_path);
-    if (!inode_result.ok()) {
-        return -to_errno(inode_result.error());
-    }
-    (void)kAtFdcwdStat;
-    return fill_user_stat(inode_result.value(), st_virt);
+    return 0;
 }
 
 }  // namespace cinux::syscall

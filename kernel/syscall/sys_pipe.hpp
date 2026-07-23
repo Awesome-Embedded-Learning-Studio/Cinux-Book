@@ -16,20 +16,16 @@
 
 #include "kernel/arch/x86_64/syscall.hpp"
 
+namespace cinux::fs {
+class FDTable;
+}
+
 namespace cinux::syscall {
 
-/**
- * @brief Create an anonymous pipe and return two file descriptors
- *
- * Creates a Pipe object on the kernel heap, wraps each end in an
- * Inode with the appropriate PipeReadOps / PipeWriteOps, allocates
- * two fd slots in the global FDTable, and writes the descriptor
- * numbers into the user-space int array at @p pipefd_virt.
- *
- * @param pipefd_virt  User virtual address of a 2-element int array
- *                     (pipefd[0] = read end, pipefd[1] = write end)
- * @return 0 on success, -1 on error
- */
 int64_t sys_pipe(uint64_t pipefd_virt, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+
+/// P0e (SMAP): build the pipe graph + allocate two fds into a KERNEL int[2].
+/// Tests call this; sys_pipe is the user boundary (copy_to_user the int[2]).
+int64_t do_pipe_kernel(cinux::fs::FDTable& tbl, int* pipefd_kernel);
 
 }  // namespace cinux::syscall

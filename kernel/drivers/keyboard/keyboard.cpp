@@ -12,6 +12,7 @@
 
 #include "hid.hpp"  // HID keycode->ASCII tables + modifier bits (USB keyboard)
 #include "kernel/arch/x86_64/io.hpp"
+#include "kernel/drivers/tty/console_tty.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/proc/sync.hpp"
 
@@ -126,9 +127,9 @@ bool Keyboard::shift_held_ = false;
 bool Keyboard::ctrl_held_  = false;
 bool Keyboard::alt_held_   = false;
 
-bool    Keyboard::usb_primary_      = false;
-uint8_t Keyboard::usb_prev_keys_[6] = {};
-Keyboard::KeyListener Keyboard::key_listener_ = nullptr;
+bool                  Keyboard::usb_primary_      = false;
+uint8_t               Keyboard::usb_prev_keys_[6] = {};
+Keyboard::KeyListener Keyboard::key_listener_     = nullptr;
 
 // ============================================================
 // Internal helpers
@@ -308,6 +309,17 @@ void Keyboard::register_key_listener(KeyListener listener) {
 
 void Keyboard::dispatch_key(uint8_t code, char ascii, bool pressed, bool shift, bool ctrl,
                             bool alt) {
+    // Ctrl + letter -> control char (^C=0x03, ^D=0x04, ^Z=0x1A, ^\=0x1C ...).
+    // The scan tables yield the base letter; Ctrl was tracked but not applied,
+    // so Ctrl+C arrived as 'c' instead of 0x03 and never reached the TTY's
+    // VINTR handling. Apply the standard PC ^X = X & 0x1F decoding for letters.
+    if (ctrl && ascii != 0) {
+        char lower = static_cast<char>(ascii | 0x20);  // fold to lowercase
+        if (lower >= 'a' && lower <= 'z') {
+            ascii = static_cast<char>(ascii & 0x1F);
+        }
+    }
+
     KeyEvent ev{};
     ev.scancode = code;
     ev.pressed  = pressed;
@@ -323,6 +335,15 @@ void Keyboard::dispatch_key(uint8_t code, char ascii, bool pressed, bool shift, 
     // (CODING-TASTE §14).
     if (key_listener_ != nullptr) {
         key_listener_(ev);
+    }
+
+    // F10-M3 batch 2: feed the console TTY line discipline (stdin). Echo +
+    // canonical editing happen here; sys_read fd==0 drains the cooked line.
+    // The Backspace key arrives as ^H (VERASE, set in console_tty_init) and
+    // Enter already as '\n' from the scancode table.
+    if (pressed && ascii != 0) {
+        char c = (ascii == '\r') ? '\n' : ascii;
+        console_tty_input(c);  // F10-M3 batch 3: line discipline + wake reader
     }
 }
 

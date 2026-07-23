@@ -26,4 +26,9 @@ namespace cinux::syscall {
  */
 int64_t sys_write(uint64_t fd, uint64_t buf_virt, uint64_t count, uint64_t, uint64_t, uint64_t);
 
+/// P0b (SMAP): pure kernel-to-kernel write (fd + KERNEL buffer -> VFS/fd=1).
+/// Kernel-internal callers and tests use this; sys_write is the user boundary.
+/// May block (pipe full); never touches user memory.
+int64_t do_write_kernel(int fd, const void* kbuf, uint64_t count);
+
 }  // namespace cinux::syscall

@@ -16,6 +16,11 @@
 #include <stdint.h>
 
 #include "kernel/arch/x86_64/syscall.hpp"
+#include "kernel/proc/signal.hpp"  // P0d: do_*_kernel use SigAction/SigSet
+
+namespace cinux::proc {
+struct Task;
+}
 
 namespace cinux::syscall {
 
@@ -42,5 +47,13 @@ int64_t sys_rt_sigaction(uint64_t sig, uint64_t act, uint64_t oact, uint64_t, ui
 /// Change or query the signal mask (Linux syscall 14).  @p how is
 /// SIG_BLOCK(0) / SIG_UNBLOCK(1) / SIG_SETMASK(2).
 int64_t sys_rt_sigprocmask(uint64_t how, uint64_t set, uint64_t oset, uint64_t, uint64_t, uint64_t);
+
+/// P0d (SMAP): pure kernel-to-kernel signal logic (no user memory). Tests and
+/// kernel-internal callers use these; sys_* are the user boundaries.
+int64_t do_kill_kernel(cinux::proc::Task* cur, int32_t pid, int sig);
+int64_t do_sigaction_kernel(cinux::proc::Task* task, int sig, const cinux::proc::SigAction* new_act,
+                            cinux::proc::SigAction* old_act);
+int64_t do_sigprocmask_kernel(cinux::proc::Task* task, int how, const cinux::proc::SigSet* set,
+                              cinux::proc::SigSet* oset);
 
 }  // namespace cinux::syscall

@@ -9,6 +9,7 @@
 
 #include <stdint.h>
 
+#include "kernel/arch/x86_64/user_access.hpp"  // P3 (SMAP): stac/clac for cleartid write
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/signal.hpp"
@@ -20,10 +21,17 @@ void task_exit_cleartid(Task* task) {
     if (task == nullptr || task->clear_child_tid == 0) {
         return;
     }
-    // CLONE_CHILD_CLEARTID: zero the child_tid word and wake one futex waiter
-    // (the pthread_join protocol).  The address is in the caller's address
-    // space, which the kernel maps, so a direct write is safe.
+    // CLONE_CHILD_CLEARTID: zero the child_tid word (a user address set by
+    // clone) and wake one futex waiter (the pthread_join protocol).  P3 (global
+    // STAC removed): wrap the write in a local stac/clac window so it reaches
+    // the user page with AC=0 by default.  We deliberately do NOT use
+    // access_ok/put_user here -- the test harness points clear_child_tid at a
+    // kernel address (no real user AS in tests yet), which access_ok rejects;
+    // the address is trusted (set by clone from a valid user pointer), and a
+    // genuinely bad address faults through the PF path.
+    cinux::arch::stac();
     *reinterpret_cast<volatile uint32_t*>(task->clear_child_tid) = 0;
+    cinux::arch::clac();
     cinux::syscall::futex_wake_addr(task->clear_child_tid, 1);
 }
 

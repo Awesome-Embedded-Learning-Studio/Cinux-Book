@@ -27,36 +27,30 @@ using cinux::lib::kprintf;
 
 }  // anonymous namespace
 
-int64_t sys_rmdir(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) {
-    // Step 1: Resolve the path (cwd-aware)
-    cinux::fs::PathBuf resolved;
-    if (!resolve_user_path(path_virt, resolved.data())) {
-        return -kEfault;
-    }
-
-    // Step 2: Resolve through the VFS mount table
+int64_t do_rmdir_kernel(const char* resolved_path) {
+    // Step 1: Resolve through the VFS mount table
     const char*            rel_path = nullptr;
-    cinux::fs::FileSystem* fs       = cinux::fs::vfs_resolve(resolved, &rel_path);
+    cinux::fs::FileSystem* fs       = cinux::fs::vfs_resolve(resolved_path, &rel_path);
 
     if (fs == nullptr) {
-        kprintf("[SYS_RMDIR] No filesystem mounted for '%s'\n", resolved.data());
+        kprintf("[SYS_RMDIR] No filesystem mounted for '%s'\n", resolved_path);
         return -kEnoent;
     }
 
-    // Step 3: Split relative path into parent dir and leaf name
+    // Step 2: Split relative path into parent dir and leaf name
     cinux::fs::PathBuf parent_buf;
-    const char* leaf_name = nullptr;
-    uint32_t    name_len  = 0;
+    const char*        leaf_name = nullptr;
+    uint32_t           name_len  = 0;
 
     if (!split_pathname(rel_path, parent_buf, &leaf_name, &name_len)) {
-        kprintf("[SYS_RMDIR] Invalid path: '%s'\n", resolved.data());
+        kprintf("[SYS_RMDIR] Invalid path: '%s'\n", resolved_path);
         return -kEinval;
     }
 
-    // Step 4: Look up the parent directory inode
+    // Step 3: Look up the parent directory inode
     auto parent_result = fs->lookup(parent_buf);
     if (!parent_result.ok()) {
-        kprintf("[SYS_RMDIR] Parent directory not found for '%s'\n", resolved.data());
+        kprintf("[SYS_RMDIR] Parent directory not found for '%s'\n", resolved_path);
         return -to_errno(parent_result.error());
     }
     cinux::fs::Inode* parent = parent_result.value();
@@ -66,15 +60,15 @@ int64_t sys_rmdir(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, ui
         return -kEio;
     }
 
-    // Step 5: Look up the target to verify it's an empty directory
+    // Step 4: Look up the target to verify it's an empty directory
     auto target_result = fs->lookup(rel_path);
     if (!target_result.ok()) {
-        kprintf("[SYS_RMDIR] '%s' not found\n", resolved.data());
+        kprintf("[SYS_RMDIR] '%s' not found\n", resolved_path);
         return -to_errno(target_result.error());
     }
     cinux::fs::Inode* target = target_result.value();
     if (target->type != cinux::fs::InodeType::Directory) {
-        kprintf("[SYS_RMDIR] '%s' is not a directory\n", resolved.data());
+        kprintf("[SYS_RMDIR] '%s' is not a directory\n", resolved_path);
         return -kEnotdir;
     }
     // Check directory is empty: try readdir index 2 (index 0=".", 1="..")
@@ -83,23 +77,32 @@ int64_t sys_rmdir(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, ui
         char check_name[16];
         auto dir_check = target->ops->readdir(target, 2, check_name, sizeof(check_name));
         if (!dir_check.ok()) {
-            kprintf("[SYS_RMDIR] failed to check whether '%s' is empty\n", resolved.data());
+            kprintf("[SYS_RMDIR] failed to check whether '%s' is empty\n", resolved_path);
             return -to_errno(dir_check.error());
         }
         if (dir_check.value() > 0) {
-            kprintf("[SYS_RMDIR] '%s' is not empty\n", resolved.data());
+            kprintf("[SYS_RMDIR] '%s' is not empty\n", resolved_path);
             return -kEnotempty;
         }
     }
 
-    // Step 6: Call unlink() on the parent directory
+    // Step 5: Call unlink() on the parent directory
     auto unlink_result = parent->ops->unlink(parent, leaf_name, name_len);
     if (!unlink_result.ok()) {
-        kprintf("[SYS_RMDIR] Failed to rmdir '%s'\n", resolved.data());
+        kprintf("[SYS_RMDIR] Failed to rmdir '%s'\n", resolved_path);
         return -to_errno(unlink_result.error());
     }
 
     return 0;
+}
+
+int64_t sys_rmdir(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) {
+    // Boundary: resolve the user path (cwd-aware), then run kernel logic.
+    cinux::fs::PathBuf resolved;
+    if (!resolve_user_path(path_virt, resolved.data())) {
+        return -kEfault;
+    }
+    return do_rmdir_kernel(resolved.data());
 }
 
 }  // namespace cinux::syscall

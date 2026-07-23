@@ -95,6 +95,10 @@ add_cinux_test(font)
 add_cinux_test(console)
 add_cinux_test(framebuffer)
 add_cinux_test(keyboard)
+# F10-M3 batch 1: TTY line discipline -- links the real drivers/tty/tty.cpp
+# (pure logic, zero kprintf) so the canonical discipline is exercised on host.
+add_cinux_test(tty ${CMAKE_SOURCE_DIR}/kernel/drivers/tty/tty.cpp)
+add_cinux_test(extable)  # F-EXTABLE: exception-table search/sort primitives
 add_cinux_test(address_space)
 add_cinux_test(scheduler)
 add_cinux_test(sync)

@@ -35,6 +35,12 @@ void wake_idle_ap();
 /// only one CPU.
 void boot_aps();
 
+/// Number of APs that have reached ap_main() and signalled online (excludes the
+/// BSP). Read atomically; APs increment it (SEQ_CST) as they come up.
+/// Scheduler::init() uses it to rebuild each online AP's idle task after wiping
+/// the idle table for test isolation.
+uint32_t online_ap_count();
+
 // ============================================================
 // F-VERIFY M3-2: AP test-mode self-check hook
 // ============================================================

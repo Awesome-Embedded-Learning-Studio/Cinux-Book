@@ -50,9 +50,9 @@ set(BIG_KERNEL_COMPILE_OPTIONS
     # (char[PATH_MAX] -> PathBuf heap in 8 syscalls + sys_dmesg LogEntry[16] ->
     # heap; big_kernel now zero hits). NOTE: GCC cannot escalate this via
     # -Werror=frame-larger-than (it rejects the parameterised warning name), so
-    # the gate is warning-level + audit grep, not a hard build failure.
-    # big_kernel_test suppresses it entirely (test fixtures place large objects
-    # on the stack by design).
+    # F-WARN escalates via the GLOBAL -Werror below. big_kernel_test fixtures
+    # were shrunk in F-WARN (large buffers -> static, large structs -> heap
+    # unique_ptr), so the gate now applies to tests too -- no suppress.
     -Wvla
     -Wimplicit-fallthrough=3
     -Wundef
@@ -68,6 +68,11 @@ set(BIG_KERNEL_COMPILE_OPTIONS
     -Werror=duplicated-cond
     -Werror=logical-op
     -Werror=format-security
+    # F-WARN: the global -Werror is applied to big_kernel_common (kernel
+    # objects) PRIVATEly below, so it covers production kernel code WITHOUT
+    # propagating to big_kernel_test (test/ fixtures still have frame-larger-
+    # than, left for F-WARN). The -Werror=specific correctness flags above DO
+    # still apply to tests (return-type etc are correctness, not fixture size).
 )
 
 set(BIG_KERNEL_LINK_OPTIONS
@@ -87,6 +92,11 @@ set(BIG_KERNEL_LINK_OPTIONS
 add_library(big_kernel_common OBJECT)
 
 target_compile_options(big_kernel_common PUBLIC ${BIG_KERNEL_COMPILE_OPTIONS})
+# F-WARN: global -Werror on kernel objects only. PRIVATE = does NOT propagate
+# to big_kernel_test (whose test/ fixtures still exceed frame-larger-than, ~180
+# sites, left for the F-WARN milestone). GCC can't do -Werror=frame-larger-than
+# (parameterised name) so the global flag is what enforces it on kernel code.
+target_compile_options(big_kernel_common PRIVATE -Werror -Wno-error=null-dereference)
 
 target_include_directories(big_kernel_common PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}

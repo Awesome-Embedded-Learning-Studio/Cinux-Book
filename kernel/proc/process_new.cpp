@@ -206,9 +206,38 @@ WaitpidResult waitpid(int pid, int* status, int options, PidAllocator& pid_alloc
             target->parent = nullptr;
             cinux::lib::kprintf("[WAITPID] reaped child pid=%d exit_status=%d by parent pid=%d\n",
                                 target->pid, target->exit_status, parent->pid);
-            // Q4e-2 (DEBT-002): the child is Zombie (not running), so freeing
-            // its kernel stack from the parent's context is safe. delete ->
-            // release_resources drops sig_actions/cwd/fd_table + the AS ref.
+            // SMP reap/free safety: the child exited (became Zombie) on its own
+            // CPU BEFORE its yield()->schedule()->context_switch finished. We can
+            // observe Zombie here on the parent's CPU while the child's CPU is
+            // still mid-context-switch writing the child's ctx / still on its
+            // kernel stack. Freeing the stack + struct then is a cross-core UAF
+            // (the exit/reap "resurrection" bug: the freed memory is reused while
+            // the child's CPU keeps executing on it, producing garbage exits).
+            // context_switch.S clears from->on_cpu to -1 once the child's ctx save
+            // is complete and it has left the stack; ACQUIRE-load that as the
+            // rendezvous. Bounded spin -- the child already yielded to idle, so its
+            // switch finishes within microseconds. (Single-core: the child's switch
+            // ran to completion before the parent re-entered waitpid, so on_cpu is
+            // already -1 and the loop exits immediately.)
+            for (int spin = 0; spin < 50'000'000; ++spin) {
+                if (__atomic_load_n(&target->on_cpu, __ATOMIC_ACQUIRE) == -1) {
+                    break;
+                }
+                __asm__ volatile("pause");
+            }
+            if (__atomic_load_n(&target->on_cpu, __ATOMIC_ACQUIRE) != -1) {
+                // Should not happen (the child's CPU clears on_cpu on its next
+                // schedule). Leak the struct rather than risk a UAF -- a pinned
+                // child is debuggable; a use-after-free is not.
+                cinux::lib::kprintf(
+                    "[WAITPID] WARN: child pid=%d still on_cpu=%d after spin -- "
+                    "leaking struct (no free)\n",
+                    target->pid, target->on_cpu);
+                return WaitpidResult::Ok;
+            }
+            // Q4e-2 (DEBT-002): now that the child's switch is provably done,
+            // freeing its kernel stack + struct is safe. delete -> release_resources
+            // drops sig_actions/cwd/fd_table + the AS ref.
             // Q4e-2: detach from the pid registry before freeing (sys_exit left
             // the Zombie registered for sys_kill lookup; reap deletes it).
             // exit_current already unregisters; this mirrors it for the

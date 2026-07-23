@@ -172,6 +172,20 @@ void Scheduler::init() {
         cinux::lib::kprintf("[SCHED] BSP idle task created tid=%lu\n", idle_tasks_[0]->tid);
     }
 
+    // SMP: rebuild each online AP's idle task. The wipe above (test isolation)
+    // nulls the whole table, but on -smp2 an AP left without an idle task has
+    // idle()==nullptr. A task exiting on that AP then cannot be switched out:
+    // schedule() finds an empty run queue and no idle to fall back to, so it
+    // returns WITHOUT context-switching and the Zombie loops forever re-entering
+    // its exit path -- the -smp2 exit/reap "resurrection" bug. setup_ap_idle() is
+    // idempotent and rebuilds lazily, exactly as normal AP bringup does. (During
+    // the single-core unit-test suites the APs are not online yet, so this is a
+    // no-op there; it only matters for the -smp2 ring-3 smoke's re-init.)
+    const uint32_t online_aps = cinux::arch::online_ap_count();
+    for (uint32_t c = 1; c <= online_aps && c < kMaxCpus; ++c) {
+        setup_ap_idle(c);
+    }
+
     initialized_ = true;
     cinux::lib::kprintf("[SCHED] Scheduler initialised with %s class\n", default_rr_.name());
 }
@@ -199,7 +213,7 @@ Task* Scheduler::pick_next_task() {
     return pick_next_from(classes_, class_count_);
 }
 
-void Scheduler::add_task(lib::NotNull<Task*> task) {
+void Scheduler::add_task(lib::NotNull<Task*> task, bool wake_ap) {
     if (task->sched_class == nullptr) {
         task->sched_class = &default_rr_;
     }
@@ -208,8 +222,12 @@ void Scheduler::add_task(lib::NotNull<Task*> task) {
     cinux::lib::kprintf("[SCHED] Task tid=%lu '%s' added to %s\n", task->tid, task->name,
                         task->sched_class->name());
     // A newly runnable task may be claimable by an idle AP (F4-M4 M4-2).  No-op
-    // on a single-core system.
-    arch::wake_idle_ap();
+    // on a single-core system.  Suppressed by the bootstrap path (wake_ap=false)
+    // so run_first() deterministically picks the first worker on the BSP
+    // instead of racing an AP for it.
+    if (wake_ap) {
+        arch::wake_idle_ap();
+    }
 }
 
 void Scheduler::remove_task(lib::NotNull<Task*> task) {
@@ -425,76 +443,7 @@ void Scheduler::schedule() {
     __asm__ volatile("fxrstor %0" : : "m"(current()->fpu_state));
 }
 
-// Direct, unconditional block of @p task: mark it Blocked, drop it from the run
-// queue, and (if it is the running task) switch away.  Used for management /
-// test-driven blocks (test_block_unblock, test_block_dispatches).  Wait paths
-// that must be lost-wakeup-safe across CPUs use prepare_to_wait() +
-// schedule_blocked() instead (see scheduler.hpp).  (F4-M4: role clarified.)
-void Scheduler::block(lib::NotNull<Task*> task, const char* reason) {
-    if (task == nullptr) {
-        return;
-    }
-
-    task->state = TaskState::Blocked;
-    if (task->sched_class != nullptr) {
-        task->sched_class->dequeue(task);
-    }
-
-    cinux::lib::kprintf("[SCHED] Task tid=%lu '%s' blocked: %s\n", task->tid, task->name,
-                        reason ? reason : "unknown");
-
-    // Context-switch away only when the blocked task is the running one AND a
-    // real dispatch loop is active.  Inside a NoRescheduleGuard (in-kernel test
-    // harness role-play) we skip the switch so the harness thread can observe
-    // the task's state, as a second CPU would.
-    if (task == current() && no_reschedule_depth_ == 0) {
-        schedule();
-    }
-}
-
-void Scheduler::unblock(lib::NotNull<Task*> task) {
-    if (task == nullptr) {
-        return;
-    }
-
-    // Idempotent (F4-M4 prepare-to-wait): only a still-Blocked task needs waking.
-    // A task that is already Ready/Running was never put to sleep, or already won
-    // a concurrent lost-wakeup race and is runnable -- re-enqueuing it would
-    // double-add it to the run queue.  No-op in that case.
-    if (task->state != TaskState::Blocked) {
-        return;
-    }
-
-    task->state = TaskState::Ready;
-    if (task->sched_class == nullptr) {
-        task->sched_class = &default_rr_;
-    }
-    task->sched_class->enqueue(task);
-
-    cinux::lib::kprintf("[SCHED] Task tid=%lu '%s' unblocked\n", task->tid, task->name);
-    // Wake an idle AP so it can pick up this freshly runnable task (F4-M4 M4-2).
-    // No-op on a single-core system.
-    arch::wake_idle_ap();
-}
-
-void Scheduler::prepare_to_wait(lib::NotNull<Task*> task) {
-    if (task == nullptr) {
-        return;
-    }
-    // Flip state to Blocked under the caller's waiter-lock so a concurrent waker
-    // on another CPU observes "sleeping" before it can miss the task.  current()
-    // is never on the run queue, so no dequeue is needed here; the caller follows
-    // with schedule_blocked().  See the prepare-to-wait contract in scheduler.hpp.
-    task->state = TaskState::Blocked;
-}
-
-void Scheduler::schedule_blocked() {
-    // Wait-path partner of prepare_to_wait(): switch out unless the in-kernel
-    // test harness is role-playing (NoRescheduleGuard).  Production (depth == 0)
-    // always switches.
-    if (no_reschedule_depth_ == 0) {
-        schedule();
-    }
-}
+// block()/unblock()/prepare_to_wait()/schedule_blocked() moved to
+// scheduler_block.cpp (keep this file under the 500-line cap).
 
 }  // namespace cinux::proc

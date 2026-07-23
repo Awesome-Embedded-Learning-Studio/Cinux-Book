@@ -26,4 +26,8 @@ namespace cinux::syscall {
  */
 int64_t sys_getdents(uint64_t fd, uint64_t buf_virt, uint64_t count, uint64_t, uint64_t, uint64_t);
 
+/// P0e (SMAP): read one directory entry name into a KERNEL buffer (may block).
+/// Tests call this; sys_getdents is the user boundary (copy_to_user).
+int64_t do_getdents_kernel(int fd, char* kname, uint64_t count);
+
 }  // namespace cinux::syscall

@@ -27,4 +27,10 @@ namespace cinux::syscall {
 int64_t sys_execve(uint64_t path_virt, uint64_t argv_virt, uint64_t envp_virt, uint64_t, uint64_t,
                    uint64_t);
 
+/// P0c (SMAP): pure kernel-to-kernel execve (KERNEL path/argv/envp -> ELF load
+/// + initial stack + jump to user). Kernel-internal callers and tests use this;
+/// sys_execve is the user boundary that stages the strings via accessors.
+/// Does not return on success.
+int64_t do_execve_kernel(const char* kpath, const char* const* kargv, const char* const* kenvp);
+
 }  // namespace cinux::syscall

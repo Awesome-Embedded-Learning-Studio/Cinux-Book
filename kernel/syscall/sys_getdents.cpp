@@ -1,16 +1,17 @@
 /**
  * @file kernel/syscall/sys_getdents.cpp
- * @brief sys_getdents handler implementation
+ * @brief sys_getdents handler (P0e SMAP-layered)
  *
- * Reads one directory entry name per call via VFS readdir.
- * Uses file->offset as the directory entry index so that repeated
- * calls iterate through all entries.
+ * Layered: do_getdents_kernel reads one directory entry into a KERNEL buffer
+ * (may block on disk I/O, AC=0 safe); sys_getdents is the boundary that
+ * copy_to_user's it. The old readdir directly into the user buffer is gone.
  */
 
 #include "kernel/syscall/sys_getdents.hpp"
 
 #include <stdint.h>
 
+#include "kernel/arch/x86_64/user_access.hpp"  // P0e (SMAP): copy_to_user
 #include "kernel/errno.hpp"
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/vfs_mount.hpp"
@@ -18,47 +19,48 @@
 
 namespace cinux::syscall {
 
-int64_t sys_getdents(uint64_t fd, uint64_t buf_virt, uint64_t count, uint64_t, uint64_t, uint64_t) {
-    // Validate user buffer address
-    if (buf_virt == 0 || count == 0) {
-        return -kEfault;
-    }
-    uint64_t bit47 = (buf_virt >> 47) & 1;
-    uint64_t upper = buf_virt >> 48;
-    if (bit47 == 0 && upper != 0) {
-        return -kEfault;
-    }
-    if (bit47 == 1 && upper != 0xFFFF) {
-        return -kEfault;
-    }
-
-    // Look up the file descriptor
-    cinux::fs::File* file = cinux::fs::current_fd_table().get(static_cast<int>(fd));
+int64_t do_getdents_kernel(int fd, char* kname, uint64_t count) {
+    cinux::fs::File* file = cinux::fs::current_fd_table().get(fd);
     if (file == nullptr || file->inode == nullptr || file->inode->ops == nullptr) {
-        return -kEbadf;
+        return -cinux::kEbadf;
+    }
+    auto g = file->offset_lock_.guard();
+    (void)g;
+    auto dir_result = file->inode->ops->readdir(file->inode, file->offset, kname, count);
+    if (!dir_result.ok()) {
+        return -cinux::to_errno(dir_result.error());
+    }
+    if (dir_result.value() == 1) {
+        file->offset++;
+        uint64_t len = 0;
+        while (len < count && kname[len] != '\0') {
+            ++len;
+        }
+        return static_cast<int64_t>(len);
+    }
+    return dir_result.value();
+}
+
+int64_t sys_getdents(uint64_t fd, uint64_t buf_virt, uint64_t count, uint64_t, uint64_t, uint64_t) {
+    if (count == 0) {
+        return -cinux::kEfault;
+    }
+    if (!cinux::user::access_ok(reinterpret_cast<void*>(buf_virt), count)) {
+        return -cinux::kEfault;
     }
 
-    auto* name_buf = reinterpret_cast<char*>(buf_virt);
-    {
-        auto g = file->offset_lock_.guard();
-        (void)g;
-        auto dir_result = file->inode->ops->readdir(file->inode, file->offset, name_buf, count);
-
-        if (!dir_result.ok()) {
-            return -to_errno(dir_result.error());
-        }
-
-        if (dir_result.value() == 1) {
-            file->offset++;
-            uint64_t len = 0;
-            while (len < count && name_buf[len] != '\0') {
-                ++len;
-            }
-            return static_cast<int64_t>(len);
-        }
-
-        return dir_result.value();
+    // Stage the entry name in a kernel buffer (readdir may block on disk).
+    uint32_t stage = (count < 256) ? static_cast<uint32_t>(count) : 256;
+    char     kname[256];
+    int64_t  n = do_getdents_kernel(static_cast<int>(fd), kname, stage);
+    if (n <= 0) {
+        return n;
     }
+    if (!cinux::user::copy_to_user(reinterpret_cast<void*>(buf_virt), kname,
+                                   static_cast<uint64_t>(n))) {
+        return -cinux::kEfault;
+    }
+    return n;
 }
 
 }  // namespace cinux::syscall

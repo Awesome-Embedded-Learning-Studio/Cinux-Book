@@ -37,4 +37,20 @@ int64_t sys_open(uint64_t path_virt, uint64_t flags, uint64_t, uint64_t, uint64_
 int64_t sys_openat(uint64_t dirfd, uint64_t path_virt, uint64_t flags, uint64_t mode, uint64_t,
                    uint64_t);
 
+// ============================================================
+// P0g (SMAP): pure kernel-to-kernel open logic (no user memory).
+// Kernel-internal callers and tests use these; sys_open / sys_openat are the
+// user boundaries.
+// ============================================================
+
+/// Open an existing file at an already-resolved path and allocate an fd.
+/// @p flags is the raw access mode (0=RDONLY, 1=WRONLY, 2=RDWR). Returns fd or
+/// -errno.
+int64_t do_open_kernel(const char* resolved_path, uint64_t flags);
+
+/// Open (creating if O_CREAT) at an already-resolved path and allocate an fd.
+/// @p flags is the raw Linux open() flag word (access mode + O_CREAT ...).
+/// Returns fd or -errno.
+int64_t do_openat_kernel(const char* resolved_path, uint64_t flags);
+
 }  // namespace cinux::syscall

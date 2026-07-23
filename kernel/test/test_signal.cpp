@@ -209,44 +209,43 @@ void test_sigaction_install_and_query() {
     Task t{};
     t.sig_actions = SharedSigActions::create();
     CurrentTaskGuard guard(&t);
-    UserSigAction    act{};
-    act.sa_handler = 0xDEADBEEFu;
-    act.sa_mask    = sig_make_mask(Signal::kSigint);
-    TEST_ASSERT_EQ(sys_rt_sigaction(static_cast<uint64_t>(Signal::kSigusr1),
-                                    reinterpret_cast<uint64_t>(&act), 0, 0, 0, 0),
-                   0);
+    SigAction        act{};
+    act.type         = HandlerType::kCustom;
+    act.handler_addr = 0xDEADBEEF;
+    act.sa_mask      = sig_make_mask(Signal::kSigint);
+    TEST_ASSERT_EQ(
+        cinux::syscall::do_sigaction_kernel(&t, static_cast<int>(Signal::kSigusr1), &act, nullptr),
+        0);
     const SigAction& installed = t.sig_actions->actions[static_cast<int>(Signal::kSigusr1)];
     TEST_ASSERT_EQ(installed.type, HandlerType::kCustom);
     TEST_ASSERT_EQ(installed.handler_addr, uint64_t{0xDEADBEEF});
 
-    UserSigAction old{};
-    TEST_ASSERT_EQ(sys_rt_sigaction(static_cast<uint64_t>(Signal::kSigusr1), 0,
-                                    reinterpret_cast<uint64_t>(&old), 0, 0, 0),
-                   0);
-    TEST_ASSERT_EQ(old.sa_handler, uint64_t{0xDEADBEEF});
+    SigAction oldk{};
+    TEST_ASSERT_EQ(
+        cinux::syscall::do_sigaction_kernel(&t, static_cast<int>(Signal::kSigusr1), nullptr, &oldk),
+        0);
+    TEST_ASSERT_EQ(oldk.handler_addr, uint64_t{0xDEADBEEF});
 }
 
 void test_sigaction_rejects_uncatchable() {
     Task t{};
     t.sig_actions = SharedSigActions::create();
     CurrentTaskGuard guard(&t);
-    UserSigAction    act{};
-    act.sa_handler = 0xDEADBEEFu;
-    TEST_ASSERT_EQ(sys_rt_sigaction(static_cast<uint64_t>(Signal::kSigkill),
-                                    reinterpret_cast<uint64_t>(&act), 0, 0, 0, 0),
-                   -22);  // EINVAL: cannot catch SIGKILL
+    SigAction        act{};
+    act.type = HandlerType::kCustom;
+    TEST_ASSERT_EQ(
+        cinux::syscall::do_sigaction_kernel(&t, static_cast<int>(Signal::kSigkill), &act, nullptr),
+        -22);  // EINVAL: cannot catch SIGKILL (do_* returns -kEinval == -22)
 }
 
 void test_sigprocmask_block_unblock() {
     Task t{};
     t.sig_actions = SharedSigActions::create();
     CurrentTaskGuard guard(&t);
-    uint64_t         mask = sig_make_mask(Signal::kSigterm);
-    TEST_ASSERT_EQ(
-        sys_rt_sigprocmask(0 /*SIG_BLOCK*/, reinterpret_cast<uint64_t>(&mask), 0, 0, 0, 0), 0);
+    SigSet           mask = sig_make_mask(Signal::kSigterm);
+    TEST_ASSERT_EQ(cinux::syscall::do_sigprocmask_kernel(&t, 0 /*SIG_BLOCK*/, &mask, nullptr), 0);
     TEST_ASSERT_TRUE(sig_is_member(t.sig_blocked, Signal::kSigterm));
-    TEST_ASSERT_EQ(
-        sys_rt_sigprocmask(1 /*SIG_UNBLOCK*/, reinterpret_cast<uint64_t>(&mask), 0, 0, 0, 0), 0);
+    TEST_ASSERT_EQ(cinux::syscall::do_sigprocmask_kernel(&t, 1 /*SIG_UNBLOCK*/, &mask, nullptr), 0);
     TEST_ASSERT_FALSE(sig_is_member(t.sig_blocked, Signal::kSigterm));
 }
 
@@ -254,8 +253,8 @@ void test_sigprocmask_cannot_block_sigkill() {
     Task t{};
     t.sig_actions = SharedSigActions::create();
     CurrentTaskGuard guard(&t);
-    uint64_t         mask = sig_make_mask(Signal::kSigkill);
-    sys_rt_sigprocmask(0, reinterpret_cast<uint64_t>(&mask), 0, 0, 0, 0);
+    SigSet           mask = sig_make_mask(Signal::kSigkill);
+    cinux::syscall::do_sigprocmask_kernel(&t, 0, &mask, nullptr);
     TEST_ASSERT_FALSE(sig_is_member(t.sig_blocked, Signal::kSigkill));
 }
 

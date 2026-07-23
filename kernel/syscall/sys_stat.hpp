@@ -10,6 +10,7 @@
 #include <stdint.h>
 
 #include "kernel/arch/x86_64/syscall.hpp"
+#include "kernel/fs/stat.hpp"  // P0a: do_*_kernel takes cinux::fs::stat*
 
 namespace cinux::syscall {
 
@@ -44,5 +45,17 @@ int64_t sys_fstat(uint64_t fd, uint64_t st_virt, uint64_t, uint64_t, uint64_t, u
  */
 int64_t sys_newfstatat(uint64_t dirfd, uint64_t path_virt, uint64_t st_virt, uint64_t flags,
                        uint64_t, uint64_t);
+
+// ============================================================
+// P0a (SMAP): pure kernel-to-kernel stat logic (no user memory).
+// Kernel-internal callers and tests use these; sys_* are the user boundaries.
+// ============================================================
+
+/// Stat a resolved path (already canonicalised, e.g. from path_resolve) into a
+/// kernel stat buffer. Returns 0 or -errno.
+int64_t do_stat_kernel(const char* resolved_path, cinux::fs::stat* kst);
+
+/// Stat an open fd into a kernel stat buffer. Returns 0 or -errno.
+int64_t do_fstat_kernel(int fd, cinux::fs::stat* kst);
 
 }  // namespace cinux::syscall

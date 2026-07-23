@@ -66,14 +66,22 @@ bool task_stack_contains(const Task* task, uint64_t addr) {
     return addr >= task->kernel_stack && addr < task->kernel_stack_top;
 }
 
-bool copied_rbp_chain_is_relocated(const Task* child) {
-    if (!task_stack_contains(child, child->ctx.rsp) ||
-        !task_stack_contains(child, child->ctx.rbp)) {
+// New fork/clone child invariant (replaces the old copied_rbp_chain_is_relocated,
+// which assumed the deleted RBP-chain walk).  ctx.rsp must always be in-stack;
+// then the two Linux-style paths are distinguished by ctx.rip:
+//   - ret_from_fork         (path A, user): rsp points at the syscall frame at top
+//   - fork_child_trampoline (path B, kernel): rbp is in-stack (or 0 at top frame)
+bool child_resume_context_is_valid(const Task* child) {
+    if (!task_stack_contains(child, child->ctx.rsp)) {
         return false;
     }
-
-    uint64_t next_rbp = *reinterpret_cast<const uint64_t*>(child->ctx.rbp);
-    return next_rbp == 0 || task_stack_contains(child, next_rbp);
+    if (child->ctx.rip == reinterpret_cast<uint64_t>(cinux::proc::ret_from_fork)) {
+        return child->ctx.rsp == child->kernel_stack_top - kSyscallFrameSize;
+    }
+    if (child->ctx.rip != reinterpret_cast<uint64_t>(cinux::proc::fork_child_trampoline)) {
+        return false;
+    }
+    return child->ctx.rbp == 0 || task_stack_contains(child, child->ctx.rbp);
 }
 
 /**
@@ -146,9 +154,9 @@ void test_clone_vm_shares_addr_space() {
     TEST_ASSERT_GT(child_pid, 0);
     Task* child = signal_find_task_by_pid(child_pid);
     TEST_ASSERT_NOT_NULL(child);
-    TEST_ASSERT_EQ(child->addr_space, cur.tmp.addr_space);  // CLONE_VM: shared pointer
-    TEST_ASSERT_EQ(child_user_rsp(child), 0x40000000ULL);   // user-RSP patched to stack
-    TEST_ASSERT_TRUE(copied_rbp_chain_is_relocated(child));
+    TEST_ASSERT_EQ(child->addr_space, cur.tmp.addr_space);   // CLONE_VM: shared pointer
+    TEST_ASSERT_EQ(child_user_rsp(child), 0x40000000ULL);    // user-RSP patched to stack
+    TEST_ASSERT_TRUE(child_resume_context_is_valid(child));  // path A: ret_from_fork + frame at top
     quarantine_child(child_pid);
 }
 

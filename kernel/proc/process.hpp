@@ -459,8 +459,23 @@ extern "C" void context_switch(CpuContext* from, CpuContext* to);
  *
  * Called by the scheduler when the child task is first switched in.
  * Sets rax to 0 so that the child sees fork() return 0, then
- * returns to the fork() call site on the child's stack.
+ * returns to the fork() call site on the child's stack.  Used by the
+ * kernel-fork path (prepare_kernel_fork_context) where the child must
+ * resume a kernel caller mid-execution.
  */
 extern "C" void fork_child_trampoline();
+
+/**
+ * @brief User fork/clone child first-run trampoline (assembly)
+ *
+ * The child's ctx.rip is set to this by prepare_user_fork_context();
+ * ctx.rsp points at a 128-byte pt_regs frame (the parent's syscall frame)
+ * copied to the top of the child's clean kernel stack.  ret_from_fork
+ * restores the user register state from that frame and SYSRETQs to Ring 3
+ * with rax=0 -- the Linux ret_from_fork style.  The child never runs on a
+ * copy of the parent's kernel stack, avoiding the gcc-13 -O2+ubsan
+ * frame-layout fragility of the old copied-stack RBP-chain approach.
+ */
+extern "C" void ret_from_fork();
 
 }  // namespace cinux::proc

@@ -9,9 +9,11 @@
  * pthread_join.
  *
  * The child returns to user space at the parent's syscall-return RIP with
- * RAX=0 and (if @p stack != 0) RSP=@p stack.  This is achieved by copying the
- * parent's kernel stack (whose syscall pt_regs frame sits at the very top) and
- * patching the child's user-RSP slot -- see GOTCHA#18.
+ * RAX=0 and (if @p stack != 0) RSP=@p stack.  For a user caller (the normal
+ * case) this is the Linux ret_from_fork path: a clean kernel stack carrying the
+ * parent's syscall pt_regs frame on top, ctx.rip = ret_from_fork, and the
+ * child's user-RSP slot patched to @p stack.  A kernel-thread caller falls back
+ * to copying the used stack + fork_child_trampoline (same A/B split as fork()).
  *
  * Split out of fork.cpp (F3-M2 batch 5) to keep each file under the 500-line
  * soft limit.
@@ -56,12 +58,6 @@ constexpr uint64_t kCloneSettls        = 0x00080000;
 constexpr uint64_t kCloneParentSettid  = 0x00100000;
 constexpr uint64_t kCloneChildCleartid = 0x00200000;
 constexpr uint64_t kCloneChildSettid   = 0x01000000;
-
-// Size of the syscall_entry pt_regs frame (16 qwords): user_rsp..rbp.  It sits
-// at the very top of the kernel stack ([kernel_stack_top-128, kernel_stack_top))
-// because syscall_entry loads RSP from %gs:0 == kernel_stack_top.  clone uses
-// this to patch the child's user-RSP slot.
-constexpr uint64_t kSyscallFrameSize = 128;
 
 /**
  * @brief Copy the parent's CoW page tables + VMA records into @p child.
@@ -130,8 +126,8 @@ void cow_clone_address_space(Task* parent, Task* child) {
 
 }  // anonymous namespace
 
-__attribute__((optimize("no-omit-frame-pointer"), noinline)) int clone(
-    uint64_t flags, uint64_t stack, uint64_t parent_tid, uint64_t child_tid, uint64_t tls) {
+__attribute__((noinline)) int clone(uint64_t flags, uint64_t stack, uint64_t parent_tid,
+                                    uint64_t child_tid, uint64_t tls) {
     auto* parent = Scheduler::current();
     if (parent == nullptr) {
         cinux::lib::kprintf("[PROC] clone: no current task\n");
@@ -212,7 +208,7 @@ __attribute__((optimize("no-omit-frame-pointer"), noinline)) int clone(
     // founds a new one).  See inherit_process_identity.
     inherit_process_identity(child, parent, child_pid);
 
-    // ---- Kernel stack (always per-thread): copy parent's used portion ----
+    // ---- Kernel stack (always per-thread) ----
     uint64_t child_stack_phys = cinux::mm::g_pmm.alloc_pages(TaskBuilder::STACK_PAGES);
     if (child_stack_phys == 0) {
         cinux::lib::kprintf("[PROC] clone: child stack allocation failed\n");
@@ -241,31 +237,39 @@ __attribute__((optimize("no-omit-frame-pointer"), noinline)) int clone(
     child->kernel_stack_top        = child_stack_virt + stack_size;
     child->kernel_stack_guard_page = child_guard_virt;
 
-    uint64_t current_rsp;
-    uint64_t current_rbp;
-    __asm__ volatile("movq %%rsp, %0" : "=r"(current_rsp));
-    __asm__ volatile("movq %%rbp, %0" : "=r"(current_rbp));
+    // ---- Child resume context (Linux-style fork child; same A/B split as
+    // fork()).  Path A (caller has a user address space -- the normal sys_clone
+    // pthread/thread path, CLONE_VM or not) gets a clean stack + the parent's
+    // syscall frame on top and runs ret_from_fork.  Path B (a kernel thread
+    // cloning) copies the used stack and resumes via fork_child_trampoline. ----
+    if (parent->addr_space != nullptr) {
+        prepare_user_fork_context(child, parent->kernel_stack_top);
+    } else {
+        uint64_t current_rsp;
+        __asm__ volatile("movq %%rsp, %0" : "=r"(current_rsp));
 
-    uint64_t full_stack_used = parent->kernel_stack_top - current_rsp;
-    // Defensive: cap the copied region at the child stack size so a
-    // pathologically-deep parent (or a synthetic test parent) cannot make
-    // child_stack_start underflow below the stack mapping.
-    if (full_stack_used > stack_size) {
-        full_stack_used = stack_size;
+        uint64_t full_stack_used = parent->kernel_stack_top - current_rsp;
+        // Defensive: cap the copied region at the child stack size so a
+        // pathologically-deep parent (or a synthetic test parent) cannot make
+        // child_stack_start underflow below the stack mapping.
+        if (full_stack_used > stack_size) {
+            full_stack_used = stack_size;
+        }
+        uint64_t child_stack_start = child_stack_virt + stack_size - full_stack_used;
+        std::memcpy(reinterpret_cast<void*>(child_stack_start),
+                    reinterpret_cast<void*>(current_rsp), full_stack_used);
+
+        uint64_t frame_base = reinterpret_cast<uint64_t>(__builtin_frame_address(0));
+        prepare_kernel_fork_context(child, current_rsp, current_rsp + full_stack_used,
+                                    child_stack_start, frame_base);
     }
-    uint64_t child_stack_start = child_stack_virt + stack_size - full_stack_used;
-    std::memcpy(reinterpret_cast<void*>(child_stack_start), reinterpret_cast<void*>(current_rsp),
-                full_stack_used);
-
-    // The child resumes via the trampoline (sets rax=0) and unwinds the copied
-    // stack frames back out through syscall_entry, exactly like fork.
-    prepare_copied_kernel_stack_context(child, current_rsp, current_rsp + full_stack_used,
-                                        child_stack_start, current_rbp);
 
     // ---- CRUX: patch the child's user-RSP to the provided thread stack ----
-    // The syscall pt_regs frame is at [kernel_stack_top-kSyscallFrameSize, kernel_stack_top);
-    // its first slot (offset 0) is user_rsp.  Overwrite it so the child returns
-    // to user space on the caller-supplied stack instead of the parent's.
+    // The syscall pt_regs frame is at [kernel_stack_top-kSyscallFrameSize,
+    // kernel_stack_top); its first slot (offset 0) is user_rsp.  Overwrite it so
+    // a path-A child returns to user space on the caller-supplied stack instead
+    // of the parent's (ret_from_fork reads it straight out of the frame).  For a
+    // path-B (kernel) child this slot is unused; the write is harmless.
     if (stack != 0) {
         *reinterpret_cast<uint64_t*>(child->kernel_stack_top - kSyscallFrameSize) = stack;
     }

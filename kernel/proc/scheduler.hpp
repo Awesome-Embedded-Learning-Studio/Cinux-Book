@@ -116,7 +116,13 @@ public:
 
     static void init();
     static void register_class(SchedulingClass* sched_class);
-    static void add_task(lib::NotNull<Task*> task);
+    /// Make @p task runnable. @p wake_ap (default true) sends a reschedule IPI
+    /// so an idle AP can pull it off the shared queue immediately -- the normal
+    /// case for fork/launch. The bootstrap path sets it false: it enqueues the
+    /// very first worker and then run_first() picks it on the BSP itself; an IPI
+    /// there races an AP into stealing it, leaving run_first() with an empty
+    /// queue (the -smp2 "smoke worker did not run" false-green).
+    static void add_task(lib::NotNull<Task*> task, bool wake_ap = true);
     static void remove_task(lib::NotNull<Task*> task);
     static void yield();
     static void exit_current();

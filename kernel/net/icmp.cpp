@@ -21,6 +21,18 @@ namespace cinux::net {
 namespace {
 /// Max ICMP message we will mirror (fits one Ethernet frame minus L2+IPv4).
 constexpr uint32_t kMaxIcmp = 1518 - 14 - 20;
+
+/// Heap buffer RAII guard. Local struct (no <memory>) -- the freestanding
+/// header gate (scripts/check_freestanding_headers.py) rejects <memory>.
+/// new[]/delete[] route to the kernel crt_stub operator new/kmalloc, which is
+/// fine on the freestanding path.
+struct HeapBuf {
+    uint8_t* p;
+    explicit HeapBuf(size_t n) : p(new uint8_t[n]) {}
+    ~HeapBuf() { delete[] p; }
+    HeapBuf(const HeapBuf&)            = delete;
+    HeapBuf& operator=(const HeapBuf&) = delete;
+};
 }  // namespace
 
 void IcmpModule::handle(const Ipv4Header& ip, FrameView payload, NetDevice& dev, Ipv4Module& ipv4,
@@ -36,19 +48,23 @@ void IcmpModule::handle(const Ipv4Header& ip, FrameView payload, NetDevice& dev,
         if (n > kMaxIcmp) {
             return;  // too big to mirror (sanity)
         }
-        uint8_t buf[kMaxIcmp];
+        // Heap-allocated: kMaxIcmp (1484B) > 1024B frame budget. Network path
+        // avoids static to dodge SMP-shared-buffer hazards. Fully rewritten
+        // below (loop writes all n bytes, then checksum bytes) -> no zero-init
+        // needed.
+        HeapBuf buf(kMaxIcmp);
         for (uint32_t i = 0; i < n; ++i) {
-            buf[i] = payload.data()[i];  // copy header + echo data verbatim
+            buf.p[i] = payload.data()[i];  // copy header + echo data verbatim
         }
-        buf[0]            = kIcmpEchoReply;  // type 0
-        buf[1]            = 0;               // code 0
-        buf[2]            = 0;
-        buf[3]            = 0;  // zero checksum before recompute
-        const uint16_t cs = cinux::lib::internet_checksum(buf, n);
-        buf[2]            = static_cast<uint8_t>(cs >> 8);
-        buf[3]            = static_cast<uint8_t>(cs & 0xFF);
+        buf.p[0]          = kIcmpEchoReply;  // type 0
+        buf.p[1]          = 0;               // code 0
+        buf.p[2]          = 0;
+        buf.p[3]          = 0;  // zero checksum before recompute
+        const uint16_t cs = cinux::lib::internet_checksum(buf.p, n);
+        buf.p[2]          = static_cast<uint8_t>(cs >> 8);
+        buf.p[3]          = static_cast<uint8_t>(cs & 0xFF);
         // Reply to the request's source; Ipv4Module sources our local address.
-        (void)ipv4.send(dev, ip.src, kIpProtoIcmp, buf, n, stack);
+        (void)ipv4.send(dev, ip.src, kIpProtoIcmp, buf.p, n, stack);
     } else if (hdr.type == kIcmpEchoReply) {
         ++reply_count_;
         last_id_  = hdr.id;

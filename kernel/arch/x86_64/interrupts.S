@@ -72,7 +72,7 @@
     testb $3, %al                     # CPL bits (low 2 bits of CS)
     jz 1f                             # kernel mode (CPL=0) -> skip swapgs
     swapgs                            # user mode -> activate kernel GS
-    stac                              # F9 batch 4: SMAP -- allow user access in handler
+    # stac  (P3: global STAC removed -- SMAP real; user mem only via accessor stac)
 1:
 
     /* Pass InterruptFrame* as first argument (skip alignment padding) */
@@ -170,7 +170,7 @@
     testb $3, %al                     # CPL bits (low 2 bits of CS)
     jz 1f                             # kernel mode (CPL=0) -> skip swapgs
     swapgs                            # user mode -> activate kernel GS
-    stac                              # F9 batch 4: SMAP -- allow user access in handler
+    # stac  (P3: global STAC removed -- SMAP real; user mem only via accessor stac)
 1:
 
     /* Pass InterruptFrame* as first argument (skip alignment padding) */
@@ -268,7 +268,7 @@
     testb $3, %al                     # CPL bits
     jz 1f                             # kernel mode -> skip swapgs
     swapgs                            # user mode -> activate kernel GS
-    stac                              # F9 batch 4: SMAP -- allow user access in handler
+    # stac  (P3: global STAC removed -- SMAP real; user mem only via accessor stac)
 1:
 
     /* Pass InterruptFrame* as first argument (skip alignment padding) */

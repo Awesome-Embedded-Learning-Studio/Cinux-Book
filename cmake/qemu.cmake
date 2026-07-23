@@ -82,10 +82,14 @@ set(QEMU_TEST_EXTRA_FLAGS
 # isa-debug-exit Exit Code Mapping
 # ============================================================
 # QEMU's isa-debug-exit device encodes: exit_code = (value << 1) | 1
-#   Kernel writes 0 → QEMU exits 1 → test SUCCESS
-#   Kernel writes 1 → QEMU exits 3 → test FAILURE
-# The run-kernel-test and run-stress-test targets use a bash wrapper
-# to map QEMU exit code 1 → make success, 3 → make failure.
+#   Kernel writes 0 → QEMU exits 1   → test SUCCESS
+#   Kernel writes 1 → QEMU exits 3   → test FAILURE (unit test failed)
+#   Panic writes a cause-coded value → QEMU exits (value<<1)|1, FAST (no
+#   cli;hlt → timeout stall): exception panic value = vector+2 (#DF(8)→21,
+#   #PF(14)→33, #GP(13)→31), generic kpanic value = 64 → exit 129.
+# The run-kernel-test and run-stress-test targets use qemu_test_wrapper.sh,
+# which maps exit 1 → success, 3 → failure, and labels panic exits with their
+# decoded vector. Decode: vector = (exit_code - 1)/2 - 2  (129 = generic kpanic).
 
 # 将 CMake list 转换为空格分隔的字符串（用于脚本生成）
 string(REPLACE ";" " " QEMU_COMMON_FLAGS_STR "${QEMU_COMMON_FLAGS}")
@@ -142,6 +146,27 @@ add_custom_target(run
         -device e1000,netdev=net0 -netdev user,id=net0
     DEPENDS image ${AHCI_TEST_IMAGE} ${EXT2_IMAGE}
     COMMENT "Starting QEMU (serial: stdio)"
+    VERBATIM
+)
+
+# Single-CPU run: same devices as `run` but WITHOUT -smp 2. The shell-launch
+# fork #DF saga is -smp-2-only (cross-core CoW/syscall-frame race); single-CPU
+# is stable, so this is the path to launch external programs from the shell
+# (type a path) without hitting the saga. Use `run` for -smp 2 / AP / net work.
+add_custom_target(run-single
+    COMMAND ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} ${QEMU_DEVELOP_FLAG}
+        -drive file=${CINUX_IMAGE_PATH},format=raw,index=0,media=disk
+        -device qemu-xhci,id=xhci
+        -device usb-kbd,bus=xhci.0
+        -device usb-tablet,bus=xhci.0
+        -device ahci,id=ahci
+        -drive file=${AHCI_TEST_IMAGE},format=raw,if=none,id=ahci-disk
+        -device ide-hd,drive=ahci-disk,bus=ahci.0
+        -drive file=${EXT2_IMAGE},format=raw,if=none,id=ext2-disk
+        -device ide-hd,drive=ext2-disk,bus=ahci.1
+        -device e1000,netdev=net0 -netdev user,id=net0
+    DEPENDS image ${AHCI_TEST_IMAGE} ${EXT2_IMAGE}
+    COMMENT "Starting QEMU single-CPU (shell fork stable; no -smp 2 saga)"
     VERBATIM
 )
 

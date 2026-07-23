@@ -17,7 +17,8 @@
 #include <stdint.h>
 
 #include "kernel/arch/x86_64/idt.hpp"
-#include "kernel/arch/x86_64/usermode.hpp"  // F9 batch 1: USER_SIGRETURN_PAGE
+#include "kernel/arch/x86_64/user_access.hpp"  // P3 (SMAP): stac/clac for frame write
+#include "kernel/arch/x86_64/usermode.hpp"     // F9 batch 1: USER_SIGRETURN_PAGE
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"  // DEBT-008: VMA check in signal_setup_frame
 #include "kernel/mm/vma.hpp"            // VmaFlags / VMA / has_flag
@@ -324,6 +325,10 @@ void signal_setup_frame(InterruptFrame* frame, Signal sig, uint64_t handler_addr
         }
     }
 
+    // P3 (SMAP real): the SignalFrame + return-addr slots live in user memory;
+    // wrap the writes in a local stac/clac window (global STAC removed). Skip
+    // access_ok: R was just validated against the writable Stack VMA above.
+    cinux::arch::stac();
     auto* sf = reinterpret_cast<SignalFrame*>(R + 8);
 
     // Save the interrupted user context.
@@ -351,6 +356,7 @@ void signal_setup_frame(InterruptFrame* frame, Signal sig, uint64_t handler_addr
     // Return address: handler `ret` lands on the fixed sigreturn page (not
     // stack-resident code).  See USER_SIGRETURN_PAGE / kSigreturnTrampoline.
     *reinterpret_cast<uint64_t*>(R) = cinux::arch::USER_SIGRETURN_PAGE;
+    cinux::arch::clac();  // end user-frame write window
 
     // Redirect the interrupted frame to enter the handler with sig as %rdi.
     frame->rip = handler_addr;

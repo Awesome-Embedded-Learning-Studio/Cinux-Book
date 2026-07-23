@@ -24,36 +24,30 @@ using cinux::lib::kprintf;
 
 }  // anonymous namespace
 
-int64_t sys_mkdir(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) {
-    // Step 1: Resolve the path (cwd-aware)
-    cinux::fs::PathBuf resolved;
-    if (!resolve_user_path(path_virt, resolved.data())) {
-        return -kEfault;
-    }
-
-    // Step 2: Resolve through the VFS mount table
+int64_t do_mkdir_kernel(const char* resolved_path) {
+    // Step 1: Resolve through the VFS mount table
     const char*            rel_path = nullptr;
-    cinux::fs::FileSystem* fs       = cinux::fs::vfs_resolve(resolved, &rel_path);
+    cinux::fs::FileSystem* fs       = cinux::fs::vfs_resolve(resolved_path, &rel_path);
 
     if (fs == nullptr) {
-        kprintf("[SYS_MKDIR] No filesystem mounted for '%s'\n", resolved.data());
+        kprintf("[SYS_MKDIR] No filesystem mounted for '%s'\n", resolved_path);
         return -kEnoent;
     }
 
-    // Step 3: Split relative path into parent dir and leaf name
+    // Step 2: Split relative path into parent dir and leaf name
     cinux::fs::PathBuf parent_buf;
-    const char* leaf_name = nullptr;
-    uint32_t    name_len  = 0;
+    const char*        leaf_name = nullptr;
+    uint32_t           name_len  = 0;
 
     if (!split_pathname(rel_path, parent_buf, &leaf_name, &name_len)) {
-        kprintf("[SYS_MKDIR] Invalid path: '%s'\n", resolved.data());
+        kprintf("[SYS_MKDIR] Invalid path: '%s'\n", resolved_path);
         return -kEinval;
     }
 
-    // Step 4: Look up the parent directory inode
+    // Step 3: Look up the parent directory inode
     auto parent_result = fs->lookup(parent_buf);
     if (!parent_result.ok()) {
-        kprintf("[SYS_MKDIR] Parent directory not found for '%s'\n", resolved.data());
+        kprintf("[SYS_MKDIR] Parent directory not found for '%s'\n", resolved_path);
         return -to_errno(parent_result.error());
     }
     cinux::fs::Inode* parent = parent_result.value();
@@ -63,14 +57,23 @@ int64_t sys_mkdir(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, ui
         return -kEio;
     }
 
-    // Step 5: Call mkdir() on the parent directory
+    // Step 4: Call mkdir() on the parent directory
     auto mkdir_result = parent->ops->mkdir(parent, leaf_name, name_len);
     if (!mkdir_result.ok()) {
-        kprintf("[SYS_MKDIR] Failed to mkdir '%s'\n", resolved.data());
+        kprintf("[SYS_MKDIR] Failed to mkdir '%s'\n", resolved_path);
         return -to_errno(mkdir_result.error());
     }
 
     return 0;
+}
+
+int64_t sys_mkdir(uint64_t path_virt, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) {
+    // Boundary: resolve the user path (cwd-aware), then run kernel logic.
+    cinux::fs::PathBuf resolved;
+    if (!resolve_user_path(path_virt, resolved.data())) {
+        return -kEfault;
+    }
+    return do_mkdir_kernel(resolved.data());
 }
 
 }  // namespace cinux::syscall

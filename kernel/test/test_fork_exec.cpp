@@ -62,18 +62,31 @@ using cinux::arch::FLAG_GLOBAL;
 
 namespace {
 
+// Size of the syscall_entry pt_regs frame (16 qwords): user_rsp..rbp.  It sits
+// at the very top of the kernel stack; a path-A (user) fork/clone child copies
+// it onto its clean stack and points ctx.rsp at it.
+constexpr uint64_t kSyscallFrameSize = 128;
+
 bool task_stack_contains(const Task* task, uint64_t addr) {
     return addr >= task->kernel_stack && addr < task->kernel_stack_top;
 }
 
-bool copied_rbp_chain_is_relocated(const Task* child) {
-    if (!task_stack_contains(child, child->ctx.rsp) ||
-        !task_stack_contains(child, child->ctx.rbp)) {
+// New fork/clone child invariant (replaces the old copied_rbp_chain_is_relocated,
+// which assumed the deleted RBP-chain walk).  ctx.rsp must always be in-stack;
+// then the two Linux-style paths are distinguished by ctx.rip:
+//   - ret_from_fork      (path A, user): rsp points at the syscall frame at top
+//   - fork_child_trampoline (path B, kernel): rbp is in-stack (or 0 at top frame)
+bool child_resume_context_is_valid(const Task* child) {
+    if (!task_stack_contains(child, child->ctx.rsp)) {
         return false;
     }
-
-    uint64_t next_rbp = *reinterpret_cast<const uint64_t*>(child->ctx.rbp);
-    return next_rbp == 0 || task_stack_contains(child, next_rbp);
+    if (child->ctx.rip == reinterpret_cast<uint64_t>(cinux::proc::ret_from_fork)) {
+        return child->ctx.rsp == child->kernel_stack_top - kSyscallFrameSize;
+    }
+    if (child->ctx.rip != reinterpret_cast<uint64_t>(cinux::proc::fork_child_trampoline)) {
+        return false;
+    }
+    return child->ctx.rbp == 0 || task_stack_contains(child, child->ctx.rbp);
 }
 
 }  // namespace
@@ -419,12 +432,13 @@ void test_dispatch_sys_fork() {
     int64_t                     ret = sys_fork(0, 0, 0, 0, 0, 0);
     // fork may succeed (return child_pid) or fail (return -1)
     TEST_ASSERT_TRUE(ret == -1 || ret >= 0);
-    // Quarantine the child so it can never be scheduled (it would run
-    // fork_child_trampoline and unwind the copied test stack).
+    // Quarantine the child so it can never be scheduled.  The harness tmp task
+    // has no address space, so fork() takes path B and the child would run
+    // fork_child_trampoline if ever switched in.
     if (ret > 0) {
         Task* child = cinux::proc::signal_find_task_by_pid(static_cast<int>(ret));
         if (child != nullptr) {
-            TEST_ASSERT_TRUE(copied_rbp_chain_is_relocated(child));
+            TEST_ASSERT_TRUE(child_resume_context_is_valid(child));
             cinux::proc::Scheduler::remove_task(child);
         }
     }
@@ -450,7 +464,7 @@ void test_dispatch_sys_fork_via_table() {
     if (dispatched > 0) {
         Task* child = cinux::proc::signal_find_task_by_pid(static_cast<int>(dispatched));
         if (child != nullptr) {
-            TEST_ASSERT_TRUE(copied_rbp_chain_is_relocated(child));
+            TEST_ASSERT_TRUE(child_resume_context_is_valid(child));
             cinux::proc::Scheduler::remove_task(child);
         }
     }
@@ -732,18 +746,18 @@ void test_text_vs_data_flags() {
 namespace test_sys_execve_dispatch {
 
 void test_dispatch_sys_execve() {
-    // In the test harness, VFS is not mounted, so execve with a
-    // non-empty path should return an error (FileNotFound or similar).
+    // P0c: kernel-to-kernel do_execve_kernel with a kernel path. VFS not
+    // mounted / temp task has no address space -> execve returns an error.
     Task tmp{};
     tmp.pid    = 42;
     tmp.ppid   = 1;
     Task* prev = cinux::proc::Scheduler::current();
     cinux::proc::Scheduler::set_current(&tmp);
 
-    // Pass a kernel pointer to a path string
-    const char* path = "/bin/test";
-    int64_t     ret  = sys_execve(reinterpret_cast<uint64_t>(path), 0, 0, 0, 0, 0);
-    // Should fail: no VFS mounted, no address space on the temp task
+    const char*        kpath = "/bin/test";
+    const char* const* kargv = nullptr;
+    const char* const* kenvp = nullptr;
+    int64_t            ret   = cinux::syscall::do_execve_kernel(kpath, kargv, kenvp);
     TEST_ASSERT_TRUE(ret < 0);
 
     cinux::proc::Scheduler::set_current(prev);

@@ -157,10 +157,9 @@ void test_creat_creates_file() {
         path[i + 1] = name[i];
         ++i;
     }
-    path[i + 1]    = '\0';
-    auto path_addr = reinterpret_cast<uint64_t>(path);
+    path[i + 1] = '\0';
 
-    int64_t result = cinux::syscall::sys_creat(path_addr, 0, 0, 0, 0, 0);
+    int64_t result = cinux::syscall::do_creat_kernel(path);
     TEST_ASSERT_EQ(result, 0);
 
     // Verify the file exists via lookup
@@ -201,10 +200,9 @@ void test_mkdir_creates_directory() {
         path[i + 1] = name[i];
         ++i;
     }
-    path[i + 1]    = '\0';
-    auto path_addr = reinterpret_cast<uint64_t>(path);
+    path[i + 1] = '\0';
 
-    int64_t result = cinux::syscall::sys_mkdir(path_addr, 0, 0, 0, 0, 0);
+    int64_t result = cinux::syscall::do_mkdir_kernel(path);
     TEST_ASSERT_EQ(result, 0);
 
     // Verify the directory exists via lookup
@@ -247,10 +245,9 @@ void test_unlink_removes_file() {
         path[i + 1] = name[i];
         ++i;
     }
-    path[i + 1]    = '\0';
-    auto path_addr = reinterpret_cast<uint64_t>(path);
+    path[i + 1] = '\0';
 
-    int64_t creat_result = cinux::syscall::sys_creat(path_addr, 0, 0, 0, 0, 0);
+    int64_t creat_result = cinux::syscall::do_creat_kernel(path);
     TEST_ASSERT_EQ(creat_result, 0);
 
     // Confirm it exists
@@ -260,7 +257,7 @@ void test_unlink_removes_file() {
     cinux::lib::kprintf("[SYSCALL_EXT2] unlink: file created (ino=%lu)\n", found->ino);
 
     // Now unlink it
-    int64_t unlink_result = cinux::syscall::sys_unlink(path_addr, 0, 0, 0, 0, 0);
+    int64_t unlink_result = cinux::syscall::do_unlink_kernel(path);
     TEST_ASSERT_EQ(unlink_result, 0);
 
     // Verify the file is gone
@@ -298,10 +295,9 @@ void test_rmdir_removes_directory() {
         path[i + 1] = name[i];
         ++i;
     }
-    path[i + 1]    = '\0';
-    auto path_addr = reinterpret_cast<uint64_t>(path);
+    path[i + 1] = '\0';
 
-    int64_t mkdir_result = cinux::syscall::sys_mkdir(path_addr, 0, 0, 0, 0, 0);
+    int64_t mkdir_result = cinux::syscall::do_mkdir_kernel(path);
     TEST_ASSERT_EQ(mkdir_result, 0);
 
     // Confirm it exists
@@ -311,7 +307,7 @@ void test_rmdir_removes_directory() {
     cinux::lib::kprintf("[SYSCALL_EXT2] rmdir: dir created (ino=%lu)\n", found->ino);
 
     // Now rmdir it
-    int64_t rmdir_result = cinux::syscall::sys_rmdir(path_addr, 0, 0, 0, 0, 0);
+    int64_t rmdir_result = cinux::syscall::do_rmdir_kernel(path);
     TEST_ASSERT_EQ(rmdir_result, 0);
 
     // Verify the directory is gone from parent's listing
@@ -351,10 +347,8 @@ void test_full_syscall_flow() {
         dir_path[di + 1] = dirname[di];
         ++di;
     }
-    dir_path[di + 1] = '\0';
-    auto dir_addr    = reinterpret_cast<uint64_t>(dir_path);
-
-    int64_t mkdir_result = cinux::syscall::sys_mkdir(dir_addr, 0, 0, 0, 0, 0);
+    dir_path[di + 1]     = '\0';
+    int64_t mkdir_result = cinux::syscall::do_mkdir_kernel(dir_path);
     TEST_ASSERT_EQ(mkdir_result, 0);
 
     Inode* dir = lookup_or_null(pair.ext2, dirname);
@@ -374,23 +368,22 @@ void test_full_syscall_flow() {
     file_path[fi++] = '/';
     for (uint32_t j = 0; fname[j] && fi < sizeof(file_path) - 1; ++j)
         file_path[fi++] = fname[j];
-    file_path[fi]  = '\0';
-    auto file_addr = reinterpret_cast<uint64_t>(file_path);
+    file_path[fi] = '\0';
 
-    int64_t creat_result = cinux::syscall::sys_creat(file_addr, 0, 0, 0, 0, 0);
+    int64_t creat_result = cinux::syscall::do_creat_kernel(file_path);
     TEST_ASSERT_EQ(creat_result, 0);
 
     // Verify via ext2 lookup in the subdirectory
     cinux::lib::kprintf("[SYSCALL_EXT2] full flow: creat %s OK\n", file_path);
 
     // Step 3: unlink the file
-    int64_t unlink_result = cinux::syscall::sys_unlink(file_addr, 0, 0, 0, 0, 0);
+    int64_t unlink_result = cinux::syscall::do_unlink_kernel(file_path);
     TEST_ASSERT_EQ(unlink_result, 0);
 
     cinux::lib::kprintf("[SYSCALL_EXT2] full flow: unlink %s OK\n", file_path);
 
     // Step 4: rmdir the directory
-    int64_t rmdir_result = cinux::syscall::sys_rmdir(dir_addr, 0, 0, 0, 0, 0);
+    int64_t rmdir_result = cinux::syscall::do_rmdir_kernel(dir_path);
     TEST_ASSERT_EQ(rmdir_result, 0);
 
     cinux::lib::kprintf("[SYSCALL_EXT2] full flow: rmdir /%s OK\n", dirname);
@@ -420,11 +413,10 @@ void test_creat_duplicate_name() {
         path[i + 1] = name[i];
         ++i;
     }
-    path[i + 1]    = '\0';
-    auto path_addr = reinterpret_cast<uint64_t>(path);
+    path[i + 1] = '\0';
 
     // 第一次创建应该成功
-    int64_t r1 = cinux::syscall::sys_creat(path_addr, 0, 0, 0, 0, 0);
+    int64_t r1 = cinux::syscall::do_creat_kernel(path);
     TEST_ASSERT_EQ(r1, 0);
 
     // 验证文件存在
@@ -433,7 +425,7 @@ void test_creat_duplicate_name() {
     uint64_t first_ino = found->ino;
 
     // 重复创建同名文件（当前实现：应该返回已存在的 inode 或报错）
-    int64_t r2 = cinux::syscall::sys_creat(path_addr, 0, 0, 0, 0, 0);
+    int64_t r2 = cinux::syscall::do_creat_kernel(path);
     // r2 可能是 0（返回已存在 inode）或 < 0（报错），两种都可接受
     // 关键是不应该崩溃
 
@@ -442,7 +434,7 @@ void test_creat_duplicate_name() {
     TEST_ASSERT_NOT_NULL(still);
 
     // 清理
-    cinux::syscall::sys_unlink(path_addr, 0, 0, 0, 0, 0);
+    cinux::syscall::do_unlink_kernel(path);
     teardown_syscall_ext2(pair);
 
     (void)first_ino;
@@ -470,28 +462,25 @@ void test_ext2_read_served_from_cache() {
     TEST_ASSERT_NOT_NULL(pair.ext2);
     TEST_ASSERT_TRUE(pair.ext2->is_mounted());
 
-    const char* path      = "/hello.txt";
-    auto        path_addr = reinterpret_cast<uint64_t>(path);
+    const char* path = "/hello.txt";
 
     // First open + read fills the cache for the file's first page.
-    int64_t fd = cinux::syscall::sys_open(path_addr, 0, 0, 0, 0, 0);
+    int64_t fd = cinux::syscall::do_open_kernel(path, 0);
     TEST_ASSERT_GE(fd, 0);
 
     char    buf1[128] = {};
     auto    buf1_addr = reinterpret_cast<uint64_t>(buf1);
-    int64_t n1 =
-        cinux::syscall::sys_read(static_cast<uint64_t>(fd), buf1_addr, sizeof(buf1), 0, 0, 0);
+    int64_t n1        = cinux::syscall::do_read_kernel(static_cast<int>(fd), buf1, sizeof(buf1));
     TEST_ASSERT_GT(n1, 0);
     cinux::syscall::sys_close(static_cast<uint64_t>(fd), 0, 0, 0, 0, 0);
 
     // Reopen (offset 0, same inode -> identical cache keys) and read again.
-    int64_t fd2 = cinux::syscall::sys_open(path_addr, 0, 0, 0, 0, 0);
+    int64_t fd2 = cinux::syscall::do_open_kernel(path, 0);
     TEST_ASSERT_GE(fd2, 0);
     char    buf2[128] = {};
     auto    buf2_addr = reinterpret_cast<uint64_t>(buf2);
     size_t  hits_mid  = cinux::mm::g_page_cache.hit_count();
-    int64_t n2 =
-        cinux::syscall::sys_read(static_cast<uint64_t>(fd2), buf2_addr, sizeof(buf2), 0, 0, 0);
+    int64_t n2        = cinux::syscall::do_read_kernel(static_cast<int>(fd2), buf2, sizeof(buf2));
     TEST_ASSERT_EQ(n2, n1);
     cinux::syscall::sys_close(static_cast<uint64_t>(fd2), 0, 0, 0, 0, 0);
 

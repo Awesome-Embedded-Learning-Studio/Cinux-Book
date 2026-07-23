@@ -190,7 +190,12 @@ constexpr CmdEntry builtin_cmds[] = {
 
 static void shell_main() {
     char  line[MAX_LINE];
-    char* argv[MAX_TOKENS];
+    // MAX_TOKENS + 1 slots: tokenize() fills up to MAX_TOKENS pointers
+    // (argv[0..MAX_TOKENS-1]) then writes a nullptr terminator at argv[argc] --
+    // which lands at argv[MAX_TOKENS] when the line has exactly MAX_TOKENS
+    // tokens. A [MAX_TOKENS] array made that terminator write out of bounds
+    // (-Warray-bounds; a real stack smash under -O2).
+    char* argv[MAX_TOKENS + 1];
 
     write_str("Cinux shell - type 'help' for commands\n");
 
@@ -226,7 +231,10 @@ static void shell_main() {
             // /bin/ls in bash).  A negative result means fork/exec failed; the
             // launched program's own output (if it ran) already went to stdout.
             int64_t r = launch_program(argv[0], argv);
-            if (r < 0) {
+            // launch_program's child does sys_exit(127) when execve fails (the
+            // shell convention for "command not found"); fork/exec errors come
+            // back negative. Both -> print the not-found message.
+            if (r < 0 || r == 127) {
                 write_str(argv[0]);
                 write_str(": command not found\n");
             }

@@ -242,7 +242,9 @@ void test_sys_write_registered() {
 }
 
 void test_sys_write_invalid_fd_rejected() {
-    int64_t r0 = sys_write(0, 0x1000, 5, 0, 0, 0);
+    // P0b: bad fd is kernel logic (do_write_kernel -> -EBADF), not access_ok.
+    const char buf[5] = {0};
+    int64_t    r0     = cinux::syscall::do_write_kernel(0, buf, 5);
     TEST_ASSERT_LT(r0, 0);
 }
 

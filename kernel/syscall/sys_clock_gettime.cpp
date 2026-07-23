@@ -1,20 +1,25 @@
 /**
  * @file kernel/syscall/sys_clock_gettime.cpp
- * @brief sys_clock_gettime handler implementation (F10-M1 batch 4)
+ * @brief sys_clock_gettime handler (F10-M1 batch 4 / P0e SMAP-layered)
  *
- * Fills a user timespec from the PIT uptime counter.  CinuxOS has no wall
- * clock yet, so both CLOCK_REALTIME and CLOCK_MONOTONIC report boot-relative
- * time -- monotonic is exact, realtime is a stand-in until an RTC source is
- * wired.  musl does not crash on a coarse clock.
+ * Layered (Linux-aligned):
+ *   - do_clock_gettime_kernel: fills a KERNEL ktimespec from the PIT uptime.
+ *     Pure kernel-to-kernel; tests call this.
+ *   - sys_clock_gettime: the user boundary. do_* fills the kernel timespec,
+ *     then copy_to_user stages it out. The old direct `tp->tv_sec = ...` write
+ *     into the user buffer is gone.
+ *
+ * CinuxOS has no wall clock; both CLOCK_REALTIME and CLOCK_MONOTONIC report
+ * boot-relative time (monotonic exact, realtime stand-in until an RTC source).
  */
 
 #include "kernel/syscall/sys_clock_gettime.hpp"
 
 #include <stdint.h>
 
+#include "kernel/arch/x86_64/user_access.hpp"  // P0e (SMAP): copy_to_user
 #include "kernel/drivers/pit/pit.hpp"
 #include "kernel/errno.hpp"
-#include "kernel/syscall/path_util.hpp"
 
 namespace cinux::syscall {
 
@@ -23,28 +28,28 @@ namespace {
 constexpr uint64_t kClockRealtime  = 0;
 constexpr uint64_t kClockMonotonic = 1;
 
-/// Linux struct timespec layout on x86-64: { time_t tv_sec; long tv_nsec; }.
-struct ktimespec {
-    int64_t tv_sec;
-    int64_t tv_nsec;
-};
-
 }  // anonymous namespace
 
-int64_t sys_clock_gettime(uint64_t clk_id, uint64_t tp_virt, uint64_t, uint64_t, uint64_t,
-                          uint64_t) {
+int64_t do_clock_gettime_kernel(uint64_t clk_id, ktimespec* out) {
     if (clk_id != kClockRealtime && clk_id != kClockMonotonic) {
         return -cinux::kEinval;
     }
-    if (!validate_user_ptr(tp_virt)) {
+    uint64_t ms  = cinux::drivers::PIT::get_uptime_ms();
+    out->tv_sec  = static_cast<int64_t>(ms / 1000);
+    out->tv_nsec = static_cast<int64_t>((ms % 1000) * 1'000'000);
+    return 0;
+}
+
+int64_t sys_clock_gettime(uint64_t clk_id, uint64_t tp_virt, uint64_t, uint64_t, uint64_t,
+                          uint64_t) {
+    ktimespec kts;
+    int64_t   rc = do_clock_gettime_kernel(clk_id, &kts);
+    if (rc < 0) {
+        return rc;
+    }
+    if (!cinux::user::copy_to_user(reinterpret_cast<void*>(tp_virt), &kts, sizeof(kts))) {
         return -cinux::kEfault;
     }
-
-    uint64_t ms = cinux::drivers::PIT::get_uptime_ms();
-    auto*    tp = reinterpret_cast<ktimespec*>(tp_virt);
-    tp->tv_sec  = static_cast<int64_t>(ms / 1000);
-    tp->tv_nsec = static_cast<int64_t>((ms % 1000) * 1'000'000);
-
     return 0;
 }
 
