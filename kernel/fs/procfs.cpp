@@ -18,9 +18,10 @@
 #include <stdint.h>
 
 #include "kernel/lib/string.hpp"
-#include "kernel/proc/pid.hpp"     // PidAllocator::PID_MAX (static_assert drift guard)
-#include "kernel/proc/signal.hpp"  // signal_find_task_by_pid / signal_nth_task_pid
-#include "procfs_content.hpp"      // format_proc_stat / format_proc_cmdline
+#include "kernel/proc/pid.hpp"  // PidAllocator::PID_MAX (static_assert drift guard)
+#include "kernel/proc/signal.hpp"  // signal_find_task_by_pid / signal_nth_task_pid / signal_snapshot_task
+#include "kernel/proc/task_snapshot.hpp"  // TaskSnapshot (value type, DEBT-022)
+#include "procfs_content.hpp"             // format_proc_stat / format_proc_cmdline
 
 // ProcFs's fixed PID-indexed pools assume the PID bound matches the allocator.
 // If PidAllocator::PID_MAX ever changes, this fires at compile time.
@@ -32,6 +33,8 @@ namespace cinux::fs {
 using cinux::lib::Error;
 using cinux::lib::ErrorOr;
 using cinux::proc::signal_find_task_by_pid;
+using cinux::proc::signal_snapshot_task;
+using cinux::proc::TaskSnapshot;
 using cinux::proc::signal_nth_task_pid;
 
 namespace {
@@ -248,21 +251,22 @@ ErrorOr<int64_t> ProcPidDirOps::readdir(const Inode* inode, uint64_t index, char
     }
 }
 
-// Generate the stat line fresh on each read from the live Task.  A task that
-// exits between lookup and read yields NotFound (the inode existed, the task no
-// longer does) -- the documented registry TOCTOU window.
+// Snapshot the task's fields under the registry lock and render from the
+// snapshot (DEBT-022): no Task* is held past the lock, closing the UAF window
+// that opened once tasks became free (DEBT-002 fixed).  A task that exits
+// before the snapshot yields NotFound.
 ErrorOr<int64_t> ProcStatFileOps::read(const Inode* inode, uint64_t offset, void* buf,
                                        uint64_t count) {
     if (inode == nullptr || buf == nullptr) {
         return Error::InvalidArgument;
     }
-    int  pid = static_cast<int>(inode->ino);
-    auto t   = signal_find_task_by_pid(pid);
-    if (t == nullptr) {
+    int          pid = static_cast<int>(inode->ino);
+    TaskSnapshot snap;
+    if (!signal_snapshot_task(pid, snap)) {
         return Error::NotFound;
     }
     char     line[kProcStatLineMax];
-    uint32_t len = format_proc_stat(t, line, sizeof(line));
+    uint32_t len = format_proc_stat(snap, line, sizeof(line));
     return copy_pseudo(line, len, offset, buf, count);
 }
 
@@ -271,13 +275,13 @@ ErrorOr<int64_t> ProcCmdlineFileOps::read(const Inode* inode, uint64_t offset, v
     if (inode == nullptr || buf == nullptr) {
         return Error::InvalidArgument;
     }
-    int  pid = static_cast<int>(inode->ino);
-    auto t   = signal_find_task_by_pid(pid);
-    if (t == nullptr) {
+    int          pid = static_cast<int>(inode->ino);
+    TaskSnapshot snap;
+    if (!signal_snapshot_task(pid, snap)) {
         return Error::NotFound;
     }
     char     content[kProcCmdlineMax];
-    uint32_t len = format_proc_cmdline(t, content, sizeof(content));
+    uint32_t len = format_proc_cmdline(snap, content, sizeof(content));
     return copy_pseudo(content, len, offset, buf, count);
 }
 

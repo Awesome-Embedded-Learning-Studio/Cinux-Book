@@ -17,9 +17,10 @@
 #include <stdint.h>
 
 #include "kernel/fs/procfs.hpp"
-#include "kernel/lib/string.hpp"    // utoa
-#include "kernel/proc/process.hpp"  // Task
-#include "kernel/proc/signal.hpp"   // signal_register/unregister/find_by_pid
+#include "kernel/lib/string.hpp"          // utoa
+#include "kernel/proc/process.hpp"        // Task
+#include "kernel/proc/signal.hpp"         // signal_register/unregister/find_by_pid
+#include "kernel/proc/task_snapshot.hpp"  // TaskSnapshot (DEBT-022)
 #include "kernel/test/big_kernel_test.h"
 
 using namespace cinux::fs;
@@ -27,6 +28,7 @@ using cinux::lib::kprintf;
 using cinux::proc::Task;
 using cinux::proc::signal_find_task_by_pid;
 using cinux::proc::signal_register_task;
+using cinux::proc::signal_snapshot_task;
 using cinux::proc::signal_unregister_task;
 
 namespace {
@@ -343,6 +345,27 @@ void test_stat_read_dead_pid_is_not_found() {
     TEST_ASSERT_EQ(read_or_neg1(st, 0, buf, sizeof(buf)), -1);
 }
 
+void test_snapshot_task_copies_fields() {
+    Task t{};
+    int  pid = register_named_task(&t);
+
+    // Live pid: snapshot returns true and copies fields under the registry
+    // lock, with no Task* dereferenced past the lock (DEBT-022).
+    cinux::proc::TaskSnapshot snap{};
+    TEST_ASSERT_TRUE(signal_snapshot_task(pid, snap));
+    TEST_ASSERT_EQ(snap.pid, pid);
+    TEST_ASSERT_EQ(snap.ppid, 1);
+    TEST_ASSERT_EQ(snap.tgid, pid);
+    // name BYTES were copied -- the snapshot is self-contained.
+    TEST_ASSERT_TRUE(contains(snap.name, static_cast<int>(strlen(snap.name)), "procfs_test"));
+
+    // A pid not in the registry yields false (snapshot untouched, no UAF).
+    int ghost = pick_free_pid();
+    TEST_ASSERT_FALSE(signal_snapshot_task(ghost, snap));
+
+    signal_unregister_task(&t);
+}
+
 }  // namespace test_procfs
 
 // ============================================================
@@ -362,5 +385,6 @@ extern "C" void run_procfs_tests() {
     RUN_TEST(test_procfs::test_stat_read_contains_pid_and_name);
     RUN_TEST(test_procfs::test_cmdline_read_contains_name);
     RUN_TEST(test_procfs::test_stat_read_dead_pid_is_not_found);
+    RUN_TEST(test_procfs::test_snapshot_task_copies_fields);
     TEST_SUMMARY();
 }

@@ -189,14 +189,26 @@ bool signal_is_uncatchable(Signal sig);
 
 struct Task;  // full definition in process.hpp (which includes this header)
 
+struct TaskSnapshot;  // full definition in process.hpp
+
 /// Add @p task to the signal-visible registry (called from add_task).
 void signal_register_task(Task* task);
 
 /// Remove @p task from the registry (called from remove_task / exit_current).
 void signal_unregister_task(Task* task);
 
-/// Look up a task by PID, or nullptr if not registered.
+/// Look up a task by PID, or nullptr if not registered.  WARNING: the registry
+/// lock releases on return, so the returned pointer is only valid while it was
+/// held; tasks ARE freed now (DEBT-002 fixed), so dereferencing this pointer
+/// after this call returns races with free-on-another-CPU -> use-after-free.
+/// Prefer signal_snapshot_task() when you only need fields.  (DEBT-022)
 Task* signal_find_task_by_pid(int pid);
+
+/// Snapshot the /proc-relevant fields of the task with @p pid under the
+/// registry lock.  Returns true and fills @p out; false if not registered.
+/// Use this instead of signal_find_task_by_pid() whenever the fields are read
+/// after the lock would release -- an unlocked Task* is a UAF (DEBT-022).
+bool signal_snapshot_task(int pid, TaskSnapshot& out);
 
 /// Look up the PID of the @p n-th registered task (0-based), under the registry
 /// lock.  On success returns true and writes *@p out_pid; false if @p n is past

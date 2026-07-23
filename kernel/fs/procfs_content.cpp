@@ -12,8 +12,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "kernel/lib/string.hpp"    // utoa
-#include "kernel/proc/process.hpp"  // Task / TaskState
+#include "kernel/lib/string.hpp"          // utoa
+#include "kernel/proc/process.hpp"        // TaskState (task_state_char)
+#include "kernel/proc/task_snapshot.hpp"  // TaskSnapshot
 
 namespace cinux::fs {
 namespace {
@@ -74,32 +75,31 @@ struct LineBuilder {
 
 }  // anonymous namespace
 
-uint32_t format_proc_stat(const cinux::proc::Task* t, char* buf, uint32_t cap) {
+uint32_t format_proc_stat(const cinux::proc::TaskSnapshot& s, char* buf, uint32_t cap) {
     LineBuilder b{buf, cap};
-    b.put_u(static_cast<uint32_t>(t->pid));
+    b.put_u(static_cast<uint32_t>(s.pid));
     b.put(' ');
     b.put('(');
-    b.put_s(t->name != nullptr ? t->name : "");
+    b.put_s(s.name);  // snapshot name is always NUL-terminated and bounded
     b.put(')');
     b.put(' ');
-    b.put(task_state_char(t->state));
+    b.put(task_state_char(s.state));
     b.put(' ');
-    b.put_u(static_cast<uint32_t>(t->ppid));
+    b.put_u(static_cast<uint32_t>(s.ppid));
     b.put(' ');
-    b.put_u(static_cast<uint32_t>(t->tgid));
+    b.put_u(static_cast<uint32_t>(s.tgid));
     b.put(' ');
-    b.put_u(t->uid);
+    b.put_u(s.uid);
     b.put(' ');
-    b.put_u(t->gid);
+    b.put_u(s.gid);
     b.put('\n');
     return b.finish();
 }
 
-uint32_t format_proc_cmdline(const cinux::proc::Task* t, char* dst, uint32_t cap) {
+uint32_t format_proc_cmdline(const cinux::proc::TaskSnapshot& s, char* dst, uint32_t cap) {
     LineBuilder b{dst, cap};
-    const char* name = (t != nullptr && t->name != nullptr) ? t->name : "";
-    b.put_s(name);
-    b.put('\0');  // cmdline always ends with a NUL
+    b.put_s(s.name);  // snapshot name is always NUL-terminated and bounded
+    b.put('\0');      // cmdline always ends with a NUL
     // Length includes the terminating NUL (count the bytes actually written).
     return b.len < cap ? b.len + 1 : cap;
 }

@@ -24,7 +24,8 @@
 #include "kernel/mm/vma.hpp"            // VmaFlags / VMA / has_flag
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
-#include "kernel/proc/sync.hpp"  // Spinlock (F-QA Q4c-2 / DEBT-001 registry lock)
+#include "kernel/proc/sync.hpp"           // Spinlock (F-QA Q4c-2 / DEBT-001 registry lock)
+#include "kernel/proc/task_snapshot.hpp"  // TaskSnapshot (DEBT-022)
 
 namespace cinux::proc {
 
@@ -76,14 +77,47 @@ void signal_unregister_task(Task* task) {
 
 Task* signal_find_task_by_pid(int pid) {
     auto g = g_registry_lock.irq_guard();  // DEBT-001
-    // Returning the pointer after release is safe only while tasks are never
-    // freed (DEBT-002 not yet fixed); Q4e must revisit (RCU-safe or re-lock).
+    // WARNING: @p g releases on return, so the returned Task* is only valid
+    // while the lock is held.  Tasks ARE freed now (DEBT-002 fixed in F-QA
+    // Q4e-3: exit_current -> reap_deferred -> delete), so a caller that
+    // dereferences this pointer after this function returns races with
+    // free-on-another-CPU -> use-after-free.  Callers that only need fields
+    // must use signal_snapshot_task() below (DEBT-022), which copies under the
+    // lock.  Remaining raw-pointer callers (tests, sys_pgrp, /proc lookup
+    // liveness gates) only test for nullptr or tolerate Zombie/Dead.
     for (Task* t = g_registry_head; t != nullptr; t = t->registry_next) {
         if (t->pid == pid) {
             return t;
         }
     }
     return nullptr;
+}
+
+bool signal_snapshot_task(int pid, TaskSnapshot& out) {
+    auto g = g_registry_lock.irq_guard();  // DEBT-001
+    for (Task* t = g_registry_head; t != nullptr; t = t->registry_next) {
+        if (t->pid == pid) {
+            out.pid    = t->pid;
+            out.state  = t->state;
+            out.ppid   = t->ppid;
+            out.tgid   = t->tgid;
+            out.uid    = t->uid;
+            out.gid    = t->gid;
+            // Copy name BYTES, not the pointer: the snapshot must survive the
+            // lock releasing (and, defensively, any future change to name
+            // storage).  Truncate at kTaskNameMax-1 like Linux TASK_COMM_LEN.
+            uint32_t i = 0;
+            if (t->name != nullptr) {
+                while (i + 1 < kTaskNameMax && t->name[i] != '\0') {
+                    out.name[i] = t->name[i];
+                    ++i;
+                }
+            }
+            out.name[i] = '\0';
+            return true;
+        }
+    }
+    return false;
 }
 
 bool signal_nth_task_pid(uint32_t n, int* out_pid) {
