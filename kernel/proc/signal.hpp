@@ -198,6 +198,14 @@ void signal_unregister_task(Task* task);
 /// Look up a task by PID, or nullptr if not registered.
 Task* signal_find_task_by_pid(int pid);
 
+/// Look up the PID of the @p n-th registered task (0-based), under the registry
+/// lock.  On success returns true and writes *@p out_pid; false if @p n is past
+/// the last task.  Lets ProcFS readdir answer "the i-th /proc entry" by walking
+/// the registry to that index directly -- no whole-registry snapshot materialised
+/// on the (bounded) kernel stack.  Pure additive accessor -- does not alter
+/// register/unregister/find_by_pid.  (F6-M2)
+bool signal_nth_task_pid(uint32_t n, int* out_pid);
+
 // ============================================================
 // Delivery
 // ============================================================

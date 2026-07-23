@@ -70,6 +70,7 @@ void run_vfs_syscall_tests();
 void run_ext2_tests();
 void run_devfs_tests();
 void run_pty_device_tests();
+void run_procfs_tests();
 void run_ahci_write_tests();
 void run_ahci_block_device_tests();
 void run_ext2_allocator_tests();
@@ -643,6 +644,10 @@ extern "C" void kernel_main() {
 
     // DevFS tests (F6-M3): /dev/null, /dev/zero, /dev/console, readdir, stat
     run_devfs_tests();
+
+    // ProcFS tests (F6-M2): /proc root readdir, /proc/<pid> lookup + stat,
+    // stat/cmdline pseudo-files.
+    run_procfs_tests();
 
     // PTY device tests (F10-M3 Phase 2): alloc, master<->slave round-trip,
     // echo, termios ioctl, TIOCGPTN.

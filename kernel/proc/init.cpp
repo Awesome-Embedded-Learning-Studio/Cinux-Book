@@ -8,6 +8,7 @@
 #include "kernel/drivers/ahci/ahci_block_device.hpp"
 #include "kernel/fs/devfs.hpp"
 #include "kernel/fs/ext2.hpp"
+#include "kernel/fs/procfs.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
@@ -47,6 +48,10 @@ void kernel_init_thread() {
 
     // DevFS: /dev/null, /dev/zero, /dev/console (F6-M3).
     cinux::fs::devfs::init();
+
+    // ProcFS: /proc process introspection -- root lists live PIDs,
+    // /proc/<pid>/{stat,cmdline} pseudo-files (F6-M2).
+    cinux::fs::procfs::init();
 
     // Bring up userspace.  GUI build: desktop + gui_worker thread
     // (kernel/gui/desktop_launch.cpp).  Non-GUI build: fork + exec /bin/sh

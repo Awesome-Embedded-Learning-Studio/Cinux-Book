@@ -11,4 +11,7 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/path.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/devfs.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/devfs_init.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/procfs.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/procfs_content.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/procfs_init.cpp
 )

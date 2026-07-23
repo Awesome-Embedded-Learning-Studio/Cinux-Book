@@ -86,6 +86,28 @@ Task* signal_find_task_by_pid(int pid) {
     return nullptr;
 }
 
+bool signal_nth_task_pid(uint32_t n, int* out_pid) {
+    if (out_pid == nullptr) {
+        return false;
+    }
+    // Walk under the registry lock (DEBT-001) to the n-th task.  readdir calls
+    // this per index, so a full /proc listing is O(tasks^2); tasks are bounded
+    // by PID_MAX (256), so this is negligible.  A task added/removed between two
+    // readdir indices can shift the n-th entry -- the classic readdir-under-
+    // mutation caveat (Linux uses seq positions); the registry is normally stable
+    // across one listing, and lookup re-checks liveness regardless.
+    auto     g = g_registry_lock.irq_guard();
+    uint32_t i = 0;
+    for (Task* t = g_registry_head; t != nullptr; t = t->registry_next) {
+        if (i == n) {
+            *out_pid = t->pid;
+            return true;
+        }
+        ++i;
+    }
+    return false;
+}
+
 // ============================================================
 // Default disposition table (batch 1)
 // ============================================================
