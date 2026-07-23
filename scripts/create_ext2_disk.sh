@@ -48,14 +48,16 @@ if ! command -v debugfs &>/dev/null; then
     exit 1
 fi
 
-IMAGE_SIZE=8  # MB (F10-M2: bumped from 4 -- holds the 822 KB musl ldso)
-# F10-M2: 4096-byte blocks. The kernel ext2 reader handles only direct +
-# single-indirect blocks (double-indirect truncates, see ext2_common.cpp).
-# At 1024-byte blocks that caps a file at ~268 KB -- too small for the musl
-# ldso (822 KB). 4096-byte blocks push the single-indirect ceiling to ~4 MB,
-# so the ldso fits without needing double-indirect support (follow-up).
-# block_buf_[4096] in ext2.hpp already accommodates the max ext2 block size.
-BLOCK_SIZE=4096
+IMAGE_SIZE=8  # MB (holds the 822 KB musl ldso + test ELFs)
+# 1024-byte blocks (the ext2 default). The kernel driver now resolves direct
+# + single-indirect + double-indirect block pointers (see ext2_common.cpp
+# Ext2FileOps::read and ext2_inode.cpp Ext2::get_or_alloc_block), so files
+# beyond the ~268 KB single-indirect ceiling -- e.g. the 822 KB musl ldso --
+# are read/written through i_block[13] instead of being truncated. Earlier
+# the image used 4096-byte blocks as a workaround to push that ceiling to
+# ~4 MB; real double-indirect support (F10-M2 follow-up) makes that unnecessary.
+# block_buf_[4096] in ext2.hpp still accommodates the max ext2 block size.
+BLOCK_SIZE=1024
 
 # Create a zero-filled image
 dd if=/dev/zero of="$OUTPUT" bs=1M count="$IMAGE_SIZE" 2>/dev/null

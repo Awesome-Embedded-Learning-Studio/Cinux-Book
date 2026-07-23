@@ -368,6 +368,114 @@ uint32_t Ext2::get_or_alloc_block(Ext2Inode& disk, uint32_t file_block) {
         return indirect[indirect_idx];
     }
 
+    // Doubly-indirect block: i_block[13] points at a block of ptrs_per_block
+    // single-indirect pointers, each of which points at a block of
+    // ptrs_per_block data pointers.  Logical-index layout in this region:
+    //   offset = file_block - (EXT2_DIRECT_BLOCKS + ptrs_per_block)
+    //   idx1   = offset / ptrs_per_block   -> slot in the double-indirect block
+    //   idx2   = offset % ptrs_per_block   -> slot in the chosen indirect block
+    //
+    // Scratch-buffer discipline: block_buf_ is a single block-sized buffer, so
+    // every write_block() clobbers whatever read_block() last loaded.  After
+    // writing a freshly allocated child we must read_block() the parent back
+    // before patching its pointer -- the same read-modify-write pattern the
+    // single-indirect path uses above.
+    const uint32_t ptrs_per_block = block_size_ / sizeof(uint32_t);
+    const uint32_t di_base        = EXT2_DIRECT_BLOCKS + ptrs_per_block;
+    const uint32_t di_limit       = di_base + ptrs_per_block * ptrs_per_block;
+    if (file_block < di_limit) {
+        const uint32_t offset = file_block - di_base;
+        const uint32_t idx1   = offset / ptrs_per_block;
+        const uint32_t idx2   = offset % ptrs_per_block;
+
+        // Level 0: the double-indirect block itself (i_block[13]).
+        if (disk.i_block[EXT2_DOUBLE_INDIRECT_BLOCK] == 0) {
+            uint32_t di_blk = alloc_block();
+            if (di_blk == 0) {
+                return 0;
+            }
+
+            auto* dma = reinterpret_cast<uint8_t*>(block_buf_);
+            for (uint32_t i = 0; i < block_size_; ++i) {
+                dma[i] = 0;
+            }
+            if (!write_block(di_blk)) {
+                free_block(di_blk);
+                return 0;
+            }
+
+            disk.i_block[EXT2_DOUBLE_INDIRECT_BLOCK] = di_blk;
+        }
+        const uint32_t di_blk = disk.i_block[EXT2_DOUBLE_INDIRECT_BLOCK];
+
+        // Level 1: the single-indirect child block at di_ptrs[idx1].
+        if (!read_block(di_blk)) {
+            return 0;
+        }
+        auto*    di_ptrs   = reinterpret_cast<uint32_t*>(block_buf_);
+        uint32_t child_blk = di_ptrs[idx1];
+        if (child_blk == 0) {
+            child_blk = alloc_block();
+            if (child_blk == 0) {
+                return 0;
+            }
+
+            auto* dma = reinterpret_cast<uint8_t*>(block_buf_);
+            for (uint32_t i = 0; i < block_size_; ++i) {
+                dma[i] = 0;
+            }
+            if (!write_block(child_blk)) {
+                free_block(child_blk);
+                return 0;
+            }
+            // Re-read the double-indirect block: writing the child clobbered buf.
+            if (!read_block(di_blk)) {
+                return 0;
+            }
+            di_ptrs       = reinterpret_cast<uint32_t*>(block_buf_);
+            di_ptrs[idx1] = child_blk;
+            if (!write_block(di_blk)) {
+                return 0;
+            }
+        }
+
+        // Level 2: the data block at child_ptrs[idx2].
+        if (!read_block(child_blk)) {
+            return 0;
+        }
+        auto*    child_ptrs = reinterpret_cast<uint32_t*>(block_buf_);
+        uint32_t data_blk   = child_ptrs[idx2];
+        if (data_blk == 0) {
+            data_blk = alloc_block();
+            if (data_blk == 0) {
+                return 0;
+            }
+
+            auto* dma = reinterpret_cast<uint8_t*>(block_buf_);
+            for (uint32_t i = 0; i < block_size_; ++i) {
+                dma[i] = 0;
+            }
+            if (!write_block(data_blk)) {
+                free_block(data_blk);
+                return 0;
+            }
+            // Re-read the child block: writing the data block clobbered buf.
+            if (!read_block(child_blk)) {
+                return 0;
+            }
+            child_ptrs       = reinterpret_cast<uint32_t*>(block_buf_);
+            child_ptrs[idx2] = data_blk;
+            if (!write_block(child_blk)) {
+                return 0;
+            }
+        }
+
+        return data_blk;
+    }
+
+    // Triple-indirect (i_block[14]) is intentionally unsupported: it would only
+    // be reached for files beyond ~16 GB at 1 KB blocks, far past any current
+    // use case for this driver.
     return 0;
 }
 

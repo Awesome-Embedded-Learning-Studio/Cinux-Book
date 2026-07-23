@@ -76,6 +76,35 @@ cinux::lib::ErrorOr<int64_t> Ext2FileOps::read(const Inode* inode, uint64_t offs
             uint32_t idx      = static_cast<uint32_t>(file_block - EXT2_DIRECT_BLOCKS);
             auto*    indirect = reinterpret_cast<uint32_t*>(ext2_.block_buf());
             disk_block        = indirect[idx];
+        } else if (file_block < EXT2_DIRECT_BLOCKS + block_ptrs_per_block +
+                                    block_ptrs_per_block * block_ptrs_per_block) {
+            // Doubly-indirect: i_block[13] points at a block of indirect
+            // pointers, each of which points at a block of data pointers.
+            uint32_t double_block = disk.i_block[EXT2_DOUBLE_INDIRECT_BLOCK];
+            if (double_block == 0) {
+                break;
+            }
+            if (!ext2_.read_block(double_block)) {
+                break;
+            }
+
+            uint32_t di_offset =
+                static_cast<uint32_t>(file_block - EXT2_DIRECT_BLOCKS - block_ptrs_per_block);
+            uint32_t idx1           = di_offset / block_ptrs_per_block;
+            uint32_t idx2           = di_offset % block_ptrs_per_block;
+            auto*    double_ptrs    = reinterpret_cast<uint32_t*>(ext2_.block_buf());
+            uint32_t indirect_block = double_ptrs[idx1];
+            if (indirect_block == 0) {
+                break;
+            }
+            if (!ext2_.read_block(indirect_block)) {
+                break;
+            }
+
+            auto* child_ptrs = reinterpret_cast<uint32_t*>(ext2_.block_buf());
+            disk_block       = child_ptrs[idx2];
+            // disk_block == 0 here means a hole inside an allocated indirect
+            // block; the common path below zero-fills it (sparse-file read).
         } else {
             break;
         }
@@ -115,6 +144,12 @@ cinux::lib::ErrorOr<int64_t> Ext2FileOps::write(Inode* inode, uint64_t offset, c
 
     uint32_t bs = ext2_.block_size();
 
+    // Highest logical block we can resolve: direct + single-indirect +
+    // double-indirect.  Beyond this (triple-indirect, i_block[14]) the driver
+    // does not allocate, so stop instead of silently truncating mid-chunk.
+    uint64_t ptrs_per_block = bs / sizeof(uint32_t);
+    uint64_t max_file_block = EXT2_DIRECT_BLOCKS + ptrs_per_block + ptrs_per_block * ptrs_per_block;
+
     auto*    src           = static_cast<const uint8_t*>(buf);
     uint64_t total_written = 0;
 
@@ -126,7 +161,7 @@ cinux::lib::ErrorOr<int64_t> Ext2FileOps::write(Inode* inode, uint64_t offset, c
             chunk = count - total_written;
         }
 
-        if (file_block > EXT2_DIRECT_BLOCKS) {
+        if (file_block >= max_file_block) {
             break;
         }
 

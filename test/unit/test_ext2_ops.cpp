@@ -276,6 +276,122 @@ static bool host_free_inode(SimDisk& disk, uint32_t ino) {
 // ============================================================
 
 /**
+ * @brief Resolve the on-disk data block for a logical file block
+ *
+ * Mirrors the kernel's Ext2::get_or_alloc_block (write) and read-path
+ * resolution (read) across the three supported tiers: direct (i_block[0..11]),
+ * single-indirect (i_block[12]), and double-indirect (i_block[13]).
+ *
+ * When @p alloc is true, missing indirect / data blocks are allocated and
+ * wired in (write path); when false the resolver is read-only and returns 0
+ * for any missing pointer (the caller treats that as a hole and zero-fills).
+ *
+ * The kernel must dance around its single scratch buffer (block_buf_) when
+ * allocating; this host simulation has direct access to data_blocks[], so the
+ * pointer bookkeeping is plain memory writes -- but the tier arithmetic and
+ * on-disk layout it validates are identical to the kernel.
+ *
+ * @return Data block number, or 0 on exhaustion / missing (hole).
+ */
+static uint32_t host_resolve_data_block(SimDisk& disk, Ext2Inode& inode, uint32_t file_block,
+                                        bool alloc) {
+    const uint32_t bs   = TEST_BLOCK_SIZE;
+    const uint32_t ptrs = bs / sizeof(uint32_t);
+
+    if (file_block < EXT2_DIRECT_BLOCKS) {
+        if (inode.i_block[file_block] == 0 && alloc) {
+            uint32_t blk = host_alloc_block(disk);
+            if (blk == 0) {
+                return 0;
+            }
+            for (uint32_t i = 0; i < bs; ++i) {
+                disk.data_blocks[blk][i] = 0;
+            }
+            inode.i_block[file_block] = blk;
+        }
+        return inode.i_block[file_block];
+    }
+
+    if (file_block < EXT2_DIRECT_BLOCKS + ptrs) {
+        // Single-indirect: i_block[12] -> block of ptrs data pointers.
+        if (inode.i_block[EXT2_INDIRECT_BLOCK] == 0 && alloc) {
+            uint32_t blk = host_alloc_block(disk);
+            if (blk == 0) {
+                return 0;
+            }
+            for (uint32_t i = 0; i < bs; ++i) {
+                disk.data_blocks[blk][i] = 0;
+            }
+            inode.i_block[EXT2_INDIRECT_BLOCK] = blk;
+        }
+        uint32_t indirect_blk = inode.i_block[EXT2_INDIRECT_BLOCK];
+        if (indirect_blk == 0) {
+            return 0;
+        }
+        auto*    arr = reinterpret_cast<uint32_t*>(disk.data_blocks[indirect_blk]);
+        uint32_t idx = file_block - EXT2_DIRECT_BLOCKS;
+        if (arr[idx] == 0 && alloc) {
+            uint32_t blk = host_alloc_block(disk);
+            if (blk == 0) {
+                return 0;
+            }
+            for (uint32_t i = 0; i < bs; ++i) {
+                disk.data_blocks[blk][i] = 0;
+            }
+            arr[idx] = blk;
+        }
+        return arr[idx];
+    }
+
+    // Double-indirect: i_block[13] -> block of single-indirect pointers, each
+    // -> block of data pointers.
+    if (inode.i_block[EXT2_DOUBLE_INDIRECT_BLOCK] == 0 && alloc) {
+        uint32_t blk = host_alloc_block(disk);
+        if (blk == 0) {
+            return 0;
+        }
+        for (uint32_t i = 0; i < bs; ++i) {
+            disk.data_blocks[blk][i] = 0;
+        }
+        inode.i_block[EXT2_DOUBLE_INDIRECT_BLOCK] = blk;
+    }
+    uint32_t di_blk = inode.i_block[EXT2_DOUBLE_INDIRECT_BLOCK];
+    if (di_blk == 0) {
+        return 0;
+    }
+    auto*    di_arr = reinterpret_cast<uint32_t*>(disk.data_blocks[di_blk]);
+    uint32_t offset = file_block - (EXT2_DIRECT_BLOCKS + ptrs);
+    uint32_t idx1   = offset / ptrs;
+    uint32_t idx2   = offset % ptrs;
+    if (di_arr[idx1] == 0 && alloc) {
+        uint32_t blk = host_alloc_block(disk);
+        if (blk == 0) {
+            return 0;
+        }
+        for (uint32_t i = 0; i < bs; ++i) {
+            disk.data_blocks[blk][i] = 0;
+        }
+        di_arr[idx1] = blk;
+    }
+    uint32_t child_blk = di_arr[idx1];
+    if (child_blk == 0) {
+        return 0;
+    }
+    auto* child_arr = reinterpret_cast<uint32_t*>(disk.data_blocks[child_blk]);
+    if (child_arr[idx2] == 0 && alloc) {
+        uint32_t blk = host_alloc_block(disk);
+        if (blk == 0) {
+            return 0;
+        }
+        for (uint32_t i = 0; i < bs; ++i) {
+            disk.data_blocks[blk][i] = 0;
+        }
+        child_arr[idx2] = blk;
+    }
+    return child_arr[idx2];
+}
+
+/**
  * @brief Simulate ext2_file_write into an inode
  *
  * Writes data to the inode's block pointers, allocating blocks as needed.
@@ -298,24 +414,18 @@ static int64_t host_file_write(SimDisk& disk, Ext2Inode& inode, uint32_t offset,
             chunk = length - total_written;
         }
 
-        // Only support direct blocks 0-11
-        if (file_block >= EXT2_DIRECT_BLOCKS) {
+        // Stop at the double-indirect ceiling (triple-indirect unsupported).
+        uint32_t ptrs  = bs / sizeof(uint32_t);
+        uint32_t limit = EXT2_DIRECT_BLOCKS + ptrs + ptrs * ptrs;
+        if (file_block >= limit) {
             break;
         }
 
-        // Allocate block if needed
-        if (inode.i_block[file_block] == 0) {
-            uint32_t blk = host_alloc_block(disk);
-            if (blk == 0)
-                break;
-            // Zero the new block
-            for (uint32_t i = 0; i < bs; ++i) {
-                disk.data_blocks[blk][i] = 0;
-            }
-            inode.i_block[file_block] = blk;
+        // Resolve (allocating as needed) across direct / single / double.
+        uint32_t disk_block = host_resolve_data_block(disk, inode, file_block, true);
+        if (disk_block == 0) {
+            break;
         }
-
-        uint32_t disk_block = inode.i_block[file_block];
 
         // For partial writes, we simulate read-modify-write
         // (the block already exists in data_blocks, just copy)
@@ -344,7 +454,7 @@ static int64_t host_file_write(SimDisk& disk, Ext2Inode& inode, uint32_t offset,
 /**
  * @brief Simulate ext2_file_read from an inode
  */
-static int64_t host_file_read(SimDisk& disk, const Ext2Inode& inode, uint32_t offset, uint8_t* buf,
+static int64_t host_file_read(SimDisk& disk, Ext2Inode& inode, uint32_t offset, uint8_t* buf,
                               uint32_t length) {
     if (buf == nullptr || offset >= inode.i_size) {
         return 0;
@@ -363,10 +473,8 @@ static int64_t host_file_read(SimDisk& disk, const Ext2Inode& inode, uint32_t of
             chunk = to_read - total_read;
         }
 
-        if (file_block >= EXT2_DIRECT_BLOCKS)
-            break;
-
-        uint32_t disk_block = inode.i_block[file_block];
+        // Read-only resolution across direct / single / double; 0 == hole.
+        uint32_t disk_block = host_resolve_data_block(disk, inode, file_block, false);
         if (disk_block == 0) {
             // Hole: fill with zeros
             for (uint32_t i = 0; i < chunk; ++i) {
@@ -1547,6 +1655,69 @@ TEST("file_write: i_blocks field tracks 512-byte sectors correctly") {
 
     // i_blocks should be TEST_BLOCK_SIZE / 512 = 2
     ASSERT_EQ(file_inode.i_blocks, TEST_BLOCK_SIZE / 512);
+}
+
+// ============================================================
+// Test 21: double-indirect block mapping -- write past the
+// single-indirect ceiling and read back across all three tiers
+// (F10-M2 follow-up: exercise i_block[13] resolution end-to-end)
+// ============================================================
+
+TEST("file_indirect: write into double-indirect range round-trips") {
+    SimDisk disk;
+    init_sim_disk(disk, 4);  // 4 groups => 512 blocks, room for ~270+
+
+    uint32_t ino = host_alloc_inode(disk);
+    ASSERT_NE(ino, 0u);
+    Ext2Inode& file_inode    = disk.inodes[ino - 1];
+    file_inode.i_mode        = EXT2_S_IFREG | 0644;
+    file_inode.i_links_count = 1;
+    file_inode.i_size        = 0;
+
+    // ptrs_per_block = 1024/4 = 256; the double-indirect region begins at
+    // logical block EXT2_DIRECT_BLOCKS + ptrs = 12 + 256 = 268.  Write a few
+    // blocks past that boundary so i_block[13] and its first child get wired.
+    constexpr uint32_t kPtrs        = TEST_BLOCK_SIZE / sizeof(uint32_t);
+    constexpr uint32_t kDoubleStart = EXT2_DIRECT_BLOCKS + kPtrs;
+    const uint32_t     total_blocks = kDoubleStart + 8;
+    const uint32_t     total        = total_blocks * TEST_BLOCK_SIZE;
+
+    uint8_t* data = new uint8_t[total];
+    for (uint32_t i = 0; i < total; ++i) {
+        data[i] = static_cast<uint8_t>((i * 31 + 7) & 0xFF);
+    }
+
+    int64_t written = host_file_write(disk, file_inode, 0, data, total);
+    ASSERT_EQ(written, static_cast<int64_t>(total));
+    ASSERT_EQ(file_inode.i_size, total);
+
+    // The single- and double-indirect head pointers must now both be set.
+    ASSERT_NE(file_inode.i_block[EXT2_INDIRECT_BLOCK], 0u);
+    ASSERT_NE(file_inode.i_block[EXT2_DOUBLE_INDIRECT_BLOCK], 0u);
+
+    // Full read-back must match byte-for-byte across all three tiers.
+    uint8_t* read_buf  = new uint8_t[total]();
+    int64_t  read_back = host_file_read(disk, file_inode, 0, read_buf, total);
+    ASSERT_EQ(read_back, static_cast<int64_t>(total));
+    for (uint32_t i = 0; i < total; ++i) {
+        ASSERT_EQ(read_buf[i], data[i]);
+    }
+
+    // Spot-read the first byte of a block in each tier to localise which tier
+    // a regression breaks: direct (block 0), single-indirect (block 100), and
+    // two blocks inside the double-indirect region.
+    uint8_t b_direct = 0, b_single = 0, b_double0 = 0, b_double5 = 0;
+    host_file_read(disk, file_inode, 0, &b_direct, 1);
+    host_file_read(disk, file_inode, 100 * TEST_BLOCK_SIZE, &b_single, 1);
+    host_file_read(disk, file_inode, kDoubleStart * TEST_BLOCK_SIZE, &b_double0, 1);
+    host_file_read(disk, file_inode, (kDoubleStart + 5) * TEST_BLOCK_SIZE, &b_double5, 1);
+    ASSERT_EQ(b_direct, data[0]);
+    ASSERT_EQ(b_single, data[100 * TEST_BLOCK_SIZE]);
+    ASSERT_EQ(b_double0, data[kDoubleStart * TEST_BLOCK_SIZE]);
+    ASSERT_EQ(b_double5, data[(kDoubleStart + 5) * TEST_BLOCK_SIZE]);
+
+    delete[] data;
+    delete[] read_buf;
 }
 
 // ============================================================
