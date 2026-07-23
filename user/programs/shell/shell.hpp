@@ -64,3 +64,6 @@ void cmd_pwd(int argc, char** argv);
 
 /** @brief stat: display file status (cmd_stat.cpp) */
 void cmd_stat(int argc, char** argv);
+
+/** @brief ping: ICMP echo via sys_ping (cmd_ping.cpp) */
+void cmd_ping(int argc, char** argv);

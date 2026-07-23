@@ -42,6 +42,7 @@ add_executable(user_shell
     programs/shell/cmd_cd.cpp
     programs/shell/cmd_pwd.cpp
     programs/shell/cmd_stat.cpp
+    programs/shell/cmd_ping.cpp
 )
 target_compile_options(user_shell PRIVATE ${USER_COMPILE_FLAGS})
 target_compile_definitions(user_shell PRIVATE __USER__)

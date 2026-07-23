@@ -34,6 +34,7 @@
 #include "kernel/syscall/sys_mmap.hpp"
 #include "kernel/syscall/sys_open.hpp"
 #include "kernel/syscall/sys_pgrp.hpp"
+#include "kernel/syscall/sys_ping.hpp"
 #include "kernel/syscall/sys_pipe.hpp"
 #include "kernel/syscall/sys_read.hpp"
 #include "kernel/syscall/sys_rmdir.hpp"
@@ -111,6 +112,7 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_getegid, sys_getegid);
     syscall_register(SyscallNr::SYS_setuid, sys_setuid);
     syscall_register(SyscallNr::SYS_setgid, sys_setgid);
+    syscall_register(SyscallNr::SYS_ping, sys_ping);
 }
 
 }  // anonymous namespace

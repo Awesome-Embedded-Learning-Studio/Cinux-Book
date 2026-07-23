@@ -83,6 +83,7 @@ if(CINUX_NET)
     target_sources(big_kernel_common PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/net/e1000.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/net/e1000_init.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/net/net_init.cpp
     )
 else()
     # net::init() stub: when CINUX_NET is off (e1000 driver absent), main.cpp's

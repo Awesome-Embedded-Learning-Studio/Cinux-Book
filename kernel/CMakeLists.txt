@@ -105,6 +105,7 @@ add_subdirectory(mm)
 add_subdirectory(proc)
 add_subdirectory(syscall)
 add_subdirectory(ipc)
+add_subdirectory(net)
 
 # GUI mode: add compile definition and GUI-specific sources
 if(CINUX_GUI)
@@ -286,6 +287,7 @@ endif()
 # (the driver is absent; run_e1000_tests is #ifdef CINUX_NET'd in main_test.cpp).
 if(CINUX_NET)
     target_sources(big_kernel_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test/test_e1000.cpp)
+    target_sources(big_kernel_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test/test_net.cpp)
 endif()
 
 target_sources(big_kernel_test PRIVATE $<TARGET_OBJECTS:big_kernel_common>)

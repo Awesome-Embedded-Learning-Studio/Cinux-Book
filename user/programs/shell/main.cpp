@@ -158,7 +158,7 @@ constexpr CmdEntry builtin_cmds[] = {
     {"echo", cmd_echo},   {"help", cmd_help},   {"clear", cmd_clear}, {"cat", cmd_cat},
     {"ls", cmd_ls},       {"touch", cmd_touch}, {"mkdir", cmd_mkdir}, {"rm", cmd_rm},
     {"rmdir", cmd_rmdir}, {"cd", cmd_cd},       {"pwd", cmd_pwd},     {"stat", cmd_stat},
-    {nullptr, nullptr},
+    {"ping", cmd_ping},   {nullptr, nullptr},
 };
 
 }  // anonymous namespace

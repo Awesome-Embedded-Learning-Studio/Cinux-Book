@@ -35,6 +35,14 @@ void init() {
         cinux::lib::kprintf("[e1000] RX arm failed -- net disabled\n");
         return;
     }
+    // F7 L2: arm TX too.  The L3 stack sends ARP replies + ICMP echo replies, so
+    // production init must arm the TX ring (the bring-up tests armed TX themselves;
+    // production init previously armed RX only).  Without this, send_l3 composes
+    // a frame but it never reaches the wire (silent -- SLIRP never answers).
+    if (!nic.start_tx().ok()) {
+        cinux::lib::kprintf("[e1000] TX arm failed -- net disabled\n");
+        return;
+    }
     E1000Controller::set_instance(&nic);
     cinux::lib::kprintf("[e1000] NIC up (singleton published)\n");
 }

@@ -65,6 +65,7 @@
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/slab.hpp"
 #include "kernel/mm/vmm.hpp"
+#include "kernel/net/net_init.hpp"
 #include "kernel/proc/init.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
@@ -244,6 +245,11 @@ extern "C" void kernel_main() {
     // Step 21b: Bring up the e1000 NIC (if present).  §14 file gate: net::init()
     // is a no-op stub when CINUX_NET is off, so this call needs no #ifdef.
     cinux::drivers::net::init();
+
+    // Step 21c: Bring up the L3 stack (ARP / IPv4 / ICMP) over the NIC -- the
+    // composition root that builds the adapter + NetStack and attaches them.
+    // §14 file gate: no-op stub when CINUX_NET is off, so no #ifdef here.
+    cinux::net::init();
 
     // Step 22: Initialise scheduler and spawn kernel init thread
     cinux::lib::kprintf("[BIG] ===== Scheduler & Init Thread =====\n");

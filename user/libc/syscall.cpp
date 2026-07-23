@@ -114,6 +114,11 @@ int64_t sys_fstat(int fd, struct sys_stat* st) {
     return _syscall2(static_cast<uint64_t>(SyscallNr::SYS_fstat), (uint64_t)fd, (uint64_t)st);
 }
 
+int64_t sys_ping(uint32_t ip_packed, uint16_t id, uint16_t seq) {
+    return _syscall3(static_cast<uint64_t>(SyscallNr::SYS_ping), (uint64_t)ip_packed, (uint64_t)id,
+                     (uint64_t)seq);
+}
+
 void sys_exit(int code) {
     _syscall1(static_cast<uint64_t>(SyscallNr::SYS_exit), (uint64_t)code);
     __builtin_unreachable();

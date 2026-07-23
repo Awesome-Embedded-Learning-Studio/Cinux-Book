@@ -153,3 +153,12 @@ int64_t sys_getegid(void);
 /// may only drop back to its real ID. Returns 0 / -errno (EPERM).
 int64_t sys_setuid(uint32_t uid);
 int64_t sys_setgid(uint32_t gid);
+
+// ============================================================
+// Network (F7 shell ping)
+// ============================================================
+
+/// ping: send one ICMP echo to @p ip_packed (a.b.c.d MSB-first:
+/// (a<<24)|(b<<16)|(c<<8)|d) and wait for the reply.  Returns 0 on reply,
+/// -errno otherwise (ETIMEDOUT = no reply, ENOSYS = stack not up).
+int64_t sys_ping(uint32_t ip_packed, uint16_t id, uint16_t seq);

@@ -61,6 +61,7 @@ enum class SyscallNr : uint64_t {
     SYS_setgid         = 106,  ///< set group id (F9 M3)
     SYS_geteuid        = 107,  ///< get effective user id (F9 M3)
     SYS_getegid        = 108,  ///< get effective group id (F9 M3)
+    SYS_ping           = 220,  ///< ICMP echo (F7 shell ping; Cinux-custom)
 };
 
 constexpr uint64_t SYSCALL_TABLE_SIZE = 256;

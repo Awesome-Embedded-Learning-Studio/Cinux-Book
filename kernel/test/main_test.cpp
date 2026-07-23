@@ -108,6 +108,7 @@ void run_aslr_tests();   // F9 batch 8: ASLR offset helpers
 void run_creds_tests();  // F9 batch 9: process credentials
 #ifdef CINUX_NET
 void run_e1000_tests();
+void run_net_tests();  // F7 L1: loopback L3 stack (ping 127.0.0.1, deterministic)
 #endif
 }
 
@@ -306,6 +307,11 @@ extern "C" void kernel_main() {
     // (passes) when no e1000 is present; exercises real bring-up under
     // run-kernel-test (-device e1000) / run-kernel-test-net.
     run_e1000_tests();
+
+    // F7 L1: the L3 stack on loopback -- ARP/IPv4/ICMP ping 127.0.0.1.  No SLIRP
+    // timing (loopback is synchronous), so this runs unconditionally under
+    // CINUX_NET, before the LAPIC-timer-dependent e1000 RX above is any concern.
+    run_net_tests();
 #endif
 
     // Ramdisk tests (026): verifies ustar parsing of embedded initrd
