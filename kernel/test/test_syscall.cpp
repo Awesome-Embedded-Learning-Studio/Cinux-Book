@@ -443,6 +443,29 @@ void test_sys_clock_gettime_bad_clock_rejected() {
     TEST_ASSERT_LT(r, 0);
 }
 
+void test_sys_clock_gettime_realtime_uses_rtc() {
+    // F5-M4: CLOCK_REALTIME is the RTC boot epoch refined by the HPET monotonic
+    // delta, so tv_sec lands in the real (post-2024) decade -- not the small
+    // boot-relative value MONOTONIC reports.  g_hpet/g_rtc are brought up earlier
+    // in main_test (run_hpet_tests / run_rtc_tests).
+    cinux::syscall::ktimespec ts{-1, -1};
+    int64_t r = cinux::syscall::do_clock_gettime_kernel(0 /*CLOCK_REALTIME*/, &ts);
+    TEST_ASSERT_EQ(r, 0);
+    // After 2024-01-01 (1704067200), before 2100-01-01 (4102444800).
+    TEST_ASSERT_TRUE(ts.tv_sec >= 1704067200LL && ts.tv_sec < 4102444800LL);
+    TEST_ASSERT_TRUE(ts.tv_nsec >= 0 && ts.tv_nsec < 1'000'000'000LL);
+}
+
+void test_sys_clock_gettime_realtime_ahead_of_monotonic() {
+    // The drift-correction contract: REALTIME = RTC base + monotonic, so it must
+    // be strictly greater than the bare MONOTONIC seconds.
+    cinux::syscall::ktimespec rt{-1, -1};
+    cinux::syscall::ktimespec mono{-1, -1};
+    do_clock_gettime_kernel(0 /*REALTIME*/, &rt);
+    do_clock_gettime_kernel(1 /*MONOTONIC*/, &mono);
+    TEST_ASSERT_TRUE(rt.tv_sec > mono.tv_sec);
+}
+
 }  // namespace test_musl_syscalls
 
 // ============================================================
@@ -493,6 +516,8 @@ extern "C" void run_syscall_tests() {
     RUN_TEST(test_musl_syscalls::test_sys_ioctl_tiocspgrp_kernel_addr_efault);
     RUN_TEST(test_musl_syscalls::test_sys_clock_gettime_fills_timespec);
     RUN_TEST(test_musl_syscalls::test_sys_clock_gettime_bad_clock_rejected);
+    RUN_TEST(test_musl_syscalls::test_sys_clock_gettime_realtime_uses_rtc);
+    RUN_TEST(test_musl_syscalls::test_sys_clock_gettime_realtime_ahead_of_monotonic);
 
     TEST_SUMMARY();
 }

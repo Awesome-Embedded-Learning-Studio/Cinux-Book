@@ -14,6 +14,11 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/acpi/rsdp.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/acpi/sdt.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/acpi/madt.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/acpi/hpet.cpp
+    # F5-M4: HPET high-res timer (free-running counter -> monotonic ns).
+    ${CMAKE_CURRENT_SOURCE_DIR}/hpet/hpet.cpp
+    # F5-M4: CMOS RTC wall clock (0x70/0x71 BCD -> Unix epoch boot base).
+    ${CMAKE_CURRENT_SOURCE_DIR}/rtc/rtc.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/apic/local_apic.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/apic/io_apic.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ahci/ahci.cpp

@@ -91,6 +91,10 @@ add_cinux_test(elf_loader)
 add_cinux_test(big_kernel_loader)
 add_cinux_test(pic)
 add_cinux_test(pit)
+# F5-M4 B2: HPET ticks->ns overflow-safe arithmetic (pure, header-only inline).
+add_cinux_test(hpet_math)
+# F5-M4 B3: RTC BCD decode + Gregorian->Unix-seconds (pure, header-only inline).
+add_cinux_test(rtc_math)
 add_cinux_test(font)
 add_cinux_test(console)
 add_cinux_test(framebuffer)
@@ -317,6 +321,8 @@ set(ALL_HOST_TESTS
     test_big_kernel_loader test_kprintf test_pic test_pit test_font
     test_console test_framebuffer test_keyboard test_pmm test_vmm
     test_address_space test_scheduler test_sync test_sync_concurrent
+    test_hpet_math
+    test_rtc_math
     test_usermode test_syscall test_shell test_ahci test_pci test_xhci test_usb test_hid test_ramdisk test_fd_table
     test_vfs_mount test_devfs test_ext2 test_ahci_write test_ext2_allocator test_ext2_ops
     test_ext2_inode_ops test_syscall_ext2 test_shell_write test_cwd_stat

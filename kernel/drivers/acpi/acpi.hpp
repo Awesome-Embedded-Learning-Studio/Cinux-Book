@@ -184,6 +184,51 @@ struct ACPIInfo {
 /// @return      Decoded info; cpu_count==0 if the table is absent/invalid.
 ACPIInfo parse_madt(const SDTHeader* madt);
 
+// ============================================================
+// HPET (IA-PC High-Precision Event Timer, signature "HPET")  -- F5-M4
+// ============================================================
+
+/// HPET description table (ACPI "HPET", 56 bytes).
+///
+/// After the common SDT header come the Event Timer Block ID, the MMIO base as
+/// an ACPI Generic Address Structure (12 bytes -- space/bitwidth/bitoffset/
+/// accesssize then the 8-byte physical address), then the sequence number,
+/// minimum tick and page-protection hints.  Only @ref base_address is consumed
+/// by the F5-M4 driver (the period and counter live in MMIO registers, not in
+/// this table); the other fields are documented for the periodic-IRQ follow-up.
+struct [[gnu::packed]] HPETHeader {
+    SDTHeader header;    ///< common ACPI header ("HPET")
+    uint32_t  block_id;  ///< +36: hardware rev / vendor / comparator count / caps
+
+    // +40: Base Address as an ACPI Generic Address Structure (12 bytes).
+    uint8_t  base_addr_space;      ///< +40: 0 = system memory
+    uint8_t  base_reg_bit_width;   ///< +41
+    uint8_t  base_reg_bit_offset;  ///< +42
+    uint8_t  base_access_size;     ///< +43
+    uint64_t base_address;         ///< +44: MMIO physical base (0xFED00000 on QEMU)
+
+    uint8_t  hpet_number;      ///< +52: which HPET block this is (usually 0)
+    uint16_t min_tick;         ///< +53: vendor-recommended min periodic tick
+    uint8_t  page_protection;  ///< +55: I/O page-protection hints
+};
+static_assert(sizeof(HPETHeader) == 56, "ACPI HPET table must be 56 bytes");
+
+/// Decoded HPET description table consumed by the F5-M4 MMIO driver.
+struct HPETInfo {
+    uint64_t address;  ///< MMIO physical base (0xFED00000 on QEMU); 0 if absent
+    bool     present;  ///< a memory-space HPET block was decoded
+};
+
+/// Parse the HPET description table into HPETInfo.
+///
+/// Validates the table length and that the base address is in system-memory
+/// space (address_space_id == 0), then returns the MMIO physical base.  A null
+/// or too-short table yields present=false / address=0.
+///
+/// @param hpet  HPET via the direct map (from find_table("HPET")), or nullptr.
+/// @return      Decoded info; present=false if the table is absent/invalid.
+HPETInfo parse_hpet(const SDTHeader* hpet);
+
 /// Decoded MADT information filled by init(); consumed by M2 (APIC).
 extern ACPIInfo g_acpi_info;
 

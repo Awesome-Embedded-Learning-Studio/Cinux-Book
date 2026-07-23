@@ -233,6 +233,8 @@ add_executable(big_kernel_test
     test/test_pic_pit.cpp
     test/test_acpi.cpp
     test/test_apic.cpp
+    test/test_hpet.cpp
+    test/test_rtc.cpp
     test/test_video.cpp
     test/test_keyboard.cpp
     test/test_pmm.cpp

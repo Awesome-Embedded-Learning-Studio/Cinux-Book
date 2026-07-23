@@ -50,6 +50,8 @@ void run_gdt_idt_tests();
 void run_pic_pit_tests();
 void run_acpi_tests();
 void run_apic_tests();
+void run_hpet_tests();  // F5-M4: HPET high-res timer + RTC wall clock
+void run_rtc_tests();   // F5-M4: CMOS RTC wall clock
 void run_video_tests();
 void run_keyboard_tests();
 void run_pmm_tests();
@@ -509,6 +511,13 @@ extern "C" void kernel_main() {
     // VMM tests: initialise VMM after PMM, then run tests
     cinux::mm::g_vmm.init();
     run_vmm_tests();
+
+    // F5-M4: HPET high-res timer + RTC wall clock.  HPET needs VMM (it maps its
+    // MMIO window via g_vmm) and ACPI (find_table); both are up by here.  B1
+    // covers the table parse; B2 adds the driver mechanism tests.
+    run_hpet_tests();
+    // RTC is pure port I/O (0x70/0x71); no VMM/ACPI dependency.
+    run_rtc_tests();
 
     // FO batch 2: backtrace (needs VMM for translate-based safe walk).
     run_backtrace_tests();

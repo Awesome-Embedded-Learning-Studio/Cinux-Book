@@ -3,8 +3,9 @@
  * @brief sys_clock_gettime handler declaration (F10-M1 batch 4)
  *
  * Reads a clock into a user timespec.  musl's time/clock support paths call
- * it during startup and from timing helpers.  Both realtime and monotonic
- * clocks are backed by the PIT uptime counter.
+ * it during startup and from timing helpers.  CLOCK_MONOTONIC is backed by the
+ * HPET free-running counter (PIT fallback); CLOCK_REALTIME by the RTC boot
+ * epoch refined with the HPET monotonic delta.
  */
 
 #pragma once

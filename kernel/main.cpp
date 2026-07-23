@@ -51,10 +51,12 @@
 #include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/drivers/acpi/acpi.hpp"
 #include "kernel/drivers/ahci/ahci.hpp"
+#include "kernel/drivers/hpet/hpet.hpp"
 #include "kernel/drivers/keyboard/keyboard.hpp"
 #include "kernel/drivers/net/e1000_init.hpp"
 #include "kernel/drivers/pci/pci.hpp"
 #include "kernel/drivers/pit/pit.hpp"
+#include "kernel/drivers/rtc/rtc.hpp"
 #include "kernel/drivers/tty/console_tty.hpp"
 #include "kernel/drivers/video/console.hpp"
 #include "kernel/drivers/video/font.hpp"
@@ -161,6 +163,13 @@ extern "C" void kernel_main() {
 
     // Step 11: Save kernel PML4 for per-process address spaces
     cinux::mm::AddressSpace::init_kernel();
+
+    // Step 11b: HPET high-res monotonic + RTC wall clock (F5-M4).  HPET needs VMM
+    // (it maps its MMIO window) and ACPI (find_table); RTC is pure port I/O.
+    // Both are up by here.  These feed sys_clock_gettime: MONOTONIC <- HPET
+    // (PIT fallback), REALTIME <- RTC boot epoch + HPET monotonic delta.
+    cinux::drivers::g_hpet.init();
+    cinux::drivers::g_rtc.init();
 
     // Step 12: Initialise the slab allocator (small objects) + kmalloc.  Large
     // allocations reuse the direct map, so only the slab window is reserved.
