@@ -25,6 +25,7 @@
 #include "kernel/net/loopback_device.hpp"
 #include "kernel/net/net_init.hpp"
 #include "kernel/net/net_stack.hpp"
+#include "kernel/net/tcp.hpp"
 #include "kernel/net/udp.hpp"
 #include "kernel/syscall/sys_ping.hpp"  // B2: call the sys_ping handler directly
 
@@ -39,11 +40,15 @@ using cinux::net::InDevice;
 using cinux::net::Ipv4Module;
 using cinux::net::kEtherTypeArp;
 using cinux::net::kEtherTypeIpv4;
+using cinux::net::kIpProtoTcp;
 using cinux::net::kLoopbackAddr;
 using cinux::net::kSlirpGateway;
 using cinux::net::kSlirpGuest;
 using cinux::net::LoopbackDevice;
 using cinux::net::NetStack;
+using cinux::net::TcpListener;
+using cinux::net::TcpModule;
+using cinux::net::TcpState;
 using cinux::net::UdpListener;
 using cinux::net::UdpModule;
 using cinux::net::kIpProtoUdp;
@@ -353,14 +358,182 @@ void test_udp_e1000_tx() {
         " (no reply expected, SLIRP has no UDP echo)\n");
 }
 
+// ============================================================
+// TCP loopback: handshake + data + teardown on the in-kernel stack.
+// One TcpModule runs BOTH ends on a LoopbackDevice (the budget loop in poll()
+// drains SYN->SYN-ACK->ACK in a single poll).  Teardown takes two polls: the
+// client's FIN, then the server's FIN after the app (this test) calls close().
+// Deterministic -- no SLIRP / timer.
+// ============================================================
+
+namespace {
+/// Kernel-side TCP capture listener: records accept/data/close into fixed
+/// buffers (freestanding: no std::vector).  Mirrors UdpCapture / IcmpModule.
+struct TcpCapture : TcpListener {
+    uint32_t accepts  = 0;
+    uint32_t datas    = 0;
+    uint32_t closes   = 0;
+    uint32_t last_len = 0;
+    uint8_t  buf[128] = {};
+    void     on_accept(const cinux::net::TcpEndpoint& /*local*/,
+                       const cinux::net::TcpEndpoint& /*remote*/) override {
+        ++accepts;
+    }
+    void on_data(const cinux::net::TcpEndpoint& /*local*/,
+                 const cinux::net::TcpEndpoint& /*remote*/,
+                 cinux::net::FrameView payload) override {
+        ++datas;
+        last_len = payload.size() > sizeof(buf) ? sizeof(buf) : payload.size();
+        for (uint32_t i = 0; i < last_len; ++i) {
+            buf[i] = payload.data()[i];
+        }
+    }
+    void on_close(const cinux::net::TcpEndpoint& /*local*/,
+                  const cinux::net::TcpEndpoint& /*remote*/) override {
+        ++closes;
+    }
+};
+}  // namespace
+
+void test_tcp_loopback() {
+    // Static: each module + LoopbackDevice (~12 KB) are too large for the 16 KB
+    // kernel stack.
+    static LoopbackDevice lo;
+    static ArpModule      arp;
+    static IcmpModule     icmp;
+    static Ipv4Module     ipv4(icmp, &arp);
+    static TcpModule      tcp;
+    static NetStack       stack;
+    static TcpCapture     cap;
+
+    stack.add_protocol(kEtherTypeArp, arp);
+    stack.add_protocol(kEtherTypeIpv4, ipv4);
+    ipv4.add_l4(kIpProtoTcp, tcp);  // TCP joins ICMP/UDP in the L4 table
+
+    InDevice cfg{};
+    cfg.local   = kLoopbackAddr;  // 127.0.0.1
+    cfg.gateway = kLoopbackAddr;
+    TEST_ASSERT_TRUE(stack.attach(lo, cfg));
+    TEST_ASSERT_TRUE(tcp.listen(7777, cap));
+
+    // 3-way handshake: one poll drains SYN -> SYN-ACK -> ACK (server ESTABLISHED).
+    TEST_ASSERT_TRUE(tcp.connect(lo, 1234, kLoopbackAddr, 7777, ipv4, stack).ok());
+    stack.poll();
+    TEST_ASSERT_EQ(cap.accepts, 1u);
+    TEST_ASSERT_TRUE(tcp.state_of(1234, kLoopbackAddr, 7777) == TcpState::kEstablished);
+    TEST_ASSERT_TRUE(tcp.state_of(7777, kLoopbackAddr, 1234) == TcpState::kEstablished);
+
+    // Single-direction data: client -> server.  poll drains the segment + the ACK.
+    static const uint8_t msg[] = {'t', 'c', 'p', '-', 'h', 'i'};
+    TEST_ASSERT_TRUE(tcp.send(lo, 1234, kLoopbackAddr, 7777, msg, sizeof(msg), ipv4, stack).ok());
+    stack.poll();
+    TEST_ASSERT_EQ(cap.datas, 1u);
+    TEST_ASSERT_EQ(cap.last_len, static_cast<uint32_t>(sizeof(msg)));
+    bool payload_ok = true;
+    for (uint32_t i = 0; i < sizeof(msg); ++i) {
+        if (cap.buf[i] != msg[i]) {
+            payload_ok = false;
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE(payload_ok);
+
+    // Client close -> poll drains client FIN -> server ACK + on_close + CLOSE_WAIT;
+    // client -> FIN_WAIT_2.
+    TEST_ASSERT_TRUE(tcp.close(lo, 1234, kLoopbackAddr, 7777, ipv4, stack).ok());
+    stack.poll();
+    TEST_ASSERT_EQ(cap.closes, 1u);
+    TEST_ASSERT_TRUE(tcp.state_of(7777, kLoopbackAddr, 1234) == TcpState::kCloseWait);
+    TEST_ASSERT_TRUE(tcp.state_of(1234, kLoopbackAddr, 7777) == TcpState::kFinWait2);
+
+    // Server app closes -> poll drains server FIN -> client CLOSED (ACK);
+    // server LAST_ACK -> CLOSED on the final ACK.  Both connections reaped.
+    TEST_ASSERT_TRUE(tcp.close(lo, 7777, kLoopbackAddr, 1234, ipv4, stack).ok());
+    stack.poll();
+    TEST_ASSERT_TRUE(tcp.state_of(1234, kLoopbackAddr, 7777) == TcpState::kClosed);
+    TEST_ASSERT_TRUE(tcp.state_of(7777, kLoopbackAddr, 1234) == TcpState::kClosed);
+    TEST_ASSERT_EQ(tcp.connection_count(), 0u);
+    cinux::lib::kprintf(
+        "[net] loopback TCP: handshake + %u-byte data + teardown in 4 polls (conn closed)\n",
+        static_cast<unsigned>(sizeof(msg)));
+}
+
+// ============================================================
+// TCP TX over the real e1000 + QEMU SLIRP user-net.
+// Proves a TCP SYN rides the SAME L3 path as ICMP/UDP (ARP resolve for the
+// gateway + ipv4.send accepts proto 6).  SLIRP has no TCP echo service here, so
+// no reply is expected -- a TX-only smoke.  Skip (pass) when no NIC is attached.
+// ============================================================
+
+void test_tcp_e1000_tx() {
+    PCI pci;
+    pci.init();
+    PCIDevice dev{};
+    if (!pci.find_e1000(dev)) {
+        cinux::lib::kprintf("[net] no NIC -- skipping e1000 TCP TX test\n");
+        return;  // counts as a pass when no e1000 is attached
+    }
+
+    static E1000Controller nic;
+    if (!nic.init(dev).ok() || !nic.start_rx().ok() || !nic.start_tx().ok()) {
+        TEST_ASSERT_TRUE(false);
+        return;
+    }
+    static E1000NetDevice adapter(nic);
+    static ArpModule      arp;
+    static IcmpModule     icmp;
+    static Ipv4Module     ipv4(icmp, &arp);
+    static TcpModule      tcp;
+    static NetStack       stack;
+    stack.add_protocol(kEtherTypeArp, arp);
+    stack.add_protocol(kEtherTypeIpv4, ipv4);
+    ipv4.add_l4(kIpProtoTcp, tcp);
+
+    InDevice cfg{};
+    EthAddr  our_mac{};
+    adapter.mac(our_mac);
+    cfg.hw      = our_mac;
+    cfg.local   = kSlirpGuest;    // 10.0.2.15
+    cfg.gateway = kSlirpGateway;  // 10.0.2.2
+    TEST_ASSERT_TRUE(stack.attach(adapter, cfg));
+
+    // 1st connect to the gateway triggers the ARP request (SYN deferred until ARP
+    // resolves -- no retransmit, so it may not TX yet).  Drive the ARP reply via
+    // the same sti/hlt+poll timing as the ping/UDP tests (NEVER a trap-loop pump).
+    (void)tcp.connect(adapter, 1234, kSlirpGateway, 7777, ipv4, stack);
+    EthAddr gw_mac{};
+    for (uint32_t i = 0; i < 4000 && !arp.lookup(kSlirpGateway, gw_mac); ++i) {
+        for (uint32_t j = 0; j < 4; ++j) {
+            stack.poll();
+            cinux::arch::irq_enable();
+            cinux::arch::hlt();
+            cinux::arch::irq_disable();
+            if (arp.lookup(kSlirpGateway, gw_mac)) {
+                break;
+            }
+        }
+    }
+    TEST_ASSERT_TRUE(arp.lookup(kSlirpGateway, gw_mac));  // ARP resolved over e1000
+
+    // ARP now cached: a 2nd connect (different remote port -> distinct 4-tuple)
+    // TX's its SYN immediately through ipv4.send (proto 6) -> e1000.
+    auto r = tcp.connect(adapter, 1234, kSlirpGateway, 7778, ipv4, stack);
+    TEST_ASSERT_TRUE(r.ok());
+    cinux::lib::kprintf(
+        "[net] e1000 TCP TX -> 10.0.2.2: ARP resolved + SYN send ok"
+        " (no reply expected, SLIRP has no TCP echo)\n");
+}
+
 }  // namespace test_net
 
 extern "C" void run_net_tests() {
     TEST_SECTION("net");
     RUN_TEST(test_net::test_ping_loopback);
     RUN_TEST(test_net::test_udp_loopback);
+    RUN_TEST(test_net::test_tcp_loopback);
     RUN_TEST(test_net::test_ping_e1000);
     RUN_TEST(test_net::test_udp_e1000_tx);
+    RUN_TEST(test_net::test_tcp_e1000_tx);
     RUN_TEST(test_net::test_production_ping);
     RUN_TEST(test_net::test_syscall_ping);
     TEST_SUMMARY();

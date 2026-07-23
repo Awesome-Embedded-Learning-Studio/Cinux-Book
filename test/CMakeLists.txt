@@ -189,6 +189,19 @@ add_cinux_integration_test(net_udp
     ${CMAKE_SOURCE_DIR}/third_party/Cinux-Base/src/checksum.cpp
 )
 
+# F7-M5 batch 1: TCP wire layer + the inbound pseudo-header checksum gate.
+# A no-L2 mock feeds a hand-built TCP segment over IPv4 through the real L4
+# dispatch; links the real tcp/ipv4/icmp/arp/net_stack + Cinux-Base checksum.
+add_cinux_integration_test(net_tcp
+    unit/test_net_tcp.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/net/tcp.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/net/ipv4.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/net/icmp.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/net/arp.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/net/net_stack.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/Cinux-Base/src/checksum.cpp
+)
+
 # ============================================================
 # Tests with threading support
 # ============================================================
@@ -313,6 +326,7 @@ set(ALL_HOST_TESTS
     test_cinux_base_types
     test_refcount
     test_net_udp
+    test_net_tcp
 )
 
 add_custom_target(test_host

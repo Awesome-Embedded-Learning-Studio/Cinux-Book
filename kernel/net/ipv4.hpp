@@ -28,6 +28,7 @@ class IcmpModule;  // forward -- L4 handler (proto 1), registered by the ctor
 class Ipv4Module;  // forward -- L4Handler::handle takes it (defined below)
 
 constexpr uint8_t kIpProtoIcmp    = 1;
+constexpr uint8_t kIpProtoTcp     = 6;
 constexpr uint8_t kIpProtoUdp     = 17;
 constexpr uint8_t kIpv4HdrWords   = 5;  // 20-byte fixed header (IHL)
 constexpr uint8_t kIpv4TtlDefault = 64;
