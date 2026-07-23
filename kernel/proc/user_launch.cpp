@@ -97,7 +97,7 @@ void enter_loaded_program(const char* path, const char* const argv[], const char
         {AT_PHNUM, elf_aux.at_phnum},
         {AT_PHENT, elf_aux.at_phent},
         {AT_PAGESZ, cinux::arch::PAGE_SIZE},
-        {AT_BASE, 0},
+        {AT_BASE, elf_aux.at_base},  // F10-M2: interpreter load base (0 if static)
         {AT_FLAGS, 0},
         {AT_ENTRY, elf_aux.at_entry},
         {AT_UID, task->uid},

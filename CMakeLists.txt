@@ -29,6 +29,14 @@ option(CINUX_UBSAN "Enable -fsanitize=undefined with freestanding UBSan stubs" O
 # locally). Set -DCINUX_MUSL_HELLO_SMOKE=OFF to skip.
 option(CINUX_MUSL_HELLO_SMOKE "Enable musl /hello ring-3 smoke in run-kernel-test" ON)
 
+# F10-M2: musl DYNAMIC /hello-dyn ring-3 smoke. Exercises the kernel's PT_INTERP
+# / interpreter-load path (ldso relocates the program in user space). Requires
+# the musl sysroot + /hello-dyn + /lib/ld-musl-x86_64.so.1 on ext2:
+# tools/musl/build-musl.sh + build-hello-dyn.sh. Default OFF (CI has no sysroot;
+# enable locally with the static smoke or alone). The harness shares the
+# static smoke's scheduler/ext2 scaffolding; the two phases gate independently.
+option(CINUX_MUSL_DYN_SMOKE "Enable musl dynamic /hello-dyn ring-3 smoke in run-kernel-test" OFF)
+
 # Toolchain version gate (G2). CinuxOS is freestanding C++17 with -mcmodel=kernel
 # codegen, inline asm, and (F-INFRA) GCC-sensitive UBSAN (-fsanitize=undefined) and
 # strict warning flags whose behavior varies across major GCC releases. Fail fast at

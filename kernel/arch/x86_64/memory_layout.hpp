@@ -83,4 +83,14 @@ constexpr uint64_t USER_MMAP_BASE = 0x100000000ULL;  // 4 GB
 /// End of the mmap region -- 8 GB below USER_STACK_TOP as a guard gap.
 constexpr uint64_t USER_MMAP_END  = 0x600000000ULL;  // 24 GB
 
+/// Load base for the dynamic interpreter (ld-musl / ld-linux), F10-M2. The
+/// interpreter is ET_DYN (position-independent), so the kernel maps its
+/// PT_LOAD segments at USER_INTERP_BASE + p_vaddr and reports this base via
+/// AT_BASE. Placed in the unused gap between the heap ceiling (USER_BRK_MAX =
+/// 64 MB) and the mmap region (USER_MMAP_BASE = 4 GB) so it cannot collide
+/// with either the brk heap or user mmap allocations. The interpreter finds
+/// itself via __ehdr_start, so any base works; this is fixed for determinism
+/// (ASLR of the interpreter base is a follow-up, paired with PIE main).
+constexpr uint64_t USER_INTERP_BASE = 0x10000000ULL;  // 256 MB
+
 }  // namespace cinux::arch

@@ -28,14 +28,34 @@ constexpr uint8_t ELF_CLASS_64 = 2;
 /// ELF data encoding: little-endian
 constexpr uint8_t ELF_DATA_LSB = 1;
 
-/// ELF object type: executable
+/// ELF object type: executable (fixed base, non-PIE)
 constexpr uint16_t ET_EXEC = 2;
+
+/// ELF object type: shared object / position-independent (ET_DYN).
+/// The dynamic interpreter (ld-musl / ld-linux) is always ET_DYN; PIE main
+/// programs are too. F10-M2: the kernel accepts ET_DYN so it can load the
+/// interpreter; a non-PIE dynamic main program stays ET_EXEC.
+constexpr uint16_t ET_DYN = 3;
 
 /// ELF machine architecture: x86-64
 constexpr uint16_t EM_X86_64 = 62;
 
 /// Program header type: loadable segment
 constexpr uint32_t PT_LOAD = 1;
+
+/// Program header type: dynamic linking info (.dynamic). F10-M2: parsed by
+/// the user-space interpreter (musl ldso), NOT by the kernel -- listed here
+/// for completeness so the loader can skip it while scanning PT_LOAD.
+constexpr uint32_t PT_DYNAMIC = 2;
+
+/// Program header type: interpreter path (PT_INTERP). Names the dynamic
+/// linker (e.g. /lib/ld-musl-x86_64.so.1). The kernel reads this to find and
+/// load the interpreter; everything else (GOT/PLT, DT_NEEDED) is the ldso's job.
+constexpr uint32_t PT_INTERP = 3;
+
+/// Program header type: program-header table itself. musl ldso uses
+/// (AT_PHDR - PT_PHDR.p_vaddr) to derive the main program's load base.
+constexpr uint32_t PT_PHDR = 6;
 
 /// Program header flag: executable
 constexpr uint32_t PF_X = 1;

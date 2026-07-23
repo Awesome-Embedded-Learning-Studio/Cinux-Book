@@ -133,7 +133,7 @@ extern "C" void net_timer_stub();  // F5-M6: e1000 RX-poll LAPIC timer ISR (inte
 static constexpr uintptr_t BOOT_INFO_PHYS = 0x7000;
 
 // ============================================================
-// F10-M1 batch 6: musl static hello ring-3 smoke
+// musl ring-3 smoke (F10-M1 batch 6 static /hello + F10-M2 dynamic /hello-dyn)
 //
 // The unit-test suites above run single-threaded with no real dispatch loop.
 // After they finish, this optional phase (CINUX_MUSL_HELLO_SMOKE) enters the
@@ -144,7 +144,10 @@ static constexpr uintptr_t BOOT_INFO_PHYS = 0x7000;
 // pass signal. The worker then writes the combined exit code (unit failures OR
 // hello != 0) to the isa-debug-exit device, terminating QEMU.
 // ============================================================
-#ifdef CINUX_MUSL_HELLO_SMOKE
+// The harness compiles when EITHER smoke flag is on; the static /hello and
+// dynamic /hello-dyn phases are gated independently inside, so each can run
+// alone (CINUX_MUSL_HELLO_SMOKE / CINUX_MUSL_DYN_SMOKE).
+#if defined(CINUX_MUSL_HELLO_SMOKE) || defined(CINUX_MUSL_DYN_SMOKE)
 static int g_unit_test_failures = 0;
 
 static void musl_hello_smoke_entry() {
@@ -185,6 +188,7 @@ static void musl_hello_smoke_entry() {
     cinux::lib::kprintf("[F10-M1] ext2 mounted at / for smoke (mounted=%d, blk=%d)\n",
                         ext2->is_mounted() ? 1 : 0, blk_dev != nullptr ? 1 : 0);
 
+#    ifdef CINUX_MUSL_HELLO_SMOKE
     // P3 ring-3 stress: run the musl /hello fork+execve+waitpid path repeatedly
     // (not once) to flush out intermittent accessor/CoW/cleartid/futex races --
     // the -smp2 shell "multiple /hello" saga showed these only fire on repeat.
@@ -238,25 +242,73 @@ static void musl_hello_smoke_entry() {
     bool hello_ok = (hello_fail == 0);
     cinux::lib::kprintf("[F10-M1] smoke: hello %d/%d iters PASS -> %s\n", hello_pass, kHelloIters,
                         hello_ok ? "PASS" : "FAIL");
+#    else
+    bool hello_ok = true;  // static phase compiled out (only CINUX_MUSL_DYN_SMOKE on)
+#    endif
 
-    // F-VERIFY M5-2 forktest (cross-core CoW-write stress) is currently DISABLED
-    // on the smoke: under -smp 2 it deterministically #DFs inside fork()'s CoW
-    // page-table copy (RIP in copy_page_table_level + the post-copy TLB flush),
-    // and fork runs at IF=0 (SFMASK=0x200 clears IF on syscall entry) so this is
-    // NOT a migration race -- it is a cross-core page/mapcount lifetime race. That
-    // is a SEPARATE, pre-existing bug from the exit/reap saga fixed above; it needs
-    // cross-core TLB shootdown to resolve properly (tracked follow-up). The hello
-    // 20-iter phase above still validates the exit/reap saga fix. forktest.c still
-    // builds (tools/musl/build-forktest.sh) for local deep-dig; re-enable this
-    // block once the fork/CoW cross-core #DF is fixed.
+#    ifdef CINUX_MUSL_DYN_SMOKE
+    // F10-M2: dynamic musl hello -- fork+execve /hello-dyn exercises the kernel's
+    // PT_INTERP / interpreter-load path end-to-end (interp mapped at
+    // USER_INTERP_BASE, musl ldso relocates the main program, jumps to AT_ENTRY,
+    // write() goes through libc.so). Same fork+execve+waitpid shape as the static
+    // phase; fewer iters since each exec also loads + relocates the interpreter.
+    constexpr int kDynIters = 5;
+    int           dyn_pass  = 0;
+    int           dyn_fail  = 0;
+    cinux::lib::kprintf("[F10-M2] musl dynamic hello ring-3 smoke: %d iterations\n", kDynIters);
+    for (int di = 0; di < kDynIters; ++di) {
+        int child_pid = cinux::proc::fork(cinux::proc::g_pid_alloc);
+        if (child_pid == 0) {
+            auto* child        = cinux::proc::Scheduler::current();
+            child->addr_space  = new cinux::mm::AddressSpace();
+            const char* argv[] = {"/hello-dyn", nullptr};
+            const char* envp[] = {nullptr};
+            cinux::proc::launch_user_program("/hello-dyn", argv, envp);
+            cinux::proc::Scheduler::exit_current();  // unreachable
+        }
+
+        int     status   = -1;
+        int64_t reap_ret = 0;
+        for (int spins = 0; spins < 50'000'000; ++spins) {
+            int                        kstatus = 0;
+            cinux::proc::WaitpidResult wr =
+                cinux::proc::waitpid(child_pid, &kstatus, 1, cinux::proc::g_pid_alloc);
+            if (wr == cinux::proc::WaitpidResult::Ok) {
+                status   = kstatus;
+                reap_ret = child_pid;
+                break;
+            }
+            if (wr != cinux::proc::WaitpidResult::NotExited) {
+                reap_ret = static_cast<int64_t>(wr);  // error (<0)
+                break;
+            }
+            cinux::proc::Scheduler::yield();
+        }
+        if (reap_ret > 0 && status == 0) {
+            ++dyn_pass;
+        } else {
+            ++dyn_fail;
+            cinux::lib::kprintf("[F10-M2] smoke: hello-dyn iter %d FAIL (status=%d reap=%lld)\n",
+                                di, status, static_cast<long long>(reap_ret));
+        }
+    }
+    bool dyn_ok = (dyn_fail == 0);
+    cinux::lib::kprintf("[F10-M2] smoke: hello-dyn %d/%d iters PASS -> %s\n", dyn_pass, kDynIters,
+                        dyn_ok ? "PASS" : "FAIL");
+#    else
+    bool dyn_ok = true;  // dynamic phase compiled out
+#    endif
+
+    // F-VERIFY M5-2 forktest stays disabled (cross-core CoW #DF, separate bug;
+    // see note above). Re-enable once fork/CoW cross-core #DF is fixed.
     bool forktest_ok = true;
 
-    int exit_code = (g_unit_test_failures > 0 || !hello_ok || !forktest_ok) ? 1 : 0;
+    int exit_code = (g_unit_test_failures > 0 || !hello_ok || !dyn_ok || !forktest_ok) ? 1 : 0;
     __asm__ volatile("outl %0, $0xf4" : : "a"(exit_code));
     while (1)
         __asm__ volatile("cli; hlt");
 }
-#endif  // CINUX_MUSL_HELLO_SMOKE
+#endif  // CINUX_MUSL_HELLO_SMOKE || CINUX_MUSL_DYN_SMOKE
 
 // ============================================================
 // F-VERIFY M3-2: AP wake + AP-side mechanism readback
@@ -279,7 +331,7 @@ static bool ap_test_selfcheck(uint32_t cpu_id) {
     r.star   = cinux::arch::read_msr(0xC0000081);
     r.sfmask = cinux::arch::read_msr(0xC0000084);
     r.magic  = cinux::arch::kApSelfcheckMagic;
-#ifdef CINUX_MUSL_HELLO_SMOKE
+#if defined(CINUX_MUSL_HELLO_SMOKE) || defined(CINUX_MUSL_DYN_SMOKE)
     // Smoke will run the scheduler -- let this AP participate (cross-core CoW).
     return true;
 #else
@@ -628,8 +680,8 @@ extern "C" void kernel_main() {
         cinux::lib::kprintf("\n[TEST] ALL TESTS PASSED (exit code %d)\n", exit_code);
     }
 
-#ifdef CINUX_MUSL_HELLO_SMOKE
-    // F10-M1 batch 6: enter the real scheduler and run the musl /hello smoke.
+#if defined(CINUX_MUSL_HELLO_SMOKE) || defined(CINUX_MUSL_DYN_SMOKE)
+    // F10-M1 batch 6 / F10-M2 batch 3: enter the real scheduler and run the musl
     // The worker task signals QEMU exit itself (isa-debug-exit), so control
     // does not return here.  CI builds without the flag take the normal path.
     cinux::lib::kprintf("\n[F10-M1] entering scheduler for musl hello ring-3 smoke\n");

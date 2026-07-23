@@ -60,10 +60,12 @@ enum class ExecveResult : int {
  * entries that musl/glibc read at startup to find the program headers.
  */
 struct ElfAuxInfo {
-    uint64_t at_phdr;   ///< User VA where the program headers are mapped
-    uint64_t at_phnum;  ///< e_phnum (program header count)
-    uint64_t at_phent;  ///< sizeof(Elf64_Phdr) = 56
-    uint64_t at_entry;  ///< e_entry (user VA of the program entry point)
+    uint64_t at_phdr;     ///< User VA where the program headers are mapped
+    uint64_t at_phnum;    ///< e_phnum (program header count)
+    uint64_t at_phent;    ///< sizeof(Elf64_Phdr) = 56
+    uint64_t at_entry;    ///< Main program entry (user VA); ldso jumps here after relocating
+    uint64_t at_base;     ///< Interpreter (ldso) load base; 0 for a static executable
+    bool     has_interp;  ///< True if a PT_INTERP was found and the interpreter loaded
 };
 
 /**

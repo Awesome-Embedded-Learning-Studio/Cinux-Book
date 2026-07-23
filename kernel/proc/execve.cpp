@@ -21,6 +21,7 @@
 #include "kernel/lib/aslr.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/proc/elf_load.hpp"  // F10-M2: load_elf_image (main + interp)
 #include "kernel/proc/elf_types.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
@@ -241,108 +242,48 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
     // set and "VMA record failed" aborts the load.
     task->addr_space->vmas().clear();
 
-    bool     has_load_segment = false;
-    uint64_t max_seg_end      = 0;  ///< highest PT_LOAD end -> brk_initial
-    uint64_t phdr_va          = 0;  ///< AT_PHDR: user VA of the program headers
+    // Map the main program's PT_LOAD segments (base 0: non-PIE p_vaddr is the
+    // absolute load address). load_elf_image is shared with the interpreter
+    // path below; it returns the phdr VA, brk end, and entry for this image.
+    LoadedImage  main_img{};
+    ExecveResult load_res =
+        load_elf_image(*task->addr_space, inode, ehdr, phdrs, phnum, /*base=*/0, main_img);
+    if (load_res != ExecveResult::Ok) {
+        delete[] phdrs;
+        return load_res;
+    }
 
+    // F10-M2: detect a dynamic executable. PT_INTERP names the dynamic linker
+    // (e.g. /lib/ld-musl-x86_64.so.1); the path is a NUL-terminated string in
+    // the main file at p_offset, length p_filesz. The kernel loads that
+    // interpreter and hands off to it -- GOT/PLT/DT_NEEDED are the ldso's job.
+    char interp_path[256];
+    bool has_interp = false;
     for (uint16_t i = 0; i < phnum; i++) {
-        const auto& phdr = phdrs[i];
-
-        if (phdr.p_type != elf::PT_LOAD) {
+        if (phdrs[i].p_type != elf::PT_INTERP) {
             continue;
         }
-
-        has_load_segment = true;
-
-        // AT_PHDR: locate the program-header table within the mapped image. The
-        // first PT_LOAD usually covers the ELF header + phdrs (p_offset 0); the
-        // user VA of e_phoff is (segment p_vaddr) + (e_phoff - p_offset).
-        if (phdr.p_offset <= ehdr->e_phoff && ehdr->e_phoff < phdr.p_offset + phdr.p_filesz) {
-            phdr_va = phdr.p_vaddr + (ehdr->e_phoff - phdr.p_offset);
-        }
-
-        uint64_t seg_start = phdr.p_vaddr & ~(PAGE_SIZE - 1);
-        uint64_t seg_end   = (phdr.p_vaddr + phdr.p_memsz + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-        if (seg_end > max_seg_end) {
-            max_seg_end = seg_end;
-        }
-
-        uint64_t page_flags = FLAG_PRESENT | FLAG_USER;
-        if (phdr.p_flags & elf::PF_W) {
-            page_flags |= FLAG_WRITABLE;
-        }
-        if (!(phdr.p_flags & elf::PF_X)) {
-            page_flags |= FLAG_NX;
-        }
-
-        for (uint64_t vaddr = seg_start; vaddr < seg_end; vaddr += PAGE_SIZE) {
-            uint64_t phys = cinux::mm::g_pmm.alloc_page();
-            if (phys == 0) {
-                cinux::lib::kprintf("[EXECVE] page alloc failed at vaddr=%p\n",
-                                    reinterpret_cast<void*>(vaddr));
-                delete[] phdrs;
-                return ExecveResult::MapFailed;
-            }
-
-            auto* dst = reinterpret_cast<uint8_t*>(phys + cinux::arch::DIRECT_MAP_BASE);
-            for (uint64_t b = 0; b < PAGE_SIZE; b++) {
-                dst[b] = 0;
-            }
-
-            uint64_t data_vaddr  = (vaddr < phdr.p_vaddr) ? phdr.p_vaddr : vaddr;
-            uint64_t in_page_off = data_vaddr - vaddr;
-            uint64_t seg_offset  = data_vaddr - phdr.p_vaddr;
-
-            if (seg_offset < phdr.p_filesz) {
-                uint64_t copy_len = phdr.p_filesz - seg_offset;
-                uint64_t avail    = PAGE_SIZE - in_page_off;
-                if (copy_len > avail) {
-                    copy_len = avail;
-                }
-
-                auto bread = inode->ops->read(inode, phdr.p_offset + seg_offset,
-                                              dst + in_page_off, copy_len);
-                if (!bread.ok() || bread.value() < static_cast<int64_t>(copy_len)) {
-                    cinux::lib::kprintf("[EXECVE] segment read failed at offset %lu\n",
-                                        static_cast<unsigned long>(phdr.p_offset + seg_offset));
-                    cinux::mm::g_pmm.free_page(phys);
-                    delete[] phdrs;
-                    return ExecveResult::ReadFailed;
-                }
-            }
-
-            if (!task->addr_space->map(vaddr, phys, page_flags)) {
-                cinux::lib::kprintf("[EXECVE] map failed at vaddr=%p\n",
-                                    reinterpret_cast<void*>(vaddr));
-                cinux::mm::g_pmm.free_page(phys);
-                delete[] phdrs;
-                return ExecveResult::MapFailed;
-            }
-        }
-
-        // Record this loadable segment as a VMA -- the single source of truth
-        // the page-fault handler checks (batch 4).  Segment ranges are page-
-        // aligned and non-overlapping by ELF construction, so insert only fails
-        // on OOM; treat that as a load failure to keep the VMA set complete.
-        cinux::mm::VmaFlags seg_vma = cinux::mm::VmaFlags::Read;
-        if (phdr.p_flags & elf::PF_W) {
-            seg_vma |= cinux::mm::VmaFlags::Write;
-        }
-        if (phdr.p_flags & elf::PF_X) {
-            seg_vma |= cinux::mm::VmaFlags::Exec;
-        }
-        if (!task->addr_space->vmas().insert(seg_start, seg_end, seg_vma).ok()) {
-            cinux::lib::kprintf("[EXECVE] VMA record failed for %p-%p\n",
-                                reinterpret_cast<void*>(seg_start),
-                                reinterpret_cast<void*>(seg_end));
+        uint64_t plen = phdrs[i].p_filesz;
+        if (plen == 0 || plen >= sizeof(interp_path)) {
+            cinux::lib::kprintf("[EXECVE] PT_INTERP bad length %lu\n",
+                                static_cast<unsigned long>(plen));
             delete[] phdrs;
-            return ExecveResult::MapFailed;
+            return ExecveResult::BadElfHeaders;
         }
+        auto pread = inode->ops->read(inode, phdrs[i].p_offset, interp_path, plen);
+        if (!pread.ok() || pread.value() < static_cast<int64_t>(plen)) {
+            cinux::lib::kprintf("[EXECVE] PT_INTERP path read failed\n");
+            delete[] phdrs;
+            return ExecveResult::ReadFailed;
+        }
+        interp_path[plen] = '\0';  // PT_INTERP usually includes the NUL; force it.
+        has_interp        = true;
+        break;
     }
 
     delete[] phdrs;
 
-    if (!has_load_segment) {
+    if (!main_img.has_load) {
         cinux::lib::kprintf("[EXECVE] no PT_LOAD segments found\n");
         return ExecveResult::NoLoadSegments;
     }
@@ -354,7 +295,7 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
     // F9 batch 8 (ASLR): add a page-aligned random gap above the image so the
     // heap start moves per-exec. Clamped to stay under USER_BRK_MAX with real
     // heap room left (our ~4 MB image never trips the clamp).
-    uint64_t brk_start = (max_seg_end + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    uint64_t brk_start = (main_img.max_seg_end + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
     uint64_t brk_gap   = cinux::lib::aslr_brk_offset();
     if (brk_start + brk_gap >= cinux::arch::USER_BRK_MAX) {
         brk_gap = 0;
@@ -371,7 +312,20 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
         return ExecveResult::MapFailed;
     }
 
-    task->ctx.rip = ehdr->e_entry;
+    // F10-M2: load the dynamic interpreter when PT_INTERP was present. The
+    // interpreter (ld-musl / ld-linux) is mapped at USER_INTERP_BASE and we
+    // enter IT -- after relocating the main program it jumps to AT_ENTRY (the
+    // main entry). A static executable (no PT_INTERP) enters the main entry
+    // directly, unchanged from before.
+    uint64_t interp_base = 0;
+    uint64_t entry_va    = ehdr->e_entry;  // static default
+    if (has_interp) {
+        ExecveResult ir = load_interpreter(*task->addr_space, interp_path, interp_base, entry_va);
+        if (ir != ExecveResult::Ok) {
+            return ir;
+        }
+    }
+    task->ctx.rip = entry_va;
 
     // F9 batch 1: map the fixed sigreturn trampoline page.  The handler return
     // address (set in signal_setup_frame) lands here, keeping the int $0x80
@@ -399,14 +353,17 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
     }
 
     if (aux_out != nullptr) {
-        aux_out->at_phdr  = phdr_va;
-        aux_out->at_phnum = ehdr->e_phnum;
-        aux_out->at_phent = sizeof(elf::Elf64_Phdr);
-        aux_out->at_entry = ehdr->e_entry;
+        aux_out->at_phdr    = main_img.phdr_va;
+        aux_out->at_phnum   = ehdr->e_phnum;
+        aux_out->at_phent   = sizeof(elf::Elf64_Phdr);
+        aux_out->at_entry   = ehdr->e_entry;  // ldso jumps here after relocating
+        aux_out->at_base    = interp_base;    // interpreter load base (0 if static)
+        aux_out->has_interp = has_interp;
     }
 
-    cinux::lib::kprintf("[EXECVE] loaded %s entry=%p pid=%d\n", path,
-                        reinterpret_cast<void*>(ehdr->e_entry), task->pid);
+    cinux::lib::kprintf("[EXECVE] loaded %s entry=%p%s pid=%d\n", path,
+                        reinterpret_cast<void*>(entry_va), has_interp ? " (dynamic)" : "",
+                        task->pid);
 
     return ExecveResult::Ok;
 }

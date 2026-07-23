@@ -619,6 +619,29 @@ void test_valid_header() {
                    static_cast<int>(ElfValidateResult::Ok));
 }
 
+// F10-M2: a shared object (ET_DYN) must also validate -- the dynamic
+// interpreter (ld-musl / ld-linux) is always ET_DYN, and the kernel loads it.
+void test_valid_et_dyn() {
+    using namespace cinux::proc::elf;
+
+    Elf64_Ehdr ehdr{};
+    ehdr.e_ident[0]  = 0x7F;
+    ehdr.e_ident[1]  = 'E';
+    ehdr.e_ident[2]  = 'L';
+    ehdr.e_ident[3]  = 'F';
+    ehdr.e_ident[4]  = ELF_CLASS_64;
+    ehdr.e_ident[5]  = ELF_DATA_LSB;
+    ehdr.e_type      = ET_DYN;  // shared object / PIE -- accepted since F10-M2
+    ehdr.e_machine   = EM_X86_64;
+    ehdr.e_phoff     = sizeof(Elf64_Ehdr);
+    ehdr.e_phentsize = sizeof(Elf64_Phdr);
+    ehdr.e_phnum     = 1;
+    ehdr.e_entry     = 0x1080;  // ET_DYN: entry is base-relative
+
+    TEST_ASSERT_EQ(static_cast<int>(validate_elf_header(&ehdr, 4096)),
+                   static_cast<int>(ElfValidateResult::Ok));
+}
+
 void test_bad_magic() {
     using namespace cinux::proc::elf;
 
@@ -1175,6 +1198,7 @@ extern "C" void run_fork_exec_tests() {
     RUN_TEST(test_elf_constants_kernel::test_et_exec);
 
     RUN_TEST(test_elf_validation_kernel::test_valid_header);
+    RUN_TEST(test_elf_validation_kernel::test_valid_et_dyn);
     RUN_TEST(test_elf_validation_kernel::test_bad_magic);
     RUN_TEST(test_elf_validation_kernel::test_bad_class);
     RUN_TEST(test_elf_validation_kernel::test_bad_machine);

@@ -25,6 +25,29 @@ Output: `build/musl-sysroot/` (sysroot: `lib/libc.a`, `lib/crt1.o`,
 
 Override the sysroot location with `MUSL_SYSROOT=...`.
 
+## Dynamic linking (F10-M2)
+
+The musl sysroot ships a shared libc — `lib/libc.so` is also the dynamic
+linker (ldso). `configure` enables shared by default, so `build-musl.sh`
+already produces it; no separate build step. Build a **dynamic** hello:
+
+```sh
+tools/musl/build-hello-dyn.sh
+# -> build/musl/hello-dyn : ET_EXEC, dynamically linked,
+#    interpreter /lib/ld-musl-x86_64.so.1
+```
+
+`hello-dyn` is a non-PIE dynamic executable (ET_EXEC + PT_INTERP +
+PT_PHDR + PT_DYNAMIC). The kernel's F10-M2 execve path reads PT_INTERP,
+loads the interpreter at `USER_INTERP_BASE`, and hands off — the ldso does
+all GOT/PLT relocation in user space.
+
+The interpreter lives at the PT_INTERP path `/lib/ld-musl-x86_64.so.1`.
+`scripts/create_ext2_disk.sh` installs `libc.so` there (+ `hello-dyn`) when
+both exist, so the QEMU ext2 image is runnable. Host-run is **not** possible
+without installing that interpreter on the host (the host is glibc); the real
+run is the ring-3 smoke (`CINUX_MUSL_DYN_SMOKE`, F10-M2 batch 3).
+
 ## Gotchas (baked into the scripts)
 
 1. **No `--target` to configure.** musl prefixes the binutils (`x86_64-ar`)

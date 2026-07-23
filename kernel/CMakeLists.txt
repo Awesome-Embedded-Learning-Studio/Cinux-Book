@@ -151,6 +151,12 @@ if(CINUX_MUSL_HELLO_SMOKE)
     target_compile_definitions(big_kernel_common PUBLIC CINUX_MUSL_HELLO_SMOKE)
 endif()
 
+# F10-M2: musl dynamic /hello-dyn ring-3 smoke (PT_INTERP / interpreter-load path).
+# Off by default; enable locally: cmake -DCINUX_MUSL_DYN_SMOKE=ON ...
+if(CINUX_MUSL_DYN_SMOKE)
+    target_compile_definitions(big_kernel_common PUBLIC CINUX_MUSL_DYN_SMOKE)
+endif()
+
 # F-INFRA I-9: opt-in UBSan. -fsanitize=undefined at COMPILE only (the freestanding
 # stubs in kernel/lib/ubsan.cpp resolve the __ubsan_handle_* refs -- no libubsan).
 # Exclude the stub + the diagnostic/panic path so a UB hit cannot recurse.
