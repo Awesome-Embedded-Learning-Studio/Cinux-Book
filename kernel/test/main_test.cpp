@@ -28,7 +28,8 @@
 #include "kernel/drivers/ahci/ahci_block_device.hpp"  // F10-M1 batch 6: ext2 mount
 #include "kernel/drivers/apic/local_apic.hpp"         // F5-M6: g_lapic (e1000 poll timer)
 #include "kernel/drivers/pci/pci.hpp"                 // F10-M1 batch 6: PCI->AHCI for ext2
-#include "kernel/fs/ext2.hpp"                         // F10-M1 batch 6: ext2 mount
+#include "kernel/fs/ext2/ext2.hpp"                    // F10-M1 batch 6: ext2 mount
+#include "kernel/fs/procfs/procfs.hpp"                // F-ECO busybox: procfs::init (/proc)
 #include "kernel/fs/vfs_mount.hpp"                    // F10-M1 batch 6: VFS mount
 #include "kernel/lib/kallsyms.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -129,7 +130,8 @@ void run_aslr_tests();   // F9 batch 8: ASLR offset helpers
 void run_creds_tests();  // F9 batch 9: process credentials
 #ifdef CINUX_NET
 void run_e1000_tests();
-void run_net_tests();  // F7 L1: loopback L3 stack (ping 127.0.0.1, deterministic)
+void run_net_tests();     // F7 L1: loopback L3 stack (ping 127.0.0.1, deterministic)
+void run_socket_tests();  // F7-M6: socket syscall plumbing (B1b)
 #endif
 }
 
@@ -152,7 +154,7 @@ static constexpr uintptr_t BOOT_INFO_PHYS = 0x7000;
 // The harness compiles when EITHER smoke flag is on; the static /hello and
 // dynamic /hello-dyn phases are gated independently inside, so each can run
 // alone (CINUX_MUSL_HELLO_SMOKE / CINUX_MUSL_DYN_SMOKE).
-#if defined(CINUX_MUSL_HELLO_SMOKE) || defined(CINUX_MUSL_DYN_SMOKE)
+#if defined(CINUX_MUSL_HELLO_SMOKE) || defined(CINUX_MUSL_DYN_SMOKE) || defined(CINUX_BUSYBOX_SMOKE)
 static int g_unit_test_failures = 0;
 
 static void musl_hello_smoke_entry() {
@@ -192,6 +194,9 @@ static void musl_hello_smoke_entry() {
     cinux::fs::vfs_mount_add("/", ext2);
     cinux::lib::kprintf("[F10-M1] ext2 mounted at / for smoke (mounted=%d, blk=%d)\n",
                         ext2->is_mounted() ? 1 : 0, blk_dev != nullptr ? 1 : 0);
+    // F-ECO busybox acceptance: mount /proc so procps applets (ps/free) work.
+    // ProcFS is on this branch (F6-M2); without /proc, busybox ps/free exit 1.
+    cinux::fs::procfs::init();
 
 #    ifdef CINUX_MUSL_HELLO_SMOKE
     // P3 ring-3 stress: run the musl /hello fork+execve+waitpid path repeatedly
@@ -308,12 +313,178 @@ static void musl_hello_smoke_entry() {
     // see note above). Re-enable once fork/CoW cross-core #DF is fixed.
     bool forktest_ok = true;
 
-    int exit_code = (g_unit_test_failures > 0 || !hello_ok || !dyn_ok || !forktest_ok) ? 1 : 0;
+#    ifdef CINUX_BUSYBOX_SMOKE
+    // F-ECO batch 0: busybox ecosystem touchstone -- the first "run a real
+    // program" test, and the seed of the CI touchstone suite.
+    //   echo -- GATES the smoke. Needs only write/exit, already exercised by the
+    //           musl /hello path, so PASS = busybox + musl runtime + the full
+    //           fork/execve/waitpid chain end-to-end on Cinux.
+    //   ls   -- OBSERVED, not gated. Exercises getdents64 (absent: musl opendir
+    //           -> readdir -> syscall 217 -> ENOSYS). Expected to FAIL; the
+    //           recorded status/reap is the batch-1 "first crash" signal. Gated
+    //           in once getdents64 lands.
+    constexpr int kBbIters = 5;
+    int           bb_pass  = 0;
+    int           bb_fail  = 0;
+    cinux::lib::kprintf("[F-ECO] busybox echo smoke: %d iterations\n", kBbIters);
+    for (int bi = 0; bi < kBbIters; ++bi) {
+        int child_pid = cinux::proc::fork(cinux::proc::g_pid_alloc);
+        if (child_pid == 0) {
+            auto* child        = cinux::proc::Scheduler::current();
+            child->addr_space  = new cinux::mm::AddressSpace();
+            const char* argv[] = {"/bin/busybox", "echo", "f-eco-busybox-ok", nullptr};
+            const char* envp[] = {nullptr};
+            cinux::proc::launch_user_program("/bin/busybox", argv, envp);
+            cinux::proc::Scheduler::exit_current();  // unreachable
+        }
+        int     kstatus = 0;
+        int64_t reap    = 0;
+        for (int spins = 0; spins < 50'000'000; ++spins) {
+            cinux::proc::WaitpidResult wr =
+                cinux::proc::waitpid(child_pid, &kstatus, 1, cinux::proc::g_pid_alloc);
+            if (wr == cinux::proc::WaitpidResult::Ok) {
+                reap = child_pid;
+                break;
+            }
+            if (wr != cinux::proc::WaitpidResult::NotExited) {
+                reap = static_cast<int64_t>(wr);
+                break;
+            }
+            cinux::proc::Scheduler::yield();
+        }
+        if (reap > 0 && kstatus == 0) {
+            ++bb_pass;
+        } else {
+            ++bb_fail;
+            cinux::lib::kprintf("[F-ECO] busybox echo iter %d FAIL (status=%d reap=%lld)\n", bi,
+                                kstatus, static_cast<long long>(reap));
+        }
+    }
+    bool echo_ok = (bb_fail == 0);
+    cinux::lib::kprintf("[F-ECO] busybox echo %d/%d PASS -> %s\n", bb_pass, kBbIters,
+                        echo_ok ? "PASS" : "FAIL");
+
+    // ls: GATED (F-ECO batch 1). getdents64 (217) is implemented, so ls now
+    // resolves / and exits 0. The status gate (exit==0) catches a hard crash;
+    // the serial output should list / entries (bin/busybox...). Full output-
+    // content verification (the four-piece standard) needs the harness to
+    // capture fd1 -- a follow-up once pipe/dup2 land.
+    bool ls_ok = false;
+    {
+        int child_pid = cinux::proc::fork(cinux::proc::g_pid_alloc);
+        if (child_pid == 0) {
+            auto* child        = cinux::proc::Scheduler::current();
+            child->addr_space  = new cinux::mm::AddressSpace();
+            const char* argv[] = {"/bin/busybox", "ls", "/", nullptr};
+            const char* envp[] = {nullptr};
+            cinux::proc::launch_user_program("/bin/busybox", argv, envp);
+            cinux::proc::Scheduler::exit_current();  // unreachable
+        }
+        int     kstatus = 0;
+        int64_t reap    = 0;
+        for (int spins = 0; spins < 50'000'000; ++spins) {
+            cinux::proc::WaitpidResult wr =
+                cinux::proc::waitpid(child_pid, &kstatus, 1, cinux::proc::g_pid_alloc);
+            if (wr == cinux::proc::WaitpidResult::Ok) {
+                reap = child_pid;
+                break;
+            }
+            if (wr != cinux::proc::WaitpidResult::NotExited) {
+                reap = static_cast<int64_t>(wr);
+                break;
+            }
+            cinux::proc::Scheduler::yield();
+        }
+        ls_ok = (reap > 0 && kstatus == 0);
+        cinux::lib::kprintf("[F-ECO] busybox ls %s (status=%d reap=%lld)\n",
+                            ls_ok ? "PASS" : "FAIL", kstatus, static_cast<long long>(reap));
+    }
+    // F-ECO busybox batch acceptance: run a spread of applets (each exercises a
+    // syscall batch) and gate on exit==0.  Serial shows each applet's REAL stdout
+    // (id -> "uid=0...", ps -> task list, free -> mem, uname -> kernel, ...).
+    auto bb_run = [](const char* applet, const char* a1, const char* a2) -> int {
+        int child_pid = cinux::proc::fork(cinux::proc::g_pid_alloc);
+        if (child_pid == 0) {
+            auto* child         = cinux::proc::Scheduler::current();
+            child->addr_space   = new cinux::mm::AddressSpace();
+            const char* argv[5] = {"/bin/busybox", applet, a1, a2, nullptr};
+            // Trim trailing nullptrs so busybox sees the real argc.
+            if (a1 == nullptr) {
+                argv[2] = nullptr;
+            }
+            if (a2 == nullptr) {
+                argv[3] = nullptr;
+            }
+            const char* envp[] = {"PATH=/bin", nullptr};
+            cinux::proc::launch_user_program("/bin/busybox", argv, envp);
+            cinux::proc::Scheduler::exit_current();  // unreachable
+        }
+        int     kstatus = 0;
+        int64_t reap    = 0;
+        for (int spins = 0; spins < 50'000'000; ++spins) {
+            cinux::proc::WaitpidResult wr =
+                cinux::proc::waitpid(child_pid, &kstatus, 1, cinux::proc::g_pid_alloc);
+            if (wr == cinux::proc::WaitpidResult::Ok) {
+                reap = child_pid;
+                break;
+            }
+            if (wr != cinux::proc::WaitpidResult::NotExited) {
+                reap = static_cast<int64_t>(wr);
+                break;
+            }
+            cinux::proc::Scheduler::yield();
+        }
+        return (reap > 0) ? kstatus : -1;
+    };
+    struct BbApp {
+        const char* applet;
+        const char* a1;
+        const char* a2;
+        int         expect;  // expected exit status (0 default; 1 for false)
+    };
+    static const BbApp kBatch[] = {
+        {"uname", "-a", nullptr, 0},  // uname syscall (批? — may be ENOSYS)
+        {"id", nullptr, nullptr, 0},  // getuid/gid + getgroups (批8/F9)
+        {"whoami", nullptr, nullptr, 0},
+        {"pwd", nullptr, nullptr, 0},
+        {"true", nullptr, nullptr, 0},
+        {"false", nullptr, nullptr, 1},  // exits 1 (negative-control)
+        {"sleep", "0", nullptr, 0},      // nanosleep (批3)
+        {"env", nullptr, nullptr, 0},
+        {"hostname", nullptr, nullptr, 0},
+        {"echo", "bb-accept", nullptr, 0},
+        {"cat", "/hello", nullptr, 0},  // read a small file (批1 read path)
+        {"wc", "/hello", nullptr, 0},   // read + count
+        {"ps", nullptr, nullptr, 0},    // /proc + sysinfo (批5)
+        {"free", nullptr, nullptr, 0},  // sysinfo (批5)
+    };
+    int bb_ok = 0, bb_bad = 0;
+    for (const auto& a : kBatch) {
+        int  st   = bb_run(a.applet, a.a1, a.a2);
+        bool pass = (st == a.expect);
+        cinux::lib::kprintf("[F-ECO] bb %-9s %s (status=%d want=%d)\n", a.applet,
+                            pass ? "PASS" : "FAIL", st, a.expect);
+        if (pass) {
+            ++bb_ok;
+        } else {
+            ++bb_bad;
+        }
+    }
+    cinux::lib::kprintf("[F-ECO] bb batch: %d/%d PASS\n", bb_ok,
+                        static_cast<int>(sizeof(kBatch) / sizeof(kBatch[0])));
+
+    bool busybox_ok = echo_ok && ls_ok && (bb_bad == 0);
+#    else
+    bool busybox_ok = true;  // busybox phase compiled out
+#    endif
+
+    int exit_code =
+        (g_unit_test_failures > 0 || !hello_ok || !dyn_ok || !forktest_ok || !busybox_ok) ? 1 : 0;
     __asm__ volatile("outl %0, $0xf4" : : "a"(exit_code));
     while (1)
         __asm__ volatile("cli; hlt");
 }
-#endif  // CINUX_MUSL_HELLO_SMOKE || CINUX_MUSL_DYN_SMOKE
+#endif  // CINUX_MUSL_HELLO_SMOKE || CINUX_MUSL_DYN_SMOKE || CINUX_BUSYBOX_SMOKE
 
 // ============================================================
 // F-VERIFY M3-2: AP wake + AP-side mechanism readback
@@ -336,7 +507,7 @@ static bool ap_test_selfcheck(uint32_t cpu_id) {
     r.star   = cinux::arch::read_msr(0xC0000081);
     r.sfmask = cinux::arch::read_msr(0xC0000084);
     r.magic  = cinux::arch::kApSelfcheckMagic;
-#if defined(CINUX_MUSL_HELLO_SMOKE) || defined(CINUX_MUSL_DYN_SMOKE)
+#if defined(CINUX_MUSL_HELLO_SMOKE) || defined(CINUX_MUSL_DYN_SMOKE) || defined(CINUX_BUSYBOX_SMOKE)
     // Smoke will run the scheduler -- let this AP participate (cross-core CoW).
     return true;
 #else
@@ -642,6 +813,10 @@ extern "C" void kernel_main() {
     // timing (loopback is synchronous), so this runs unconditionally under
     // CINUX_NET, before the LAPIC-timer-dependent e1000 RX above is any concern.
     run_net_tests();
+
+    // F7-M6 B1b: socket syscall plumbing (stub Socket; socket()/close()/arg
+    // validation). UdpSocket/TcpSocket + loopback echo land in B2/B3.
+    run_socket_tests();
 #endif
 
     // Ramdisk tests (026): verifies ustar parsing of embedded initrd
@@ -701,7 +876,7 @@ extern "C" void kernel_main() {
         cinux::lib::kprintf("\n[TEST] ALL TESTS PASSED (exit code %d)\n", exit_code);
     }
 
-#if defined(CINUX_MUSL_HELLO_SMOKE) || defined(CINUX_MUSL_DYN_SMOKE)
+#if defined(CINUX_MUSL_HELLO_SMOKE) || defined(CINUX_MUSL_DYN_SMOKE) || defined(CINUX_BUSYBOX_SMOKE)
     // F10-M1 batch 6 / F10-M2 batch 3: enter the real scheduler and run the musl
     // The worker task signals QEMU exit itself (isa-debug-exit), so control
     // does not return here.  CI builds without the flag take the normal path.

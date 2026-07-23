@@ -26,7 +26,7 @@
 
 // Include kernel headers for constants and structures
 #    include "drivers/ahci/ahci_config.hpp"
-#    include "fs/ext2_types.hpp"
+#    include "fs/ext2/ext2_types.hpp"
 
 using namespace cinux::drivers::ahci;
 using namespace cinux::fs;

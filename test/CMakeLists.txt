@@ -271,13 +271,13 @@ add_cinux_integration_test(vfs_mount
     ${CMAKE_SOURCE_DIR}/kernel/fs/file.cpp
 )
 
-# F6-M3 DevFS: links the real kernel/fs/devfs.cpp (pure logic, zero kprintf)
+# F6-M3 DevFS: links the real kernel/fs/devfs/devfs.cpp (pure logic, zero kprintf)
 # plus inode.cpp (the InodeOps default methods the device vtables reference).
 # The console device uses a capturing mock sink (no real serial dependency).
 add_cinux_integration_test(devfs
     unit/test_devfs.cpp
     ${CMAKE_SOURCE_DIR}/kernel/fs/inode.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/fs/devfs.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/fs/devfs/devfs.cpp
 )
 
 add_cinux_integration_test(ext2_inode_ops

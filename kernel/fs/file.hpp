@@ -58,11 +58,13 @@ static constexpr int FD_NONE = -1;
  * independent offsets.
  */
 struct File {
-    File(Inode* in, uint64_t off, OpenFlags fl) : inode(in), offset(off), flags(fl) {}
+    File(Inode* in, uint64_t off, OpenFlags fl, bool cx = false)
+        : inode(in), offset(off), flags(fl), cloexec(cx) {}
 
-    Inode*    inode;   ///< Pointer to the underlying inode (non-null when in use)
-    uint64_t  offset;  ///< Current read/write offset in bytes
-    OpenFlags flags;   ///< Access mode (RDONLY, WRONLY, RDWR)
+    Inode*    inode;    ///< Pointer to the underlying inode (non-null when in use)
+    uint64_t  offset;   ///< Current read/write offset in bytes
+    OpenFlags flags;    ///< Access mode (RDONLY, WRONLY, RDWR)
+    bool      cloexec;  ///< FD_CLOEXEC (F-ECO batch 4: fcntl F_GETFD/F_SETFD)
 
     mutable cinux::proc::Spinlock offset_lock_;
 };
@@ -161,6 +163,25 @@ public:
      * @return true on success, false if fd is out of range
      */
     bool set(int fd, File* file);
+
+    /**
+     * @name fd duplication (F-ECO batch 4: dup / dup2 / fcntl F_DUPFD)
+     *
+     * Each duplicate is a NEW File (independent open file description), copying
+     * the source inode + offset + flags + cloexec.  This is NOT Linux's shared
+     * description (two fds sharing one offset) -- it is a hobby-OS simplification
+     * that avoids refcounting File, and is sufficient for sh redirect (the new fd
+     * reaches the same inode/pipe).  Shared-description semantics is a follow-up.
+     */
+    ///@{
+    /// Copy @p oldfd to the lowest free fd >= @p min_fd.  Returns the new fd,
+    /// or FD_NONE if @p oldfd is invalid / the table is full.
+    int dup(int oldfd, int min_fd);
+    /// Copy @p oldfd to @p newfd (closing @p newfd first if open).  Returns
+    /// @p newfd, or FD_NONE if either fd is out of range / @p oldfd is invalid.
+    /// If @p oldfd == @p newfd and valid, returns @p newfd (Linux no-op).
+    int dup2(int oldfd, int newfd);
+    ///@}
 
 private:
     /// Fixed-size array of File pointers (nullptr = unused slot)

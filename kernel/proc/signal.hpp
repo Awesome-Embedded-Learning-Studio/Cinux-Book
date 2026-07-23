@@ -278,6 +278,10 @@ constexpr uint8_t kSigreturnTrampoline[8] = {0xCD, 0x80, 0x90, 0x90, 0x90, 0x90,
 void signal_setup_frame(cinux::arch::InterruptFrame* frame, Signal sig, uint64_t handler_addr,
                         SigSet sa_mask);
 
+/// Restore a saved signal frame into an interrupt frame.  Tests exercise this
+/// pure helper directly; sigreturn_handler owns the user-memory copy boundary.
+void signal_restore_frame(cinux::arch::InterruptFrame* frame, const SignalFrame& sf);
+
 /// Interrupt-path delivery: pick and act on one pending signal when about to
 /// return to user mode.  Extern "C" -- called from the ISR stubs (interrupts.S).
 extern "C" void signal_check_deliver_isr(cinux::arch::InterruptFrame* frame);

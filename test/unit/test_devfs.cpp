@@ -18,7 +18,7 @@
 #    include <cstdint>
 #    include <cstring>
 
-#    include "fs/devfs.hpp"
+#    include "fs/devfs/devfs.hpp"
 
 using namespace cinux::fs;
 

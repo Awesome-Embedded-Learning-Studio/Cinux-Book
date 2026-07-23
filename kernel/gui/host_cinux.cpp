@@ -23,9 +23,10 @@
 #include "kernel/gui/gui_init.hpp"        // create_shell_terminal
 #include "kernel/gui/terminal.hpp"        // Terminal (render_frame polls it)
 #include "kernel/gui/window_manager.hpp"  // WindowManager (dispatch + render)
-#include "kernel/lib/kprintf.hpp"         // kvprintf / kprintf
-#include "kernel/lib/string.hpp"          // memcpy
-#include "kernel/mm/slab.hpp"             // kmalloc / kfree
+#include "kernel/lib/echo_trace.hpp"
+#include "kernel/lib/kprintf.hpp"  // kvprintf / kprintf
+#include "kernel/lib/string.hpp"   // memcpy
+#include "kernel/mm/slab.hpp"      // kmalloc / kfree
 #include "third_party/Cinux-GUI/core/event.hpp"
 #include "third_party/Cinux-GUI/core/event_payload.hpp"
 #include "third_party/Cinux-GUI/core/region.hpp"  // cinux::gui::Region (dirty rects -> Rect)
@@ -33,8 +34,8 @@
 namespace cinux::gui {
 namespace {
 
-HostDesktop           g_cinux_desktop{};
-Host                   g_cinux_host{};
+HostDesktop                  g_cinux_desktop{};
+Host                         g_cinux_host{};
 cinux::drivers::Framebuffer* g_fb = nullptr; /* flush forwards dirty rects here (§4c) */
 
 /* ============================================================
@@ -91,11 +92,11 @@ bool cinux_poll_event(void* ctx, EventHeader* out, uint16_t out_cap) {
          * even if a producer ever lets type_ and key.pressed disagree. */
         out->flags = (ev.type_ == EventType::KeyDown) ? kEventFlagPressed : 0;
         KeycodePayload k;
-        k.ascii     = ev.key.ascii;
-        k.scancode  = ev.key.scancode;
-        k.modifiers = static_cast<uint8_t>((ev.key.shift ? kKeymodShift : 0u) |
-                                           (ev.key.ctrl ? kKeymodCtrl : 0u) |
-                                           (ev.key.alt ? kKeymodAlt : 0u));
+        k.ascii    = ev.key.ascii;
+        k.scancode = ev.key.scancode;
+        k.modifiers =
+            static_cast<uint8_t>((ev.key.shift ? kKeymodShift : 0u) |
+                                 (ev.key.ctrl ? kKeymodCtrl : 0u) | (ev.key.alt ? kKeymodAlt : 0u));
         memcpy(tail, &k, sizeof(k));
         out->payload_len = static_cast<uint16_t>(sizeof(k));
         break;
@@ -176,6 +177,7 @@ void cinux_dispatch_event(void* ctx, const EventHeader* ev, const void* payload)
         out.key.shift      = (k.modifiers & kKeymodShift) != 0;
         out.key.ctrl       = (k.modifiers & kKeymodCtrl) != 0;
         out.key.alt        = (k.modifiers & kKeymodAlt) != 0;
+        cinux::debug::trace_char("host.dispatch_key before wm.handle_key", out.key.ascii);
         wm.handle_key(out);
         return;
     }
@@ -205,9 +207,19 @@ void cinux_render_frame(void* ctx, Frame* frame) {
         if (win != nullptr && win->is_terminal()) {
             auto* term = static_cast<Terminal*>(win);
             if (term->poll_output()) {
+                if (cinux::debug::kEchoTrace) {
+                    cinux::lib::kprintf(
+                        "[ECHO_TRACE] host.render_frame terminal poll_output "
+                        "changed window=%d\n",
+                        static_cast<int>(i));
+                }
                 wm.invalidate_all();
             }
             if (term->consume_content_dirty()) {
+                if (cinux::debug::kEchoTrace) {
+                    cinux::lib::kprintf("[ECHO_TRACE] host.render_frame content_dirty window=%d\n",
+                                        static_cast<int>(i));
+                }
                 wm.invalidate_all(); /* pipe-less terminal direct key echo (§4c) */
             }
             term->render_to_canvas();
@@ -235,15 +247,15 @@ void cinux_render_frame(void* ctx, Frame* frame) {
      *    under-cover). The region already self-collapses at kMaxRects, so this
      *    is just defense. */
     const cinux::gui::Region& dirty = wm.dirty();
-    uint32_t             n     = dirty.count();
+    uint32_t                  n     = dirty.count();
     if (n > frame->max_rects) {
         const cinux::gui::Rect b = dirty.bounds();
-        frame->rects[0]     = Rect{b.x0, b.y0, b.x1, b.y1};
-        n                   = 1;
+        frame->rects[0]          = Rect{b.x0, b.y0, b.x1, b.y1};
+        n                        = 1;
     } else {
         for (uint32_t i = 0; i < n; i++) {
             const cinux::gui::Rect& r = dirty.rects()[i];
-            frame->rects[i]      = Rect{r.x0, r.y0, r.x1, r.y1};
+            frame->rects[i]           = Rect{r.x0, r.y0, r.x1, r.y1};
         }
     }
     frame->count  = n;
@@ -338,9 +350,8 @@ void cinux_flush(void* ctx, int x, int y, int w, int h, const void* pixels, uint
             static_cast<uint32_t>(x) >= fb_w) {
             continue;
         }
-        const uint32_t cols_px = (static_cast<uint32_t>(x) + px_w <= fb_w)
-                                     ? px_w
-                                     : (fb_w - static_cast<uint32_t>(x));
+        const uint32_t cols_px =
+            (static_cast<uint32_t>(x) + px_w <= fb_w) ? px_w : (fb_w - static_cast<uint32_t>(x));
         const uint32_t* srow =
             src + static_cast<size_t>(py) * src_stride_px + static_cast<uint32_t>(x);
         volatile uint32_t* drow =
@@ -381,16 +392,16 @@ Host& cinux_host() {
 }
 
 void cinux_host_init(cinux::drivers::Framebuffer* fb) {
-    g_fb                               = fb;
-    g_cinux_host.core.poll_event       = cinux_poll_event;
-    g_cinux_host.core.dispatch_event   = cinux_dispatch_event;
-    g_cinux_host.core.render_frame     = cinux_render_frame;
-    g_cinux_host.core.flush            = cinux_flush;
-    g_cinux_host.core.flush_complete   = nullptr; /* Desktop uses sync flush */
-    g_cinux_host.core.now_ms           = cinux_now_ms;
-    g_cinux_host.core.alloc            = cinux_alloc;
-    g_cinux_host.core.free             = cinux_free;
-    g_cinux_host.core.log              = cinux_log;
+    g_fb                             = fb;
+    g_cinux_host.core.poll_event     = cinux_poll_event;
+    g_cinux_host.core.dispatch_event = cinux_dispatch_event;
+    g_cinux_host.core.render_frame   = cinux_render_frame;
+    g_cinux_host.core.flush          = cinux_flush;
+    g_cinux_host.core.flush_complete = nullptr; /* Desktop uses sync flush */
+    g_cinux_host.core.now_ms         = cinux_now_ms;
+    g_cinux_host.core.alloc          = cinux_alloc;
+    g_cinux_host.core.free           = cinux_free;
+    g_cinux_host.core.log            = cinux_log;
 
     g_cinux_desktop.spawn = cinux_spawn;
     g_cinux_host.desktop  = &g_cinux_desktop;

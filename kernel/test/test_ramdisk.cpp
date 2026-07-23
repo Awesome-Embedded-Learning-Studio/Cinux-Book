@@ -24,8 +24,8 @@
 
 #include "big_kernel_test.h"
 #include "kernel/fs/file.hpp"
-#include "kernel/fs/ramdisk.hpp"
-#include "kernel/fs/ramdisk_config.hpp"
+#include "kernel/fs/ramdisk/ramdisk.hpp"
+#include "kernel/fs/ramdisk/ramdisk_config.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/string.hpp"
 

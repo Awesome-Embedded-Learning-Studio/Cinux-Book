@@ -16,12 +16,10 @@
  * copy_to/from_user (the F-EXTABLE extable-annotated accessors), so a bad user
  * pointer faults into -EFAULT instead of panicking.
  *
- * Dispatch (F10-M3 Phase 2): fds 0/1/2 stay on the legacy console path above;
- * any fd > 2 routes through its open file's inode ops (InodeOps::ioctl), so a
- * real device inode -- a PTY master/slave under /dev -- answers its own ioctls.
- * The default InodeOps::ioctl returns NotImplemented, which maps to -ENOTTY, so
- * a regular file or /dev/null keeps the "not a tty ioctl" answer. TIOCSCTTY and
- * the rest of job control land with the PTY work (batch 4).
+ * Dispatch: an fd table entry always wins, including fd 0/1/2.  GUI shells bind
+ * their standard streams to PTY slave files, and terminal ioctls must reach that
+ * slave so line editors can change ICANON/ECHO.  Only absent legacy stdio fds
+ * fall back to the global console TTY path.
  */
 
 #include "kernel/syscall/sys_ioctl.hpp"
@@ -51,10 +49,9 @@ using cinux::user::copy_from_user;
 using cinux::user::copy_to_user;
 
 namespace {
-// fds 0/1/2 (stdin/stdout/stderr) all back onto the system console TTY. They
-// are special-cased in sys_read/sys_write too (not real FDTable entries), so
-// terminal ioctls on them route through console_ioctl() below; any fd > 2
-// dispatches through its open-file inode ops (see sys_ioctl).
+// Legacy boot/test fds 0/1/2 can still back onto the system console TTY when no
+// real File is installed in the current FDTable.  If a File exists, sys_ioctl()
+// dispatches to that inode first.
 bool is_console_tty_fd(uint64_t fd) {
     return fd <= 2;
 }
@@ -126,17 +123,10 @@ int64_t console_ioctl(uint32_t request, void* uptr) {
 int64_t sys_ioctl(uint64_t fd, uint64_t request, uint64_t arg, uint64_t, uint64_t, uint64_t) {
     void* uptr = reinterpret_cast<void*>(arg);
 
-    // fds 0/1/2: the legacy console-ioctl path (unchanged). These descriptors
-    // back onto the system console TTY and are not real FDTable entries.
-    if (is_console_tty_fd(fd)) {
-        return console_ioctl(static_cast<uint32_t>(request), uptr);
-    }
-
-    // fd > 2: dispatch through the open file's inode ops so a real device inode
-    // (a PTY master/slave under /dev) answers its own ioctls. A regular file or
-    // /dev/null hits the default InodeOps::ioctl -> NotImplemented -> -ENOTTY;
-    // a fd with no open file also yields -ENOTTY, preserving the legacy
-    // non-tty-fd contract (test_sys_ioctl_non_tty_fd_enotty on fd 99).
+    // Dispatch through an installed File first.  This deliberately includes
+    // fd 0/1/2: a GUI shell's stdio fds are PTY slave inodes, not the global
+    // console.  If TCSETS were sent to the console fallback, the PTY would keep
+    // ECHO enabled and busybox line editing would double-echo command lines.
     cinux::fs::FDTable& tbl  = cinux::fs::current_fd_table();
     cinux::fs::File*    file = tbl.get(static_cast<int>(fd));
     if (file != nullptr && file->inode != nullptr && file->inode->ops != nullptr) {
@@ -149,6 +139,12 @@ int64_t sys_ioctl(uint64_t fd, uint64_t request, uint64_t arg, uint64_t, uint64_
         }
         return -cinux::to_errno(r.error());
     }
+
+    // Legacy fds 0/1/2 with no fd-table entry still behave as the boot console.
+    if (is_console_tty_fd(fd)) {
+        return console_ioctl(static_cast<uint32_t>(request), uptr);
+    }
+
     return -cinux::kEnotty;
 }
 

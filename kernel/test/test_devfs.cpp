@@ -11,7 +11,7 @@
 
 #include <stdint.h>
 
-#include "kernel/fs/devfs.hpp"
+#include "kernel/fs/devfs/devfs.hpp"
 #include "kernel/test/big_kernel_test.h"
 
 using namespace cinux::fs;

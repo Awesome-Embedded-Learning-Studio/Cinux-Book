@@ -18,6 +18,7 @@
 #include <stdint.h>
 
 #include "kernel/lib/string.hpp"
+#include "kernel/mm/pmm.hpp"    // g_pmm (F-ECO busybox: /proc/meminfo)
 #include "kernel/proc/pid.hpp"  // PidAllocator::PID_MAX (static_assert drift guard)
 #include "kernel/proc/signal.hpp"  // signal_find_task_by_pid / signal_nth_task_pid / signal_snapshot_task
 #include "kernel/proc/task_snapshot.hpp"  // TaskSnapshot (value type, DEBT-022)
@@ -179,7 +180,15 @@ ErrorOr<int64_t> ProcRootDirOps::readdir(const Inode* inode, uint64_t index, cha
         return dot;  // "." / ".." handled, or a name_max too small to spell them
     }
 
-    // index >= 2: the (index-2)-th live PID.  Walking the registry to the index
+    // index 2 -> the fixed /proc/meminfo pseudo-file (F-ECO busybox `free`).
+    if (index == 2) {
+        if (name_max < 8) {
+            return Error::InvalidArgument;  // "meminfo" + NUL
+        }
+        memcpy(name, "meminfo", 8);
+        return 1;
+    }
+    // index >= 3: the (index-3)-th live PID.  Walking the registry to the index
     // directly (rather than snapshotting it onto the stack) keeps this frame
     // under the kernel's 1024-byte limit.  utoa's contract is 11 bytes; readdir
     // name buffers are PROCFS_NAME_MAX (32), so the guard never trips in
@@ -188,7 +197,7 @@ ErrorOr<int64_t> ProcRootDirOps::readdir(const Inode* inode, uint64_t index, cha
         return Error::InvalidArgument;
     }
     int pid;
-    if (!signal_nth_task_pid(static_cast<uint32_t>(index - 2), &pid)) {
+    if (!signal_nth_task_pid(static_cast<uint32_t>(index - 3), &pid)) {
         return 0;  // past the last live PID
     }
     utoa(name, static_cast<uint32_t>(pid));
@@ -215,6 +224,33 @@ class ProcCmdlineFileOps : public InodeOps {
 public:
     ErrorOr<int64_t> read(const Inode* inode, uint64_t offset, void* buf, uint64_t count) override;
     ErrorOr<void>    stat(const Inode* inode, struct stat* st) override {
+        if (inode == nullptr || st == nullptr) {
+            return Error::InvalidArgument;
+        }
+        fill_file_stat(inode, st);
+        return {};
+    }
+};
+
+// F-ECO busybox: /proc/meminfo -- read regenerates the content from g_pmm so
+// `free` (which greps MemTotal/MemFree/MemAvailable/Buffers/Cached) works.
+class ProcMeminfoFileOps : public InodeOps {
+public:
+    ErrorOr<int64_t> read(const Inode* inode, uint64_t offset, void* buf, uint64_t count) override {
+        if (inode == nullptr || buf == nullptr) {
+            return Error::InvalidArgument;
+        }
+        constexpr uint32_t kBytesPerKb = 1024;
+        constexpr uint32_t kPageBytes  = 4096;
+        uint32_t           total_kb =
+            static_cast<uint32_t>(cinux::mm::g_pmm.total_page_count() * kPageBytes / kBytesPerKb);
+        uint32_t free_kb =
+            static_cast<uint32_t>(cinux::mm::g_pmm.free_page_count() * kPageBytes / kBytesPerKb);
+        char     line[kProcMeminfoMax];
+        uint32_t len = format_proc_meminfo(total_kb, free_kb, line, sizeof(line));
+        return copy_pseudo(line, len, offset, buf, count);
+    }
+    ErrorOr<void> stat(const Inode* inode, struct stat* st) override {
         if (inode == nullptr || st == nullptr) {
             return Error::InvalidArgument;
         }
@@ -298,6 +334,7 @@ ProcFs::~ProcFs() {
     delete pid_dir_ops_;
     delete stat_file_ops_;
     delete cmdline_file_ops_;
+    delete meminfo_file_ops_;
 }
 
 ErrorOr<void> ProcFs::mount() {
@@ -310,6 +347,7 @@ ErrorOr<void> ProcFs::mount() {
     pid_dir_ops_      = new ProcPidDirOps();
     stat_file_ops_    = new ProcStatFileOps();
     cmdline_file_ops_ = new ProcCmdlineFileOps();
+    meminfo_file_ops_ = new ProcMeminfoFileOps();
 
     // Root directory inode: readdir snapshots the live PID registry.
     root_inode_.ino        = 1;
@@ -318,6 +356,15 @@ ErrorOr<void> ProcFs::mount() {
     root_inode_.fs_private = this;
     root_inode_.mode       = kProcSIfDir | 0555;
     root_inode_.nlink      = 2;
+
+    // /proc/meminfo pseudo-file inode (F-ECO busybox).  Fixed ino (not a PID);
+    // read regenerates content from g_pmm via ProcMeminfoFileOps.
+    meminfo_inode_.ino        = 0xF6;  // arbitrary, distinct from PID inos
+    meminfo_inode_.type       = InodeType::Regular;
+    meminfo_inode_.ops        = meminfo_file_ops_;
+    meminfo_inode_.fs_private = this;
+    meminfo_inode_.mode       = kProcSIfReg | 0444;
+    meminfo_inode_.nlink      = 1;
 
     // Per-PID inodes, stamped eagerly.  Existing as an inode does not imply the
     // PID is live -- lookup() gates every hand-out on signal_find_task_by_pid,
@@ -369,6 +416,11 @@ ErrorOr<Inode*> ProcFs::lookup(const char* path) {
     }
     if (p[0] == '\0') {
         return &root_inode_;  // trailing slash on the mount root
+    }
+
+    // /proc/meminfo -- a root-level pseudo-file (F-ECO busybox `free`).
+    if (strcmp(p, "meminfo") == 0) {
+        return &meminfo_inode_;
     }
 
     int         pid;

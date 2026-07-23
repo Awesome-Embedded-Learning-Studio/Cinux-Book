@@ -241,6 +241,50 @@ cinux::lib::ErrorOr<void> Ext2FileOps::stat(const Inode* inode, struct stat* st)
 }
 
 // ============================================================
+// F-ECO batch 2 stubs (block A replaces these with real implementations).
+// ============================================================
+
+cinux::lib::ErrorOr<void> Ext2FileOps::chmod(Inode* inode, uint32_t mode) {
+    if (inode == nullptr) {
+        return cinux::lib::Error::InvalidArgument;
+    }
+    return ext2_.chmod(static_cast<uint32_t>(inode->ino), mode) ? cinux::lib::ErrorOr<void>{}
+                                                                : cinux::lib::Error::IOError;
+}
+
+cinux::lib::ErrorOr<void> Ext2FileOps::chown(Inode* inode, uint32_t uid, uint32_t gid) {
+    if (inode == nullptr) {
+        return cinux::lib::Error::InvalidArgument;
+    }
+    return ext2_.chown(static_cast<uint32_t>(inode->ino), uid, gid) ? cinux::lib::ErrorOr<void>{}
+                                                                    : cinux::lib::Error::IOError;
+}
+
+cinux::lib::ErrorOr<void> Ext2FileOps::utimensat(Inode* inode, uint64_t atime_sec,
+                                                 uint32_t atime_nsec, uint64_t mtime_sec,
+                                                 uint32_t mtime_nsec) {
+    if (inode == nullptr) {
+        return cinux::lib::Error::InvalidArgument;
+    }
+    return ext2_.utimensat(static_cast<uint32_t>(inode->ino), atime_sec, atime_nsec, mtime_sec,
+                           mtime_nsec)
+               ? cinux::lib::ErrorOr<void>{}
+               : cinux::lib::Error::IOError;
+}
+
+cinux::lib::ErrorOr<int64_t> Ext2FileOps::readlink(const Inode* inode, char* buf,
+                                                   uint64_t buf_size) {
+    if (inode == nullptr || buf == nullptr) {
+        return cinux::lib::Error::InvalidArgument;
+    }
+    int64_t n = ext2_.readlink(static_cast<uint32_t>(inode->ino), buf, buf_size);
+    if (n < 0) {
+        return cinux::lib::Error::IOError;
+    }
+    return n;
+}
+
+// ============================================================
 // Ext2DirOps
 // ============================================================
 
@@ -403,6 +447,37 @@ cinux::lib::ErrorOr<void> Ext2DirOps::stat(const Inode* inode, struct stat* st) 
     st->st_ctime   = disk.i_ctime;
 
     return {};
+}
+
+// F-ECO batch 2 directory attribute ops. A directory is just an inode; the
+// on-disk setattr path is identical to the file case, so we delegate straight
+// to the same Ext2 primitives.
+cinux::lib::ErrorOr<void> Ext2DirOps::chmod(Inode* inode, uint32_t mode) {
+    if (inode == nullptr) {
+        return cinux::lib::Error::InvalidArgument;
+    }
+    return ext2_.chmod(static_cast<uint32_t>(inode->ino), mode) ? cinux::lib::ErrorOr<void>{}
+                                                                : cinux::lib::Error::IOError;
+}
+
+cinux::lib::ErrorOr<void> Ext2DirOps::chown(Inode* inode, uint32_t uid, uint32_t gid) {
+    if (inode == nullptr) {
+        return cinux::lib::Error::InvalidArgument;
+    }
+    return ext2_.chown(static_cast<uint32_t>(inode->ino), uid, gid) ? cinux::lib::ErrorOr<void>{}
+                                                                    : cinux::lib::Error::IOError;
+}
+
+cinux::lib::ErrorOr<void> Ext2DirOps::utimensat(Inode* inode, uint64_t atime_sec,
+                                                uint32_t atime_nsec, uint64_t mtime_sec,
+                                                uint32_t mtime_nsec) {
+    if (inode == nullptr) {
+        return cinux::lib::Error::InvalidArgument;
+    }
+    return ext2_.utimensat(static_cast<uint32_t>(inode->ino), atime_sec, atime_nsec, mtime_sec,
+                           mtime_nsec)
+               ? cinux::lib::ErrorOr<void>{}
+               : cinux::lib::Error::IOError;
 }
 
 }  // namespace cinux::fs

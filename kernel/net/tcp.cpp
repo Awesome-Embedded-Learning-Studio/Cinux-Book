@@ -86,6 +86,17 @@ void TcpModule::stop_listen(uint16_t local_port) {
     }
 }
 
+void TcpModule::set_listener(uint16_t local_port, Ipv4Addr remote_addr, uint16_t remote_port,
+                             TcpListener& l) {
+    // F7-M6: rebind an existing connection's listener so on_data/on_close reach
+    // the owning socket (active-open client / accepted child).  M5 left these
+    // null; this is the additive hook the socket layer needs.
+    Connection* c = find(local_port, remote_addr, remote_port);
+    if (c != nullptr) {
+        c->listener = &l;
+    }
+}
+
 TcpListener* TcpModule::find_listener(uint16_t port) {
     for (uint32_t i = 0; i < kMaxTcpCons; ++i) {
         if (listens_[i].l != nullptr && listens_[i].port == port) {

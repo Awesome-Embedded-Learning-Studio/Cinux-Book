@@ -149,6 +149,13 @@ void Ext2::populate_vfs_inode(Ext2CachedInode& cached) {
     } else if (mode_type == EXT2_S_IFREG) {
         cached.vfs_inode.type = InodeType::Regular;
         cached.vfs_inode.ops  = &file_ops_;
+    } else if (mode_type == EXT2_S_IFLNK) {
+        // F-ECO batch 2: a symlink reuses the file ops -- readlink() reads the
+        // target string from the first data block exactly like a file read.
+        // There is no InodeType::Symlink yet, so the VFS type stays Unknown
+        // (honest); the on-disk i_mode still carries S_IFLNK for stat().
+        cached.vfs_inode.type = InodeType::Unknown;
+        cached.vfs_inode.ops  = &file_ops_;
     } else {
         cached.vfs_inode.type = InodeType::Unknown;
         cached.vfs_inode.ops  = nullptr;

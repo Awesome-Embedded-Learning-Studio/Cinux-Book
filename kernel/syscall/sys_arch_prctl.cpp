@@ -14,6 +14,7 @@
 #include <stdint.h>
 
 #include "kernel/arch/x86_64/tls.hpp"
+#include "kernel/arch/x86_64/user_access.hpp"
 #include "kernel/errno.hpp"
 #include "kernel/proc/scheduler.hpp"
 
@@ -46,8 +47,10 @@ int64_t sys_arch_prctl(uint64_t code, uint64_t addr, uint64_t, uint64_t, uint64_
         if (task == nullptr) {
             return -cinux::kEfault;
         }
-        auto* out = reinterpret_cast<uint64_t*>(addr);
-        *out      = cinux::arch::get_tls_base();
+        uint64_t fs_base = cinux::arch::get_tls_base();
+        if (!cinux::user::copy_to_user(reinterpret_cast<void*>(addr), &fs_base, sizeof(fs_base))) {
+            return -cinux::kEfault;
+        }
         return 0;
     }
     default:

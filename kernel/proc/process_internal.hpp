@@ -47,6 +47,28 @@ uint64_t alloc_stack_vaddr(uint64_t pages);
  */
 constexpr uint64_t kSyscallFrameSize = 128;
 
+struct KernelForkCalleeRegs {
+    uint64_t r15;
+    uint64_t r14;
+    uint64_t r13;
+    uint64_t r12;
+    uint64_t rbx;
+};
+
+inline KernelForkCalleeRegs capture_kernel_fork_callee_regs() {
+    KernelForkCalleeRegs regs{};
+    __asm__ volatile("movq %%r15, %0\n\t"
+                     "movq %%r14, %1\n\t"
+                     "movq %%r13, %2\n\t"
+                     "movq %%r12, %3\n\t"
+                     "movq %%rbx, %4"
+                     : "=m"(regs.r15), "=m"(regs.r14), "=m"(regs.r13), "=m"(regs.r12),
+                       "=m"(regs.rbx)
+                     :
+                     : "memory");
+    return regs;
+}
+
 /**
  * @brief Recursively copy a page-table level for Copy-On-Write fork/clone
  *
@@ -64,8 +86,9 @@ void copy_page_table_level(uint64_t src_phys, uint64_t dst_phys, int level);
  * the production shell command-fork path (sys_fork) and user pthreads (sys_clone).
  * The child gets a CLEAN kernel stack -- only the parent's 128-byte syscall
  * pt_regs frame is copied to the top -- and ctx.rip = ret_from_fork.  When first
- * scheduled the child reads user RIP/RSP/RFLAGS + callee-saved out of that frame
- * and SYSRETQs to Ring 3 with rax=0, exactly like syscall_entry's return tail.
+ * scheduled the child reads user RIP/RSP/RFLAGS + syscall-preserved registers
+ * out of that frame and SYSRETQs to Ring 3 with rax=0, exactly like
+ * syscall_entry's return tail.
  *
  * This is the Linux ret_from_fork style: the child does NOT run on a copy of the
  * parent's kernel stack and does NOT unwind a copied RBP chain, so it is immune
@@ -99,7 +122,8 @@ void prepare_user_fork_context(Task* child, uint64_t parent_kernel_stack_top);
  */
 void prepare_kernel_fork_context(Task* child, uint64_t parent_stack_start,
                                  uint64_t parent_stack_top, uint64_t child_stack_start,
-                                 uint64_t parent_frame_base);
+                                 uint64_t parent_frame_base,
+                                 const KernelForkCalleeRegs& caller_regs);
 
 /**
  * @brief Free a task's kernel stack (mapped, not direct-map)

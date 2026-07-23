@@ -16,6 +16,7 @@
 #include "kernel/errno.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/proc/signal.hpp"
+#include "kernel/syscall/sys_accept4.hpp"  // F-ECO batch 7a
 #include "kernel/syscall/sys_arch_prctl.hpp"
 #include "kernel/syscall/sys_brk.hpp"
 #include "kernel/syscall/sys_chdir.hpp"
@@ -25,30 +26,54 @@
 #include "kernel/syscall/sys_creat.hpp"
 #include "kernel/syscall/sys_creds.hpp"
 #include "kernel/syscall/sys_dmesg.hpp"
+#include "kernel/syscall/sys_dup.hpp"  // F-ECO batch 4
 #include "kernel/syscall/sys_execve.hpp"
 #include "kernel/syscall/sys_exit.hpp"
+#include "kernel/syscall/sys_fcntl.hpp"  // F-ECO batch 4
 #include "kernel/syscall/sys_fork.hpp"
 #include "kernel/syscall/sys_futex.hpp"
 #include "kernel/syscall/sys_getcwd.hpp"
 #include "kernel/syscall/sys_getdents.hpp"
+#include "kernel/syscall/sys_getdents64.hpp"   // F-ECO batch 1
+#include "kernel/syscall/sys_getpeername.hpp"  // F-ECO batch 7b
 #include "kernel/syscall/sys_getpid.hpp"
 #include "kernel/syscall/sys_getppid.hpp"
+#include "kernel/syscall/sys_getrusage.hpp"    // F-ECO batch 5
+#include "kernel/syscall/sys_getsockname.hpp"  // F-ECO batch 7b
+#include "kernel/syscall/sys_getsockopt.hpp"   // F-ECO batch 7a
 #include "kernel/syscall/sys_ioctl.hpp"
 #include "kernel/syscall/sys_iov.hpp"
 #include "kernel/syscall/sys_lseek.hpp"
 #include "kernel/syscall/sys_mkdir.hpp"
 #include "kernel/syscall/sys_mknod.hpp"
 #include "kernel/syscall/sys_mmap.hpp"
+#include "kernel/syscall/sys_nanosleep.hpp"  // F-ECO batch 3
 #include "kernel/syscall/sys_open.hpp"
 #include "kernel/syscall/sys_pgrp.hpp"
 #include "kernel/syscall/sys_ping.hpp"
 #include "kernel/syscall/sys_pipe.hpp"
+#include "kernel/syscall/sys_poll.hpp"        // F-ECO busybox sh smoke
+#include "kernel/syscall/sys_setsockopt.hpp"  // F-ECO batch 7a
+#include "kernel/syscall/sys_shutdown.hpp"    // F-ECO batch 7b
+#include "kernel/syscall/sys_socket.hpp"
+#include "kernel/syscall/sys_socketpair.hpp"  // F-ECO batch 7b
+#include "kernel/syscall/sys_sysinfo.hpp"     // F-ECO batch 5
+#include "kernel/syscall/sys_uname.hpp"       // F-ECO busybox sh smoke
+// F-ECO batch 2: VFS metadata + dirent syscalls.
+#include "kernel/syscall/sys_chmod.hpp"
+#include "kernel/syscall/sys_chown.hpp"
+#include "kernel/syscall/sys_link.hpp"
 #include "kernel/syscall/sys_read.hpp"
+#include "kernel/syscall/sys_readlink.hpp"
+#include "kernel/syscall/sys_rename.hpp"
 #include "kernel/syscall/sys_rmdir.hpp"
 #include "kernel/syscall/sys_set_tid_address.hpp"
 #include "kernel/syscall/sys_signal.hpp"
 #include "kernel/syscall/sys_stat.hpp"
+#include "kernel/syscall/sys_symlink.hpp"
+#include "kernel/syscall/sys_umask.hpp"
 #include "kernel/syscall/sys_unlink.hpp"
+#include "kernel/syscall/sys_utimensat.hpp"
 #include "kernel/syscall/sys_waitpid.hpp"
 #include "kernel/syscall/sys_write.hpp"
 #include "kernel/syscall/sys_yield.hpp"
@@ -85,7 +110,9 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_close, sys_close);
     syscall_register(SyscallNr::SYS_exit, sys_exit);
     syscall_register(SyscallNr::SYS_yield, sys_yield);
+    syscall_register(SyscallNr::SYS_nanosleep, sys_nanosleep);  // F-ECO batch 3
     syscall_register(SyscallNr::SYS_getdents, sys_getdents);
+    syscall_register(SyscallNr::SYS_getdents64, sys_getdents64);  // F-ECO batch 1
     syscall_register(SyscallNr::SYS_creat, sys_creat);
     syscall_register(SyscallNr::SYS_mkdir, sys_mkdir);
     syscall_register(SyscallNr::SYS_mknod, sys_mknod);
@@ -95,7 +122,13 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_getcwd, sys_getcwd);
     syscall_register(SyscallNr::SYS_stat, sys_stat);
     syscall_register(SyscallNr::SYS_fstat, sys_fstat);
+    syscall_register(SyscallNr::SYS_lstat, sys_stat);  // F-ECO b1: lstat = stat (no symlinks yet)
     syscall_register(SyscallNr::SYS_pipe, sys_pipe);
+    syscall_register(SyscallNr::SYS_dup, sys_dup);              // F-ECO batch 4
+    syscall_register(SyscallNr::SYS_dup2, sys_dup2);            // F-ECO batch 4
+    syscall_register(SyscallNr::SYS_fcntl, sys_fcntl);          // F-ECO batch 4
+    syscall_register(SyscallNr::SYS_getrusage, sys_getrusage);  // F-ECO batch 5
+    syscall_register(SyscallNr::SYS_sysinfo, sys_sysinfo);      // F-ECO batch 5
     syscall_register(SyscallNr::SYS_getpid, sys_getpid);
     syscall_register(SyscallNr::SYS_getppid, sys_getppid);
     syscall_register(SyscallNr::SYS_fork, sys_fork);
@@ -121,6 +154,10 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_getegid, sys_getegid);
     syscall_register(SyscallNr::SYS_setuid, sys_setuid);
     syscall_register(SyscallNr::SYS_setgid, sys_setgid);
+    syscall_register(SyscallNr::SYS_poll, sys_poll);            // F-ECO busybox sh smoke
+    syscall_register(SyscallNr::SYS_uname, sys_uname);          // F-ECO busybox sh smoke
+    syscall_register(SyscallNr::SYS_getgroups, sys_getgroups);  // F-ECO batch 8
+    syscall_register(SyscallNr::SYS_setgroups, sys_setgroups);  // F-ECO batch 8
 
     // F10-M1 batch 4: musl-required syscalls (startup, vector I/O, *at, time).
     syscall_register(SyscallNr::SYS_lseek, sys_lseek);
@@ -136,6 +173,32 @@ void register_builtin_handlers() {
 
     // F7: ICMP echo (shell ping).
     syscall_register(SyscallNr::SYS_ping, sys_ping);
+
+    // F7-M6: BSD socket API (Linux x86_64 numbers 41-50).
+    syscall_register(SyscallNr::SYS_socket, sys_socket);
+    syscall_register(SyscallNr::SYS_connect, sys_connect);
+    syscall_register(SyscallNr::SYS_accept, sys_accept);
+    syscall_register(SyscallNr::SYS_sendto, sys_sendto);
+    syscall_register(SyscallNr::SYS_recvfrom, sys_recvfrom);
+    syscall_register(SyscallNr::SYS_bind, sys_bind);
+    syscall_register(SyscallNr::SYS_listen, sys_listen);
+    syscall_register(SyscallNr::SYS_accept4, sys_accept4);          // F-ECO batch 7a
+    syscall_register(SyscallNr::SYS_setsockopt, sys_setsockopt);    // F-ECO batch 7a
+    syscall_register(SyscallNr::SYS_getsockopt, sys_getsockopt);    // F-ECO batch 7a
+    syscall_register(SyscallNr::SYS_shutdown, sys_shutdown);        // F-ECO batch 7b
+    syscall_register(SyscallNr::SYS_getsockname, sys_getsockname);  // F-ECO batch 7b
+    syscall_register(SyscallNr::SYS_getpeername, sys_getpeername);  // F-ECO batch 7b
+    syscall_register(SyscallNr::SYS_socketpair, sys_socketpair);    // F-ECO batch 7b
+
+    // F-ECO batch 2: VFS metadata + dirent syscalls.
+    syscall_register(SyscallNr::SYS_rename, sys_rename);
+    syscall_register(SyscallNr::SYS_symlink, sys_symlink);
+    syscall_register(SyscallNr::SYS_link, sys_link);
+    syscall_register(SyscallNr::SYS_readlink, sys_readlink);
+    syscall_register(SyscallNr::SYS_chmod, sys_chmod);
+    syscall_register(SyscallNr::SYS_chown, sys_chown);
+    syscall_register(SyscallNr::SYS_umask, sys_umask);
+    syscall_register(SyscallNr::SYS_utimensat, sys_utimensat);
 }
 
 }  // anonymous namespace

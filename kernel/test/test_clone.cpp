@@ -27,6 +27,7 @@
 #include "kernel/proc/signal.hpp"
 #include "kernel/proc/sync.hpp"
 #include "kernel/syscall/sys_futex.hpp"
+#include "kernel/test/user_page.hpp"
 
 using cinux::proc::InterruptGuard;
 using cinux::proc::Scheduler;
@@ -50,6 +51,7 @@ constexpr uint64_t kCloneThread        = 0x00010000;
 constexpr uint64_t kCloneSettls        = 0x00080000;
 constexpr uint64_t kCloneChildCleartid = 0x00200000;
 constexpr uint64_t kCloneChildSettid   = 0x01000000;
+constexpr uint64_t kCloneUserPage      = 0x0000000061100000ULL;
 
 constexpr uint64_t kSyscallFrameSize = 128;
 
@@ -233,10 +235,15 @@ void test_settls_sets_fs_base() {
 void test_child_cleartid_settid_recorded() {
     TmpCurrent     cur;
     InterruptGuard ig;
-    uint64_t       ctid = 0x5000;
+    cinux::test::UserPage page(kCloneUserPage);
+    TEST_ASSERT_TRUE(page.ok());
+    uint64_t ctid = page.addr();
     int            child_pid =
         clone(kCloneVm | kCloneThread | kCloneChildCleartid | kCloneChildSettid, 0, 0, ctid, 0);
     TEST_ASSERT_GT(child_pid, 0);
+    int stored_tid = 0;
+    TEST_ASSERT_TRUE(page.read<int>(0, stored_tid));
+    TEST_ASSERT_EQ(stored_tid, child_pid);
     Task* child = signal_find_task_by_pid(child_pid);
     TEST_ASSERT_NOT_NULL(child);
     TEST_ASSERT_EQ(child->clear_child_tid, ctid);  // exit zeroes + futex_wake (batch 5)
@@ -263,7 +270,9 @@ void test_exit_cleartid_zeros_and_wakes() {
     // The child_tid word lives in "user" memory; the exit hook must zero it
     // and futex_wake any pthread_join waiter.
     Scheduler::init();
-    static uint32_t ctid_word = 42;
+    cinux::test::UserPage page(kCloneUserPage);
+    TEST_ASSERT_TRUE(page.ok());
+    TEST_ASSERT_TRUE(page.write<uint32_t>(0, 42));
 
     // Role-play the waiter on the harness thread: set_current + NoRescheduleGuard
     // makes block() mark it Blocked and return at once (no context switch away),
@@ -272,15 +281,17 @@ void test_exit_cleartid_zeros_and_wakes() {
     Task* waiter = TaskBuilder().set_entry(dummy_entry).set_name("clr_waiter").build();
     TEST_ASSERT_NOT_NULL(waiter);
     Scheduler::set_current(waiter);
-    int64_t w = sys_futex(reinterpret_cast<uint64_t>(&ctid_word), FUTEX_WAIT, 42, 0, 0, 0);
+    int64_t w = sys_futex(page.addr(), FUTEX_WAIT, 42, 0, 0, 0);
     TEST_ASSERT_EQ(w, 0);
     TEST_ASSERT_EQ(static_cast<int>(waiter->state), static_cast<int>(TaskState::Blocked));
 
     // The exiting thread has clear_child_tid pointing at the word.
     Task exiter{};
-    exiter.clear_child_tid = reinterpret_cast<uint64_t>(&ctid_word);
+    exiter.clear_child_tid = page.addr();
     task_exit_cleartid(&exiter);
 
+    uint32_t ctid_word = 99;
+    TEST_ASSERT_TRUE(page.read<uint32_t>(0, ctid_word));
     TEST_ASSERT_EQ(ctid_word, 0u);  // zeroed
     TEST_ASSERT_EQ(static_cast<int>(waiter->state),
                    static_cast<int>(TaskState::Ready));  // joiner woken

@@ -14,6 +14,7 @@
 
 #include <cinux/logger.hpp>
 
+#include "kernel/arch/x86_64/user_access.hpp"
 #include "kernel/errno.hpp"
 #include "kernel/lib/klog.hpp"
 
@@ -65,23 +66,16 @@ void append_u64(char* buf, uint64_t& pos, uint64_t len, uint64_t v) {
 }  // namespace
 
 int64_t sys_dmesg(uint64_t buf_virt, uint64_t len, uint64_t, uint64_t, uint64_t, uint64_t) {
-    // Validate the user buffer address (canonical check, same as sys_read).
-    if (buf_virt == 0) {
-        return -kEfault;
-    }
-    uint64_t bit47 = (buf_virt >> 47) & 1;
-    uint64_t upper = buf_virt >> 48;
-    if (bit47 == 0 && upper != 0) {
-        return -kEfault;
-    }
-    if (bit47 == 1 && upper != 0xFFFF) {
-        return -kEfault;
-    }
     if (len == 0) {
         return 0;
     }
 
-    char* buf = reinterpret_cast<char*>(buf_virt);
+    constexpr uint64_t kMaxDmesgBytes = 4096;
+    uint64_t           out_len        = len < kMaxDmesgBytes ? len : kMaxDmesgBytes;
+    char*              buf            = new char[out_len];
+    if (buf == nullptr) {
+        return -kEnomem;
+    }
 
     // Drain up to 16 entries per call.  Heap-allocated: LogEntry is 272 B, so
     // 16 entries = ~4.4 KB -- too large for the 16 KB kernel stack + IRQ
@@ -90,29 +84,34 @@ int64_t sys_dmesg(uint64_t buf_virt, uint64_t len, uint64_t, uint64_t, uint64_t,
     constexpr std::size_t kMaxEntries = 16;
     LogEntry*    entries = new LogEntry[kMaxEntries];
     if (entries == nullptr) {
+        delete[] buf;
         return -kEnomem;
     }
     std::size_t n = KernelLog::instance().read(entries, kMaxEntries);
 
     uint64_t pos = 0;
     for (std::size_t i = 0; i < n; i++) {
-        // Format "[LEVEL] tick: message\n" directly into the user buffer.
-        if (!append_char(buf, pos, len, '[')) {
+        if (!append_char(buf, pos, out_len, '[')) {
             break;
         }
-        append_str(buf, pos, len, log_level_string(entries[i].level));
-        if (!append_char(buf, pos, len, ']') || !append_char(buf, pos, len, ' ')) {
+        append_str(buf, pos, out_len, log_level_string(entries[i].level));
+        if (!append_char(buf, pos, out_len, ']') || !append_char(buf, pos, out_len, ' ')) {
             break;
         }
-        append_u64(buf, pos, len, entries[i].timestamp);
-        if (!append_char(buf, pos, len, ':') || !append_char(buf, pos, len, ' ')) {
+        append_u64(buf, pos, out_len, entries[i].timestamp);
+        if (!append_char(buf, pos, out_len, ':') || !append_char(buf, pos, out_len, ' ')) {
             break;
         }
-        append_str(buf, pos, len, entries[i].message);
-        append_char(buf, pos, len, '\n');
+        append_str(buf, pos, out_len, entries[i].message);
+        append_char(buf, pos, out_len, '\n');
     }
 
     delete[] entries;
+    if (!cinux::user::copy_to_user(reinterpret_cast<void*>(buf_virt), buf, pos)) {
+        delete[] buf;
+        return -kEfault;
+    }
+    delete[] buf;
     return static_cast<int64_t>(pos);
 }
 

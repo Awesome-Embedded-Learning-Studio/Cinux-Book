@@ -37,6 +37,13 @@ option(CINUX_MUSL_HELLO_SMOKE "Enable musl /hello ring-3 smoke in run-kernel-tes
 # static smoke's scheduler/ext2 scaffolding; the two phases gate independently.
 option(CINUX_MUSL_DYN_SMOKE "Enable musl dynamic /hello-dyn ring-3 smoke in run-kernel-test" OFF)
 
+# F-ECO: busybox ring-3 ecosystem smoke. fork+execve /bin/busybox to run a spread
+# of applets -- the first "run real programs" touchstone. Requires the busybox
+# ELF at build/musl/busybox (tools/musl/build-busybox.sh; not a CMake target).
+# Default OFF for local/kernel matrix speed; CI enables it in the dedicated
+# busybox-smoke job.
+option(CINUX_BUSYBOX_SMOKE "Enable busybox ring-3 ecosystem smoke in run-kernel-test" OFF)
+
 # Toolchain version gate (G2). CinuxOS is freestanding C++17 with -mcmodel=kernel
 # codegen, inline asm, and (F-INFRA) GCC-sensitive UBSAN (-fsanitize=undefined) and
 # strict warning flags whose behavior varies across major GCC releases. Fail fast at

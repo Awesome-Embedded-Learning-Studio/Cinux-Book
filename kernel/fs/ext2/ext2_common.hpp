@@ -40,6 +40,14 @@ public:
     /// so repeated reads and demand paging share one copy of each page.
     bool is_page_cacheable() const override;
 
+    // F-ECO batch 2: attribute + symlink read (file-target syscalls).
+    cinux::lib::ErrorOr<void>    chmod(Inode* inode, uint32_t mode) override;
+    cinux::lib::ErrorOr<void>    chown(Inode* inode, uint32_t uid, uint32_t gid) override;
+    cinux::lib::ErrorOr<void>    utimensat(Inode* inode, uint64_t atime_sec, uint32_t atime_nsec,
+                                           uint64_t mtime_sec, uint32_t mtime_nsec) override;
+    cinux::lib::ErrorOr<int64_t> readlink(const Inode* inode, char* buf,
+                                          uint64_t buf_size) override;
+
 private:
     Ext2& ext2_;
 };
@@ -59,6 +67,20 @@ public:
     cinux::lib::ErrorOr<Inode*> mkdir(Inode* dir, const char* name, uint32_t namelen) override;
     cinux::lib::ErrorOr<void>   unlink(Inode* dir, const char* name, uint32_t namelen) override;
     cinux::lib::ErrorOr<void> stat(const Inode* inode, struct stat* st) override;
+
+    // F-ECO batch 2: directory attribute + dirent ops. chmod/chown/utimensat act
+    // on the directory inode itself; symlink/link/rename mutate its entries.
+    cinux::lib::ErrorOr<void> chmod(Inode* inode, uint32_t mode) override;
+    cinux::lib::ErrorOr<void> chown(Inode* inode, uint32_t uid, uint32_t gid) override;
+    cinux::lib::ErrorOr<void> utimensat(Inode* inode, uint64_t atime_sec, uint32_t atime_nsec,
+                                        uint64_t mtime_sec, uint32_t mtime_nsec) override;
+    cinux::lib::ErrorOr<void> symlink(Inode* dir, const char* name, uint32_t namelen,
+                                      const char* target) override;
+    cinux::lib::ErrorOr<void> link(Inode* dir, const char* name, uint32_t namelen,
+                                   const Inode* target) override;
+    cinux::lib::ErrorOr<void> rename(Inode* src_dir, const char* src_name, uint32_t src_namelen,
+                                     Inode* dst_dir, const char* dst_name,
+                                     uint32_t dst_namelen) override;
 
 private:
     Ext2& ext2_;

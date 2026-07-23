@@ -139,7 +139,8 @@ static uint64_t relocate_copied_stack_addr(uint64_t value, uint64_t parent_stack
 void prepare_user_fork_context(Task* child, uint64_t parent_kernel_stack_top) {
     // Copy the parent's syscall pt_regs frame (128 B) to the top of the child's
     // clean kernel stack.  ret_from_fork reads user RIP/RSP/RFLAGS + the
-    // callee-saved registers out of it and SYSRETQs back to user mode (rax=0).
+    // syscall-preserved registers out of it and SYSRETQs back to user mode
+    // (rax=0).
     std::memcpy(reinterpret_cast<void*>(child->kernel_stack_top - kSyscallFrameSize),
                 reinterpret_cast<void*>(parent_kernel_stack_top - kSyscallFrameSize),
                 kSyscallFrameSize);
@@ -149,7 +150,8 @@ void prepare_user_fork_context(Task* child, uint64_t parent_kernel_stack_top) {
 
 void prepare_kernel_fork_context(Task* child, uint64_t parent_stack_start,
                                  uint64_t parent_stack_top, uint64_t child_stack_start,
-                                 uint64_t parent_frame_base) {
+                                 uint64_t parent_frame_base,
+                                 const KernelForkCalleeRegs& caller_regs) {
     // ctx.rsp -> the fork/clone return-address slot (frame_base + 8) in the
     // copied stack; fork_child_trampoline does `xor rax,rax; ret`, so the child
     // pops that slot and continues at the caller's return site, with its own
@@ -162,6 +164,16 @@ void prepare_kernel_fork_context(Task* child, uint64_t parent_stack_start,
     child->ctx.rbp =
         relocate_copied_stack_addr(*reinterpret_cast<uint64_t*>(parent_frame_base),
                                    parent_stack_start, parent_stack_top, child_stack_start);
+    child->ctx.r15 = relocate_copied_stack_addr(caller_regs.r15, parent_stack_start,
+                                                parent_stack_top, child_stack_start);
+    child->ctx.r14 = relocate_copied_stack_addr(caller_regs.r14, parent_stack_start,
+                                                parent_stack_top, child_stack_start);
+    child->ctx.r13 = relocate_copied_stack_addr(caller_regs.r13, parent_stack_start,
+                                                parent_stack_top, child_stack_start);
+    child->ctx.r12 = relocate_copied_stack_addr(caller_regs.r12, parent_stack_start,
+                                                parent_stack_top, child_stack_start);
+    child->ctx.rbx = relocate_copied_stack_addr(caller_regs.rbx, parent_stack_start,
+                                                parent_stack_top, child_stack_start);
     child->ctx.rip = reinterpret_cast<uint64_t>(fork_child_trampoline);
 
     // CRITICAL (gcc-13 -O2 #GP root cause): the kernel caller may save stack
@@ -190,6 +202,7 @@ void prepare_kernel_fork_context(Task* child, uint64_t parent_stack_start,
 // ============================================================
 
 __attribute__((noinline)) int fork(PidAllocator& pid_alloc) {
+    KernelForkCalleeRegs caller_regs = capture_kernel_fork_callee_regs();
     auto* parent = Scheduler::current();
     if (parent == nullptr) {
         cinux::lib::kprintf("[PROC] fork: no current task\n");
@@ -320,7 +333,7 @@ __attribute__((noinline)) int fork(PidAllocator& pid_alloc) {
 
         uint64_t frame_base = reinterpret_cast<uint64_t>(__builtin_frame_address(0));
         prepare_kernel_fork_context(child, current_rsp, current_rsp + full_stack_used,
-                                    child_stack_start, frame_base);
+                                    child_stack_start, frame_base, caller_regs);
     }
 
     // CoW page table handling

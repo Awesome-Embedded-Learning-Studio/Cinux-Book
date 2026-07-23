@@ -142,11 +142,11 @@ if(CINUX_LOCKDEP)
     target_compile_definitions(big_kernel_common PUBLIC CINUX_LOCKDEP)
 endif()
 
-# F10-M1 batch 6: opt-in musl /hello ring-3 smoke in the test harness. After the
+# F10-M1 batch 6: musl /hello ring-3 smoke in the test harness. After the
 # unit suites pass, the harness enters the real scheduler, forks + execves the
 # musl static /hello (from tools/musl/), and treats a clean exit as the
-# end-to-end pass for batches 3+4+5. Off by default (CI has no musl sysroot and
-# no /hello on ext2); enable locally: cmake -DCINUX_MUSL_HELLO_SMOKE=ON ...
+# end-to-end pass for batches 3+4+5. Enabled by default; CI builds the artifact
+# before configure. Disable locally with -DCINUX_MUSL_HELLO_SMOKE=OFF.
 if(CINUX_MUSL_HELLO_SMOKE)
     target_compile_definitions(big_kernel_common PUBLIC CINUX_MUSL_HELLO_SMOKE)
 endif()
@@ -155,6 +155,13 @@ endif()
 # Off by default; enable locally: cmake -DCINUX_MUSL_DYN_SMOKE=ON ...
 if(CINUX_MUSL_DYN_SMOKE)
     target_compile_definitions(big_kernel_common PUBLIC CINUX_MUSL_DYN_SMOKE)
+endif()
+
+# F-ECO: busybox ring-3 ecosystem smoke. Kept off by default so ordinary local
+# builds and the kernel matrix do not require a BusyBox artifact; the dedicated
+# CI busybox-smoke job builds one and enables this flag.
+if(CINUX_BUSYBOX_SMOKE)
+    target_compile_definitions(big_kernel_common PUBLIC CINUX_BUSYBOX_SMOKE)
 endif()
 
 # F-INFRA I-9: opt-in UBSan. -fsanitize=undefined at COMPILE only (the freestanding
@@ -320,6 +327,7 @@ endif()
 if(CINUX_NET)
     target_sources(big_kernel_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test/test_e1000.cpp)
     target_sources(big_kernel_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test/test_net.cpp)
+    target_sources(big_kernel_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test/test_socket.cpp)
 endif()
 
 target_sources(big_kernel_test PRIVATE $<TARGET_OBJECTS:big_kernel_common>)

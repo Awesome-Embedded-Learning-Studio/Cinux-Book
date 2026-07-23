@@ -75,15 +75,33 @@
     # stac  (P3: global STAC removed -- SMAP real; user mem only via accessor stac)
 1:
 
+    /* Preserve interrupted FPU/SSE state across kernel C/C++ handlers.  If the
+       interrupt came from user mode, also refresh Task::fpu_state so a timer
+       preemption switch has the current user SIMD image. */
+    subq $512, %rsp                   # 512-byte, 16-byte-aligned FXSAVE area
+    fxsave (%rsp)
+    movq 656(%rsp), %rax              # saved CS (old RSP+144)
+    testb $3, %al
+    jz 2f
+    movq %gs:24, %rax                 # current Task* (PerCpu.current)
+    testq %rax, %rax
+    jz 2f
+    fxsave 384(%rax)                  # Task::fpu_state (offset pinned in process.hpp)
+2:
+
     /* Pass InterruptFrame* as first argument (skip alignment padding) */
-    leaq 8(%rsp), %rdi                # (RSP+8)→%rdi: point past padding to r15
+    leaq 520(%rsp), %rdi              # FXSAVE + padding -> InterruptFrame
 
     /* Call the C handler function */
     call \handler                     # call the corresponding C exception handler
 
     /* F3-M1: deliver one pending signal before returning to user mode. */
-    leaq 8(%rsp), %rdi                # (RSP+8)→%rdi: InterruptFrame* (past padding)
+    leaq 520(%rsp), %rdi              # FXSAVE + padding -> InterruptFrame
     call signal_check_deliver_isr     # may rewrite the frame to enter a handler
+
+    /* Restore interrupted FPU/SSE state before unwinding the frame. */
+    fxrstor (%rsp)
+    addq $512, %rsp
 
     /* Remove alignment padding */
     addq $8, %rsp                     # $8→%rsp: skip alignment padding
@@ -173,15 +191,33 @@
     # stac  (P3: global STAC removed -- SMAP real; user mem only via accessor stac)
 1:
 
+    /* Preserve interrupted FPU/SSE state across kernel C/C++ handlers.  If the
+       interrupt came from user mode, also refresh Task::fpu_state so a timer
+       preemption switch has the current user SIMD image. */
+    subq $512, %rsp                   # 512-byte, 16-byte-aligned FXSAVE area
+    fxsave (%rsp)
+    movq 656(%rsp), %rax              # saved CS (old RSP+144)
+    testb $3, %al
+    jz 2f
+    movq %gs:24, %rax                 # current Task* (PerCpu.current)
+    testq %rax, %rax
+    jz 2f
+    fxsave 384(%rax)                  # Task::fpu_state (offset pinned in process.hpp)
+2:
+
     /* Pass InterruptFrame* as first argument (skip alignment padding) */
-    leaq 8(%rsp), %rdi                # (RSP+8)→%rdi: point past padding to r15
+    leaq 520(%rsp), %rdi              # FXSAVE + padding -> InterruptFrame
 
     /* Call the C handler function */
     call \handler                     # call the corresponding C exception handler
 
     /* F3-M1: deliver one pending signal before returning to user mode. */
-    leaq 8(%rsp), %rdi                # (RSP+8)→%rdi: InterruptFrame* (past padding)
+    leaq 520(%rsp), %rdi              # FXSAVE + padding -> InterruptFrame
     call signal_check_deliver_isr     # may rewrite the frame to enter a handler
+
+    /* Restore interrupted FPU/SSE state before unwinding the frame. */
+    fxrstor (%rsp)
+    addq $512, %rsp
 
     /* Remove alignment padding */
     addq $8, %rsp                     # $8→%rsp: skip alignment padding
@@ -271,8 +307,22 @@
     # stac  (P3: global STAC removed -- SMAP real; user mem only via accessor stac)
 1:
 
+    /* Preserve interrupted FPU/SSE state across kernel C/C++ handlers.  If the
+       interrupt came from user mode, also refresh Task::fpu_state so a timer
+       preemption switch has the current user SIMD image. */
+    subq $512, %rsp                   # 512-byte, 16-byte-aligned FXSAVE area
+    fxsave (%rsp)
+    movq 656(%rsp), %rax              # saved CS (old RSP+144)
+    testb $3, %al
+    jz 2f
+    movq %gs:24, %rax                 # current Task* (PerCpu.current)
+    testq %rax, %rax
+    jz 2f
+    fxsave 384(%rax)                  # Task::fpu_state (offset pinned in process.hpp)
+2:
+
     /* Pass InterruptFrame* as first argument (skip alignment padding) */
-    leaq 8(%rsp), %rdi                # (RSP+8)->%rdi: past padding to r15
+    leaq 520(%rsp), %rdi              # FXSAVE + padding -> InterruptFrame
 
     /* Call the C handler.  It must NOT EOI -- this stub owns the EOI below. */
     call \handler
@@ -288,8 +338,12 @@
     call irq_eoi_isr                  # EOI via the active back-end
 
     /* deliver one pending signal before returning to user mode */
-    leaq 8(%rsp), %rdi                # (RSP+8)->%rdi: InterruptFrame* (past padding)
+    leaq 520(%rsp), %rdi              # FXSAVE + padding -> InterruptFrame
     call signal_check_deliver_isr     # may rewrite the frame to enter a handler
+
+    /* Restore interrupted FPU/SSE state before unwinding the frame. */
+    fxrstor (%rsp)
+    addq $512, %rsp
 
     /* Remove alignment padding */
     addq $8, %rsp                     # $8->%rsp: skip alignment padding

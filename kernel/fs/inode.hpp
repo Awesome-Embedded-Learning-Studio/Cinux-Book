@@ -81,6 +81,53 @@ public:
     /// error fails the open.
     virtual cinux::lib::ErrorOr<Inode*> open(Inode* inode, uint64_t flags);
 
+    // ============================================================
+    // F-ECO batch 2: attribute + dirent operations (default-backed).
+    //
+    // Each of these has a default that returns NotImplemented, exactly like
+    // ioctl()/open() above, so the ~20 existing InodeOps subclasses
+    // (pipe/pty/devfs/procfs/ramdisk/socket/...) need no change; ext2 is the
+    // only backend that overrides them for now. They are added in one shot so
+    // the parallel implementation of the syscalls never edits this shared
+    // header again.
+    // ============================================================
+
+    /// Change the permission bits of an inode (sys_chmod). Only the low 12
+    /// permission bits of @p mode take effect; the file-type bits are kept.
+    virtual cinux::lib::ErrorOr<void> chmod(Inode* inode, uint32_t mode);
+
+    /// Change the owner of an inode (sys_chown). A @p uid or @p gid of
+    /// 0xFFFFFFFF ((uint32_t)-1) leaves that field untouched, per Linux chown(2).
+    virtual cinux::lib::ErrorOr<void> chown(Inode* inode, uint32_t uid, uint32_t gid);
+
+    /// Set access / modification times (sys_utimensat). ext2 revision-0 inodes
+    /// store whole seconds; the nsec fields are accepted but truncated.
+    virtual cinux::lib::ErrorOr<void> utimensat(Inode* inode, uint64_t atime_sec,
+                                                uint32_t atime_nsec, uint64_t mtime_sec,
+                                                uint32_t mtime_nsec);
+
+    /// Read a symbolic link's target into @p buf (sys_readlink). Returns the
+    /// number of bytes written to @p buf (NOT counting a trailing NUL).
+    virtual cinux::lib::ErrorOr<int64_t> readlink(const Inode* inode, char* buf,
+                                                  uint64_t buf_size);
+
+    /// Create a symbolic link named @p name in directory @p dir pointing at the
+    /// NUL-terminated @p target string (sys_symlink).
+    virtual cinux::lib::ErrorOr<void> symlink(Inode* dir, const char* name, uint32_t namelen,
+                                              const char* target);
+
+    /// Create a hard link named @p name in directory @p dir referring to @p
+    /// target (sys_link): adds a directory entry and bumps the target's nlink.
+    virtual cinux::lib::ErrorOr<void> link(Inode* dir, const char* name, uint32_t namelen,
+                                           const Inode* target);
+
+    /// Rename entry @p src_name in @p src_dir to @p dst_name in @p dst_dir
+    /// (sys_rename). @p dst_dir may equal @p src_dir. Hobby-OS move: removes the
+    /// old directory entry and adds a fresh one; no atomic cross-directory swap.
+    virtual cinux::lib::ErrorOr<void> rename(Inode* src_dir, const char* src_name,
+                                             uint32_t src_namelen, Inode* dst_dir,
+                                             const char* dst_name, uint32_t dst_namelen);
+
     /// Whether reads against this inode should be served through the file-backed
     /// PageCache.  Disk-backed filesystems (ext2) override to true so that
     /// sys_read and demand paging share one cache; transient inode-ops shims

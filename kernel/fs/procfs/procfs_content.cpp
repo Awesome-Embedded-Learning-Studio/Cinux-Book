@@ -104,4 +104,40 @@ uint32_t format_proc_cmdline(const cinux::proc::TaskSnapshot& s, char* dst, uint
     return b.len < cap ? b.len + 1 : cap;
 }
 
+uint32_t format_proc_meminfo(uint32_t total_kb, uint32_t free_kb, char* buf, uint32_t cap) {
+    // busybox `free` greps these keys (alignment is irrelevant to the parser).
+    // CinuxOS tracks no buffers/cached/swap, so those read 0 -- honest, not
+    // fabricated; the "used" column free prints is total-free, "buff/cache" 0.
+    LineBuilder b{buf, cap};
+    b.put_s("MemTotal:");
+    b.put(' ');
+    b.put_u(total_kb);
+    b.put_s(" kB\n");
+    b.put_s("MemFree:");
+    b.put(' ');
+    b.put_u(free_kb);
+    b.put_s(" kB\n");
+    b.put_s("MemAvailable:");
+    b.put(' ');
+    b.put_u(free_kb);
+    b.put_s(" kB\n");
+    b.put_s("Buffers:");
+    b.put(' ');
+    b.put_u(0);
+    b.put_s(" kB\n");
+    b.put_s("Cached:");
+    b.put(' ');
+    b.put_u(0);
+    b.put_s(" kB\n");
+    b.put_s("SwapTotal:");
+    b.put(' ');
+    b.put_u(0);
+    b.put_s(" kB\n");
+    b.put_s("SwapFree:");
+    b.put(' ');
+    b.put_u(0);
+    b.put_s(" kB\n");
+    return b.finish();
+}
+
 }  // namespace cinux::fs

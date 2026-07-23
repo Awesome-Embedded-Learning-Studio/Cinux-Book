@@ -16,7 +16,7 @@
 
 #include <stdint.h>
 
-#include "kernel/fs/procfs.hpp"
+#include "kernel/fs/procfs/procfs.hpp"
 #include "kernel/lib/string.hpp"          // utoa
 #include "kernel/proc/process.hpp"        // Task
 #include "kernel/proc/signal.hpp"         // signal_register/unregister/find_by_pid

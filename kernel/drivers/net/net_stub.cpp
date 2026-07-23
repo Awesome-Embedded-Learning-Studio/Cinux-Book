@@ -30,4 +30,8 @@ cinux::lib::ErrorOr<PingResult> ping(Ipv4Addr /*dst*/, uint16_t /*id*/, uint16_t
     return cinux::lib::Error::NotImplemented;  // no stack -> ping unavailable
 }
 
+Socket* create_socket(int /*domain*/, int /*type*/) {
+    return nullptr;  // net compiled out -> sys_socket maps to -EPROTONOSUPPORT
+}
+
 }  // namespace cinux::net

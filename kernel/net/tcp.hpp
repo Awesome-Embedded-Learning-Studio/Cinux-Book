@@ -153,6 +153,16 @@ public:
     /// @brief Release a passive listener.  No-op if @p local_port is not listened.
     void stop_listen(uint16_t local_port);
 
+    /// @brief Bind/replace the TcpListener for an EXISTING connection (F7-M6).
+    ///
+    /// M5 leaves active-open TCBs (connect) with listener=null, so inbound
+    /// on_data/on_close never fire for them.  The socket layer rebinds a
+    /// connection's listener to the owning socket -- a client socket after
+    /// connect(), an accepted child after accept() -- so its on_data/on_close
+    /// receive the connection's traffic directly.  No-op if no such connection.
+    void set_listener(uint16_t local_port, Ipv4Addr remote_addr, uint16_t remote_port,
+                      TcpListener& l);
+
     /// @brief Active open: send SYN to @p remote, enter SYN_SENT.  The handshake
     ///        completes on the next inbound SYN-ACK (drained by poll).  Fails if a
     ///        connection on this 4-tuple already exists or the table is full.

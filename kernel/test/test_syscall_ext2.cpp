@@ -29,7 +29,7 @@
 #include "kernel/drivers/ahci/ahci_block_device.hpp"
 #include "kernel/drivers/pci/pci.hpp"
 #include "kernel/drivers/pit/pit.hpp"
-#include "kernel/fs/ext2.hpp"
+#include "kernel/fs/ext2/ext2.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/string.hpp"
 #include "kernel/mm/page_cache.hpp"
@@ -40,6 +40,16 @@
 #include "kernel/syscall/sys_read.hpp"
 #include "kernel/syscall/sys_rmdir.hpp"
 #include "kernel/syscall/sys_unlink.hpp"
+// F-ECO batch 2: VFS metadata + dirent syscalls (mechanism tests).
+#include "kernel/fs/stat.hpp"
+#include "kernel/syscall/sys_chmod.hpp"
+#include "kernel/syscall/sys_chown.hpp"
+#include "kernel/syscall/sys_link.hpp"
+#include "kernel/syscall/sys_readlink.hpp"
+#include "kernel/syscall/sys_rename.hpp"
+#include "kernel/syscall/sys_stat.hpp"
+#include "kernel/syscall/sys_symlink.hpp"
+#include "kernel/syscall/sys_utimensat.hpp"
 
 using cinux::drivers::pci::PCI;
 using cinux::drivers::pci::PCIDevice;
@@ -498,6 +508,218 @@ void test_ext2_read_served_from_cache() {
 }  // namespace test_sys_read_ext2_cache
 
 // ============================================================
+// F-ECO batch 2: VFS metadata + dirent syscall mechanism tests.
+// Each creates a file via do_creat_kernel, runs the new syscall, and verifies
+// the on-disk effect via do_stat_kernel / lookup_or_null / do_readlink_kernel --
+// the "green must mean the mechanism actually fired" discipline (no ENOSYS
+// false-green: a stubbed syscall would fail these assertions).
+// ============================================================
+
+namespace test_sys_chmod_b2 {
+void test_chmod_changes_mode() {
+    auto pair = setup_syscall_ext2();
+    TEST_ASSERT_NOT_NULL(pair.ext2);
+    char name[32];
+    gen_name(name, 32, "chm");
+    char path[64];
+    path[0]    = '/';
+    uint32_t i = 0;
+    while (name[i]) {
+        path[i + 1] = name[i];
+        ++i;
+    }
+    path[i + 1] = '\0';
+
+    TEST_ASSERT_EQ(cinux::syscall::do_creat_kernel(path), 0);
+    TEST_ASSERT_EQ(cinux::syscall::do_chmod_kernel(path, 0600), 0);
+
+    cinux::fs::stat st;
+    TEST_ASSERT_EQ(cinux::syscall::do_stat_kernel(path, &st), 0);
+    TEST_ASSERT_EQ(st.st_mode & 0xFFF, 0600u);  // only perm bits changed, type kept
+
+    cinux::lib::kprintf("[B2] chmod /%s mode=0%o OK\n", name, st.st_mode & 0xFFF);
+    cinux::syscall::do_unlink_kernel(path);
+    teardown_syscall_ext2(pair);
+}
+}  // namespace test_sys_chmod_b2
+
+namespace test_sys_chown_b2 {
+void test_chown_changes_owner() {
+    auto pair = setup_syscall_ext2();
+    TEST_ASSERT_NOT_NULL(pair.ext2);
+    char name[32];
+    gen_name(name, 32, "cho");
+    char path[64];
+    path[0]    = '/';
+    uint32_t i = 0;
+    while (name[i]) {
+        path[i + 1] = name[i];
+        ++i;
+    }
+    path[i + 1] = '\0';
+
+    TEST_ASSERT_EQ(cinux::syscall::do_creat_kernel(path), 0);
+    TEST_ASSERT_EQ(cinux::syscall::do_chown_kernel(path, 1000, 2000), 0);
+
+    cinux::fs::stat st;
+    TEST_ASSERT_EQ(cinux::syscall::do_stat_kernel(path, &st), 0);
+    TEST_ASSERT_EQ(st.st_uid, 1000u);
+    TEST_ASSERT_EQ(st.st_gid, 2000u);
+
+    cinux::lib::kprintf("[B2] chown /%s uid=%u gid=%u OK\n", name, st.st_uid, st.st_gid);
+    cinux::syscall::do_unlink_kernel(path);
+    teardown_syscall_ext2(pair);
+}
+}  // namespace test_sys_chown_b2
+
+namespace test_sys_utimensat_b2 {
+void test_utimensat_changes_times() {
+    auto pair = setup_syscall_ext2();
+    TEST_ASSERT_NOT_NULL(pair.ext2);
+    char name[32];
+    gen_name(name, 32, "uti");
+    char path[64];
+    path[0]    = '/';
+    uint32_t i = 0;
+    while (name[i]) {
+        path[i + 1] = name[i];
+        ++i;
+    }
+    path[i + 1] = '\0';
+
+    TEST_ASSERT_EQ(cinux::syscall::do_creat_kernel(path), 0);
+    TEST_ASSERT_EQ(cinux::syscall::do_utimensat_kernel(path, 1000, 0, 2000, 0), 0);
+
+    cinux::fs::stat st;
+    TEST_ASSERT_EQ(cinux::syscall::do_stat_kernel(path, &st), 0);
+    TEST_ASSERT_EQ(st.st_atime, 1000u);
+    TEST_ASSERT_EQ(st.st_mtime, 2000u);
+
+    cinux::lib::kprintf("[B2] utimensat /%s atime=%lu mtime=%lu OK\n", name, st.st_atime,
+                        st.st_mtime);
+    cinux::syscall::do_unlink_kernel(path);
+    teardown_syscall_ext2(pair);
+}
+}  // namespace test_sys_utimensat_b2
+
+namespace test_sys_symlink_b2 {
+/// symlink("/target_str", link) then readlink reads the target back verbatim.
+void test_symlink_readlink_roundtrip() {
+    auto pair = setup_syscall_ext2();
+    TEST_ASSERT_NOT_NULL(pair.ext2);
+    char name[32];
+    gen_name(name, 32, "sym");
+    char path[64];
+    path[0]    = '/';
+    uint32_t i = 0;
+    while (name[i]) {
+        path[i + 1] = name[i];
+        ++i;
+    }
+    path[i + 1] = '\0';
+
+    TEST_ASSERT_EQ(cinux::syscall::do_symlink_kernel("/target_str", path), 0);
+
+    char    buf[256];
+    int64_t n = cinux::syscall::do_readlink_kernel(path, buf, sizeof(buf));
+    TEST_ASSERT_GT(n, 0);
+    TEST_ASSERT_EQ(static_cast<uint64_t>(n), 11u);  // strlen("/target_str")
+    TEST_ASSERT_EQ(memcmp(buf, "/target_str", 11), 0);
+
+    cinux::lib::kprintf("[B2] symlink+readlink /%s -> '%.*s' OK\n", name, static_cast<int>(n), buf);
+    cinux::syscall::do_unlink_kernel(path);  // remove the symlink (target need not exist)
+    teardown_syscall_ext2(pair);
+}
+}  // namespace test_sys_symlink_b2
+
+namespace test_sys_link_b2 {
+/// link(file, file2) adds a name and bumps nlink to 2.
+void test_link_bumps_nlink() {
+    auto pair = setup_syscall_ext2();
+    TEST_ASSERT_NOT_NULL(pair.ext2);
+
+    char n1[32];
+    gen_name(n1, 32, "lk1");
+    char p1[64];
+    p1[0]      = '/';
+    uint32_t i = 0;
+    while (n1[i]) {
+        p1[i + 1] = n1[i];
+        ++i;
+    }
+    p1[i + 1] = '\0';
+
+    char n2[32];
+    gen_name(n2, 32, "lk2");
+    char p2[64];
+    p2[0]      = '/';
+    uint32_t j = 0;
+    while (n2[j]) {
+        p2[j + 1] = n2[j];
+        ++j;
+    }
+    p2[j + 1] = '\0';
+
+    TEST_ASSERT_EQ(cinux::syscall::do_creat_kernel(p1), 0);
+    TEST_ASSERT_EQ(cinux::syscall::do_link_kernel(p1, p2), 0);
+
+    Inode* f2 = lookup_or_null(pair.ext2, n2);
+    TEST_ASSERT_NOT_NULL(f2);
+
+    cinux::fs::stat st;
+    TEST_ASSERT_EQ(cinux::syscall::do_stat_kernel(p1, &st), 0);
+    TEST_ASSERT_EQ(st.st_nlink, 2u);
+
+    cinux::lib::kprintf("[B2] link %s->%s nlink=%lu OK\n", n1, n2, st.st_nlink);
+    cinux::syscall::do_unlink_kernel(p2);
+    cinux::syscall::do_unlink_kernel(p1);
+    teardown_syscall_ext2(pair);
+}
+}  // namespace test_sys_link_b2
+
+namespace test_sys_rename_b2 {
+/// rename(old, new) moves the entry: old gone, new present.
+void test_rename_moves_entry() {
+    auto pair = setup_syscall_ext2();
+    TEST_ASSERT_NOT_NULL(pair.ext2);
+
+    char n1[32];
+    gen_name(n1, 32, "rn1");
+    char p1[64];
+    p1[0]      = '/';
+    uint32_t i = 0;
+    while (n1[i]) {
+        p1[i + 1] = n1[i];
+        ++i;
+    }
+    p1[i + 1] = '\0';
+
+    char n2[32];
+    gen_name(n2, 32, "rn2");
+    char p2[64];
+    p2[0]      = '/';
+    uint32_t j = 0;
+    while (n2[j]) {
+        p2[j + 1] = n2[j];
+        ++j;
+    }
+    p2[j + 1] = '\0';
+
+    TEST_ASSERT_EQ(cinux::syscall::do_creat_kernel(p1), 0);
+    TEST_ASSERT_EQ(cinux::syscall::do_rename_kernel(p1, p2), 0);
+
+    Inode* old = lookup_or_null(pair.ext2, n1);
+    TEST_ASSERT_NULL(old);
+    Inode* nw = lookup_or_null(pair.ext2, n2);
+    TEST_ASSERT_NOT_NULL(nw);
+
+    cinux::lib::kprintf("[B2] rename %s->%s OK\n", n1, n2);
+    cinux::syscall::do_unlink_kernel(p2);
+    teardown_syscall_ext2(pair);
+}
+}  // namespace test_sys_rename_b2
+
+// ============================================================
 // Entry point
 // ============================================================
 
@@ -524,6 +746,14 @@ extern "C" void run_syscall_ext2_tests() {
 
     // F2-M6: read() served through PageCache
     RUN_TEST(test_sys_read_ext2_cache::test_ext2_read_served_from_cache);
+
+    // F-ECO batch 2: VFS metadata + dirent syscalls.
+    RUN_TEST(test_sys_chmod_b2::test_chmod_changes_mode);
+    RUN_TEST(test_sys_chown_b2::test_chown_changes_owner);
+    RUN_TEST(test_sys_utimensat_b2::test_utimensat_changes_times);
+    RUN_TEST(test_sys_symlink_b2::test_symlink_readlink_roundtrip);
+    RUN_TEST(test_sys_link_b2::test_link_bumps_nlink);
+    RUN_TEST(test_sys_rename_b2::test_rename_moves_entry);
 
     TEST_SUMMARY();
 }

@@ -34,8 +34,8 @@
 #    include <cstring>
 
 // Include kernel headers for struct/constant definitions
-#    include "fs/ramdisk.hpp"
-#    include "fs/ramdisk_config.hpp"
+#    include "fs/ramdisk/ramdisk.hpp"
+#    include "fs/ramdisk/ramdisk_config.hpp"
 
 using namespace cinux::fs;
 

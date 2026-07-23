@@ -1,13 +1,11 @@
 /**
  * @file kernel/proc/signal.cpp
- * @brief Signal disposition lookup, task registry, delivery, and frames (F3-M1)
+ * @brief Signal disposition lookup, task registry, and default delivery
  *
  * Batch 1: default-disposition table + uncatchable predicate.
  * Batch 2: pid->Task registry, signal_send, deliverable selection, default
  *          action execution, syscall-path check-and-deliver.
- * Batch 3: custom-handler delivery on the interrupt return path (builds a
- *          signal frame on the user stack + an int $0x80 trampoline) and
- *          sigreturn to restore the saved context.
+ * Batch 3 signal-frame setup and sigreturn live in signal_frame.cpp.
  *
  * Namespace: cinux::proc
  */
@@ -16,20 +14,14 @@
 
 #include <stdint.h>
 
-#include "kernel/arch/x86_64/idt.hpp"
-#include "kernel/arch/x86_64/user_access.hpp"  // P3 (SMAP): stac/clac for frame write
-#include "kernel/arch/x86_64/usermode.hpp"     // F9 batch 1: USER_SIGRETURN_PAGE
 #include "kernel/lib/kprintf.hpp"
-#include "kernel/mm/address_space.hpp"  // DEBT-008: VMA check in signal_setup_frame
-#include "kernel/mm/vma.hpp"            // VmaFlags / VMA / has_flag
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/sync.hpp"           // Spinlock (F-QA Q4c-2 / DEBT-001 registry lock)
 #include "kernel/proc/task_snapshot.hpp"  // TaskSnapshot (DEBT-022)
+#include "kernel/syscall/sys_exit.hpp"  // F-ECO: default-kill routes through sys_exit (Zombie+notify)
 
 namespace cinux::proc {
-
-using cinux::arch::InterruptFrame;
 
 namespace {
 
@@ -276,10 +268,17 @@ void signal_exec_default(Task* task, Signal sig) {
     switch (signal_default_action(sig)) {
     case SigDefault::kTerminate:
     case SigDefault::kCoreDump:
-        task->exit_status = static_cast<int>(sig);
+        // F-ECO batch 0: a signal-default-killed task must become a Zombie the
+        // parent can waitpid-reap (WIFSIGNALED), NOT vanish via exit_current()'s
+        // Dead+deferred-free path -- that orphaned the child so waitpid spun
+        // forever (busybox SIGILL hit this on echo iter 1). Route through
+        // sys_exit(): sets exit_status=sig, sends SIGCHLD, flips state to Zombie,
+        // dequeues, unblocks a wait()ing parent, then yields (does not return).
+        // Same path as a normal user exit(). (sigreturn_handler's bad-frame kill
+        // further down is the same class -- left as follow-up, off the smoke path.)
         cinux::lib::kprintf("[SIGNAL] default kill: tid=%u '%s' by SIG%d\n",
                             static_cast<unsigned>(task->tid), task->name, static_cast<int>(sig));
-        Scheduler::exit_current();  // does not return
+        cinux::syscall::sys_exit(static_cast<uint64_t>(sig), 0, 0, 0, 0, 0);  // does not return
         break;
     case SigDefault::kIgnore:
         break;
@@ -333,155 +332,6 @@ void signal_check_and_deliver() {
         // Left pending; delivered on the interrupt return path (batch 3).
         break;
     }
-}
-
-// ============================================================
-// Custom-handler delivery + sigreturn (batch 3)
-// ============================================================
-
-void signal_setup_frame(InterruptFrame* frame, Signal sig, uint64_t handler_addr, SigSet sa_mask) {
-    (void)sa_mask;  // TODO: block sa_mask (+ sig) during the handler
-    const uint64_t user_rsp = frame->rsp;
-    // Align so the handler entry RSP satisfies the SysV AMD64 ABI (RSP%16==8).
-    const uint64_t pad      = user_rsp & 0x0F;  // 0 or 8
-
-    // Layout (low -> high address):
-    //   return-addr slot (= USER_SIGRETURN_PAGE)  @ R    <- handler RSP
-    //   SignalFrame                               @ R+8  <- sigreturn reads here
-    //   (alignment pad)                           @ R+8+sizeof(SignalFrame)
-    //   original user RSP                         @ U
-    //
-    // F9 batch 1: the handler return address points at the fixed
-    // USER_SIGRETURN_PAGE (mapped by execve), not at code written on the stack.
-    // This keeps the user stack NX-able (F9 batch 2): the 8-byte int $0x80
-    // sigreturn stub lives off-stack, aligned with Linux's vDSO __restore_rt.
-    const uint64_t R = user_rsp - pad - sizeof(SignalFrame);
-
-    // DEBT-008: before writing the frame + trampoline, validate that [T, user_rsp)
-    // lands in a writable Stack VMA.  A signal received with the stack near its
-    // limit (or below the guard page) would otherwise fault mid-delivery --
-    // frame written half-way, original signal in-flight, stack corrupted -> hang.
-    // Fall back to the default action (typically terminate).  Runs at IF=0 (from
-    // signal_check_deliver_isr in the ISR path), so irq_guard is a no-op lock;
-    // it only documents the critical section.
-    Task* task = Scheduler::current();
-    if (task != nullptr && task->addr_space != nullptr) {
-        auto            vma_guard = task->addr_space->vma_lock().irq_guard();
-        cinux::mm::VMA* v         = task->addr_space->vmas().find(R);
-        const bool writable_stack = v != nullptr &&
-                                    cinux::mm::has_flag(v->flags, cinux::mm::VmaFlags::Write) &&
-                                    cinux::mm::has_flag(v->flags, cinux::mm::VmaFlags::Stack);
-        if (!writable_stack) {
-            cinux::lib::kprintf(
-                "[SIGNAL] handler frame R=0x%lx outside writable Stack VMA; "
-                "falling back to default action\n",
-                static_cast<unsigned long>(R));
-            signal_exec_default(task, sig);  // may not return (terminate)
-            return;
-        }
-    }
-
-    // P3 (SMAP real): the SignalFrame + return-addr slots live in user memory;
-    // wrap the writes in a local stac/clac window (global STAC removed). Skip
-    // access_ok: R was just validated against the writable Stack VMA above.
-    cinux::arch::stac();
-    auto* sf = reinterpret_cast<SignalFrame*>(R + 8);
-
-    // Save the interrupted user context.
-    sf->r15    = frame->r15;
-    sf->r14    = frame->r14;
-    sf->r13    = frame->r13;
-    sf->r12    = frame->r12;
-    sf->r11    = frame->r11;
-    sf->r10    = frame->r10;
-    sf->r9     = frame->r9;
-    sf->r8     = frame->r8;
-    sf->rdi    = frame->rdi;
-    sf->rsi    = frame->rsi;
-    sf->rbp    = frame->rbp;
-    sf->rdx    = frame->rdx;
-    sf->rcx    = frame->rcx;
-    sf->rbx    = frame->rbx;
-    sf->rax    = frame->rax;
-    sf->rip    = frame->rip;
-    sf->rflags = frame->rflags;
-    sf->rsp    = user_rsp;
-    sf->sig    = static_cast<uint64_t>(sig);
-    sf->magic  = kSigFrameMagic;
-
-    // Return address: handler `ret` lands on the fixed sigreturn page (not
-    // stack-resident code).  See USER_SIGRETURN_PAGE / kSigreturnTrampoline.
-    *reinterpret_cast<uint64_t*>(R) = cinux::arch::USER_SIGRETURN_PAGE;
-    cinux::arch::clac();  // end user-frame write window
-
-    // Redirect the interrupted frame to enter the handler with sig as %rdi.
-    frame->rip = handler_addr;
-    frame->rsp = R;
-    frame->rdi = static_cast<uint64_t>(sig);
-    frame->rax = 0;
-}
-
-extern "C" void signal_check_deliver_isr(InterruptFrame* frame) {
-    Task* task = Scheduler::current();
-    if (task == nullptr) {
-        return;
-    }
-    // Only deliver when returning to user mode; a signal that arrives while
-    // the kernel is running is deferred to the next user-mode return.
-    if ((frame->cs & 0x03) == 0) {
-        return;
-    }
-    int n = signal_pick_deliverable(task, /*allow_custom=*/true);
-    if (n == 0) {
-        return;
-    }
-    Signal           sig = static_cast<Signal>(n);
-    const SigAction& act = task->sig_actions->actions[n];
-    switch (act.type) {
-    case HandlerType::kDefault:
-        signal_exec_default(task, sig);  // may not return (terminate)
-        break;
-    case HandlerType::kIgnore:
-        break;
-    case HandlerType::kCustom:
-        signal_setup_frame(frame, sig, act.handler_addr, act.sa_mask);
-        break;
-    }
-}
-
-extern "C" void sigreturn_handler(InterruptFrame* frame) {
-    // The handler returned into the int $0x80 trampoline.  user RSP points
-    // just past the return-address slot, i.e. at the saved SignalFrame.
-    auto* sf = reinterpret_cast<SignalFrame*>(frame->rsp);
-    if (sf->magic != kSigFrameMagic) {
-        cinux::lib::kprintf("[SIGNAL] sigreturn: bad frame magic %p -- killing task\n",
-                            reinterpret_cast<void*>(sf->magic));
-        if (Task* task = Scheduler::current(); task != nullptr) {
-            task->exit_status = static_cast<int>(Signal::kSigkill);
-            Scheduler::exit_current();  // does not return
-        }
-        return;
-    }
-    // Restore the interrupted user context into the frame; the ISR stub will
-    // pop the GPRs and IRETQ using these values.
-    frame->r15    = sf->r15;
-    frame->r14    = sf->r14;
-    frame->r13    = sf->r13;
-    frame->r12    = sf->r12;
-    frame->r11    = sf->r11;
-    frame->r10    = sf->r10;
-    frame->r9     = sf->r9;
-    frame->r8     = sf->r8;
-    frame->rdi    = sf->rdi;
-    frame->rsi    = sf->rsi;
-    frame->rbp    = sf->rbp;
-    frame->rdx    = sf->rdx;
-    frame->rcx    = sf->rcx;
-    frame->rbx    = sf->rbx;
-    frame->rax    = sf->rax;
-    frame->rip    = sf->rip;
-    frame->rflags = sf->rflags;
-    frame->rsp    = sf->rsp;
 }
 
 }  // namespace cinux::proc

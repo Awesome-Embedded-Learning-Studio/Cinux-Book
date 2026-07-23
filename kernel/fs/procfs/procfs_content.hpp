@@ -33,6 +33,15 @@ static constexpr uint32_t kProcStatLineMax = 96;
 /// Buffer cap for /proc/<pid>/cmdline content (task name + NUL).
 static constexpr uint32_t kProcCmdlineMax = 64;
 
+/// Buffer cap for /proc/meminfo content (7 "Key: value kB\n" lines).
+static constexpr uint32_t kProcMeminfoMax = 160;
+
+/// Format a simplified /proc/meminfo into @p buf (NUL-terminated).  busybox
+/// `free` parses MemTotal / MemFree / MemAvailable / Buffers / Cached; we report
+/// MemTotal/MemFree/MemAvailable from @p total_kb/@p free_kb and zero the rest
+/// (CinuxOS tracks no buffer/cache/swap).  @return content length (excl. NUL).
+uint32_t format_proc_meminfo(uint32_t total_kb, uint32_t free_kb, char* buf, uint32_t cap);
+
 /// Format a simplified /proc/<pid>/stat line into @p buf (NUL-terminated).
 /// Layout: "pid (name) state ppid tgid uid gid\n".  This is a documented subset
 /// of Linux's /proc/<pid>/stat (CinuxOS keeps no per-task accounting fields).

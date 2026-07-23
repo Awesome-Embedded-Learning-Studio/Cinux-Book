@@ -8,7 +8,7 @@ against it.
 ## Usage
 
 ```sh
-# 1. Build the musl sysroot (~30 s; downloads musl-1.2.5 to build/musl/)
+# 1. Build the musl sysroot (~30 s; downloads musl-1.2.6 to build/musl/)
 tools/musl/build-musl.sh
 
 # 2. Compile the smoke binary -> build/musl/hello
@@ -24,6 +24,24 @@ Output: `build/musl-sysroot/` (sysroot: `lib/libc.a`, `lib/crt1.o`,
 `build/musl/hello` (static ELF). Both live under `build/` (gitignored).
 
 Override the sysroot location with `MUSL_SYSROOT=...`.
+
+## BusyBox smoke artifact (F-ECO)
+
+Build a small static BusyBox against the musl sysroot:
+
+```sh
+tools/musl/build-busybox.sh
+# -> build/musl/busybox
+```
+
+The script pins BusyBox by `BUSYBOX_VER` (default `1.36.0`) and copies
+`tools/musl/busybox-1.36.0.config`, the known-good config used for the F-ECO
+BusyBox applet work.  The ext2 image builder installs the binary as
+`/bin/busybox`, `/bin/sh`, and hard links for common applets when
+`build/musl/busybox` exists.
+
+CI keeps this as a dedicated `busybox-smoke` job: it builds musl + BusyBox,
+configures with `-DCINUX_BUSYBOX_SMOKE=ON`, then runs `run-kernel-test-all`.
 
 ## Dynamic linking (F10-M2)
 

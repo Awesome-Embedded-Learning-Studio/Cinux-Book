@@ -9,7 +9,7 @@
 
 #include <stdint.h>
 
-#include "kernel/arch/x86_64/user_access.hpp"  // P3 (SMAP): stac/clac for cleartid write
+#include "kernel/arch/x86_64/user_access.hpp"  // put_user for cleartid
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/signal.hpp"
@@ -22,16 +22,15 @@ void task_exit_cleartid(Task* task) {
         return;
     }
     // CLONE_CHILD_CLEARTID: zero the child_tid word (a user address set by
-    // clone) and wake one futex waiter (the pthread_join protocol).  P3 (global
-    // STAC removed): wrap the write in a local stac/clac window so it reaches
-    // the user page with AC=0 by default.  We deliberately do NOT use
-    // access_ok/put_user here -- the test harness points clear_child_tid at a
-    // kernel address (no real user AS in tests yet), which access_ok rejects;
-    // the address is trusted (set by clone from a valid user pointer), and a
-    // genuinely bad address faults through the PF path.
-    cinux::arch::stac();
-    *reinterpret_cast<volatile uint32_t*>(task->clear_child_tid) = 0;
-    cinux::arch::clac();
+    // clone) and wake one futex waiter (the pthread_join protocol).  Use the
+    // SMAP/extable accessor so a stale or unmapped user word reports EFAULT
+    // instead of panicking in the exit path.
+    const uint32_t zero = 0;
+    if (!cinux::user::put_user(zero, reinterpret_cast<uint32_t*>(task->clear_child_tid))) {
+        cinux::lib::kprintf("[EXIT] clear_child_tid write failed at %p\n",
+                            reinterpret_cast<void*>(task->clear_child_tid));
+        return;
+    }
     cinux::syscall::futex_wake_addr(task->clear_child_tid, 1);
 }
 

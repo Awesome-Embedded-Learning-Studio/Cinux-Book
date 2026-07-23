@@ -30,7 +30,7 @@
 #include "kernel/drivers/ahci/ahci_block_device.hpp"
 #include "kernel/drivers/pci/pci.hpp"
 #include "kernel/drivers/pit/pit.hpp"
-#include "kernel/fs/ext2.hpp"
+#include "kernel/fs/ext2/ext2.hpp"
 
 using cinux::drivers::pci::PCI;
 using cinux::drivers::pci::PCIDevice;

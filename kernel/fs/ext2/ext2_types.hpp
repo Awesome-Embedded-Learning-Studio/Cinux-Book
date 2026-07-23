@@ -71,6 +71,9 @@ static constexpr uint16_t EXT2_S_IFREG = 0x8000;
 /// Directory
 static constexpr uint16_t EXT2_S_IFDIR = 0x4000;
 
+/// Symbolic link (F-ECO batch 2: ln -s)
+static constexpr uint16_t EXT2_S_IFLNK = 0xA000;
+
 // ============================================================
 // ext2 Directory Entry File Types
 // ============================================================

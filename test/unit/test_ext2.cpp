@@ -28,7 +28,7 @@
 #    include <cstdint>
 #    include <cstring>
 
-#    include "fs/ext2_types.hpp"
+#    include "fs/ext2/ext2_types.hpp"
 
 using namespace cinux::fs;
 

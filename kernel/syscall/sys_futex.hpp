@@ -8,9 +8,8 @@
  * mirroring kernel/proc/sync.cpp (Mutex/Semaphore).  No timeout / PI /
  * requeue yet.
  *
- * The handler reads user memory directly: the kernel maps the caller's
- * address space, so a user pointer is accessible without a copy primitive
- * (a bad pointer faults via the PF path) -- same convention as sys_signal.
+ * FUTEX_WAIT reads the futex word through get_user(), so an invalid user
+ * pointer returns -EFAULT instead of taking a kernel-mode page fault.
  *
  * Namespace: cinux::syscall
  */

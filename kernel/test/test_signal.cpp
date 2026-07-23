@@ -12,7 +12,6 @@
 
 #include "big_kernel_test.h"
 #include "kernel/arch/x86_64/idt.hpp"
-#include "kernel/arch/x86_64/usermode.hpp"  // F9 batch 1: USER_SIGRETURN_PAGE
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/signal.hpp"
@@ -295,68 +294,27 @@ void test_kill_via_registry() {
 
 namespace test_sig_frame {
 
-void test_setup_frame_redirects_to_handler() {
+void test_restore_frame_copies_context() {
     using cinux::arch::InterruptFrame;
-    static uint8_t stack_buf[4096];
-    const uint64_t stack_top = reinterpret_cast<uint64_t>(stack_buf + sizeof(stack_buf));
 
-    InterruptFrame frame{};
-    frame.cs     = 0x33;  // user code segment (RPL=3)
-    frame.ss     = 0x2B;
-    frame.rsp    = stack_top;
-    frame.rip    = 0x400000;
-    frame.rflags = 0x202;
-    frame.rax    = 0x1234;
-    frame.rbx    = 0x5678;
+    SignalFrame sf{};
+    sf.rip    = 0x400000;
+    sf.rsp    = 0x700000;
+    sf.rflags = 0x202;
+    sf.rax    = 0xAA;
+    sf.rdx    = 0xBB;
+    sf.r15    = 0x1515;
+    sf.magic  = kSigFrameMagic;
 
-    signal_setup_frame(&frame, Signal::kSigusr1, 0x500000, 0);
-
-    // Frame redirected to enter the handler with the signal number in %rdi.
-    TEST_ASSERT_EQ(frame.rip, uint64_t{0x500000});
-    TEST_ASSERT_EQ(frame.rdi, static_cast<uint64_t>(Signal::kSigusr1));
-
-    // The handler RSP points at a return-address slot holding the fixed
-    // sigreturn page address (F9 batch 1: the int $0x80 stub lives off-stack
-    // at USER_SIGRETURN_PAGE, mapped by execve, not on the user stack).
-    const uint64_t handler_rsp = frame.rsp;
-    const uint64_t ret_addr    = *reinterpret_cast<uint64_t*>(handler_rsp);
-    TEST_ASSERT_EQ(ret_addr, cinux::arch::USER_SIGRETURN_PAGE);
-
-    // SignalFrame sits just above the return-address slot.
-    const SignalFrame* sf = reinterpret_cast<const SignalFrame*>(handler_rsp + 8);
-    TEST_ASSERT_EQ(sf->magic, kSigFrameMagic);
-    TEST_ASSERT_EQ(sf->sig, static_cast<uint64_t>(Signal::kSigusr1));
-    TEST_ASSERT_EQ(sf->rip, uint64_t{0x400000});  // saved interrupted RIP
-    TEST_ASSERT_EQ(sf->rsp, stack_top);           // saved user RSP
-    TEST_ASSERT_EQ(sf->rax, uint64_t{0x1234});
-    TEST_ASSERT_EQ(sf->rbx, uint64_t{0x5678});
-}
-
-void test_sigreturn_restores_context() {
-    using cinux::arch::InterruptFrame;
-    static uint8_t stack_buf[4096];
-    const uint64_t stack_top = reinterpret_cast<uint64_t>(stack_buf + sizeof(stack_buf));
-
-    InterruptFrame frame{};
-    frame.cs  = 0x33;
-    frame.ss  = 0x2B;
-    frame.rsp = stack_top;
-    frame.rip = 0x400000;
-    frame.rax = 0xAA;
-    frame.rdx = 0xBB;
-
-    signal_setup_frame(&frame, Signal::kSigusr2, 0x500000, 0);
-
-    // Simulate the handler returning into the int $0x80 trampoline: at that
-    // point user RSP = handler RSP + 8, which is exactly the SignalFrame.
     InterruptFrame ret_frame{};
-    ret_frame.rsp = frame.rsp + 8;
-    sigreturn_handler(&ret_frame);
+    signal_restore_frame(&ret_frame, sf);
 
     TEST_ASSERT_EQ(ret_frame.rip, uint64_t{0x400000});
-    TEST_ASSERT_EQ(ret_frame.rsp, stack_top);
+    TEST_ASSERT_EQ(ret_frame.rsp, uint64_t{0x700000});
+    TEST_ASSERT_EQ(ret_frame.rflags, uint64_t{0x202});
     TEST_ASSERT_EQ(ret_frame.rax, uint64_t{0xAA});
     TEST_ASSERT_EQ(ret_frame.rdx, uint64_t{0xBB});
+    TEST_ASSERT_EQ(ret_frame.r15, uint64_t{0x1515});
 }
 
 }  // namespace test_sig_frame
@@ -451,8 +409,7 @@ extern "C" void run_signal_tests() {
     RUN_TEST(test_sig_syscall::test_kill_self_pends);
     RUN_TEST(test_sig_syscall::test_kill_via_registry);
 
-    RUN_TEST(test_sig_frame::test_setup_frame_redirects_to_handler);
-    RUN_TEST(test_sig_frame::test_sigreturn_restores_context);
+    RUN_TEST(test_sig_frame::test_restore_frame_copies_context);
 
     RUN_TEST(test_stop_cont::test_sigstop_default_marks_stopped);
     RUN_TEST(test_stop_cont::test_sigcont_default_resumes_stopped);

@@ -14,7 +14,7 @@
 
 #include <stdint.h>
 
-#include "kernel/fs/procfs.hpp"
+#include "kernel/fs/procfs/procfs.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
 

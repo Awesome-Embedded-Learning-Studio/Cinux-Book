@@ -12,6 +12,7 @@
 #include "kernel/lib/klog.hpp"
 #include "kernel/syscall/sys_dmesg.hpp"
 #include "kernel/syscall/syscall_nums.hpp"
+#include "kernel/test/user_page.hpp"
 
 using cinux::lib::KernelLog;
 using cinux::syscall::SyscallNr;
@@ -46,6 +47,8 @@ bool contains(const char* s, const char* sub) {
 
 namespace test_sys_dmesg {
 
+constexpr uint64_t kDmesgUserPage = 0x0000000061300000ULL;
+
 void test_sys_dmesg_number() {
     TEST_ASSERT_TRUE(static_cast<uint64_t>(SyscallNr::SYS_dmesg) == 103);
 }
@@ -73,11 +76,12 @@ void test_sys_dmesg_formats_entries() {
     klog_error("boom");
     klog_info("hello");
 
-    char    buf[1024] = {};  // zero-init so contains() stops at the written end
-    // buf is a kernel-stack buffer (canonical-high address) -- passes the
-    // canonical address check just like a real user buffer would.
-    int64_t r         = sys_dmesg(reinterpret_cast<uint64_t>(buf), sizeof(buf), 0, 0, 0, 0);
+    cinux::test::UserPage page(kDmesgUserPage);
+    TEST_ASSERT_TRUE(page.ok());
+    int64_t r = sys_dmesg(page.addr(), 1024, 0, 0, 0, 0);
     TEST_ASSERT_TRUE(r > 0);
+    char buf[1024] = {};  // zero-init so contains() stops at the written end
+    TEST_ASSERT_TRUE(page.read_bytes(0, buf, static_cast<size_t>(r)));
     TEST_ASSERT_TRUE(contains(buf, "ERROR"));
     TEST_ASSERT_TRUE(contains(buf, "boom"));
     TEST_ASSERT_TRUE(contains(buf, "INFO"));

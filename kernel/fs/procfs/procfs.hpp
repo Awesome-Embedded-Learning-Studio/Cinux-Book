@@ -86,9 +86,14 @@ private:
     InodeOps* pid_dir_ops_{nullptr};
     InodeOps* stat_file_ops_{nullptr};
     InodeOps* cmdline_file_ops_{nullptr};
+    InodeOps* meminfo_file_ops_{nullptr};  // F-ECO busybox: /proc/meminfo
 
     /// /proc root directory inode.  readdir snapshots the live PID registry.
     Inode root_inode_{};
+
+    /// /proc/meminfo pseudo-file inode (F-ECO busybox).  read regenerates the
+    /// content from g_pmm; ino is fixed (not a PID).
+    Inode meminfo_inode_{};
 
     /// /proc/<pid> directory inodes, indexed [pid] (slot 0 unused).  ino = pid,
     /// fs_private = this ProcFs.  Stamped eagerly in mount(); lookup still

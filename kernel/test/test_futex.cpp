@@ -19,6 +19,7 @@
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/syscall/sys_futex.hpp"
+#include "kernel/test/user_page.hpp"
 
 using cinux::proc::Scheduler;
 using cinux::proc::Task;
@@ -41,6 +42,8 @@ constexpr int64_t kEfault = 14;
 constexpr int64_t kEinval = 22;
 constexpr int64_t kEnosys = 38;
 
+constexpr uint64_t kFutexUserPage = 0x0000000061000000ULL;
+
 // A do-nothing entry point for built tasks (they never truly run).
 void dummy_entry() {}
 
@@ -56,9 +59,11 @@ Task* make_current(const char* name) {
 namespace test_futex_basic {
 
 void test_wait_val_mismatch_eagain() {
-    static uint32_t word = 5;
-    Task*           t    = make_current("fx_eagain");
-    int64_t r = sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAIT, /*val=*/6, 0, 0, 0);
+    cinux::test::UserPage page(kFutexUserPage);
+    TEST_ASSERT_TRUE(page.ok());
+    TEST_ASSERT_TRUE(page.write<uint32_t>(0, 5));
+    Task* t = make_current("fx_eagain");
+    int64_t r = sys_futex(page.addr(), FUTEX_WAIT, /*val=*/6, 0, 0, 0);
     TEST_ASSERT_EQ(r, -kEagain);  // *uaddr(5) != val(6) -> EAGAIN, no block
     TEST_ASSERT_NE(static_cast<int>(t->state), static_cast<int>(TaskState::Blocked));
 }
@@ -70,24 +75,26 @@ void test_wait_null_uaddr_efault() {
 }
 
 void test_invalid_op_enosys() {
-    static uint32_t word = 0;
+    cinux::test::UserPage page(kFutexUserPage);
+    TEST_ASSERT_TRUE(page.ok());
     make_current("fx_enosys");
-    int64_t r = sys_futex(reinterpret_cast<uint64_t>(&word), /*op=*/99, 0, 0, 0, 0);
+    int64_t r = sys_futex(page.addr(), /*op=*/99, 0, 0, 0, 0);
     TEST_ASSERT_EQ(r, -kEnosys);
 }
 
 void test_bitset_zero_einval() {
-    static uint32_t word = 0;
+    cinux::test::UserPage page(kFutexUserPage);
+    TEST_ASSERT_TRUE(page.ok());
     make_current("fx_einval");
-    int64_t r =
-        sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAIT_BITSET, 0, 0, 0, /*val3=*/0);
+    int64_t r = sys_futex(page.addr(), FUTEX_WAIT_BITSET, 0, 0, 0, /*val3=*/0);
     TEST_ASSERT_EQ(r, -kEinval);
 }
 
 void test_wake_no_waiters_zero() {
-    static uint32_t word = 0;
+    cinux::test::UserPage page(kFutexUserPage);
+    TEST_ASSERT_TRUE(page.ok());
     make_current("fx_wake_empty");
-    int64_t r = sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAKE, 1, 0, 0, 0);
+    int64_t r = sys_futex(page.addr(), FUTEX_WAKE, 1, 0, 0, 0);
     TEST_ASSERT_EQ(r, 0);
 }
 
@@ -96,23 +103,27 @@ void test_wake_no_waiters_zero() {
 namespace test_futex_wake {
 
 void test_wait_blocks_then_wake() {
-    static uint32_t word = 5;
+    cinux::test::UserPage page(kFutexUserPage);
+    TEST_ASSERT_TRUE(page.ok());
+    TEST_ASSERT_TRUE(page.write<uint32_t>(0, 5));
     Scheduler::init();
 
     Task*   waiter = make_current("fx_waiter");
-    int64_t r      = sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAIT, /*val=*/5, 0, 0, 0);
+    int64_t r      = sys_futex(page.addr(), FUTEX_WAIT, /*val=*/5, 0, 0, 0);
     TEST_ASSERT_EQ(r, 0);  // matched -> enqueued + blocked (block returns, no schedule)
     TEST_ASSERT_EQ(static_cast<int>(waiter->state), static_cast<int>(TaskState::Blocked));
 
     // Wake from another "context".
     make_current("fx_waker");
-    int64_t w = sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAKE, 1, 0, 0, 0);
+    int64_t w = sys_futex(page.addr(), FUTEX_WAKE, 1, 0, 0, 0);
     TEST_ASSERT_EQ(w, 1);
     TEST_ASSERT_EQ(static_cast<int>(waiter->state), static_cast<int>(TaskState::Ready));
 }
 
 void test_wake_count_caps() {
-    static uint32_t word = 1;
+    cinux::test::UserPage page(kFutexUserPage);
+    TEST_ASSERT_TRUE(page.ok());
+    TEST_ASSERT_TRUE(page.write<uint32_t>(0, 1));
     Scheduler::init();
 
     Task* w1 = TaskBuilder().set_entry(dummy_entry).set_name("fx_c1").build();
@@ -120,24 +131,24 @@ void test_wake_count_caps() {
     Task* w3 = TaskBuilder().set_entry(dummy_entry).set_name("fx_c3").build();
 
     Scheduler::set_current(w1);
-    sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAIT, 1, 0, 0, 0);
+    sys_futex(page.addr(), FUTEX_WAIT, 1, 0, 0, 0);
     Scheduler::set_current(w2);
-    sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAIT, 1, 0, 0, 0);
+    sys_futex(page.addr(), FUTEX_WAIT, 1, 0, 0, 0);
     Scheduler::set_current(w3);
-    sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAIT, 1, 0, 0, 0);
+    sys_futex(page.addr(), FUTEX_WAIT, 1, 0, 0, 0);
     TEST_ASSERT_EQ(static_cast<int>(w1->state), static_cast<int>(TaskState::Blocked));
     TEST_ASSERT_EQ(static_cast<int>(w2->state), static_cast<int>(TaskState::Blocked));
     TEST_ASSERT_EQ(static_cast<int>(w3->state), static_cast<int>(TaskState::Blocked));
 
     make_current("fx_cwaker");
-    int64_t w = sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAKE, /*max=*/2, 0, 0, 0);
+    int64_t w = sys_futex(page.addr(), FUTEX_WAKE, /*max=*/2, 0, 0, 0);
     TEST_ASSERT_EQ(w, 2);  // only 2 of 3 woken
     int ready = (w1->state == TaskState::Ready) + (w2->state == TaskState::Ready) +
                 (w3->state == TaskState::Ready);
     TEST_ASSERT_EQ(ready, 2);
 
     // Cleanup: wake the remaining waiter so the global table is empty.
-    sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAKE, 1, 0, 0, 0);
+    sys_futex(page.addr(), FUTEX_WAKE, 1, 0, 0, 0);
 }
 
 }  // namespace test_futex_wake
@@ -145,39 +156,40 @@ void test_wake_count_caps() {
 namespace test_futex_bitset {
 
 void test_bitset_match_wakes() {
-    static uint32_t word = 7;
+    cinux::test::UserPage page(kFutexUserPage);
+    TEST_ASSERT_TRUE(page.ok());
+    TEST_ASSERT_TRUE(page.write<uint32_t>(0, 7));
     Scheduler::init();
 
     Task*   waiter = make_current("fx_bs1");
-    int64_t r =
-        sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAIT_BITSET, 7, 0, 0, /*val3=*/0x1);
+    int64_t r = sys_futex(page.addr(), FUTEX_WAIT_BITSET, 7, 0, 0, /*val3=*/0x1);
     TEST_ASSERT_EQ(r, 0);
     TEST_ASSERT_EQ(static_cast<int>(waiter->state), static_cast<int>(TaskState::Blocked));
 
     make_current("fx_bsw1");
-    int64_t w =
-        sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAKE_BITSET, 1, 0, 0, /*val3=*/0x1);
+    int64_t w = sys_futex(page.addr(), FUTEX_WAKE_BITSET, 1, 0, 0, /*val3=*/0x1);
     TEST_ASSERT_EQ(w, 1);
     TEST_ASSERT_EQ(static_cast<int>(waiter->state), static_cast<int>(TaskState::Ready));
 }
 
 void test_bitset_no_match_keeps_blocked() {
-    static uint32_t word = 9;
+    cinux::test::UserPage page(kFutexUserPage);
+    TEST_ASSERT_TRUE(page.ok());
+    TEST_ASSERT_TRUE(page.write<uint32_t>(0, 9));
     Scheduler::init();
 
     Task* waiter = make_current("fx_bs2");
-    sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAIT_BITSET, 9, 0, 0, /*val3=*/0x1);
+    sys_futex(page.addr(), FUTEX_WAIT_BITSET, 9, 0, 0, /*val3=*/0x1);
     TEST_ASSERT_EQ(static_cast<int>(waiter->state), static_cast<int>(TaskState::Blocked));
 
     // Wake with a disjoint bitset -> no waiter matches.
     make_current("fx_bsw2");
-    int64_t w =
-        sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAKE_BITSET, 1, 0, 0, /*val3=*/0x2);
+    int64_t w = sys_futex(page.addr(), FUTEX_WAKE_BITSET, 1, 0, 0, /*val3=*/0x2);
     TEST_ASSERT_EQ(w, 0);
     TEST_ASSERT_EQ(static_cast<int>(waiter->state), static_cast<int>(TaskState::Blocked));
 
     // Cleanup: wake with the matching bitset.
-    sys_futex(reinterpret_cast<uint64_t>(&word), FUTEX_WAKE_BITSET, 1, 0, 0, /*val3=*/0x1);
+    sys_futex(page.addr(), FUTEX_WAKE_BITSET, 1, 0, 0, /*val3=*/0x1);
     TEST_ASSERT_EQ(static_cast<int>(waiter->state), static_cast<int>(TaskState::Ready));
 }
 

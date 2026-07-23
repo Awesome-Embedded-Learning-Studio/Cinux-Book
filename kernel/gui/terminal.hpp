@@ -22,6 +22,9 @@
 namespace cinux::drivers {
 class PSFFont;
 }
+namespace cinux::fs {
+struct Inode;
+}
 namespace cinux::ipc {
 class Pipe;
 }
@@ -166,23 +169,24 @@ public:
     // ============================================================
 
     /**
-     * @brief Set the stdin pipe for forwarding keyboard input to shell
+     * @brief Bind a PTY master as this terminal's shell channel (F-ECO busybox)
      *
-     * The Terminal will call try_write() on this pipe during on_key()
-     * to send typed characters to the shell's stdin.
+     * The shell runs on the PTY slave (a real tty: isatty true, so musl line-
+     * buffers stdout + ash is interactive).  The terminal holds the master:
+     * on_key() writes typed chars to the master (the PTY's slave TTY echoes +
+     * cooks them), and poll_output() drains the master (shell output + the TTY
+     * echo).  @p pty_index is released in the destructor.
      *
-     * @param pipe  Pointer to the stdin Pipe (must remain valid)
+     * @param master     The PTY master inode (read = shell output + echo,
+     *                   write = keyboard into the slave TTY).
+     * @param pty_index  The PTY slot index (for pty_release on destroy).
      */
-    void set_stdin_pipe(class cinux::ipc::Pipe* pipe);
+    void set_master(cinux::fs::Inode* master, int pty_index);
 
-    /**
-     * @brief Set the stdout pipe for non-blocking output polling
-     *
-     * The Terminal will call try_read() on this pipe during
-     * poll_output() to retrieve shell output and display it.
-     *
-     * @param pipe  Pointer to the stdout Pipe (must remain valid)
-     */
+    // Legacy pipe interface (used by the QEMU terminal-shell test; production
+    // GUI uses the PTY master above).  on_key forwards to stdin_pipe, poll_output
+    // drains stdout_pipe.
+    void set_stdin_pipe(class cinux::ipc::Pipe* pipe);
     void set_stdout_pipe(class cinux::ipc::Pipe* pipe);
 
     /**
@@ -316,8 +320,10 @@ private:
     /// The pump consumes it to invalidate the frame (§4c dirty-gating).
     bool                     content_dirty_ = false;
     cinux::drivers::PSFFont* font_          = nullptr;
-    ipc::Pipe*               stdin_pipe_    = nullptr;
-    ipc::Pipe*               stdout_pipe_   = nullptr;
+    cinux::fs::Inode*        master_inode_  = nullptr;  ///< PTY master (shell channel)
+    int                      pty_index_     = -1;       ///< PTY slot (for pty_release)
+    ipc::Pipe*               stdin_pipe_    = nullptr;  ///< legacy pipe (test path)
+    ipc::Pipe*               stdout_pipe_   = nullptr;  ///< legacy pipe (test path)
     int                      shell_pid_     = 0;  ///< PID of the shell child process (0 = none)
 };
 

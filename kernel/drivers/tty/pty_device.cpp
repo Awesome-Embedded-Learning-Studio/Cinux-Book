@@ -18,11 +18,13 @@
 #include "kernel/arch/x86_64/user_access.hpp"  // copy_to/from_user (slave ioctl)
 #include "kernel/drivers/tty/pty.hpp"
 #include "kernel/drivers/tty/tty.hpp"  // Termios/Winsize/kTcgets/kTiocsctty...
-#include "kernel/fs/devfs.hpp"         // kSIfChr / devfs_makedev
+#include "kernel/fs/devfs/devfs.hpp"   // kSIfChr / devfs_makedev
 #include "kernel/fs/inode.hpp"
+#include "kernel/lib/echo_trace.hpp"
 #include "kernel/lib/string.hpp"      // memset for stat
 #include "kernel/proc/process.hpp"    // Task::session_leader / controlling_tty
 #include "kernel/proc/scheduler.hpp"  // Scheduler::current()
+#include "kernel/proc/sync.hpp"       // Spinlock
 
 // `struct stat` lives in cinux::fs; pull it into view so the unqualified
 // `struct stat` in these InodeOps overrides (parsed in cinux::drivers) matches
@@ -43,16 +45,57 @@ constexpr uint32_t kPtySlaveMajor  = 136;  // /dev/pts/N
 constexpr uint32_t kPtyMasterMajor = 128;  // legacy master (unused on the fly)
 
 struct PtySlot {
-    bool             in_use{false};
-    Pty              pty;
-    cinux::fs::Inode master_inode{};
-    cinux::fs::Inode slave_inode{};
+    bool                  in_use{false};
+    Pty                   pty;
+    cinux::fs::Inode      master_inode{};
+    cinux::fs::Inode      slave_inode{};
+    cinux::proc::Spinlock lock{};
+    cinux::proc::Task*    slave_read_waiters{nullptr};
 };
 
 PtySlot g_slots[kMaxPtys];
 
 Pty* pty_of(const cinux::fs::Inode* inode) {
     return static_cast<Pty*>(inode->fs_private);
+}
+
+PtySlot* slot_of(const cinux::fs::Inode* inode) {
+    if (inode == nullptr || inode->ino < kPtyInoBase) {
+        return nullptr;
+    }
+    size_t index = static_cast<size_t>(inode->ino - kPtyInoBase);
+    if (index >= kMaxPtys) {
+        return nullptr;
+    }
+    return &g_slots[index];
+}
+
+void wait_enqueue(cinux::proc::Task*& head, cinux::proc::Task* task) {
+    task->wait_next = nullptr;
+    if (head == nullptr) {
+        head = task;
+        return;
+    }
+    cinux::proc::Task* tail = head;
+    while (tail->wait_next != nullptr) {
+        tail = tail->wait_next;
+    }
+    tail->wait_next = task;
+}
+
+cinux::proc::Task* wait_dequeue(cinux::proc::Task*& head) {
+    cinux::proc::Task* task = head;
+    if (task != nullptr) {
+        head            = task->wait_next;
+        task->wait_next = nullptr;
+    }
+    return task;
+}
+
+void wake_all(cinux::proc::Task*& head) {
+    while (cinux::proc::Task* task = wait_dequeue(head)) {
+        cinux::proc::Scheduler::unblock(task);
+    }
 }
 
 void fill_pty_stat(const cinux::fs::Inode* inode, struct stat* st, uint64_t rdev) {
@@ -75,14 +118,37 @@ public:
         if (buf == nullptr && count > 0) {
             return cinux::lib::Error::InvalidArgument;
         }
-        return pty_of(inode)->master_read(buf, count);
+        PtySlot* slot = slot_of(inode);
+        if (slot == nullptr) {
+            return cinux::lib::Error::InvalidArgument;
+        }
+        auto guard = slot->lock.irq_guard();
+        auto r     = slot->pty.master_read(buf, count);
+        if (r.ok() && *r > 0) {
+            cinux::debug::trace_bytes("pty.master_read to_terminal", buf, *r);
+        }
+        return r;
     }
     cinux::lib::ErrorOr<int64_t> write(cinux::fs::Inode* inode, uint64_t, const void* buf,
                                        uint64_t count) override {
         if (buf == nullptr && count > 0) {
             return cinux::lib::Error::InvalidArgument;
         }
-        return pty_of(inode)->master_write(buf, count);
+        PtySlot* slot = slot_of(inode);
+        if (slot == nullptr) {
+            return cinux::lib::Error::InvalidArgument;
+        }
+        auto r = cinux::lib::ErrorOr<int64_t>(cinux::lib::Error::InvalidArgument);
+        {
+            auto guard = slot->lock.irq_guard();
+            cinux::debug::trace_bytes("pty.master_write from_terminal", buf,
+                                      static_cast<int64_t>(count));
+            r = slot->pty.master_write(buf, count);
+            if (r.ok() && *r > 0) {
+                wake_all(slot->slave_read_waiters);
+            }
+        }
+        return r;
     }
     cinux::lib::ErrorOr<int64_t> ioctl(const cinux::fs::Inode* inode, uint32_t request,
                                        uint64_t arg) override {
@@ -118,26 +184,60 @@ public:
         if (buf == nullptr && count > 0) {
             return cinux::lib::Error::InvalidArgument;
         }
-        Pty* p = pty_of(inode);
-        // Non-blocking: drain whatever cooked line is ready (0 if none).  EOF
-        // (^D on an empty line) surfaces as a single 0 return via take_eof.
-        // Blocking-on-empty (like console_tty) is a scheduling refinement left
-        // for the consumer wiring; the batch-3 test drives master-before-slave.
-        auto r = p->slave_read(buf, count);
-        if (!r.ok()) {
-            return r.error();
+        PtySlot* slot = slot_of(inode);
+        if (slot == nullptr) {
+            return cinux::lib::Error::InvalidArgument;
         }
-        if (*r == 0 && p->slave_tty().take_eof()) {
-            return static_cast<int64_t>(0);  // EOF
+
+        for (;;) {
+            bool need_block = false;
+            {
+                auto guard = slot->lock.irq_guard();
+                if (!slot->in_use) {
+                    return static_cast<int64_t>(0);  // master side released
+                }
+
+                auto r = slot->pty.slave_read(buf, count);
+                if (!r.ok()) {
+                    return r.error();
+                }
+                if (*r > 0) {
+                    cinux::debug::trace_bytes("pty.slave_read to_shell", buf, *r);
+                    return r;
+                }
+                if (slot->pty.slave_tty().take_eof()) {
+                    return static_cast<int64_t>(0);  // ^D on an empty line -> EOF
+                }
+
+                cinux::proc::Task* self = cinux::proc::Scheduler::current();
+                if (self == nullptr) {
+                    return r;  // early/test context with no scheduler to park on
+                }
+                wait_enqueue(slot->slave_read_waiters, self);
+                cinux::proc::Scheduler::prepare_to_wait(self);
+                need_block = true;
+            }  // IRQs restored and PTY lock released before switching out.
+
+            if (need_block) {
+                cinux::proc::Scheduler::schedule_blocked();
+            }
         }
-        return r;
     }
     cinux::lib::ErrorOr<int64_t> write(cinux::fs::Inode* inode, uint64_t, const void* buf,
                                        uint64_t count) override {
         if (buf == nullptr && count > 0) {
             return cinux::lib::Error::InvalidArgument;
         }
-        return pty_of(inode)->slave_write(buf, count);
+        PtySlot* slot = slot_of(inode);
+        if (slot == nullptr) {
+            return cinux::lib::Error::InvalidArgument;
+        }
+        auto guard = slot->lock.irq_guard();
+        auto r     = slot->pty.slave_write(buf, count);
+        if (r.ok() && *r > 0) {
+            cinux::debug::trace_bytes("pty.slave_write from_shell", buf, *r);
+        }
+        return r;
     }
     cinux::lib::ErrorOr<int64_t> ioctl(const cinux::fs::Inode* inode, uint32_t request,
                                        uint64_t arg) override {
@@ -146,6 +246,10 @@ public:
         switch (request) {
         case cinux::drivers::kTcgets: {
             const Termios& tm = p->slave_tty().termios();
+            if (cinux::debug::kEchoTrace) {
+                cinux::lib::kprintf("[ECHO_TRACE] pty.slave_ioctl TCGETS lflag=0x%x\n",
+                                    static_cast<unsigned>(tm.c_lflag));
+            }
             if (!cinux::user::copy_to_user(uptr, &tm, sizeof(Termios))) {
                 return cinux::lib::Error::InvalidArgument;  // ~EFAULT (no Fault enum)
             }
@@ -155,6 +259,10 @@ public:
             Termios tm;
             if (!cinux::user::copy_from_user(&tm, uptr, sizeof(Termios))) {
                 return cinux::lib::Error::InvalidArgument;
+            }
+            if (cinux::debug::kEchoTrace) {
+                cinux::lib::kprintf("[ECHO_TRACE] pty.slave_ioctl TCSETS lflag=0x%x\n",
+                                    static_cast<unsigned>(tm.c_lflag));
             }
             p->slave_tty().set_termios(tm);
             return 0;
@@ -239,7 +347,11 @@ PtySlaveOps  g_slave_ops;
 PtmxOps      g_ptmx_ops;
 
 void wire_slot(PtySlot& slot, size_t index) {
-    slot.pty.reset();  // clean state for a reused slot; re-anchors echo to &pty
+    {
+        auto guard = slot.lock.irq_guard();
+        slot.pty.reset();  // clean state for a reused slot; re-anchors echo to &pty
+        slot.slave_read_waiters = nullptr;
+    }
     slot.master_inode.ino        = kPtyInoBase + index;
     slot.master_inode.type       = cinux::fs::InodeType::Regular;
     slot.master_inode.ops        = &g_master_ops;
@@ -269,7 +381,10 @@ cinux::lib::ErrorOr<int> pty_alloc() {
 
 void pty_release(int index) {
     if (index >= 0 && static_cast<size_t>(index) < kMaxPtys) {
-        g_slots[index].in_use = false;
+        PtySlot& slot  = g_slots[index];
+        auto     guard = slot.lock.irq_guard();
+        slot.in_use    = false;
+        wake_all(slot.slave_read_waiters);
     }
 }
 

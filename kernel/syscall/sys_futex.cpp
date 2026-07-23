@@ -16,7 +16,7 @@
 
 #include <stdint.h>
 
-#include "kernel/arch/x86_64/user_access.hpp"  // P3 (SMAP): stac/clac for uaddr read
+#include "kernel/arch/x86_64/user_access.hpp"  // get_user for futex words
 #include "kernel/proc/percpu.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
@@ -93,12 +93,10 @@ int64_t futex_wait(uint64_t uaddr, uint32_t val, uint32_t bitset) {
         // atomic vs a concurrent FUTEX_WAKE on another CPU, and no local tick may
         // preempt us while we hold the bucket lock.  The guard drops before switch.
         auto g = b.lock.irq_guard();
-        // P3 (SMAP real): uaddr is a user pointer; wrap the read in a local
-        // stac/clac window. We skip access_ok (the address came from the user
-        // syscall arg; a genuinely bad address faults through the PF path).
-        cinux::arch::stac();
-        uint32_t cur = *reinterpret_cast<volatile uint32_t*>(uaddr);
-        cinux::arch::clac();
+        uint32_t cur = 0;
+        if (!cinux::user::get_user(&cur, reinterpret_cast<const uint32_t*>(uaddr))) {
+            return -kEfault;
+        }
         if (cur != val) {
             return -kEagain;  // guard drops
         }

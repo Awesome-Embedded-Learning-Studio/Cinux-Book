@@ -132,4 +132,51 @@ bool FDTable::set(int fd, File* file) {
     return true;
 }
 
+// ============================================================
+// Dup / Dup2 (F-ECO batch 4)
+// ============================================================
+
+int FDTable::dup(int oldfd, int min_fd) {
+    auto g = lock_.guard();
+    (void)g;
+
+    if (oldfd < 0 || oldfd >= static_cast<int>(FD_TABLE_SIZE) || fds_[oldfd] == nullptr) {
+        return FD_NONE;
+    }
+    // dup never hands out the reserved stdin/out/err slots (0/1/2): start at
+    // FD_FIRST.  This is a hobby-OS deviation from Linux (which dup's lowest >=
+    // 0); it keeps tests deterministic and avoids clobbering the console fds.
+    int start = min_fd < static_cast<int>(FD_FIRST) ? static_cast<int>(FD_FIRST) : min_fd;
+    for (int i = start; i < static_cast<int>(FD_TABLE_SIZE); ++i) {
+        if (fds_[i] == nullptr) {
+            File* src = fds_[oldfd];
+            fds_[i]   = new File(src->inode, src->offset, src->flags, src->cloexec);
+            return i;
+        }
+    }
+    return FD_NONE;  // table full
+}
+
+int FDTable::dup2(int oldfd, int newfd) {
+    auto g = lock_.guard();
+    (void)g;
+
+    if (oldfd < 0 || oldfd >= static_cast<int>(FD_TABLE_SIZE) || fds_[oldfd] == nullptr) {
+        return FD_NONE;
+    }
+    if (newfd < 0 || newfd >= static_cast<int>(FD_TABLE_SIZE)) {
+        return FD_NONE;
+    }
+    if (oldfd == newfd) {
+        return newfd;  // Linux: valid + same -> no-op, return newfd
+    }
+    if (fds_[newfd] != nullptr) {
+        delete fds_[newfd];  // close the old occupant of the target slot
+        fds_[newfd] = nullptr;
+    }
+    File* src   = fds_[oldfd];
+    fds_[newfd] = new File(src->inode, src->offset, src->flags, src->cloexec);
+    return newfd;
+}
+
 }  // namespace cinux::fs

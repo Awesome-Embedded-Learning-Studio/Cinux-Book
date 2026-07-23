@@ -31,6 +31,7 @@ MUSL_HELLO_ELF="$3"
 MUSL_FORKTEST_ELF="$4"
 MUSL_HELLO_DYN_ELF="$5"
 MUSL_LDSO_ELF="$6"
+BUSYBOX_ELF="$7"
 
 if [ -z "$OUTPUT" ]; then
     echo "Usage: $0 <output_image> [shell_elf]" >&2
@@ -81,14 +82,31 @@ Hello from ext2!
 Cinux can read files from a real filesystem now.
 HELLO_EOF
 
+# F-ECO batch 8 busybox acceptance: minimal /etc/passwd + /etc/group so
+# whoami/id resolve uid 0 -> "root" (without these busybox whoami exits 1).
+cat > "$TMPDIR/etc/passwd" << 'PASSWD_EOF'
+root::0:0:root:/:/bin/sh
+PASSWD_EOF
+cat > "$TMPDIR/etc/group" << 'GROUP_EOF'
+root:x:0:
+GROUP_EOF
+
 # Build the debugfs command script
 DEBUGFS_CMDS=""
 DEBUGFS_CMDS+="mkdir etc\n"
+DEBUGFS_CMDS+="mkdir bin\n"
 DEBUGFS_CMDS+="write $TMPDIR/etc/motd etc/motd\n"
+DEBUGFS_CMDS+="write $TMPDIR/etc/passwd etc/passwd\n"
+DEBUGFS_CMDS+="write $TMPDIR/etc/group etc/group\n"
 DEBUGFS_CMDS+="write $TMPDIR/hello.txt hello.txt\n"
 
-if [ -n "$SHELL_ELF" ] && [ -f "$SHELL_ELF" ]; then
-    DEBUGFS_CMDS+="mkdir bin\n"
+# /bin/sh: prefer busybox (interactive `sh` applet) when built -- argv[0]
+# "/bin/sh" → busybox dispatches by basename "sh" → ash shell, so the existing
+# shell_launch (which execves /bin/sh) boots straight into busybox sh for the
+# smoke test. Absent busybox → fall back to the user_shell ELF (CI / no sysroot).
+if [ -n "$BUSYBOX_ELF" ] && [ -f "$BUSYBOX_ELF" ]; then
+    DEBUGFS_CMDS+="write $BUSYBOX_ELF bin/sh\n"
+elif [ -n "$SHELL_ELF" ] && [ -f "$SHELL_ELF" ]; then
     DEBUGFS_CMDS+="write $SHELL_ELF bin/sh\n"
 fi
 
@@ -120,6 +138,49 @@ if { [ -n "$MUSL_HELLO_DYN_ELF" ] && [ -f "$MUSL_HELLO_DYN_ELF" ]; } && \
     # (not a symlink) -- fine, the kernel reads it via inode->ops->read.
     DEBUGFS_CMDS+="write $MUSL_LDSO_ELF lib/ld-musl-x86_64.so.1\n"
     DEBUGFS_CMDS+="write $MUSL_HELLO_DYN_ELF hello-dyn\n"
+fi
+
+# F-ECO batch 0: optional busybox at /bin/busybox (static musl).  Install common
+# applet hard links too: interactive ash resolves "ls" via PATH=/bin to
+# /bin/ls, not to "/bin/busybox ls".  Hard links keep the image small and mirror
+# the normal BusyBox deployment model.
+if [ -n "$BUSYBOX_ELF" ] && [ -f "$BUSYBOX_ELF" ]; then
+    DEBUGFS_CMDS+="write $BUSYBOX_ELF bin/busybox\n"
+    BUSYBOX_APPLETS="
+ash
+ls
+clear
+cat
+echo
+pwd
+uname
+id
+whoami
+true
+false
+sleep
+env
+hostname
+wc
+free
+ps
+mkdir
+rmdir
+touch
+ln
+chmod
+chown
+rm
+cp
+mv
+readlink
+"
+    busybox_links=1
+    for applet in $BUSYBOX_APPLETS; do
+        DEBUGFS_CMDS+="ln /bin/busybox /bin/$applet\n"
+        busybox_links=$((busybox_links + 1))
+    done
+    DEBUGFS_CMDS+="sif /bin/busybox links_count $busybox_links\n"
 fi
 
 

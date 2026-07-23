@@ -258,6 +258,13 @@ struct Task {
     uint32_t gid{0};   ///< Real group ID (0 = root)
     uint32_t egid{0};  ///< Effective group ID (0 = root)
 
+    // F-ECO batch 2: POSIX file-creation mask (sys_umask). Default 0o022.
+    // sys_umask returns the previous mask and sets the new one (masked to 0777).
+    // create/mkdir do not yet honour it (ext2 is not task-aware); applying it
+    // at creation is a follow-up. Inherited across fork() via the whole-Task
+    // memcpy, so no explicit copy code is needed.
+    uint32_t umask{0022};
+
     /**
      * CLONE_CHILD_CLEARTID address (F3-M2 batch 4/5).  On thread exit the
      * kernel writes 0 here and futex_wakes any waiter.  0 = not set.
@@ -291,6 +298,15 @@ struct Task {
     /** FPU/SSE state (512 bytes, 16-byte aligned for fxsave/fxrstor). */
     alignas(16) uint8_t fpu_state[512];
 
+    // F-ECO batch 8: supplementary groups (getgroups/setgroups -- `id`/`newgrp`).
+    // Placed AFTER fpu_state so the fpu_state offset (pinned by the static_assert
+    // below for the syscall/interrupt FXSAVE path) is unchanged.  A fixed-size
+    // table (freestanding: no <vector>); inherited across fork()/clone() via the
+    // whole-Task memcpy (same as uid/gid/umask).  32 is the classic NGROUPS_MAX.
+    static constexpr uint32_t kNGroupsMax = 32;       ///< NGROUPS_MAX
+    uint32_t                  groups[kNGroupsMax]{};  ///< supplementary group IDs
+    uint32_t                  ngroups{0};             ///< number of valid entries
+
     /** Per-process current working directory (refcounted; F3-M2 batch 3). */
     SharedCwd* cwd{nullptr};
 
@@ -309,6 +325,7 @@ struct Task {
 // is the first data member.  Pin both layout facts the asm depends on.
 static_assert(offsetof(Task, ctx) == 0, "ctx at Task+0 (context_switch.S rdi is Task*)");
 static_assert(offsetof(Task, on_cpu) == sizeof(CpuContext), "on_cpu offset for context_switch.S");
+static_assert(offsetof(Task, fpu_state) == 384, "fpu_state offset for syscall/interrupt FXSAVE");
 
 // ============================================================
 // Fork

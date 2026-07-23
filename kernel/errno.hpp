@@ -43,6 +43,14 @@ constexpr int kEnosys       = 38;   ///< Function not implemented
 constexpr int kEnotempty    = 39;   ///< Directory not empty
 constexpr int kEtimedout    = 110;  ///< Connection timed out
 constexpr int kEconnrefused = 111;  ///< Connection refused
+// --- socket-specific (F7-M6); Linux x86_64 values ---
+constexpr int kEdestaddrreq    = 89;   ///< Destination address required (send on unconnected UDP)
+constexpr int kEprotonosupport = 93;   ///< Protocol not supported (bad socket type)
+constexpr int kEopnotsupp      = 95;   ///< Operation not supported
+constexpr int kEafnosupport    = 97;   ///< Address family not supported (bad domain)
+constexpr int kEaddrinuse      = 98;   ///< Address already in use (bind)
+constexpr int kEaddrnotavail   = 99;   ///< Cannot assign requested address
+constexpr int kEnotconn        = 107;  ///< Transport endpoint is not connected
 
 /**
  * @brief Map a @c cinux::lib::Error to its POSIX errno value.

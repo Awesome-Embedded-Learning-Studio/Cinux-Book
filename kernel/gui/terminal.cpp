@@ -5,9 +5,11 @@
 
 #include "terminal.hpp"
 
+#include "kernel/drivers/tty/pty_device.hpp"  // pty_release (F-ECO busybox PTY)
 #include "kernel/drivers/video/font.hpp"
-#include "kernel/ipc/pipe.hpp"
-#include "kernel/lib/kprintf.hpp"
+#include "kernel/fs/inode.hpp"  // Inode::ops->read/write on the PTY master
+#include "kernel/ipc/pipe.hpp"  // legacy pipe (test path)
+#include "kernel/lib/echo_trace.hpp"
 #include "kernel/proc/pid.hpp"
 #include "kernel/proc/process.hpp"
 
@@ -35,9 +37,16 @@ Terminal::Terminal(uint32_t x, uint32_t y, const char* title)
 // ============================================================
 
 Terminal::~Terminal() {
-    // Close our pipe endpoints so the shell detects EOF / write failure.
-    // The Terminal "owns" the write end of stdin_pipe (keyboard -> shell)
-    // and the read end of stdout_pipe (shell output -> terminal display).
+    // Release the PTY slot so a later terminal can reuse it.  The shell child
+    // is reaped below (zombie prevention); the PTY's master/slave inodes are
+    // owned by the slot table (pty_device.cpp), not this Terminal.
+    if (pty_index_ >= 0) {
+        cinux::drivers::pty_release(pty_index_);
+        pty_index_ = -1;
+    }
+    master_inode_ = nullptr;
+    // Legacy pipe cleanup (test path): close the ends this Terminal owns so the
+    // peer detects EOF / write failure.
     if (stdin_pipe_ != nullptr) {
         stdin_pipe_->close_writer();
     }
@@ -84,8 +93,30 @@ void Terminal::on_key(KeyEvent& ev) {
         return;
     }
 
-    // When a stdin pipe is connected, forward the character to the pipe
-    // instead of writing to the screen buffer (the shell echoes via stdout)
+    // PTY master connected: type into the terminal.  master_write feeds the
+    // slave's TTY line discipline, which echoes the char back onto the master
+    // read side (poll_output picks it up next pump) + cooks the line for the
+    // shell.  No local echo here -- the PTY's TTY does the echo (a real
+    // terminal model), so busybox ash sees isatty(slave)==true + interactive mode
+    // + musl line-buffers stdout (output flushes per line, not stuck in stdio).
+    if (master_inode_ != nullptr) {
+        char ch = ev.ascii;
+        if (ch == '\r') {
+            ch = '\n';
+        }
+        cinux::debug::trace_char("terminal.on_key before master_write", ch);
+        auto wr = master_inode_->ops->write(master_inode_, 0, &ch, 1);
+        if (cinux::debug::kEchoTrace) {
+            cinux::lib::kprintf("[ECHO_TRACE] terminal.on_key master_write ok=%d n=%d\n",
+                                wr.ok() ? 1 : 0, wr.ok() ? static_cast<int>(*wr) : -1);
+        }
+        (void)wr;  // echo arrives via poll_output (master_read); no local display
+        return;
+    }
+
+    // Legacy pipe path (test only): forward to stdin pipe.  No local echo --
+    // the test expects the original behavior (forward-only; display happens via
+    // stdout pipe + poll_output).  Production uses the PTY master branch above.
     if (stdin_pipe_ != nullptr) {
         char ch = ev.ascii;
         if (ch == '\r') {
@@ -165,11 +196,16 @@ uint32_t Terminal::cursor_y() const {
 // Stdout pipe polling
 // ============================================================
 
-void Terminal::set_stdin_pipe(ipc::Pipe* pipe) {
+void Terminal::set_master(cinux::fs::Inode* master, int pty_index) {
+    master_inode_ = master;
+    pty_index_    = pty_index;
+}
+
+void Terminal::set_stdin_pipe(cinux::ipc::Pipe* pipe) {
     stdin_pipe_ = pipe;
 }
 
-void Terminal::set_stdout_pipe(ipc::Pipe* pipe) {
+void Terminal::set_stdout_pipe(cinux::ipc::Pipe* pipe) {
     stdout_pipe_ = pipe;
 }
 
@@ -182,18 +218,36 @@ int Terminal::shell_pid() const {
 }
 
 bool Terminal::poll_output() {
-    if (stdout_pipe_ == nullptr) {
+    // Legacy pipe path (test): drain stdout pipe.
+    if (master_inode_ == nullptr && stdout_pipe_ != nullptr) {
+        char buf[256];
+        bool got_any = false;
+        while (true) {
+            int64_t n = stdout_pipe_->try_read(buf, sizeof(buf));
+            if (n <= 0) {
+                break;
+            }
+            write(buf, static_cast<uint64_t>(n));
+            got_any = true;
+        }
+        return got_any;
+    }
+
+    if (master_inode_ == nullptr) {
         return false;
     }
 
-    // Read available data in chunks from the stdout pipe
+    // Drain the PTY master: shell output (stdout, which musl line-buffered
+    // because the slave is a tty) + the slave TTY's echo of typed chars.
     char buf[256];
     bool got_any = false;
     while (true) {
-        int64_t n = stdout_pipe_->try_read(buf, sizeof(buf));
+        auto    r = master_inode_->ops->read(master_inode_, 0, buf, sizeof(buf));
+        int64_t n = r.ok() ? *r : 0;
         if (n <= 0) {
             break;
         }
+        cinux::debug::trace_bytes("terminal.poll_output master_read", buf, n);
         write(buf, static_cast<uint64_t>(n));
         got_any = true;
     }

@@ -2,11 +2,9 @@
  * @file kernel/syscall/sys_signal.hpp
  * @brief Signal syscall handlers (F3-M1)
  *
- * kill / rt_sigaction / rt_sigprocmask.  rt_sigreturn arrives in batch 3
- * (it needs the signal-frame layout).  Handlers read/write user memory
- * directly: the kernel (ring 0) maps the caller's address space, so a
- * user pointer is accessible without a copy primitive (a bad pointer
- * faults and is handled by the PF path).
+ * kill / rt_sigaction / rt_sigprocmask.  User sigaction/mask payloads cross
+ * through copy_to_user/copy_from_user/get_user/put_user; the signal-frame
+ * path in proc/signal.cpp follows the same SMAP/extable boundary rule.
  *
  * Namespace: cinux::syscall
  */

@@ -12,17 +12,16 @@
 #include "kernel/drivers/canvas.hpp"
 #include "kernel/drivers/keyboard/keyboard.hpp"
 #include "kernel/drivers/mouse/mouse.hpp"
+#include "kernel/drivers/tty/pty_device.hpp"  // pty_alloc/master/slave (F-ECO busybox PTY)
 #include "kernel/drivers/video/font.hpp"
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/inode.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/gui/desktop_icon.hpp"
+#include "kernel/gui/host_cinux.hpp"
 #include "kernel/gui/icon.hpp"
 #include "kernel/gui/terminal.hpp"
-#include "kernel/gui/host_cinux.hpp"
 #include "kernel/gui/window_manager.hpp"
-#include "kernel/ipc/pipe.hpp"
-#include "kernel/ipc/pipe_ops.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/lib/string.hpp"
 #include "kernel/mm/address_space.hpp"
@@ -75,8 +74,7 @@ namespace {
 
 /// Launch info passed from the parent (gui_worker) to the shell child task.
 struct ShellLaunchInfo {
-    cinux::fs::Inode* stdin_read;
-    cinux::fs::Inode* stdout_write;
+    cinux::fs::Inode* slave_inode;  ///< PTY slave: the shell's controlling tty
     const char*       path;
 };
 
@@ -91,13 +89,19 @@ static void shell_child_entry() {
 
     task->addr_space = new cinux::mm::AddressSpace();
 
+    // The shell's stdin/stdout/stderr are all the PTY slave -- a real tty, so
+    // isatty(0)==true: busybox ash enters interactive mode (prompt + line edit)
+    // and musl line-buffers stdout (command output flushes per line, not stuck
+    // in a 4 KB stdio buffer as it was on a pipe).  No -i flag needed.
     task->fd_table = new cinux::fs::FDTable();
-    task->fd_table->set(0, new cinux::fs::File(info->stdin_read, 0, cinux::fs::OpenFlags::RDONLY));
-    task->fd_table->set(1,
-                        new cinux::fs::File(info->stdout_write, 0, cinux::fs::OpenFlags::WRONLY));
+    task->fd_table->set(0, new cinux::fs::File(info->slave_inode, 0, cinux::fs::OpenFlags::RDONLY));
+    task->fd_table->set(1, new cinux::fs::File(info->slave_inode, 0, cinux::fs::OpenFlags::WRONLY));
+    task->fd_table->set(2, new cinux::fs::File(info->slave_inode, 0, cinux::fs::OpenFlags::WRONLY));
 
+    // No -i: the PTY slave is a real tty, so isatty(0)==true and busybox ash
+    // enters interactive mode on its own (prompt + echo via the TTY discipline).
     const char* argv[] = {info->path, nullptr};
-    const char* envp[] = {nullptr};
+    const char* envp[] = {"PATH=/bin", nullptr};
     // Load the program, set up the user stack, and jump to user mode.
     // Consolidated with the non-GUI shell launch in init.cpp into
     // launch_user_program(); never returns (jumps to user mode or exits).
@@ -137,25 +141,31 @@ void create_shell_terminal() {
     auto* term = new Terminal(term_x, term_y, title_buf);
     term->set_font(g_font);
 
-    // --- Create per-terminal pipes ---
+    // --- Allocate a PTY pair for this terminal (F-ECO busybox) ---
+    // The shell gets the slave (a real tty: isatty true → ash interactive +
+    // musl line-buffers stdout).  The terminal holds the master (keyboard in,
+    // shell output + TTY echo out).  Replaces the old stdin/stdout pipe pair
+    // which gave the shell a non-tty → no echo + stdio full-buffer (output stuck).
+    auto pty_idx = cinux::drivers::pty_alloc();
+    if (!pty_idx.ok()) {
+        cinux::lib::kprintf("[GUI] pty_alloc failed for terminal '%s'\n", title_buf);
+        delete term;
+        return;
+    }
+    cinux::fs::Inode* master_inode = cinux::drivers::pty_master_inode(*pty_idx);
+    auto              slave_r      = cinux::drivers::pty_slave_inode(*pty_idx);
+    if (master_inode == nullptr || !slave_r.ok()) {
+        cinux::lib::kprintf("[GUI] PTY master/slave lookup failed for terminal '%s'\n", title_buf);
+        cinux::drivers::pty_release(*pty_idx);
+        delete term;
+        return;
+    }
+    cinux::fs::Inode* slave_inode = *slave_r;
 
-    auto* stdin_pipe       = new cinux::ipc::Pipe();
-    auto* stdin_read_ops   = new cinux::ipc::PipeReadOps(stdin_pipe);
-    auto* stdin_read_inode = new cinux::fs::Inode();
-    stdin_read_inode->ops  = stdin_read_ops;
-    stdin_read_inode->type = cinux::fs::InodeType::Regular;
-
-    auto* stdout_pipe        = new cinux::ipc::Pipe();
-    auto* stdout_write_ops   = new cinux::ipc::PipeWriteOps(stdout_pipe);
-    auto* stdout_write_inode = new cinux::fs::Inode();
-    stdout_write_inode->ops  = stdout_write_ops;
-    stdout_write_inode->type = cinux::fs::InodeType::Regular;
-
-    term->set_stdin_pipe(stdin_pipe);
-    term->set_stdout_pipe(stdout_pipe);
+    term->set_master(master_inode, *pty_idx);
 
     // --- Spawn shell via TaskBuilder (clean stack, no fork) ---
-    auto* info = new ShellLaunchInfo{stdin_read_inode, stdout_write_inode, "/bin/sh"};
+    auto* info = new ShellLaunchInfo{slave_inode, "/bin/sh"};
 
     cinux::proc::TaskBuilder builder;
     builder.set_entry(shell_child_entry).set_name("shell");
@@ -163,12 +173,7 @@ void create_shell_terminal() {
     if (child == nullptr) {
         cinux::lib::kprintf("[GUI] TaskBuilder::build failed for shell\n");
         delete info;
-        delete stdin_read_ops;
-        delete stdin_read_inode;
-        delete stdout_write_ops;
-        delete stdout_write_inode;
-        delete stdin_pipe;
-        delete stdout_pipe;
+        // term's destructor will pty_release via set_master's index.
         delete term;
         return;
     }
@@ -185,11 +190,12 @@ void create_shell_terminal() {
     cinux::proc::Scheduler::add_task(child);
 
     term->set_shell_pid(child->pid);
-    cinux::lib::kprintf("[GUI] Terminal '%s': shell spawned pid=%d\n", title_buf, child->pid);
+    cinux::lib::kprintf("[GUI] Terminal '%s': shell spawned pid=%d (pty=%d)\n", title_buf,
+                        child->pid, *pty_idx);
 
     wm.add_window(term);
-    cinux::lib::kprintf("[GUI] Terminal '%s' created with pipes stdin=%p stdout=%p\n", title_buf,
-                        reinterpret_cast<void*>(stdin_pipe), reinterpret_cast<void*>(stdout_pipe));
+    cinux::lib::kprintf("[GUI] Terminal '%s' created with PTY master=%p\n", title_buf,
+                        reinterpret_cast<void*>(master_inode));
 }
 
 // ============================================================
@@ -203,8 +209,8 @@ namespace {
 // dependency -- it just calls a registered listener (CODING-TASTE §14).
 void on_key_event(const cinux::drivers::KeyEvent& ev) {
     cinux::gui::Event gui_ev{};
-    gui_ev.type_        = ev.pressed ? cinux::gui::EventType::KeyDown : cinux::gui::EventType::KeyUp;
-    gui_ev.key.ascii    = ev.ascii;
+    gui_ev.type_     = ev.pressed ? cinux::gui::EventType::KeyDown : cinux::gui::EventType::KeyUp;
+    gui_ev.key.ascii = ev.ascii;
     gui_ev.key.scancode = ev.scancode;
     gui_ev.key.pressed  = ev.pressed;
     gui_ev.key.shift    = ev.shift;

@@ -21,18 +21,22 @@
  *   rsp+8:  user RIP (RCX)
  *   rsp+16: user RFLAGS (R11)
  *   rsp+24: syscall number (RAX) / return value after dispatch
- *   rsp+32: arg1 (RDI)
- *   rsp+40: arg2 (RSI)
- *   rsp+48: arg3 (RDX)
- *   rsp+56: arg4 (R10)
- *   rsp+64: arg5 (R8)
- *   rsp+72: arg6 (R9)
- *   rsp+80: callee-saved R12
- *   rsp+88: callee-saved R13
- *   rsp+96: callee-saved R14
- *   rsp+104: callee-saved R15
- *   rsp+112: callee-saved RBX
- *   rsp+120: callee-saved RBP
+ *   rsp+32: user RDI / arg1
+ *   rsp+40: user RSI / arg2
+ *   rsp+48: user RDX / arg3
+ *   rsp+56: user R10 / arg4
+ *   rsp+64: user R8  / arg5
+ *   rsp+72: user R9  / arg6
+ *   rsp+80: user R12
+ *   rsp+88: user R13
+ *   rsp+96: user R14
+ *   rsp+104: user R15
+ *   rsp+112: user RBX
+ *   rsp+120: user RBP
+ *
+ * With SIMD enabled in kernel C/C++, syscall_entry also reserves a 512-byte
+ * FXSAVE area immediately below the trap frame.  Task::fpu_state is hardcoded
+ * at +384 (pinned by process.hpp) for the per-task user-FPU snapshot.
  *
  * AT&T syntax notes:
  *   Operand order: source, destination
@@ -49,7 +53,9 @@
 #          %rcx = user RIP (saved by SYSCALL)
 #          %r11 = user RFLAGS (saved by SYSCALL)
 # Output:  %rax = return value (via SYSRETQ)
-# Clobbers: none (all saved/restored)
+# User ABI: Linux x86_64 syscall ABI -- %rax is the return value, %rcx/%r11
+#           are clobbered by SYSCALL/SYSRET, and all other user registers are
+#           preserved.
 # ============================================================
 .global syscall_entry
 .type syscall_entry, @function
@@ -103,19 +109,30 @@ syscall_entry:
     #   rsp+112: rbx
     #   rsp+120: rbp
 
+    # Preserve user FPU/SSE state before any C/C++ kernel code can use XMM.
+    # Keep a stack copy for this syscall's eventual SYSRET and refresh the
+    # task snapshot so fork/clone/preemption see the current user SIMD state.
+    subq $512, %rsp                    # reserve 512-byte, 16-byte-aligned FXSAVE area
+    fxsave (%rsp)                      # save interrupted user FPU/SSE state
+    movq %gs:24, %rax                  # current Task* (PerCpu.current)
+    testq %rax, %rax
+    jz 1f
+    fxsave 384(%rax)                   # Task::fpu_state (offset pinned in process.hpp)
+1:
+
     # Step 4: Call syscall_dispatch(nr, a1, a2, a3, a4, a5, a6)
     # System V AMD64: args in %rdi, %rsi, %rdx, %rcx, %r8, %r9, then stack
     # Load arg6 before pushing so offsets are correct
-    movq 72(%rsp), %rax                # frame+72→%rax: a6 (original R9)
+    movq 584(%rsp), %rax               # frame+72→%rax: a6 (original R9)
     subq $8, %rsp                      # align stack to 16 bytes before push
     pushq %rax                         # %rax→(%rsp): push 7th C arg onto stack (shifts frame by +16)
 
-    movq 40(%rsp), %rdi                # frame+40→%rdi: 1st arg = syscall number (+16 offset)
-    movq 48(%rsp), %rsi                # frame+48→%rsi: 2nd arg = a1 (original RDI)
-    movq 56(%rsp), %rdx                # frame+56→%rdx: 3rd arg = a2 (original RSI)
-    movq 64(%rsp), %rcx                # frame+64→%rcx: 4th arg = a3 (original RDX)
-    movq 72(%rsp), %r8                 # frame+72→%r8:  5th arg = a4 (original R10)
-    movq 80(%rsp), %r9                 # frame+80→%r9:  6th arg = a5 (original R8)
+    movq 552(%rsp), %rdi               # frame+24→%rdi: 1st arg = syscall number (+528 offset)
+    movq 560(%rsp), %rsi               # frame+32→%rsi: 2nd arg = a1 (original RDI)
+    movq 568(%rsp), %rdx               # frame+40→%rdx: 3rd arg = a2 (original RSI)
+    movq 576(%rsp), %rcx               # frame+48→%rcx: 4th arg = a3 (original RDX)
+    movq 584(%rsp), %r8                # frame+56→%r8:  5th arg = a4 (original R10)
+    movq 592(%rsp), %r9                # frame+64→%r9:  6th arg = a5 (original R8)
 
     call syscall_dispatch              # call C dispatcher
 
@@ -126,25 +143,31 @@ syscall_entry:
     movq %rax, %gs:16                  # save return value in per-CPU scratch
 
     # Step 6: Restore user state from trap frame
-    movq 0(%rsp), %rax                 # frame+0→%rax: recover user RSP
+    movq 512(%rsp), %rax               # frame+0→%rax: recover user RSP
     movq %rax, %gs:8                   # %rax→%gs:8: store user RSP for later restore
-    movq 8(%rsp), %rcx                 # frame+8→%rcx: user RIP (SYSRETQ loads RIP from RCX)
-    movq 16(%rsp), %r11                # frame+16→%r11: user RFLAGS (SYSRETQ loads RFLAGS from R11)
-    movq 80(%rsp), %r12                # frame+80→%r12: RESTORE user R12 (callee-saved)
-    movq 88(%rsp), %r13                # frame+88→%r13: RESTORE user R13 (callee-saved)
-    movq 96(%rsp), %r14                # frame+96→%r14: RESTORE user R14 (callee-saved)
-    movq 104(%rsp), %r15               # frame+104→%r15: RESTORE user R15 (callee-saved)
-    movq 112(%rsp), %rbx               # frame+112→%rbx: RESTORE user RBX (callee-saved)
-    movq 120(%rsp), %rbp               # frame+120→%rbp: RESTORE user RBP (callee-saved)
-                                      # F10: syscalls must preserve all SysV
-                                      # callee-saved user registers. This is
-                                      # especially visible in fork children:
-                                      # they resume from a copied kernel stack,
-                                      # so live user R12-R15 must come from the
-                                      # syscall frame, not from Task::ctx.
+    movq 520(%rsp), %rcx               # frame+8→%rcx: user RIP (SYSRETQ loads RIP from RCX)
+    movq 528(%rsp), %r11               # frame+16→%r11: user RFLAGS (SYSRETQ loads RFLAGS from R11)
+    movq 544(%rsp), %rdi               # frame+32→%rdi: RESTORE user RDI
+    movq 552(%rsp), %rsi               # frame+40→%rsi: RESTORE user RSI
+    movq 560(%rsp), %rdx               # frame+48→%rdx: RESTORE user RDX
+    movq 568(%rsp), %r10               # frame+56→%r10: RESTORE user R10
+    movq 576(%rsp), %r8                # frame+64→%r8: RESTORE user R8
+    movq 584(%rsp), %r9                # frame+72→%r9: RESTORE user R9
+    movq 592(%rsp), %r12               # frame+80→%r12: RESTORE user R12
+    movq 600(%rsp), %r13               # frame+88→%r13: RESTORE user R13
+    movq 608(%rsp), %r14               # frame+96→%r14: RESTORE user R14
+    movq 616(%rsp), %r15               # frame+104→%r15: RESTORE user R15
+    movq 624(%rsp), %rbx               # frame+112→%rbx: RESTORE user RBX
+    movq 632(%rsp), %rbp               # frame+120→%rbp: RESTORE user RBP
+                                      # Musl's inline syscall asm follows the
+                                      # Linux ABI: only RAX, RCX, and R11 may
+                                      # change.  Preserve the argument regs too,
+                                      # not just SysV callee-saved regs.
 
-    # Deallocate trap frame (16 slots * 8 bytes = 128 bytes)
-    addq $128, %rsp                    # $128→%rsp: remove entire trap frame
+    # Restore the user FPU/SSE image and deallocate FXSAVE area + trap frame.
+    # From here to SYSRETQ, keep the path pure assembly and avoid SIMD use.
+    fxrstor (%rsp)                     # restore user FPU/SSE state
+    addq $640, %rsp                    # remove 512-byte FXSAVE area + 128-byte frame
 
     # Step 7: Restore user RSP
     movq %gs:8, %rsp                   # %gs:8→%rsp: switch back to user stack
@@ -177,7 +200,7 @@ syscall_entry:
 #          kernel stack.  Set by prepare_user_fork_context(): ctx.rsp =
 #          child->kernel_stack_top - 128, ctx.rip = ret_from_fork.
 # Output:  never returns -- SYSRETQs to Ring 3 with RAX=0 (child fork
-#          return value), user RIP/RSP/RFLAGS + callee-saved restored
+#          return value), user RIP/RSP/RFLAGS + syscall-preserved regs restored
 #          from the frame.
 #
 # This is the Linux-style fork child path: the child does NOT run on a
@@ -190,12 +213,18 @@ syscall_entry:
 #   rsp+0:    user_rsp
 #   rsp+8:    user_rip
 #   rsp+16:   user_rflags
-#   rsp+80:   callee-saved r12
-#   rsp+88:   callee-saved r13
-#   rsp+96:   callee-saved r14
-#   rsp+104:  callee-saved r15
-#   rsp+112:  callee-saved rbx
-#   rsp+120:  callee-saved rbp
+#   rsp+32:   user rdi
+#   rsp+40:   user rsi
+#   rsp+48:   user rdx
+#   rsp+56:   user r10
+#   rsp+64:   user r8
+#   rsp+72:   user r9
+#   rsp+80:   user r12
+#   rsp+88:   user r13
+#   rsp+96:   user r14
+#   rsp+104:  user r15
+#   rsp+112:  user rbx
+#   rsp+120:  user rbp
 #
 # GS state on entry: context_switch.S keeps the kernel GS (per-CPU) for
 # the whole of kernel mode (it does not swapgs), so like syscall_entry we
@@ -208,17 +237,28 @@ syscall_entry:
 .type ret_from_fork, @function
 ret_from_fork:
 
-    # Restore the user callee-saved registers + SYSRETQ control regs from
+    # Restore the syscall-preserved user registers + SYSRETQ control regs from
     # the frame.  %rsp (user_rsp at frame+0) is loaded LAST -- once %rsp
     # leaves the kernel frame we can no longer address it.
     movq 8(%rsp), %rcx                 # frame+8→%rcx: user RIP (SYSRETQ loads RIP from RCX)
     movq 16(%rsp), %r11                # frame+16→%r11: user RFLAGS (SYSRETQ loads RFLAGS from R11)
-    movq 80(%rsp), %r12                # frame+80→%r12: user R12 (callee-saved)
-    movq 88(%rsp), %r13                # frame+88→%r13: user R13 (callee-saved)
-    movq 96(%rsp), %r14                # frame+96→%r14: user R14 (callee-saved)
-    movq 104(%rsp), %r15               # frame+104→%r15: user R15 (callee-saved)
-    movq 112(%rsp), %rbx               # frame+112→%rbx: user RBX (callee-saved)
-    movq 120(%rsp), %rbp               # frame+120→%rbp: user RBP (callee-saved)
+    movq 32(%rsp), %rdi                # frame+32→%rdi: user RDI
+    movq 40(%rsp), %rsi                # frame+40→%rsi: user RSI
+    movq 48(%rsp), %rdx                # frame+48→%rdx: user RDX
+    movq 56(%rsp), %r10                # frame+56→%r10: user R10
+    movq 64(%rsp), %r8                 # frame+64→%r8: user R8
+    movq 72(%rsp), %r9                 # frame+72→%r9: user R9
+    movq 80(%rsp), %r12                # frame+80→%r12: user R12
+    movq 88(%rsp), %r13                # frame+88→%r13: user R13
+    movq 96(%rsp), %r14                # frame+96→%r14: user R14
+    movq 104(%rsp), %r15               # frame+104→%r15: user R15
+    movq 112(%rsp), %rbx               # frame+112→%rbx: user RBX
+    movq 120(%rsp), %rbp               # frame+120→%rbp: user RBP
+    movq %gs:24, %rax                  # current Task*
+    testq %rax, %rax
+    jz 1f
+    fxrstor 384(%rax)                  # child inherits/restores parent user FPU state
+1:
     movq 0(%rsp), %rsp                 # frame+0→%rsp: switch to the user stack
 
     # Child sees fork()/clone() return 0.

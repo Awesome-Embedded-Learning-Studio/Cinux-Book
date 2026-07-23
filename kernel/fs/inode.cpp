@@ -51,6 +51,37 @@ cinux::lib::ErrorOr<Inode*> InodeOps::open(Inode* inode, uint64_t /*flags*/) {
     return inode;
 }
 
+// F-ECO batch 2: default attribute + dirent ops. Backends that do not support
+// them inherit NotImplemented, which syscalls translate to -ENOSYS.
+cinux::lib::ErrorOr<void> InodeOps::chmod(Inode*, uint32_t) {
+    return cinux::lib::Error::NotImplemented;
+}
+
+cinux::lib::ErrorOr<void> InodeOps::chown(Inode*, uint32_t, uint32_t) {
+    return cinux::lib::Error::NotImplemented;
+}
+
+cinux::lib::ErrorOr<void> InodeOps::utimensat(Inode*, uint64_t, uint32_t, uint64_t, uint32_t) {
+    return cinux::lib::Error::NotImplemented;
+}
+
+cinux::lib::ErrorOr<int64_t> InodeOps::readlink(const Inode*, char*, uint64_t) {
+    return cinux::lib::Error::NotImplemented;
+}
+
+cinux::lib::ErrorOr<void> InodeOps::symlink(Inode*, const char*, uint32_t, const char*) {
+    return cinux::lib::Error::NotImplemented;
+}
+
+cinux::lib::ErrorOr<void> InodeOps::link(Inode*, const char*, uint32_t, const Inode*) {
+    return cinux::lib::Error::NotImplemented;
+}
+
+cinux::lib::ErrorOr<void> InodeOps::rename(Inode*, const char*, uint32_t, Inode*, const char*,
+                                           uint32_t) {
+    return cinux::lib::Error::NotImplemented;
+}
+
 bool InodeOps::is_page_cacheable() const {
     return false;
 }

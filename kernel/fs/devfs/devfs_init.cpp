@@ -18,7 +18,7 @@
 
 #include "kernel/drivers/serial/serial.hpp"
 #include "kernel/drivers/tty/pty_device.hpp"  // /dev/ptmx clone + /dev/pts/N
-#include "kernel/fs/devfs.hpp"
+#include "kernel/fs/devfs/devfs.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/ipc/fifo.hpp"  // named FIFO dynamic lookup (F8-M2)
 #include "kernel/lib/kprintf.hpp"

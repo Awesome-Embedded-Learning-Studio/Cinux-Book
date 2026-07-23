@@ -66,9 +66,13 @@ set(MUSL_FORKTEST_ELF "${CMAKE_BINARY_DIR}/musl/forktest")
 # /hello: the script includes them iff the files exist (absent in CI).
 set(MUSL_HELLO_DYN_ELF "${CMAKE_BINARY_DIR}/musl/hello-dyn")
 set(MUSL_LDSO_ELF "${CMAKE_BINARY_DIR}/musl-sysroot/lib/libc.so")
+# F-ECO batch 0: minimal static busybox at /bin/busybox when present (built by
+# clang --target=x86_64-linux-musl, not a CMake target). The ring-3 smoke
+# fork+execves it to run echo/cat/ls applets -- the first ecosystem touchstone.
+set(BUSYBOX_ELF "${CMAKE_BINARY_DIR}/musl/busybox")
 add_custom_command(
     OUTPUT ${EXT2_IMAGE}
-    COMMAND ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh ${EXT2_IMAGE} ${USER_SHELL_ELF} ${MUSL_HELLO_ELF} ${MUSL_FORKTEST_ELF} ${MUSL_HELLO_DYN_ELF} ${MUSL_LDSO_ELF}
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh ${EXT2_IMAGE} ${USER_SHELL_ELF} ${MUSL_HELLO_ELF} ${MUSL_FORKTEST_ELF} ${MUSL_HELLO_DYN_ELF} ${MUSL_LDSO_ELF} ${BUSYBOX_ELF}
     DEPENDS ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh user_shell
     COMMENT "Creating ext2 filesystem image with /bin/sh (+ /hello, /forktest, /hello-dyn if musl built)"
     VERBATIM
@@ -320,9 +324,16 @@ add_custom_target(run-stress-test
 # 每次 run-kernel-test 前强制重建 ext2.img，确保磁盘状态干净
 add_custom_target(regenerate-ext2-image
     COMMAND ${CMAKE_COMMAND} -E remove -f ${EXT2_IMAGE}
-    COMMAND ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh ${EXT2_IMAGE} ${USER_SHELL_ELF} ${MUSL_HELLO_ELF} ${MUSL_FORKTEST_ELF} ${MUSL_HELLO_DYN_ELF} ${MUSL_LDSO_ELF}
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh ${EXT2_IMAGE} ${USER_SHELL_ELF} ${MUSL_HELLO_ELF} ${MUSL_FORKTEST_ELF} ${MUSL_HELLO_DYN_ELF} ${MUSL_LDSO_ELF} ${BUSYBOX_ELF}
     DEPENDS ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh user_shell
     COMMENT "Regenerating ext2 disk image for clean test state"
+    VERBATIM
+)
+
+add_custom_target(check_uaccess_boundaries
+    COMMAND bash ${CMAKE_SOURCE_DIR}/scripts/check_uaccess_boundaries.sh
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Checking user/kernel access boundary invariants"
     VERBATIM
 )
 
@@ -331,7 +342,7 @@ add_custom_target(run-kernel-test
         ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} ${QEMU_TEST_EXTRA_FLAGS}
         -device e1000,netdev=net0 -netdev user,id=net0
         -drive file=${CINUX_TEST_IMAGE_PATH},format=raw,index=0,media=disk
-    DEPENDS test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
+    DEPENDS check_uaccess_boundaries test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
     USES_TERMINAL
     COMMENT "Starting QEMU with TEST kernel (auto-exit)"
     VERBATIM
@@ -343,7 +354,7 @@ add_custom_target(run-kernel-test-net
         ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} ${QEMU_TEST_EXTRA_FLAGS}
         -device e1000,netdev=net0 -netdev user,id=net0
         -drive file=${CINUX_TEST_IMAGE_PATH},format=raw,index=0,media=disk
-    DEPENDS test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
+    DEPENDS check_uaccess_boundaries test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
     USES_TERMINAL
     COMMENT "Starting QEMU with TEST kernel + e1000 NIC (auto-exit)"
     VERBATIM
@@ -361,7 +372,7 @@ add_custom_target(run-kernel-test-xhci
         ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} ${QEMU_TEST_EXTRA_FLAGS}
         -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb-tablet,bus=xhci.0
         -drive file=${CINUX_TEST_IMAGE_PATH},format=raw,index=0,media=disk
-    DEPENDS test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
+    DEPENDS check_uaccess_boundaries test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
     USES_TERMINAL
     COMMENT "Starting QEMU with TEST kernel + qemu-xhci (auto-exit)"
     VERBATIM
@@ -372,7 +383,7 @@ add_custom_target(run-kernel-test-smp
     COMMAND ${CMAKE_SOURCE_DIR}/scripts/qemu_test_wrapper.sh
         ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} -smp 2 ${QEMU_TEST_EXTRA_FLAGS}
         -drive file=${CINUX_TEST_IMAGE_PATH},format=raw,index=0,media=disk
-    DEPENDS test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
+    DEPENDS check_uaccess_boundaries test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
     USES_TERMINAL
     COMMENT "Starting QEMU with TEST kernel + 2 CPUs (auto-exit)"
     VERBATIM
@@ -391,7 +402,7 @@ add_custom_target(run-kernel-test-all
     COMMAND ${CMAKE_SOURCE_DIR}/scripts/qemu_test_wrapper.sh
         ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} -smp 2 ${QEMU_TEST_EXTRA_FLAGS}
         -drive file=${CINUX_TEST_IMAGE_PATH},format=raw,index=0,media=disk
-    DEPENDS test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
+    DEPENDS check_uaccess_boundaries test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
     USES_TERMINAL
     COMMENT "F-VERIFY: kernel tests under single-CPU THEN -smp 2 (unified AI/CI entry; individuals kept for debug)"
     VERBATIM

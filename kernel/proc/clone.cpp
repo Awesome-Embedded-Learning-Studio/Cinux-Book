@@ -31,6 +31,7 @@
 #include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
 #include "kernel/arch/x86_64/phys_virt.hpp"
+#include "kernel/arch/x86_64/user_access.hpp"
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -128,6 +129,7 @@ void cow_clone_address_space(Task* parent, Task* child) {
 
 __attribute__((noinline)) int clone(uint64_t flags, uint64_t stack, uint64_t parent_tid,
                                     uint64_t child_tid, uint64_t tls) {
+    KernelForkCalleeRegs caller_regs = capture_kernel_fork_callee_regs();
     auto* parent = Scheduler::current();
     if (parent == nullptr) {
         cinux::lib::kprintf("[PROC] clone: no current task\n");
@@ -261,7 +263,7 @@ __attribute__((noinline)) int clone(uint64_t flags, uint64_t stack, uint64_t par
 
         uint64_t frame_base = reinterpret_cast<uint64_t>(__builtin_frame_address(0));
         prepare_kernel_fork_context(child, current_rsp, current_rsp + full_stack_used,
-                                    child_stack_start, frame_base);
+                                    child_stack_start, frame_base, caller_regs);
     }
 
     // ---- CRUX: patch the child's user-RSP to the provided thread stack ----
@@ -318,19 +320,29 @@ __attribute__((noinline)) int clone(uint64_t flags, uint64_t stack, uint64_t par
         }
     }
 
+    // ---- TID flags ----
+    if ((flags & kCloneParentSettid) && parent_tid != 0) {
+        if (!cinux::user::put_user(child_pid, reinterpret_cast<int*>(parent_tid))) {
+            free_kernel_stack(child);
+            delete child;
+            cinux::proc::g_pid_alloc.free(child_pid);
+            return -14;  // EFAULT
+        }
+    }
+    if ((flags & kCloneChildSettid) && child_tid != 0) {
+        // CLONE_VM shares memory, so writing here is visible to the child.
+        if (!cinux::user::put_user(child_pid, reinterpret_cast<int*>(child_tid))) {
+            free_kernel_stack(child);
+            delete child;
+            cinux::proc::g_pid_alloc.free(child_pid);
+            return -14;  // EFAULT
+        }
+    }
+
     // ---- Linkage: CLONE_THREAD is a sibling, NOT a child of the caller ----
     if (!(flags & kCloneThread)) {
         child->wait_next = parent->children;
         parent->children = child;
-    }
-
-    // ---- TID flags ----
-    if ((flags & kCloneParentSettid) && parent_tid != 0) {
-        *reinterpret_cast<int*>(parent_tid) = child_pid;
-    }
-    if ((flags & kCloneChildSettid) && child_tid != 0) {
-        // CLONE_VM shares memory, so writing here is visible to the child.
-        *reinterpret_cast<int*>(child_tid) = child_pid;
     }
 
     Scheduler::add_task(child);

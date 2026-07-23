@@ -73,4 +73,15 @@ void start_poll_driver();
 ///        Pass nullptr to restore the production default.
 void set_default_rx_pump(RxPump pump);
 
+class Socket;  // forward -- see kernel/net/socket.hpp (F7-M6)
+
+/// @brief Allocate a Socket wired to the production stack (F7-M6).  The factory
+///        is the ONE bridge between the socket layer (kernel/net/) and the L4
+///        modules instantiated here: sys_socket calls it, and it returns a
+///        UdpSocket (SOCK_DGRAM) / TcpSocket (SOCK_STREAM) bound to g_udp/g_tcp
+///        + the route resolver.  Returns nullptr if the stack is not up (no NIC)
+///        or the domain/type is unsupported (sys_socket maps that to -EPROTONOSUPPORT).
+///        Implemented in kernel/drivers/net/net_init.cpp (the composition root).
+Socket* create_socket(int domain, int type);
+
 }  // namespace cinux::net
