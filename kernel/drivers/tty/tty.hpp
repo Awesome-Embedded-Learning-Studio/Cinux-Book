@@ -75,6 +75,7 @@ constexpr uint32_t kTcsets     = 0x5402;  ///< TCSETS:    write termios
 constexpr uint32_t kTiocgwinsz = 0x5413;  ///< TIOCGWINSZ: read window size
 constexpr uint32_t kTiocgpgrp  = 0x540F;  ///< TIOCGPGRP: get foreground pgid (batch 5)
 constexpr uint32_t kTiocspgrp  = 0x5410;  ///< TIOCSPGRP: set foreground pgid (batch 5)
+constexpr uint32_t kTiocsctty  = 0x540E;  ///< TIOCSCTTY: acquire controlling terminal (Phase 2)
 
 /// Linux <asm-generic/termios.h> struct winsize. libc reads this exact layout
 /// via TIOCGWINSZ.

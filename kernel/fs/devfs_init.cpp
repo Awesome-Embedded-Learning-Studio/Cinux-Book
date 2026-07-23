@@ -17,9 +17,12 @@
 #include <stdint.h>
 
 #include "kernel/drivers/serial/serial.hpp"
+#include "kernel/drivers/tty/pty_device.hpp"  // /dev/ptmx clone + /dev/pts/N
 #include "kernel/fs/devfs.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/proc/process.hpp"    // Task::controlling_tty (for /dev/tty)
+#include "kernel/proc/scheduler.hpp"  // Scheduler::current()
 
 namespace cinux::fs {
 namespace {
@@ -53,6 +56,44 @@ private:
 SerialConsoleSink g_devfs_sink;
 DevFs             g_devfs{&g_devfs_sink};
 
+// Resolve a dynamic /dev name the fixed DevFs node table cannot hold.  Today
+// this is just "/dev/pts/<N>" -> the slave inode of PTY pair N (allocated on
+// demand by /dev/ptmx open).  Any other name -> NotFound.
+cinux::lib::ErrorOr<Inode*> pty_dynamic_lookup(const char* name) {
+    if (name == nullptr) {
+        return cinux::lib::Error::InvalidArgument;
+    }
+    // DevFs::lookup already stripped a leading '/', so expect "tty" or "pts/<N>".
+    const char* p = name;
+    if (p[0] == '/') {
+        ++p;
+    }
+    // /dev/tty -> the caller's controlling terminal (the slave side of its PTY).
+    if (p[0] == 't' && p[1] == 't' && p[2] == 'y' && p[3] == '\0') {
+        cinux::proc::Task* task = cinux::proc::Scheduler::current();
+        if (task == nullptr || task->controlling_tty < 0) {
+            return cinux::lib::Error::NotFound;  // no controlling terminal
+        }
+        return cinux::drivers::pty_slave_inode(task->controlling_tty);
+    }
+    if (p[0] != 'p' || p[1] != 't' || p[2] != 's' || p[3] != '/') {
+        return cinux::lib::Error::NotFound;
+    }
+    p += 4;  // past "pts/"
+    if (*p < '0' || *p > '9') {
+        return cinux::lib::Error::NotFound;
+    }
+    int index = 0;
+    while (*p >= '0' && *p <= '9') {
+        index = index * 10 + (*p - '0');
+        ++p;
+    }
+    if (*p != '\0') {
+        return cinux::lib::Error::NotFound;  // trailing junk
+    }
+    return cinux::drivers::pty_slave_inode(index);
+}
+
 }  // namespace
 
 namespace devfs {
@@ -62,6 +103,11 @@ bool init() {
         cinux::lib::kprintf("[DEVFS] mount failed\n");
         return false;
     }
+    // PTY: /dev/ptmx is a cloning device (open() allocates a pair); /dev/pts/<N>
+    // resolves dynamically to the matching slave inode.  Registered here so
+    // devfs.cpp itself stays PTY-free (host-testable).
+    g_devfs.add_node("ptmx", &cinux::drivers::ptmx_ops());
+    g_devfs.set_dynamic_lookup(&pty_dynamic_lookup);
     if (!vfs_mount_add("/dev", &g_devfs)) {
         cinux::lib::kprintf("[DEVFS] vfs_mount_add /dev failed (table full?)\n");
         return false;

@@ -253,6 +253,14 @@ const char* DevFs::node_name(uint32_t i) const {
     return nodes_[i].name;
 }
 
+void DevFs::add_node(const char* name, InodeOps* ops) {
+    register_node(name, ops);
+}
+
+void DevFs::set_dynamic_lookup(DynamicLookup resolver) {
+    dynamic_lookup_ = resolver;
+}
+
 cinux::lib::ErrorOr<Inode*> DevFs::lookup(const char* path) {
     if (path == nullptr) {
         return cinux::lib::Error::InvalidArgument;
@@ -280,6 +288,12 @@ cinux::lib::ErrorOr<Inode*> DevFs::lookup(const char* path) {
         if (a[j] == '\0' && path[j] == '\0') {
             return &nodes_[i].inode;
         }
+    }
+
+    // No static node matched.  Defer to the dynamic resolver if boot wired one
+    // (the PTY registry answers /dev/pts/<N> here, on demand).
+    if (dynamic_lookup_ != nullptr) {
+        return dynamic_lookup_(path);
     }
     return cinux::lib::Error::NotFound;
 }

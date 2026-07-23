@@ -8,6 +8,8 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/video/console.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tty/tty.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tty/console_tty.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tty/pty.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tty/pty_device.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/pci/pci.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/acpi/rsdp.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/acpi/sdt.cpp

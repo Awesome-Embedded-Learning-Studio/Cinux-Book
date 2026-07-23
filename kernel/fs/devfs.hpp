@@ -95,6 +95,18 @@ public:
     /// Used by the directory readdir implementation.
     const char* node_name(uint32_t i) const;
 
+    /// Register an extra static device node after mount().  Boot wiring for a
+    /// node whose ops live outside devfs.cpp (e.g. /dev/ptmx, whose open() is a
+    /// PTY clone).  No-op if the table is full.
+    void add_node(const char* name, InodeOps* ops);
+
+    /// Dynamic per-call resolver for names not in the static table -- the
+    /// /dev/pts/<N> slave inodes are allocated on demand, so they cannot live in
+    /// the fixed node array.  devfs_init wires this to the PTY registry; devfs.cpp
+    /// itself stays PTY-free (and thus host-testable).
+    using DynamicLookup = cinux::lib::ErrorOr<Inode*> (*)(const char* name);
+    void set_dynamic_lookup(DynamicLookup resolver);
+
 private:
     /// A single device node: name plus its pre-allocated Inode.
     struct DevNode {
@@ -104,6 +116,10 @@ private:
 
     /// Register a character-device node with @p name backed by @p ops.
     void register_node(const char* name, InodeOps* ops);
+
+    /// Optional resolver for dynamic names (set via set_dynamic_lookup).  lookup
+    /// falls back to it when the static node table has no match.
+    DynamicLookup dynamic_lookup_{nullptr};
 
     /// Fixed node table (each entry owns its Inode).
     DevNode  nodes_[DEVFS_MAX_NODES];

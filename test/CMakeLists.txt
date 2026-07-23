@@ -98,6 +98,10 @@ add_cinux_test(keyboard)
 # F10-M3 batch 1: TTY line discipline -- links the real drivers/tty/tty.cpp
 # (pure logic, zero kprintf) so the canonical discipline is exercised on host.
 add_cinux_test(tty ${CMAKE_SOURCE_DIR}/kernel/drivers/tty/tty.cpp)
+# F10-M3 Phase 2 batch 1: PTY pair -- links the real pty.cpp + its tty.cpp
+# dependency so master/slave round-trip, echo, signal, raw, EOF run on host.
+add_cinux_test(pty ${CMAKE_SOURCE_DIR}/kernel/drivers/tty/pty.cpp
+                   ${CMAKE_SOURCE_DIR}/kernel/drivers/tty/tty.cpp)
 add_cinux_test(extable)  # F-EXTABLE: exception-table search/sort primitives
 add_cinux_test(address_space)
 add_cinux_test(scheduler)

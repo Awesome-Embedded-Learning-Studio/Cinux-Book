@@ -69,6 +69,7 @@ void run_ramdisk_tests();
 void run_vfs_syscall_tests();
 void run_ext2_tests();
 void run_devfs_tests();
+void run_pty_device_tests();
 void run_ahci_write_tests();
 void run_ahci_block_device_tests();
 void run_ext2_allocator_tests();
@@ -642,6 +643,10 @@ extern "C" void kernel_main() {
 
     // DevFS tests (F6-M3): /dev/null, /dev/zero, /dev/console, readdir, stat
     run_devfs_tests();
+
+    // PTY device tests (F10-M3 Phase 2): alloc, master<->slave round-trip,
+    // echo, termios ioctl, TIOCGPTN.
+    run_pty_device_tests();
 
     // AHCI write + ext2 write_block tests (028b): write round-trip, write_block
     run_ahci_write_tests();
