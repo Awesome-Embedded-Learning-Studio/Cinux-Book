@@ -60,6 +60,30 @@ constexpr bool is_xhci_device(uint8_t cls, uint8_t sub, uint8_t prog_if) {
            prog_if == PciClass::XHCI_PROG_IF;
 }
 
+/**
+ * @brief True iff vendor/device identify an Intel e1000 NIC
+ *
+ * Matched on vendor + device (NOT PCI class 0x02) so it does not bind virtio-net
+ * or other network controllers reserved for later milestones.  Covers the
+ * 82540em (QEMU -device e1000 default) and the common e1000/e1000e variants.
+ * Pure (host-testable).
+ */
+constexpr bool is_e1000_device(uint16_t vendor, uint16_t device) {
+    if (vendor != 0x8086) {
+        return false;
+    }
+    switch (device) {
+    case 0x100E:  // 82540em (QEMU -device e1000 default)
+    case 0x100F:  // 82541PI
+    case 0x10EA:  // 82545EM
+    case 0x10D3:  // 82574L (-device e1000e)
+    case 0x10EF:  // 82578DM
+        return true;
+    default:
+        return false;
+    }
+}
+
 // ============================================================
 // PCI Class
 // ============================================================
@@ -130,6 +154,17 @@ public:
      * @return     true if an xHCI controller was found, false otherwise
      */
     bool find_xhci(PCIDevice& out) const;
+
+    /**
+     * @brief Enumerate PCI buses and locate an Intel e1000 NIC
+     *
+     * Scans for a device matching is_e1000_device() (vendor 0x8086 + an e1000
+     * device ID).  The first match is written to @p out with its BARs decoded.
+     *
+     * @param out  Reference to a PCIDevice to fill with the match
+     * @return     true if an e1000 NIC was found, false otherwise
+     */
+    bool find_e1000(PCIDevice& out) const;
 
     /**
      * @brief Read all six BAR values from a PCI device

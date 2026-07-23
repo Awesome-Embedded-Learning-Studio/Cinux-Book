@@ -22,6 +22,7 @@
 #include "gdt.hpp"
 #include "idt.hpp"
 #include "irq_backend.hpp"
+#include "kernel/drivers/apic/local_apic.hpp"
 #include "kernel/drivers/pit/pit.hpp"
 #include "kernel/drivers/usb/xhci_irq.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -63,6 +64,7 @@ void irq15_stub();
 void reschedule_ipi_stub();  // F4-M4 M4-2: reschedule IPI (vector 0xE0)
 void xhci_irq_stub();        // F5-M5 Batch 0C: xHCI event-ring MSI-X (vector 0x40)
 void lapic_timer_stub();     // F5-M5 -smp: per-CPU LAPIC timer (vector 0x30)
+void net_timer_stub();       // F5-M6: e1000 RX-poll wakeup timer (vector 0x30, test kernel)
 }  // extern "C"
 
 // ============================================================
@@ -116,6 +118,20 @@ extern "C" {
  */
 void irq_default_handler(InterruptFrame* /*frame*/) {
     // EOI is owned by the ISR stub.
+}
+
+/**
+ * @brief No-op LAPIC timer handler for the e1000 RX poll path (F5-M6).
+ *
+ * Armed by the test kernel (main_test.cpp) so e1000 RX poll can sti+hlt
+ * between polls: hlt lets QEMU's main loop deliver SLIRP replies into the
+ * ring, and this IRQ wakes the CPU.  EOIs the LAPIC directly -- NOT via
+ * irq_eoi(), which would dispatch to the 8259 in the test kernel (it never
+ * calls switch_to_apic) and fail to ack the LAPIC timer.  No
+ * Scheduler::tick(): it must not perturb the test suite.
+ */
+void net_timer_handler(InterruptFrame* /*frame*/) {
+    cinux::drivers::apic::g_lapic.eoi();
 }
 
 }  // extern "C"

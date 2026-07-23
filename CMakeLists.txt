@@ -6,6 +6,7 @@ project(cinux
 
 option(CINUX_GUI "Enable GUI mode" ON)
 option(CINUX_USB "Enable USB (xHCI host controller + PCI MSI-X) driver" ON)
+option(CINUX_NET "Enable e1000 Intel NIC driver" ON)
 
 # F-INFRA I-10: opt-in lockdep -- assert no spinlock is held across schedule()
 # (would deadlock single-core). Off by default (zero cost); enable for deadlock
@@ -91,5 +92,6 @@ message(STATUS "  Toolchain:   ${CMAKE_TOOLCHAIN_FILE}")
 message(STATUS "  Build tests: ${CINUX_BUILD_TESTS}")
 message(STATUS "  GUI mode:    ${CINUX_GUI}")
 message(STATUS "  USB driver:  ${CINUX_USB}")
+message(STATUS "  NIC driver:  ${CINUX_NET}")
 message(STATUS "===================================")
 message(STATUS "")

@@ -422,3 +422,15 @@ ISR_IRQ xhci_irq_stub, xhci_irq_handler, 0
 # preemption switch in Scheduler::tick(), or the next tick could be missed.
 # ============================================================
 ISR_NOERRCODE lapic_timer_stub, lapic_timer_handler
+
+# ============================================================
+# Network poll timer (F5-M6 e1000): no-op LAPIC timer ISR
+# ============================================================
+# Vector 0x30 (kLapicTimerVector), armed by the TEST kernel (main_test.cpp)
+# so the e1000 RX poll path can sti+hlt between polls: hlt lets QEMU's
+# device-model main loop run and pull SLIRP replies into the e1000 ring, and
+# this IRQ wakes the CPU.  The handler only EOIs (direct LAPIC EOI) -- no
+# Scheduler::tick(), so it cannot perturb the test suite.  Dormant in
+# production, where the PIT/LAPIC tick already keeps the main loop alive.
+# ============================================================
+ISR_NOERRCODE net_timer_stub, net_timer_handler

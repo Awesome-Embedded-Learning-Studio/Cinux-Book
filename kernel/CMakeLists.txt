@@ -119,6 +119,13 @@ if(CINUX_USB)
     target_compile_definitions(big_kernel_common PUBLIC CINUX_USB)
 endif()
 
+# F5-M6 e1000 NIC: compile definition so #ifdef CINUX_NET guards in the test
+# harness (main_test.cpp gates run_e1000_tests) match the CMake file gate in
+# drivers/CMakeLists.txt, and so a CINUX_NET=OFF build links cleanly.
+if(CINUX_NET)
+    target_compile_definitions(big_kernel_common PUBLIC CINUX_NET)
+endif()
+
 # F-INFRA I-10: opt-in lockdep checks (assert no spinlock held across schedule()).
 if(CINUX_LOCKDEP)
     target_compile_definitions(big_kernel_common PUBLIC CINUX_LOCKDEP)
@@ -273,6 +280,12 @@ add_executable(big_kernel_test
 # (the driver is absent; run_xhci_tests is #ifdef CINUX_USB'd in main_test.cpp).
 if(CINUX_USB)
     target_sources(big_kernel_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test/test_xhci.cpp)
+endif()
+
+# F5-M6 e1000: gate the NIC test on CINUX_NET so a CINUX_NET=OFF build links
+# (the driver is absent; run_e1000_tests is #ifdef CINUX_NET'd in main_test.cpp).
+if(CINUX_NET)
+    target_sources(big_kernel_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test/test_e1000.cpp)
 endif()
 
 target_sources(big_kernel_test PRIVATE $<TARGET_OBJECTS:big_kernel_common>)

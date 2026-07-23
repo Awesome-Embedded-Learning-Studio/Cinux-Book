@@ -51,6 +51,7 @@
 #include "kernel/drivers/acpi/acpi.hpp"
 #include "kernel/drivers/ahci/ahci.hpp"
 #include "kernel/drivers/keyboard/keyboard.hpp"
+#include "kernel/drivers/net/e1000_init.hpp"
 #include "kernel/drivers/pci/pci.hpp"
 #include "kernel/drivers/pit/pit.hpp"
 #include "kernel/drivers/video/console.hpp"
@@ -239,6 +240,10 @@ extern "C" void kernel_main() {
     } else {
         cinux::lib::kprintf("[AHCI] No AHCI controller found.\n");
     }
+
+    // Step 21b: Bring up the e1000 NIC (if present).  §14 file gate: net::init()
+    // is a no-op stub when CINUX_NET is off, so this call needs no #ifdef.
+    cinux::drivers::net::init();
 
     // Step 22: Initialise scheduler and spawn kernel init thread
     cinux::lib::kprintf("[BIG] ===== Scheduler & Init Thread =====\n");

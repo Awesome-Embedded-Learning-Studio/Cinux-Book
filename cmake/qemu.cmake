@@ -130,6 +130,7 @@ add_custom_target(run
         -device ide-hd,drive=ahci-disk,bus=ahci.0
         -drive file=${EXT2_IMAGE},format=raw,if=none,id=ext2-disk
         -device ide-hd,drive=ext2-disk,bus=ahci.1
+        -device e1000,netdev=net0 -netdev user,id=net0
     DEPENDS image ${AHCI_TEST_IMAGE} ${EXT2_IMAGE}
     COMMENT "Starting QEMU (serial: stdio)"
     VERBATIM
@@ -288,10 +289,23 @@ add_custom_target(regenerate-ext2-image
 add_custom_target(run-kernel-test
     COMMAND ${CMAKE_SOURCE_DIR}/scripts/qemu_test_wrapper.sh
         ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} ${QEMU_TEST_EXTRA_FLAGS}
+        -device e1000,netdev=net0 -netdev user,id=net0
         -drive file=${CINUX_TEST_IMAGE_PATH},format=raw,index=0,media=disk
     DEPENDS test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
     USES_TERMINAL
     COMMENT "Starting QEMU with TEST kernel (auto-exit)"
+    VERBATIM
+)
+
+# F5-M6 e1000: dedicated NIC-bringup smoke (same suite, explicit -device e1000).
+add_custom_target(run-kernel-test-net
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/qemu_test_wrapper.sh
+        ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} ${QEMU_TEST_EXTRA_FLAGS}
+        -device e1000,netdev=net0 -netdev user,id=net0
+        -drive file=${CINUX_TEST_IMAGE_PATH},format=raw,index=0,media=disk
+    DEPENDS test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
+    USES_TERMINAL
+    COMMENT "Starting QEMU with TEST kernel + e1000 NIC (auto-exit)"
     VERBATIM
 )
 
