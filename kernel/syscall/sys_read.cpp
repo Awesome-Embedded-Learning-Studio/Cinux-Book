@@ -62,7 +62,7 @@ int64_t do_read_kernel(int fd, void* kbuf, uint64_t count) {
     // on empty). It writes the KERNEL buffer; the block happens with AC=0.
     if (fd == 0) {
         return static_cast<int64_t>(
-            cinux::drivers::console_tty_read(reinterpret_cast<char*>(kbuf), count));
+            cinux::drivers::console_tty().read(reinterpret_cast<char*>(kbuf), count));
     }
 
     // No VFS entry and not a legacy fd -- fail

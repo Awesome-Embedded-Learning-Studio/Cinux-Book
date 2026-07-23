@@ -62,6 +62,29 @@ constexpr char kCharSusp      = 0x1A;  ///< ^Z (default VSUSP)
 constexpr char kCharNewline   = '\n';
 constexpr char kCharBackspace = 0x7F;  ///< DEL (default VERASE on most terms)
 
+// ============================================================
+// Linux x86_64 ioctl requests + window size (F10-M3 batch 4)
+// ============================================================
+
+// Terminal ioctl requests (Linux <asm-generic/ioctls.h>, magic 'T' = 0x54).
+// libc reaches these via ioctl(2): TCGETS/TCSETS read/write termios,
+// TIOCGWINSZ learns row/col geometry -- musl/glibc probe it on the first
+// stdout write to pick a buffering mode and a wrap width.
+constexpr uint32_t kTcgets     = 0x5401;  ///< TCGETS:    read termios
+constexpr uint32_t kTcsets     = 0x5402;  ///< TCSETS:    write termios
+constexpr uint32_t kTiocgwinsz = 0x5413;  ///< TIOCGWINSZ: read window size
+constexpr uint32_t kTiocgpgrp  = 0x540F;  ///< TIOCGPGRP: get foreground pgid (batch 5)
+constexpr uint32_t kTiocspgrp  = 0x5410;  ///< TIOCSPGRP: set foreground pgid (batch 5)
+
+/// Linux <asm-generic/termios.h> struct winsize. libc reads this exact layout
+/// via TIOCGWINSZ.
+struct Winsize {
+    uint16_t ws_row;     ///< rows (text lines)
+    uint16_t ws_col;     ///< columns
+    uint16_t ws_xpixel;  ///< horizontal pixels (unused, 0)
+    uint16_t ws_ypixel;  ///< vertical pixels (unused, 0)
+};
+
 /// Build the default termios (ICANON|ECHO|ECHOE|ECHOK|ISIG + ^C/^\/DEL/^D/^Z).
 void make_default_termios(Termios& out);
 
@@ -109,9 +132,13 @@ public:
     /// once, distinct from "no line yet" (which blocks).
     bool take_eof();
 
-    /// Signal requested by the most recent kSignal input_char().  Cleared on
-    /// read so a signal is delivered once.
+    /// Signal requested by the most recent kSignal input_char() (peek; does
+    /// not clear).
     TtySignal pending_signal() const;
+
+    /// Consume and return the pending signal (clears it). Use on the kSignal
+    /// branch so a signal char is delivered exactly once.
+    TtySignal take_signal();
 
     const Termios& termios() const;
     void           set_termios(const Termios& t);

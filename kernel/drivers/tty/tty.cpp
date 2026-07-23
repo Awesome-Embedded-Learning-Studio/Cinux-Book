@@ -21,8 +21,8 @@ void make_default_termios(Termios& out) {
     out.c_cflag = 0;
     out.c_lflag = kIsig | kIcanon | kEcho | kEchoe | kEchok;
     out.c_line  = 0;
-    for (size_t i = 0; i < kNccs; i++) {
-        out.c_cc[i] = 0;
+    for (unsigned char& i : out.c_cc) {
+        i = 0;
     }
     out.c_cc[kVintr]   = kCharIntr;
     out.c_cc[kVquit]   = kCharQuit;
@@ -185,6 +185,12 @@ size_t TTY::read_cooked(char* buf, size_t maxlen) {
 
 TtySignal TTY::pending_signal() const {
     return pending_signal_;
+}
+
+TtySignal TTY::take_signal() {
+    TtySignal s     = pending_signal_;
+    pending_signal_ = TtySignal::kNone;
+    return s;
 }
 
 bool TTY::take_eof() {

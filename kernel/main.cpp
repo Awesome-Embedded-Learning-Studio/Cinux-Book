@@ -190,7 +190,7 @@ extern "C" void kernel_main() {
 
     // F10-M3 batch 2: wire the console TTY (stdin line discipline + echo sink)
     // before the keyboard starts delivering IRQs.
-    cinux::drivers::console_tty_init();
+    cinux::drivers::console_tty().init();
 
     // Step 15b: hand the framebuffer + console off to the GUI (canvas + window
     // manager init; console detached so routine logs stop overlaying the

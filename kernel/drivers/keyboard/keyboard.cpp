@@ -339,11 +339,11 @@ void Keyboard::dispatch_key(uint8_t code, char ascii, bool pressed, bool shift, 
 
     // F10-M3 batch 2: feed the console TTY line discipline (stdin). Echo +
     // canonical editing happen here; sys_read fd==0 drains the cooked line.
-    // The Backspace key arrives as ^H (VERASE, set in console_tty_init) and
+    // The Backspace key arrives as ^H (VERASE, set in ConsoleTty::init) and
     // Enter already as '\n' from the scancode table.
     if (pressed && ascii != 0) {
         char c = (ascii == '\r') ? '\n' : ascii;
-        console_tty_input(c);  // F10-M3 batch 3: line discipline + wake reader
+        console_tty().input(c);  // F10-M3: line discipline + signal + wake reader
     }
 }
 

@@ -247,18 +247,45 @@ void Scheduler::remove_task(lib::NotNull<Task*> task) {
 // away from it), so freeing its stack + deleting it is safe from any caller's
 // context. Snapshot under the lock, free outside it (heavy path).
 void Scheduler::reap_deferred() {
-    Task* head = nullptr;
+    const uint32_t c    = percpu()->cpu_id;
+    Task*          head = nullptr;
     {
-        auto           g    = g_deferred_lock.irq_guard();
-        const uint32_t c    = percpu()->cpu_id;
+        auto g              = g_deferred_lock.irq_guard();
         head                = g_deferred_heads[c];
         g_deferred_heads[c] = nullptr;
     }
+    // Only free a task whose context_switch has finished saving its ctx
+    // (on_cpu == -1). exit_current() enqueues a task BEFORE context_switch
+    // switches away from it, so during that window the task still executes on
+    // its own kernel stack (on_cpu == its CPU). A preempting schedule() that
+    // lands here in that window would free the live stack -> use-after-free
+    // -> #DF in the exit path (seen as RIP running off into unrelated code +
+    // the stack page not-present). Re-queue such tasks; context_switch.S sets
+    // on_cpu = -1 once the save is done, so a later reap picks them up. This
+    // mirrors the on_cpu sync PR#44 added to the waitpid reap path -- the
+    // deferred-free path had missed it.
+    Task* kept_head = nullptr;
+    Task* kept_tail = nullptr;
     while (head != nullptr) {
         Task* t = head;
         head    = t->deferred_next;
+        if (__atomic_load_n(&t->on_cpu, __ATOMIC_ACQUIRE) != -1) {
+            t->deferred_next = nullptr;
+            if (kept_tail == nullptr) {
+                kept_head = t;
+            } else {
+                kept_tail->deferred_next = t;
+            }
+            kept_tail = t;
+            continue;
+        }
         free_kernel_stack(t);
         delete t;  // -> release_resources (sig/cwd/fd + addr_space refcount)
+    }
+    if (kept_head != nullptr) {
+        auto g                   = g_deferred_lock.irq_guard();
+        kept_tail->deferred_next = g_deferred_heads[c];
+        g_deferred_heads[c]      = kept_head;
     }
 }
 
