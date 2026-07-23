@@ -101,6 +101,43 @@ void copy_page_table_level(uint64_t src_phys, uint64_t dst_phys, int level) {
     }
 }
 
+static bool copied_stack_contains(uint64_t value, uint64_t start, uint64_t top) {
+    return value >= start && value < top;
+}
+
+static uint64_t relocate_copied_stack_addr(uint64_t value, uint64_t parent_stack_start,
+                                           uint64_t parent_stack_top, uint64_t child_stack_start) {
+    if (!copied_stack_contains(value, parent_stack_start, parent_stack_top)) {
+        return value;
+    }
+    return child_stack_start + (value - parent_stack_start);
+}
+
+void prepare_copied_kernel_stack_context(Task* child, uint64_t parent_stack_start,
+                                         uint64_t parent_stack_top, uint64_t child_stack_start,
+                                         uint64_t current_rbp) {
+    child->ctx.rsp = relocate_copied_stack_addr(current_rbp + sizeof(uint64_t), parent_stack_start,
+                                                parent_stack_top, child_stack_start);
+    child->ctx.rbp =
+        relocate_copied_stack_addr(*reinterpret_cast<uint64_t*>(current_rbp), parent_stack_start,
+                                   parent_stack_top, child_stack_start);
+    child->ctx.rip = reinterpret_cast<uint64_t>(fork_child_trampoline);
+
+    uint64_t frame = current_rbp;
+    while (copied_stack_contains(frame, parent_stack_start, parent_stack_top)) {
+        uint64_t next        = *reinterpret_cast<uint64_t*>(frame);
+        uint64_t child_frame = relocate_copied_stack_addr(frame, parent_stack_start,
+                                                          parent_stack_top, child_stack_start);
+        *reinterpret_cast<uint64_t*>(child_frame) = relocate_copied_stack_addr(
+            next, parent_stack_start, parent_stack_top, child_stack_start);
+
+        if (next <= frame || !copied_stack_contains(next, parent_stack_start, parent_stack_top)) {
+            break;
+        }
+        frame = next;
+    }
+}
+
 // ============================================================
 // fork implementation
 // ============================================================
@@ -153,6 +190,15 @@ __attribute__((optimize("no-omit-frame-pointer"), noinline)) int fork(PidAllocat
     child->set_child_tid   = 0;
     child->ppid            = parent->pid;
     child->state           = TaskState::Ready;
+    // F10 SMP-race: memcpy just inherited the parent's on_cpu (= the parent's
+    // current CPU).  That trips the F4-followup migration-race guard in
+    // pick_next(), which reads on_cpu==X as "CPU X is mid-saving this ctx" and
+    // skips the task on every other CPU.  A freshly forked child has never run
+    // -- its ctx is fully set up right here -- so it must read as "not running /
+    // ctx saved" (-1), exactly like a TaskBuilder-built task.  Without this,
+    // under -smp the child is pinned to the parent's CPU until first run and
+    // violates the guard's invariant.  See [[smp-migration-context-race]].
+    child->on_cpu          = -1;
     child->parent          = parent;
     child->children        = nullptr;
     child->exit_status     = 0;
@@ -209,9 +255,8 @@ __attribute__((optimize("no-omit-frame-pointer"), noinline)) int fork(PidAllocat
     child->kernel_stack_top        = child_stack_virt + stack_size;
     child->kernel_stack_guard_page = child_guard_virt;
 
-    child->ctx.rsp = (current_rbp + 8) - current_rsp + child_stack_start;
-    child->ctx.rbp = *reinterpret_cast<uint64_t*>(current_rbp);
-    child->ctx.rip = reinterpret_cast<uint64_t>(fork_child_trampoline);
+    prepare_copied_kernel_stack_context(child, current_rsp, current_rsp + full_stack_used,
+                                        child_stack_start, current_rbp);
 
     // CoW page table handling
     if (parent->addr_space != nullptr) {
@@ -253,6 +298,21 @@ __attribute__((optimize("no-omit-frame-pointer"), noinline)) int fork(PidAllocat
             child_pml4_table[i].raw = new_page | FLAG_PRESENT | FLAG_WRITABLE | FLAG_USER;
             copy_page_table_level(parent_pml4_table[i].phys_addr(), new_page, 3);
         }
+
+        // F10 SMP fix: copy_page_table_level() just cleared FLAG_WRITABLE and set
+        // FLAG_COW on the PARENT's own live PTEs -- this CPU still has the parent's
+        // cr3 loaded, and fork() runs with IF=0 (SFMASK clears IF on syscall entry,
+        // no sti before dispatch) so the parent cannot migrate or be preempted. Until
+        // we invalidate the TLB the parent CPU keeps the stale WRITABLE entries and
+        // its next user-mode write goes THROUGH to the now-shared physical page,
+        // silently corrupting the child's later CoW copy. That is the SMP fork race;
+        // single-CPU was stable only because the next context switch reloads cr3
+        // (flushing the TLB) before the parent writes again. A LOCAL flush suffices
+        // here: only this CPU holds the parent's cr3, and the child's distinct cr3
+        // has never been loaded (clean TLB on first run). A cross-CPU shootdown
+        // (needed for CLONE_VM threads sharing one address space) is a separate
+        // follow-up, not required for the fork path. See note + [[f10-shell-launch-smp-fork-race]].
+        flush_tlb_all();
 
         // F2-M2 batch 4: clone the parent's VMA records into the child so the
         // bookkeeping matches the CoW page tables.  File backings (Inode*) are

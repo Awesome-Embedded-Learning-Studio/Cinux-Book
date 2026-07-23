@@ -88,6 +88,7 @@ add_cinux_test(syscall)
 add_cinux_test(shell)
 add_cinux_test(ahci)
 add_cinux_test(pci)
+add_cinux_test(initial_stack)
 # xHCI: register layout is header-only; Batch 2A links the real ring-math
 # (xhci_ring.cpp) so host tests exercise the actual enqueue/dequeue cycle logic.
 add_cinux_integration_test(xhci

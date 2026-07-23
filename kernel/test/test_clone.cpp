@@ -51,7 +51,7 @@ constexpr uint64_t kCloneSettls        = 0x00080000;
 constexpr uint64_t kCloneChildCleartid = 0x00200000;
 constexpr uint64_t kCloneChildSettid   = 0x01000000;
 
-constexpr uint64_t kSyscallFrameSize = 96;
+constexpr uint64_t kSyscallFrameSize = 128;
 
 constexpr uint64_t FUTEX_WAIT = 0;
 
@@ -60,6 +60,20 @@ void dummy_entry() {}
 
 uint64_t child_user_rsp(const Task* child) {
     return *reinterpret_cast<const uint64_t*>(child->kernel_stack_top - kSyscallFrameSize);
+}
+
+bool task_stack_contains(const Task* task, uint64_t addr) {
+    return addr >= task->kernel_stack && addr < task->kernel_stack_top;
+}
+
+bool copied_rbp_chain_is_relocated(const Task* child) {
+    if (!task_stack_contains(child, child->ctx.rsp) ||
+        !task_stack_contains(child, child->ctx.rbp)) {
+        return false;
+    }
+
+    uint64_t next_rbp = *reinterpret_cast<const uint64_t*>(child->ctx.rbp);
+    return next_rbp == 0 || task_stack_contains(child, next_rbp);
 }
 
 /**
@@ -134,6 +148,7 @@ void test_clone_vm_shares_addr_space() {
     TEST_ASSERT_NOT_NULL(child);
     TEST_ASSERT_EQ(child->addr_space, cur.tmp.addr_space);  // CLONE_VM: shared pointer
     TEST_ASSERT_EQ(child_user_rsp(child), 0x40000000ULL);   // user-RSP patched to stack
+    TEST_ASSERT_TRUE(copied_rbp_chain_is_relocated(child));
     quarantine_child(child_pid);
 }
 

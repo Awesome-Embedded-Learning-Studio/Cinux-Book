@@ -57,11 +57,11 @@ constexpr uint64_t kCloneParentSettid  = 0x00100000;
 constexpr uint64_t kCloneChildCleartid = 0x00200000;
 constexpr uint64_t kCloneChildSettid   = 0x01000000;
 
-// Size of the syscall_entry pt_regs frame (12 qwords): user_rsp..rbp.  It sits
-// at the very top of the kernel stack ([kernel_stack_top-96, kernel_stack_top))
+// Size of the syscall_entry pt_regs frame (16 qwords): user_rsp..rbp.  It sits
+// at the very top of the kernel stack ([kernel_stack_top-128, kernel_stack_top))
 // because syscall_entry loads RSP from %gs:0 == kernel_stack_top.  clone uses
 // this to patch the child's user-RSP slot.
-constexpr uint64_t kSyscallFrameSize = 96;
+constexpr uint64_t kSyscallFrameSize = 128;
 
 /**
  * @brief Copy the parent's CoW page tables + VMA records into @p child.
@@ -104,6 +104,15 @@ void cow_clone_address_space(Task* parent, Task* child) {
         child_pml4_table[i].raw = new_page | FLAG_PRESENT | FLAG_WRITABLE | FLAG_USER;
         copy_page_table_level(parent_pml4_table[i].phys_addr(), new_page, 3);
     }
+
+    // F10 SMP fix: copy_page_table_level() CoW-marked the PARENT's live PTEs
+    // (writable -> read-only + FLAG_COW). Flush the parent CPU's stale WRITABLE
+    // TLB entries so the parent's next write faults (CoW) instead of writing
+    // through to the now-shared page. clone() runs at IF=0 and only this CPU
+    // holds the parent's cr3, so a local flush is sufficient (the child's fresh
+    // cr3 is clean on first run). Same fix as fork(); see note +
+    // [[f10-shell-launch-smp-fork-race]].
+    flush_tlb_all();
 
     // Clone VMA records so bookkeeping matches the CoW page tables.
     for (cinux::mm::VMA* v = parent->addr_space->vmas().first(); v != nullptr;
@@ -191,6 +200,10 @@ __attribute__((optimize("no-omit-frame-pointer"), noinline)) int clone(
         child->parent       = parent;
     }
     child->state       = TaskState::Ready;
+    // F10 SMP-race: reset the stale on_cpu inherited from the parent's memcpy
+    // (see fork.cpp).  A fresh child has never run; its ctx is set up below, so
+    // pick_next() must see "not running / ctx saved" (-1), not the parent's CPU.
+    child->on_cpu      = -1;
     child->children    = nullptr;
     child->exit_status = 0;
 
@@ -246,12 +259,11 @@ __attribute__((optimize("no-omit-frame-pointer"), noinline)) int clone(
 
     // The child resumes via the trampoline (sets rax=0) and unwinds the copied
     // stack frames back out through syscall_entry, exactly like fork.
-    child->ctx.rsp = (current_rbp + 8) - current_rsp + child_stack_start;
-    child->ctx.rbp = *reinterpret_cast<uint64_t*>(current_rbp);
-    child->ctx.rip = reinterpret_cast<uint64_t>(fork_child_trampoline);
+    prepare_copied_kernel_stack_context(child, current_rsp, current_rsp + full_stack_used,
+                                        child_stack_start, current_rbp);
 
     // ---- CRUX: patch the child's user-RSP to the provided thread stack ----
-    // The syscall pt_regs frame is at [kernel_stack_top-96, kernel_stack_top);
+    // The syscall pt_regs frame is at [kernel_stack_top-kSyscallFrameSize, kernel_stack_top);
     // its first slot (offset 0) is user_rsp.  Overwrite it so the child returns
     // to user space on the caller-supplied stack instead of the parent's.
     if (stack != 0) {

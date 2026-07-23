@@ -10,8 +10,8 @@
  *   - SyscallNr constants and SYSCALL_TABLE_SIZE
  *   - syscall_init() MSR configuration: LSTAR, STAR, SFMASK readback
  *   - syscall_register() and dispatch integration
- *   - syscall_dispatch: unregistered syscall returns -1
- *   - syscall_dispatch: out-of-range number returns -1
+ *   - syscall_dispatch: unregistered syscall returns -ENOSYS
+ *   - syscall_dispatch: out-of-range number returns -ENOSYS
  *   - syscall_get_kernel_rsp() returns saved RSP
  *   - sys_write output to serial (verify no crash)
  *   - sys_exit marks task state as Dead
@@ -30,8 +30,12 @@
 #include "big_kernel_test.h"
 #include "kernel/arch/x86_64/gdt.hpp"
 #include "kernel/arch/x86_64/syscall.hpp"
+#include "kernel/errno.hpp"
 #include "kernel/proc/process.hpp"
+#include "kernel/syscall/sys_clock_gettime.hpp"
 #include "kernel/syscall/sys_exit.hpp"
+#include "kernel/syscall/sys_ioctl.hpp"
+#include "kernel/syscall/sys_iov.hpp"
 #include "kernel/syscall/sys_write.hpp"
 #include "kernel/syscall/sys_yield.hpp"
 #include "kernel/syscall/syscall_nums.hpp"
@@ -44,6 +48,9 @@ using cinux::syscall::SYSCALL_TABLE_SIZE;
 using cinux::syscall::sys_write;
 using cinux::syscall::sys_exit;
 using cinux::syscall::sys_yield;
+using cinux::syscall::sys_writev;
+using cinux::syscall::sys_ioctl;
+using cinux::syscall::sys_clock_gettime;
 using cinux::proc::Task;
 using cinux::proc::TaskState;
 using cinux::proc::TaskBuilder;
@@ -85,7 +92,7 @@ void test_sys_yield_value() {
 }
 
 void test_table_size() {
-    TEST_ASSERT_EQ(SYSCALL_TABLE_SIZE, 256ULL);
+    TEST_ASSERT_EQ(SYSCALL_TABLE_SIZE, 512ULL);
 }
 
 }  // namespace test_syscall_nums
@@ -174,15 +181,17 @@ void test_dispatch_all_args_passed() {
     TEST_ASSERT_EQ(result, 21);
 }
 
-void test_dispatch_unregistered_returns_neg1() {
-    // Use an unused slot that was never registered
+void test_dispatch_unregistered_returns_enosys() {
+    // Unregistered syscall must return -ENOSYS (not bare -1) so a probing
+    // libc can fall back.  musl reads -4095..-1 as -errno, so -1 == EPERM.
     int64_t result = syscall_dispatch(199, 0, 0, 0, 0, 0, 0);
-    TEST_ASSERT_EQ(result, -1);
+    TEST_ASSERT_EQ(result, static_cast<int64_t>(-cinux::kEnosys));
 }
 
-void test_dispatch_out_of_range_returns_neg1() {
-    TEST_ASSERT_EQ(syscall_dispatch(256, 0, 0, 0, 0, 0, 0), -1);
-    TEST_ASSERT_EQ(syscall_dispatch(1024, 0, 0, 0, 0, 0, 0), -1);
+void test_dispatch_out_of_range_returns_enosys() {
+    // 512 == SYSCALL_TABLE_SIZE (just past the end); 1024 well beyond.
+    TEST_ASSERT_EQ(syscall_dispatch(512, 0, 0, 0, 0, 0, 0), static_cast<int64_t>(-cinux::kEnosys));
+    TEST_ASSERT_EQ(syscall_dispatch(1024, 0, 0, 0, 0, 0, 0), static_cast<int64_t>(-cinux::kEnosys));
 }
 
 void test_dispatch_max_valid() {
@@ -190,8 +199,9 @@ void test_dispatch_max_valid() {
         return 77;
     };
 
-    syscall_register(static_cast<SyscallNr>(255), handler);
-    TEST_ASSERT_EQ(syscall_dispatch(255, 0, 0, 0, 0, 0, 0), 77);
+    // Last valid slot (SYSCALL_TABLE_SIZE - 1).
+    syscall_register(static_cast<SyscallNr>(511), handler);
+    TEST_ASSERT_EQ(syscall_dispatch(511, 0, 0, 0, 0, 0, 0), 77);
 }
 
 }  // namespace test_dispatch
@@ -318,6 +328,54 @@ void test_syscall_fn_signature() {
 }  // namespace test_type_consistency
 
 // ============================================================
+// Test 9: musl-required syscalls (F10-M1 batch 4)
+// ============================================================
+
+namespace test_musl_syscalls {
+
+// Linux struct iovec / timespec layouts on x86-64.
+struct kiovec {
+    uint64_t iov_base;
+    uint64_t iov_len;
+};
+
+void test_sys_writev_sums_iov() {
+    // Two segments to fd=1 (stdout legacy path): 3 + 4 bytes.
+    kiovec  iov[2] = {{0x1000, 3}, {0x1000, 4}};
+    int64_t r      = sys_writev(1, reinterpret_cast<uint64_t>(iov), 2, 0, 0, 0);
+    TEST_ASSERT_EQ(r, 7);
+}
+
+void test_sys_writev_zero_iovcnt_rejected() {
+    int64_t r = sys_writev(1, 0x1000, 0, 0, 0, 0);
+    TEST_ASSERT_LT(r, 0);
+}
+
+void test_sys_ioctl_returns_enotty() {
+    // Any ioctl (incl. musl's TIOCGWINSZ probe) returns -ENOTTY.
+    int64_t r = sys_ioctl(1, 0x5413, 0x1000, 0, 0, 0);
+    TEST_ASSERT_EQ(r, static_cast<int64_t>(-cinux::kEnotty));
+}
+
+void test_sys_clock_gettime_fills_timespec() {
+    struct {
+        int64_t tv_sec;
+        int64_t tv_nsec;
+    } ts = {-1, -1};
+    int64_t r =
+        sys_clock_gettime(1 /*CLOCK_MONOTONIC*/, reinterpret_cast<uint64_t>(&ts), 0, 0, 0, 0);
+    TEST_ASSERT_EQ(r, 0);
+    TEST_ASSERT_TRUE(ts.tv_sec >= 0);
+}
+
+void test_sys_clock_gettime_bad_clock_rejected() {
+    int64_t r = sys_clock_gettime(99, 0x1000, 0, 0, 0, 0);
+    TEST_ASSERT_LT(r, 0);
+}
+
+}  // namespace test_musl_syscalls
+
+// ============================================================
 // Entry point
 // ============================================================
 
@@ -337,8 +395,8 @@ extern "C" void run_syscall_tests() {
 
     RUN_TEST(test_dispatch::test_register_and_dispatch);
     RUN_TEST(test_dispatch::test_dispatch_all_args_passed);
-    RUN_TEST(test_dispatch::test_dispatch_unregistered_returns_neg1);
-    RUN_TEST(test_dispatch::test_dispatch_out_of_range_returns_neg1);
+    RUN_TEST(test_dispatch::test_dispatch_unregistered_returns_enosys);
+    RUN_TEST(test_dispatch::test_dispatch_out_of_range_returns_enosys);
     RUN_TEST(test_dispatch::test_dispatch_max_valid);
 
     RUN_TEST(test_kernel_rsp::test_kernel_rsp_nonzero);
@@ -354,6 +412,12 @@ extern "C" void run_syscall_tests() {
     RUN_TEST(test_sys_yield::test_sys_yield_returns_zero);
 
     RUN_TEST(test_type_consistency::test_syscall_fn_signature);
+
+    RUN_TEST(test_musl_syscalls::test_sys_writev_sums_iov);
+    RUN_TEST(test_musl_syscalls::test_sys_writev_zero_iovcnt_rejected);
+    RUN_TEST(test_musl_syscalls::test_sys_ioctl_returns_enotty);
+    RUN_TEST(test_musl_syscalls::test_sys_clock_gettime_fills_timespec);
+    RUN_TEST(test_musl_syscalls::test_sys_clock_gettime_bad_clock_rejected);
 
     TEST_SUMMARY();
 }

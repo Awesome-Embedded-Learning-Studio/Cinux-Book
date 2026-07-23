@@ -43,6 +43,26 @@ void write_buf(const char* buf, size_t len) {
     sys_write(1, buf, len);
 }
 
+/// Launch an external program by path (the standard shell fallback when a token
+/// matches no builtin): fork, the child execve()s @p path, the parent
+/// waitpid()s.  Lets the old user/libc shell start real musl binaries (e.g.
+/// typing /hello runs the musl static hello).  Returns the child exit status,
+/// or a negative errno if fork/exec failed.
+int64_t launch_program(const char* path, char** argv) {
+    int64_t pid = sys_fork();
+    if (pid < 0) {
+        return pid;  // fork error
+    }
+    if (pid == 0) {
+        char* child_envp[1] = {nullptr};
+        sys_execve(path, argv, child_envp);  // returns only on failure
+        sys_exit(127);
+    }
+    int     status = 0;
+    int64_t reaped = sys_waitpid(static_cast<int>(pid), &status, 0);
+    return reaped > 0 ? static_cast<int64_t>(status) : reaped;
+}
+
 }  // anonymous namespace
 
 // ============================================================
@@ -140,6 +160,7 @@ size_t tokenize(char* line, char** argv, size_t max_tokens) {
         }
     }
 
+    argv[argc] = nullptr;  // terminate so consumers (launch_program/execve) stop correctly
     return argc;
 }
 
@@ -200,8 +221,15 @@ static void shell_main() {
         }
 
         if (!found) {
-            write_str(argv[0]);
-            write_str(": command not found\n");
+            // No builtin matched -- treat the token as a program path and try
+            // to fork+execve it (the standard shell fallback, like typing
+            // /bin/ls in bash).  A negative result means fork/exec failed; the
+            // launched program's own output (if it ran) already went to stdout.
+            int64_t r = launch_program(argv[0], argv);
+            if (r < 0) {
+                write_str(argv[0]);
+                write_str(": command not found\n");
+            }
         }
     }
 }

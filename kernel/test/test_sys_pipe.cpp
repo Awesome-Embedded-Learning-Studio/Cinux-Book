@@ -19,6 +19,7 @@
  */
 
 #include "big_kernel_test.h"
+#include "kernel/errno.hpp"
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/inode.hpp"
 #include "kernel/ipc/pipe.hpp"
@@ -370,7 +371,7 @@ void test_sys_pipe_set_replaces() {
 
 void test_sys_pipe_rejects_null() {
     int64_t r = cinux::syscall::sys_pipe(0, 0, 0, 0, 0, 0);
-    TEST_ASSERT_EQ(r, -1);
+    TEST_ASSERT_EQ(r, -cinux::kEfault);
 }
 
 // ============================================================
@@ -380,7 +381,7 @@ void test_sys_pipe_rejects_null() {
 void test_sys_pipe_rejects_kernel_addr() {
     // 0xFFFFFFFF80100000 is a kernel-space address (bit 47 set)
     int64_t r = cinux::syscall::sys_pipe(0xFFFFFFFF80100000ULL, 0, 0, 0, 0, 0);
-    TEST_ASSERT_EQ(r, -1);
+    TEST_ASSERT_EQ(r, -cinux::kEfault);
 }
 
 // ============================================================

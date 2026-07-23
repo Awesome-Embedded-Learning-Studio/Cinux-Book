@@ -31,20 +31,34 @@ int64_t sys_getcwd(char* buf, size_t size);
 void    sys_exit(int code);
 void    sys_yield(void);
 
+/// Process management -- lets the shell fork + execve + reap a child program
+/// (e.g. the musl static /hello).  These are the only user/libc wrappers the
+/// shell launcher needs; musl programs bring their own libc.
+int64_t sys_fork(void);
+int64_t sys_execve(const char* path, char* const argv[], char* const envp[]);
+int64_t sys_waitpid(int pid, int* status, int options);
+
+/// Layout matches the Linux x86_64 `struct stat` (uapi/asm/stat.h), 144 bytes,
+/// so musl/glibc binaries share the on-stack buffer with the kernel verbatim.
 struct sys_stat {
     uint64_t st_dev;
     uint64_t st_ino;
+    uint64_t st_nlink;
     uint32_t st_mode;
-    uint32_t st_nlink;
     uint32_t st_uid;
     uint32_t st_gid;
+    uint32_t __pad0;
     uint64_t st_rdev;
     int64_t  st_size;
-    uint64_t st_blksize;
-    uint64_t st_blocks;
+    int64_t  st_blksize;
+    int64_t  st_blocks;
     uint64_t st_atime;
+    uint64_t st_atime_nsec;
     uint64_t st_mtime;
+    uint64_t st_mtime_nsec;
     uint64_t st_ctime;
+    uint64_t st_ctime_nsec;
+    int64_t  __unused[3];
 };
 
 int64_t sys_stat(const char* path, struct sys_stat* st);
@@ -81,12 +95,15 @@ int64_t sys_fstat(int fd, struct sys_stat* st);
 #define SIG_UNBLOCK 1
 #define SIG_SETMASK 2
 
-// User-space sigaction layout (matches the kernel's UserSigAction).
+// User-space sigaction layout, matching the Linux x86_64 `struct sigaction`
+// (uapi/asm-generic/signal.h): { sa_handler, sa_flags, sa_restorer, sa_mask }.
+// musl's k_sigaction is built in exactly this order and passed to rt_sigaction
+// with sigsetsize = _NSIG/8 = 8.
 struct sys_sigaction {
     uint64_t sa_handler;   ///< SIG_DFL (0) / SIG_IGN (1) / handler address
-    uint64_t sa_mask;      ///< signals blocked during the handler
-    uint64_t sa_flags;     ///< SA_* flags (currently unused)
-    uint64_t sa_restorer;  ///< reserved (kernel injects its own trampoline)
+    uint64_t sa_flags;     ///< SA_* flags (SA_RESTART etc.)
+    uint64_t sa_restorer;  ///< reserved (kernel injects its own sigreturn trampoline)
+    uint64_t sa_mask;      ///< signals blocked during the handler (8-byte kernel sigset)
 };
 
 int64_t sys_kill(int pid, int sig);

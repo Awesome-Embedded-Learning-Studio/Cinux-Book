@@ -149,7 +149,8 @@ void clear_user_mappings(cinux::mm::AddressSpace& space) {
 // execve implementation
 // ============================================================
 
-ExecveResult execve(const char* path, const char* const argv[], const char* const envp[]) {
+ExecveResult execve(const char* path, const char* const argv[], const char* const envp[],
+                    ElfAuxInfo* aux_out) {
     using namespace cinux::arch;
 
     (void)argv;
@@ -234,9 +235,15 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
     }
 
     clear_user_mappings(*task->addr_space);
+    // F10 shell-launch: execve replaces the image, so discard any VMA records
+    // inherited from fork (a fresh AddressSpace has none; a forked child has the
+    // parent's).  Without this the new PT_LOAD insert collides with the stale
+    // set and "VMA record failed" aborts the load.
+    task->addr_space->vmas().clear();
 
     bool     has_load_segment = false;
     uint64_t max_seg_end      = 0;  ///< highest PT_LOAD end -> brk_initial
+    uint64_t phdr_va          = 0;  ///< AT_PHDR: user VA of the program headers
 
     for (uint16_t i = 0; i < phnum; i++) {
         const auto& phdr = phdrs[i];
@@ -246,6 +253,13 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
         }
 
         has_load_segment = true;
+
+        // AT_PHDR: locate the program-header table within the mapped image. The
+        // first PT_LOAD usually covers the ELF header + phdrs (p_offset 0); the
+        // user VA of e_phoff is (segment p_vaddr) + (e_phoff - p_offset).
+        if (phdr.p_offset <= ehdr->e_phoff && ehdr->e_phoff < phdr.p_offset + phdr.p_filesz) {
+            phdr_va = phdr.p_vaddr + (ehdr->e_phoff - phdr.p_offset);
+        }
 
         uint64_t seg_start = phdr.p_vaddr & ~(PAGE_SIZE - 1);
         uint64_t seg_end   = (phdr.p_vaddr + phdr.p_memsz + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
@@ -382,6 +396,13 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
             cinux::mm::g_pmm.free_page(sigret_phys);
             return ExecveResult::MapFailed;
         }
+    }
+
+    if (aux_out != nullptr) {
+        aux_out->at_phdr  = phdr_va;
+        aux_out->at_phnum = ehdr->e_phnum;
+        aux_out->at_phent = sizeof(elf::Elf64_Phdr);
+        aux_out->at_entry = ehdr->e_entry;
     }
 
     cinux::lib::kprintf("[EXECVE] loaded %s entry=%p pid=%d\n", path,

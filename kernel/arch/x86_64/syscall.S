@@ -27,8 +27,12 @@
  *   rsp+56: arg4 (R10)
  *   rsp+64: arg5 (R8)
  *   rsp+72: arg6 (R9)
- *   rsp+80: callee-saved RBX
- *   rsp+88: callee-saved RBP
+ *   rsp+80: callee-saved R12
+ *   rsp+88: callee-saved R13
+ *   rsp+96: callee-saved R14
+ *   rsp+104: callee-saved R15
+ *   rsp+112: callee-saved RBX
+ *   rsp+120: callee-saved RBP
  *
  * AT&T syntax notes:
  *   Operand order: source, destination
@@ -63,6 +67,10 @@ syscall_entry:
     # Step 3: Build trap frame on kernel stack
     pushq %rbp                         # %rbp→(%rsp): save callee-saved RBP
     pushq %rbx                         # %rbx→(%rsp): save callee-saved RBX
+    pushq %r15                         # %r15→(%rsp): save callee-saved R15
+    pushq %r14                         # %r14→(%rsp): save callee-saved R14
+    pushq %r13                         # %r13→(%rsp): save callee-saved R13
+    pushq %r12                         # %r12→(%rsp): save callee-saved R12
     pushq %r9                          # %r9→(%rsp): save arg6
     pushq %r8                          # %r8→(%rsp): save arg5
     pushq %r10                         # %r10→(%rsp): save arg4
@@ -88,8 +96,12 @@ syscall_entry:
     #   rsp+56: r10
     #   rsp+64: r8
     #   rsp+72: r9
-    #   rsp+80: rbx
-    #   rsp+88: rbp
+    #   rsp+80: r12
+    #   rsp+88: r13
+    #   rsp+96: r14
+    #   rsp+104: r15
+    #   rsp+112: rbx
+    #   rsp+120: rbp
 
     # Step 4: Call syscall_dispatch(nr, a1, a2, a3, a4, a5, a6)
     # System V AMD64: args in %rdi, %rsi, %rdx, %rcx, %r8, %r9, then stack
@@ -118,10 +130,21 @@ syscall_entry:
     movq %rax, %gs:8                   # %rax→%gs:8: store user RSP for later restore
     movq 8(%rsp), %rcx                 # frame+8→%rcx: user RIP (SYSRETQ loads RIP from RCX)
     movq 16(%rsp), %r11                # frame+16→%r11: user RFLAGS (SYSRETQ loads RFLAGS from R11)
-    movq 80(%rsp), %rbx                # frame+80→%rbx: RESTORE user RBX (callee-saved)
+    movq 80(%rsp), %r12                # frame+80→%r12: RESTORE user R12 (callee-saved)
+    movq 88(%rsp), %r13                # frame+88→%r13: RESTORE user R13 (callee-saved)
+    movq 96(%rsp), %r14                # frame+96→%r14: RESTORE user R14 (callee-saved)
+    movq 104(%rsp), %r15               # frame+104→%r15: RESTORE user R15 (callee-saved)
+    movq 112(%rsp), %rbx               # frame+112→%rbx: RESTORE user RBX (callee-saved)
+    movq 120(%rsp), %rbp               # frame+120→%rbp: RESTORE user RBP (callee-saved)
+                                      # F10: syscalls must preserve all SysV
+                                      # callee-saved user registers. This is
+                                      # especially visible in fork children:
+                                      # they resume from a copied kernel stack,
+                                      # so live user R12-R15 must come from the
+                                      # syscall frame, not from Task::ctx.
 
-    # Deallocate trap frame (12 slots * 8 bytes = 96 bytes)
-    addq $96, %rsp                     # $96→%rsp: remove entire trap frame
+    # Deallocate trap frame (16 slots * 8 bytes = 128 bytes)
+    addq $128, %rsp                    # $128→%rsp: remove entire trap frame
 
     # Step 7: Restore user RSP
     movq %gs:8, %rsp                   # %gs:8→%rsp: switch back to user stack

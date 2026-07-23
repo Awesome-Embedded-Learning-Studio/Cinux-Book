@@ -60,6 +60,24 @@ using cinux::arch::FLAG_USER;
 using cinux::arch::FLAG_COW;
 using cinux::arch::FLAG_GLOBAL;
 
+namespace {
+
+bool task_stack_contains(const Task* task, uint64_t addr) {
+    return addr >= task->kernel_stack && addr < task->kernel_stack_top;
+}
+
+bool copied_rbp_chain_is_relocated(const Task* child) {
+    if (!task_stack_contains(child, child->ctx.rsp) ||
+        !task_stack_contains(child, child->ctx.rbp)) {
+        return false;
+    }
+
+    uint64_t next_rbp = *reinterpret_cast<const uint64_t*>(child->ctx.rbp);
+    return next_rbp == 0 || task_stack_contains(child, next_rbp);
+}
+
+}  // namespace
+
 // ============================================================
 // Test 1: SyscallNr constants
 // ============================================================
@@ -406,6 +424,7 @@ void test_dispatch_sys_fork() {
     if (ret > 0) {
         Task* child = cinux::proc::signal_find_task_by_pid(static_cast<int>(ret));
         if (child != nullptr) {
+            TEST_ASSERT_TRUE(copied_rbp_chain_is_relocated(child));
             cinux::proc::Scheduler::remove_task(child);
         }
     }
@@ -431,6 +450,7 @@ void test_dispatch_sys_fork_via_table() {
     if (dispatched > 0) {
         Task* child = cinux::proc::signal_find_task_by_pid(static_cast<int>(dispatched));
         if (child != nullptr) {
+            TEST_ASSERT_TRUE(copied_rbp_chain_is_relocated(child));
             cinux::proc::Scheduler::remove_task(child);
         }
     }

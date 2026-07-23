@@ -48,6 +48,17 @@ uint64_t alloc_stack_vaddr(uint64_t pages);
 void copy_page_table_level(uint64_t src_phys, uint64_t dst_phys, int level);
 
 /**
+ * @brief Prepare a fork/clone child to unwind a copied kernel stack
+ *
+ * The copied stack still contains frame-pointer links that point into the
+ * parent's kernel stack. Rewrite the copied RBP chain so the child returns
+ * through its own stack frames after fork_child_trampoline sets RAX=0.
+ */
+void prepare_copied_kernel_stack_context(Task* child, uint64_t parent_stack_start,
+                                         uint64_t parent_stack_top, uint64_t child_stack_start,
+                                         uint64_t current_rbp);
+
+/**
  * @brief Free a task's kernel stack (mapped, not direct-map)
  *
  * Defined in process_new.cpp; used by waitpid reap (Q4e-2) and the scheduler's

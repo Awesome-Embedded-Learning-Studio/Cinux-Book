@@ -34,6 +34,9 @@ namespace cinux::syscall {
 int64_t sys_exit(uint64_t code, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) {
     auto* task = cinux::proc::Scheduler::current();
     if (task != nullptr) {
+        // Record the exit code for a reaping waitpid().  Without this the
+        // fork-initialized exit_status==0 leaks regardless of the real code.
+        task->exit_status = static_cast<int>(code);
         // F3-M2: CLONE_CHILD_CLEARTID -- zero child_tid + wake joiner before
         // the task goes away.
         cinux::proc::task_exit_cleartid(task);
@@ -76,6 +79,13 @@ int64_t sys_exit(uint64_t code, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t
     }
 
     return 0;
+}
+
+int64_t sys_exit_group(uint64_t code, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) {
+    // F10-M1 batch 4: musl exit() calls exit_group.  Single-threaded today,
+    // so terminating the current task matches exit(); when thread groups are
+    // exercised this should walk the group and reap each thread first.
+    return sys_exit(code, 0, 0, 0, 0, 0);
 }
 
 }  // namespace cinux::syscall

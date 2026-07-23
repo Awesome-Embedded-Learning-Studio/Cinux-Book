@@ -19,6 +19,9 @@
 
 namespace cinux::proc {
 
+/// Auxiliary-vector info gathered by execve() (full type in execve.hpp).
+struct ElfAuxInfo;
+
 /**
  * @brief execve() + user stack setup + jump to user mode (never returns)
  *
@@ -34,5 +37,24 @@ namespace cinux::proc {
  * current task. Otherwise jumps to user mode and never returns.
  */
 void launch_user_program(const char* path, const char* const argv[], const char* const envp[]);
+
+/**
+ * @brief Finish a loaded program: lay the Linux initial stack and jump (no return)
+ *
+ * The "last mile" shared by launch_user_program() (fresh task) and the
+ * sys_execve syscall handler (replace-current-image).  Assumes execve() has
+ * already mapped the program's PT_LOAD segments into the current task's address
+ * space and set ctx.rip = entry; @p aux carries the AT_PHDR/PHNUM/PHENT/ENTRY
+ * gathered during load.  Pre-maps the stack pages, records the demand-growth
+ * Stack VMA, builds argc/argv/envp/auxv into the top stack page, activates the
+ * address space, and jumps to user mode.  Never returns.
+ *
+ * @param path  program path (also AT_EXECFN / argv[0])
+ * @param argv  argument vector (nullptr-terminated)
+ * @param envp  environment vector (nullptr-terminated)
+ * @param aux   ELF auxv info from execve()
+ */
+void enter_loaded_program(const char* path, const char* const argv[], const char* const envp[],
+                          const ElfAuxInfo& aux);
 
 }  // namespace cinux::proc

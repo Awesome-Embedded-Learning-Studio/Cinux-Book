@@ -10,6 +10,7 @@
 
 #include "kernel/syscall/sys_getpid.hpp"
 
+#include "kernel/errno.hpp"
 #include "kernel/proc/scheduler.hpp"
 
 namespace cinux::syscall {
@@ -17,7 +18,7 @@ namespace cinux::syscall {
 int64_t sys_getpid(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) {
     auto* task = cinux::proc::Scheduler::current();
     if (task == nullptr) {
-        return -1;
+        return -kEsrch;
     }
     return static_cast<int64_t>(task->tgid);
 }

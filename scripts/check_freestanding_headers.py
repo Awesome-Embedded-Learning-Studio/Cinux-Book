@@ -49,6 +49,18 @@ PROHIBITED = {
 
 INCLUDE_RE = re.compile(r'^\s*#\s*include\s*<([a-z0-9_]+)>', re.MULTILINE)
 
+# Per-file exemptions.  CinuxOS is freestanding, but a few kernel sources pull
+# <memory> for std::unique_ptr (RAII over raw new/delete).  unique_ptr compiles
+# fine under -fno-exceptions (no hosted runtime needed; see the memory note
+# `kernel-can-use-std-smart-ptr`), and DIRECTIVES A's <memory> ban scopes to the
+# Cinux-Base *submodule*, not kernel/.  Each entry is reviewed individually so
+# the check still catches shared_ptr/make_shared/container misuse elsewhere;
+# think twice before adding one.
+EXEMPT = {
+    "kernel/syscall/sys_pipe.cpp": {"memory"},
+    "kernel/syscall/sys_execve.cpp": {"memory"},
+}
+
 
 def scan_file(path: str):
     """Yield (line_no, header) for each prohibited include found in path."""
@@ -80,7 +92,11 @@ def main() -> int:
                 if ext not in (".cpp", ".cc", ".cxx", ".c", ".h", ".hpp", ".hh", ".hxx"):
                     continue
                 fpath = os.path.join(root, fname)
+                rel_fpath = os.path.relpath(fpath, ".")
+                allowed = EXEMPT.get(rel_fpath, set())
                 for line_no, header in scan_file(fpath):
+                    if header in allowed:
+                        continue
                     violations.append((fpath, line_no, header))
 
     if violations:

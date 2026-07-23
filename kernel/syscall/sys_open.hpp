@@ -26,4 +26,15 @@ namespace cinux::syscall {
  */
 int64_t sys_open(uint64_t path_virt, uint64_t flags, uint64_t, uint64_t, uint64_t, uint64_t);
 
+/**
+ * @brief Open relative to a directory fd (F10-M1 batch 4)
+ *
+ * musl's open()/fopen() always go through openat.  @p dirfd is AT_FDCWD
+ * (-100) for cwd-relative opens (the only case musl uses); other dirfds
+ * fall back to cwd as a documented limitation until per-fd paths are
+ * tracked.  O_CREAT creates the file when it is missing.
+ */
+int64_t sys_openat(uint64_t dirfd, uint64_t path_virt, uint64_t flags, uint64_t mode, uint64_t,
+                   uint64_t);
+
 }  // namespace cinux::syscall

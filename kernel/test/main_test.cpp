@@ -22,13 +22,24 @@
 #include "kernel/arch/x86_64/syscall.hpp"
 #include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/drivers/apic/local_apic.hpp"  // F5-M6: g_lapic (e1000 poll timer)
+#include "kernel/drivers/ahci/ahci.hpp"                 // F10-M1 batch 6: ext2 mount
+#include "kernel/drivers/ahci/ahci_block_device.hpp"    // F10-M1 batch 6: ext2 mount
+#include "kernel/drivers/pci/pci.hpp"                   // F10-M1 batch 6: PCI->AHCI for ext2
+#include "kernel/fs/ext2.hpp"                           // F10-M1 batch 6: ext2 mount
+#include "kernel/fs/vfs_mount.hpp"                      // F10-M1 batch 6: VFS mount
 #include "kernel/lib/kallsyms.hpp"
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/lib/not_null.hpp"  // F10-M1 batch 6: NotNull<Task*>
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/page_cache.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/slab.hpp"
 #include "kernel/mm/vmm.hpp"
+#include "kernel/proc/pid.hpp"            // F10-M1 batch 6: g_pid_alloc
+#include "kernel/proc/process.hpp"        // F10-M1 batch 6: fork()
+#include "kernel/proc/scheduler.hpp"      // F10-M1 batch 6: run_first/add_task
+#include "kernel/proc/user_launch.hpp"    // F10-M1 batch 6: launch_user_program
+#include "kernel/syscall/sys_waitpid.hpp"  // F10-M1 batch 6: sys_waitpid (WNOHANG poll)
 
 extern "C" {
 void run_gdt_idt_tests();
@@ -115,6 +126,95 @@ void run_net_tests();  // F7 L1: loopback L3 stack (ping 127.0.0.1, deterministi
 extern "C" void net_timer_stub();  // F5-M6: e1000 RX-poll LAPIC timer ISR (interrupts.S)
 
 static constexpr uintptr_t BOOT_INFO_PHYS = 0x7000;
+
+// ============================================================
+// F10-M1 batch 6: musl static hello ring-3 smoke
+//
+// The unit-test suites above run single-threaded with no real dispatch loop.
+// After they finish, this optional phase (CINUX_MUSL_HELLO_SMOKE) enters the
+// real scheduler: a worker task forks, the child execves /hello (the musl
+// static binary from tools/musl/), which exercises the batch-3 initial stack
+// (auxv) and the batch-4 syscalls (arch_prctl TLS, writev printf output,
+// exit_group) end-to-end. The parent waitpids and treats exit_status==0 as the
+// pass signal. The worker then writes the combined exit code (unit failures OR
+// hello != 0) to the isa-debug-exit device, terminating QEMU.
+// ============================================================
+#ifdef CINUX_MUSL_HELLO_SMOKE
+static int g_unit_test_failures = 0;
+
+static void musl_hello_smoke_entry() {
+    auto* task = cinux::proc::Scheduler::current();
+    if (task == nullptr) {
+        cinux::lib::kprintf("[F10-M1] smoke: no current task\n");
+        __asm__ volatile("outl %0, $0xf4" : : "a"(1));
+        while (1) __asm__ volatile("cli; hlt");
+    }
+    task->children = nullptr;
+
+    // Mount the ext2 disk (AHCI port 1) into the global VFS so execve can
+    // resolve /hello.  The harness keeps no global AHCI/ext2 (each ext2 test
+    // does its own setup_ext2), so replicate that: PCI -> AHCI -> port-1 block
+    // device -> Ext2 mount.  Objects are static so they outlive the worker.
+    static cinux::drivers::pci::PCI*          pci = nullptr;
+    static cinux::drivers::ahci::AHCI*        ahci = nullptr;
+    static cinux::drivers::ahci::AHCIBlockDevice* blk_dev = nullptr;
+    static cinux::fs::Ext2*                   ext2 = nullptr;
+    if (ext2 == nullptr) {
+        pci = new cinux::drivers::pci::PCI();
+        pci->init();
+        cinux::drivers::pci::PCIDevice ahci_dev{};
+        if (pci->find_ahci(ahci_dev)) {
+            ahci = new cinux::drivers::ahci::AHCI();
+            ahci->init(ahci_dev);
+            auto blk = cinux::drivers::ahci::AHCIBlockDevice::create(*ahci, 1);
+            if (blk.ok()) {
+                blk_dev = new cinux::drivers::ahci::AHCIBlockDevice(std::move(blk.value()));
+            }
+        }
+        ext2 = new cinux::fs::Ext2(blk_dev);
+        (void)ext2->mount();
+    }
+    cinux::fs::vfs_mount_init();
+    cinux::fs::vfs_mount_add("/", ext2);
+    cinux::lib::kprintf("[F10-M1] ext2 mounted at / for smoke (mounted=%d, blk=%d)\n",
+                        ext2->is_mounted() ? 1 : 0, blk_dev != nullptr ? 1 : 0);
+
+    cinux::lib::kprintf("[F10-M1] musl hello ring-3 smoke: forking child for /hello\n");
+    int child_pid = cinux::proc::fork(cinux::proc::g_pid_alloc);
+    if (child_pid == 0) {
+        // Child: the worker is a kernel thread with no user address space, so
+        // fork produced a child without one too.  Install a fresh AS (mirroring
+        // the non-GUI /bin/sh launch in shell_launch.cpp) before execve.
+        auto* child = cinux::proc::Scheduler::current();
+        child->addr_space = new cinux::mm::AddressSpace();
+        const char* argv[] = {"/hello", nullptr};
+        const char* envp[]  = {nullptr};
+        cinux::proc::launch_user_program("/hello", argv, envp);
+        cinux::proc::Scheduler::exit_current();  // unreachable
+    }
+
+    // Parent: poll for the child's exit (WNOHANG) yielding between checks.  The
+    // blocking waitpid path relies on block/unblock plumbing that the minimal
+    // harness scheduler does not reliably exercise; polling lets the child run
+    // cooperatively and avoids a hang.
+    int     status   = -1;
+    int64_t reap_ret = 0;
+    for (int spins = 0; spins < 50'000'000; ++spins) {
+        reap_ret = cinux::syscall::sys_waitpid(child_pid, reinterpret_cast<uint64_t>(&status), 1, 0,
+                                               0, 0);
+        if (reap_ret != 0) {
+            break;  // reaped (>0) or error (<0)
+        }
+        cinux::proc::Scheduler::yield();
+    }
+    bool hello_ok  = (reap_ret > 0 && status == 0);
+    int  exit_code = (g_unit_test_failures > 0 || !hello_ok) ? 1 : 0;
+    cinux::lib::kprintf("[F10-M1] smoke: hello exit_status=%d reap=%lld -> %s\n", status,
+                        static_cast<long long>(reap_ret), hello_ok ? "PASS" : "FAIL");
+    __asm__ volatile("outl %0, $0xf4" : : "a"(exit_code));
+    while (1) __asm__ volatile("cli; hlt");
+}
+#endif  // CINUX_MUSL_HELLO_SMOKE
 
 extern "C" void kernel_main() {
     // Step 1: Initialise serial port for test output
@@ -357,6 +457,28 @@ extern "C" void kernel_main() {
     } else {
         cinux::lib::kprintf("\n[TEST] ALL TESTS PASSED (exit code %d)\n", exit_code);
     }
+
+#ifdef CINUX_MUSL_HELLO_SMOKE
+    // F10-M1 batch 6: enter the real scheduler and run the musl /hello smoke.
+    // The worker task signals QEMU exit itself (isa-debug-exit), so control
+    // does not return here.  CI builds without the flag take the normal path.
+    cinux::lib::kprintf("\n[F10-M1] entering scheduler for musl hello ring-3 smoke\n");
+    g_unit_test_failures = test::get_total_failed();
+    cinux::proc::Scheduler::init();  // pristine run queue for the smoke (tests re-init it)
+    auto* hello_worker =
+        cinux::proc::TaskBuilder().set_entry(musl_hello_smoke_entry).set_name("hello_smoke").build();
+    auto* boot_ctx =
+        cinux::proc::TaskBuilder().set_entry(musl_hello_smoke_entry).set_name("boot_ctx").build();
+    if (hello_worker != nullptr && boot_ctx != nullptr) {
+        cinux::proc::Scheduler::add_task(cinux::lib::NotNull<cinux::proc::Task*>{hello_worker});
+        cinux::proc::Scheduler::run_first(cinux::lib::NotNull<cinux::proc::Task*>{boot_ctx});
+        // run_first returns only if the run queue was empty; the worker exits
+        // QEMU via isa-debug-exit, so reaching here is unexpected.
+        cinux::lib::kprintf("[F10-M1] smoke worker did not run -- falling back\n");
+    } else {
+        cinux::lib::kprintf("[F10-M1] smoke task alloc failed\n");
+    }
+#endif
 
     // Exit via QEMU isa-debug-exit device (port 0xf4)
     __asm__ volatile("outl %0, $0xf4" : : "a"(exit_code));

@@ -35,4 +35,14 @@ int64_t sys_stat(uint64_t path_virt, uint64_t st_virt, uint64_t, uint64_t, uint6
  */
 int64_t sys_fstat(uint64_t fd, uint64_t st_virt, uint64_t, uint64_t, uint64_t, uint64_t);
 
+/**
+ * @brief Get file status relative to a directory fd (F10-M1 batch 4)
+ *
+ * musl's stat()/fstat()/lstat() all route through newfstatat.  AT_FDCWD
+ * resolves cwd-relative (the common case); AT_EMPTY_PATH stats @p dirfd
+ * itself.  Symlink-following is implicit -- CinuxOS has no symlink support.
+ */
+int64_t sys_newfstatat(uint64_t dirfd, uint64_t path_virt, uint64_t st_virt, uint64_t flags,
+                       uint64_t, uint64_t);
+
 }  // namespace cinux::syscall

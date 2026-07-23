@@ -185,10 +185,13 @@ cinux::lib::ErrorOr<void> Ext2FileOps::stat(const Inode* inode, struct stat* st)
     auto*            cached = static_cast<const Ext2CachedInode*>(inode->fs_private);
     const Ext2Inode& disk   = cached->disk_inode;
 
+    // Zero first so the Linux-ABI fields the backend does not set (__pad0,
+    // *_nsec, __unused) stay 0 -- no kernel-stack bytes leak to user space.
+    memset(st, 0, sizeof(*st));
     st->st_dev     = 0;
     st->st_ino     = inode->ino;
-    st->st_mode    = disk.i_mode;
     st->st_nlink   = disk.i_links_count;
+    st->st_mode    = disk.i_mode;
     st->st_uid     = disk.i_uid;
     st->st_gid     = disk.i_gid;
     st->st_rdev    = 0;
@@ -347,10 +350,13 @@ cinux::lib::ErrorOr<void> Ext2DirOps::stat(const Inode* inode, struct stat* st) 
     auto*            cached = static_cast<const Ext2CachedInode*>(inode->fs_private);
     const Ext2Inode& disk   = cached->disk_inode;
 
+    // Zero first so the Linux-ABI fields the backend does not set (__pad0,
+    // *_nsec, __unused) stay 0 -- no kernel-stack bytes leak to user space.
+    memset(st, 0, sizeof(*st));
     st->st_dev     = 0;
     st->st_ino     = inode->ino;
-    st->st_mode    = disk.i_mode;
     st->st_nlink   = disk.i_links_count;
+    st->st_mode    = disk.i_mode;
     st->st_uid     = disk.i_uid;
     st->st_gid     = disk.i_gid;
     st->st_rdev    = 0;

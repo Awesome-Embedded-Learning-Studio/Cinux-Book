@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace cinux::proc {
 
 namespace errno_values {
@@ -51,6 +53,20 @@ enum class ExecveResult : int {
 };
 
 /**
+ * @brief ELF-derived auxiliary values the loader needs to build the entry stack
+ *
+ * execve() fills this when @p aux_out is non-null so the caller (e.g.
+ * launch_user_program) can emit the AT_PHDR/AT_PHNUM/AT_PHENT/AT_ENTRY auxv
+ * entries that musl/glibc read at startup to find the program headers.
+ */
+struct ElfAuxInfo {
+    uint64_t at_phdr;   ///< User VA where the program headers are mapped
+    uint64_t at_phnum;  ///< e_phnum (program header count)
+    uint64_t at_phent;  ///< sizeof(Elf64_Phdr) = 56
+    uint64_t at_entry;  ///< e_entry (user VA of the program entry point)
+};
+
+/**
  * @brief Replace the current process image with a new ELF executable
  *
  * Reads the ELF binary from the VFS, validates the header, unmaps
@@ -61,11 +77,13 @@ enum class ExecveResult : int {
  * After a successful execve(), the caller is responsible for jumping
  * to the new entry point (typically via jump_to_usermode).
  *
- * @param path  Null-terminated path to the ELF executable
- * @param argv  Array of argument strings (may be nullptr)
- * @param envp  Array of environment strings (may be nullptr)
+ * @param path     Null-terminated path to the ELF executable
+ * @param argv     Array of argument strings (may be nullptr)
+ * @param envp     Array of environment strings (may be nullptr)
+ * @param aux_out  If non-null, filled with ELF-derived AT_* values on success
  * @return ExecveResult::Ok on success, or an error code
  */
-ExecveResult execve(const char* path, const char* const argv[], const char* const envp[]);
+ExecveResult execve(const char* path, const char* const argv[], const char* const envp[],
+                    ElfAuxInfo* aux_out = nullptr);
 
 }  // namespace cinux::proc

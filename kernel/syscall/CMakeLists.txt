@@ -28,5 +28,11 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_futex.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_pgrp.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_creds.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_lseek.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_ioctl.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_iov.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_arch_prctl.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_set_tid_address.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_clock_gettime.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_ping.cpp
 )

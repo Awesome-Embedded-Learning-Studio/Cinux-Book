@@ -377,8 +377,9 @@ void handle_pf(InterruptFrame* frame) {
                 // syscall/execve can mutate the VMA store concurrently.
                 const bool user_fault = (err & 0x04) != 0;
                 if (user_fault && task != nullptr) {
-                    klog_error("segfault: tid=%u '%s' addr=%p has no VMA -- sending SIGSEGV",
+                    klog_error("segfault: tid=%u '%s' rip=%p rsp=%p addr=%p has no VMA -- sending SIGSEGV",
                                static_cast<unsigned>(task->tid), task->name ? task->name : "(null)",
+                               reinterpret_cast<void*>(frame->rip), reinterpret_cast<void*>(frame->rsp),
                                reinterpret_cast<void*>(fault_addr));
                     // F3-M1: queue SIGSEGV; the ISR stub's signal_check_deliver_isr
                     // (invoked right after handle_pf returns) delivers it -- to a

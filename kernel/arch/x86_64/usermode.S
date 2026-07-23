@@ -89,9 +89,11 @@ jump_to_usermode:
     # First argument to user program (passed in %rdi at user entry)
     movq %rdx, %rdi                    # %rdx→%rdi: argument for user entry function
 
-    # R11 = RFLAGS for SYSRET: set IF (bit 9) so interrupts are enabled in user mode
-    pushq $0x202                       # $0x202→(%rsp): push RFLAGS with IF|bit1 set
-    popq %r11                          # (%rsp)→%r11: pop into R11 (SYSRET restores this)
+    # R11 = RFLAGS for SYSRET: set IF (bit 9) so interrupts are enabled in user mode.
+    # Use a direct immediate load (not push/pop): RSP was just switched to the user
+    # stack above, so a push would write user memory from kernel mode -- a SMAP
+    # violation (#PF -> #DF, since RSP is already user) when CR4.SMAP is set.
+    movq $0x202, %r11                  # $0x202→%r11: RFLAGS with IF|bit1 set (SYSRET restores)
 
     # Zero out unused registers to avoid leaking kernel data
     xorq %rax, %rax                    # 0→%rax: clear RAX

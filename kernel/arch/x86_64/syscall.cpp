@@ -13,10 +13,13 @@
 #include <stdint.h>
 
 #include "kernel/arch/x86_64/gdt.hpp"
+#include "kernel/errno.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/proc/signal.hpp"
+#include "kernel/syscall/sys_arch_prctl.hpp"
 #include "kernel/syscall/sys_brk.hpp"
 #include "kernel/syscall/sys_chdir.hpp"
+#include "kernel/syscall/sys_clock_gettime.hpp"
 #include "kernel/syscall/sys_clone.hpp"
 #include "kernel/syscall/sys_close.hpp"
 #include "kernel/syscall/sys_creat.hpp"
@@ -30,6 +33,9 @@
 #include "kernel/syscall/sys_getdents.hpp"
 #include "kernel/syscall/sys_getpid.hpp"
 #include "kernel/syscall/sys_getppid.hpp"
+#include "kernel/syscall/sys_ioctl.hpp"
+#include "kernel/syscall/sys_iov.hpp"
+#include "kernel/syscall/sys_lseek.hpp"
 #include "kernel/syscall/sys_mkdir.hpp"
 #include "kernel/syscall/sys_mmap.hpp"
 #include "kernel/syscall/sys_open.hpp"
@@ -38,6 +44,7 @@
 #include "kernel/syscall/sys_pipe.hpp"
 #include "kernel/syscall/sys_read.hpp"
 #include "kernel/syscall/sys_rmdir.hpp"
+#include "kernel/syscall/sys_set_tid_address.hpp"
 #include "kernel/syscall/sys_signal.hpp"
 #include "kernel/syscall/sys_stat.hpp"
 #include "kernel/syscall/sys_unlink.hpp"
@@ -112,6 +119,20 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_getegid, sys_getegid);
     syscall_register(SyscallNr::SYS_setuid, sys_setuid);
     syscall_register(SyscallNr::SYS_setgid, sys_setgid);
+
+    // F10-M1 batch 4: musl-required syscalls (startup, vector I/O, *at, time).
+    syscall_register(SyscallNr::SYS_lseek, sys_lseek);
+    syscall_register(SyscallNr::SYS_ioctl, sys_ioctl);
+    syscall_register(SyscallNr::SYS_readv, sys_readv);
+    syscall_register(SyscallNr::SYS_writev, sys_writev);
+    syscall_register(SyscallNr::SYS_arch_prctl, sys_arch_prctl);
+    syscall_register(SyscallNr::SYS_set_tid_address, sys_set_tid_address);
+    syscall_register(SyscallNr::SYS_clock_gettime, sys_clock_gettime);
+    syscall_register(SyscallNr::SYS_exit_group, sys_exit_group);
+    syscall_register(SyscallNr::SYS_openat, sys_openat);
+    syscall_register(SyscallNr::SYS_newfstatat, sys_newfstatat);
+
+    // F7: ICMP echo (shell ping).
     syscall_register(SyscallNr::SYS_ping, sys_ping);
 }
 
@@ -174,13 +195,16 @@ extern "C" int64_t syscall_dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint6
                                     uint64_t a5, uint64_t a6) {
     if (nr >= cinux::syscall::SYSCALL_TABLE_SIZE) {
         cinux::lib::kprintf("[DISPATCH] invalid syscall nr=%u\n", static_cast<unsigned>(nr));
-        return -1;
+        return -cinux::kEnosys;
     }
 
     auto fn = cinux::arch::syscall_table[nr];
     if (fn == nullptr) {
+        // Unregistered syscall: return -ENOSYS (not bare -1) so a probing
+        // libc (musl probes rseq/prlimit/...) can fall back gracefully.
+        // musl treats -4095..-1 as -errno, so bare -1 would read as EPERM.
         cinux::lib::kprintf("[SYSCALL] unhandled syscall %u\n", static_cast<unsigned>(nr));
-        return -1;
+        return -cinux::kEnosys;
     }
 
     int64_t ret = fn(a1, a2, a3, a4, a5, a6);

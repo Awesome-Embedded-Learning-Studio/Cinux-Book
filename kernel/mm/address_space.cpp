@@ -188,14 +188,18 @@ void AddressSpace::free_subtree(uint64_t table_phys, int level) {
             continue;
         }
 
-        // Stop recursion at PT level -- PT entries point to data pages
-        // which are NOT owned by the address space infrastructure
-        if (level > LEVEL_PT) {
-            free_subtree(table[i].phys_addr(), level - 1);
+        if (level == LEVEL_PT) {
+            uint64_t data_phys = table[i].phys_addr();
+            if (g_pmm.mapcount_dec_and_test(data_phys)) {
+                g_pmm.free_page(data_phys);
+            }
+            table[i].raw = 0;
+            continue;
         }
 
-        // Free the page table page at this level
+        free_subtree(table[i].phys_addr(), level - 1);
         g_pmm.free_page(table[i].phys_addr());
+        table[i].raw = 0;
     }
 }
 

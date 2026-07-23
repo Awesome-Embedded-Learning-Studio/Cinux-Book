@@ -128,6 +128,20 @@ void sys_yield(void) {
     _syscall1(static_cast<uint64_t>(SyscallNr::SYS_yield), 0);
 }
 
+int64_t sys_fork(void) {
+    return _syscall1(static_cast<uint64_t>(SyscallNr::SYS_fork), 0);
+}
+
+int64_t sys_execve(const char* path, char* const argv[], char* const envp[]) {
+    return _syscall3(static_cast<uint64_t>(SyscallNr::SYS_execve), (uint64_t)path, (uint64_t)argv,
+                     (uint64_t)envp);
+}
+
+int64_t sys_waitpid(int pid, int* status, int options) {
+    return _syscall3(static_cast<uint64_t>(SyscallNr::SYS_waitpid), (uint64_t)pid, (uint64_t)status,
+                     (uint64_t)options);
+}
+
 int64_t sys_kill(int pid, int sig) {
     return _syscall2(static_cast<uint64_t>(SyscallNr::SYS_kill), (uint64_t)pid, (uint64_t)sig);
 }

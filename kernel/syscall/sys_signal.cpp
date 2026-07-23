@@ -25,6 +25,12 @@ using cinux::proc::SigSet;
 using cinux::proc::Task;
 using cinux::proc::TaskState;
 
+// Linux sigaction flags (uapi/asm-generic/signal.h; musl arch/x86_64/bits/signal.h).
+// SA_RESTORER (0x04000000) is intentionally not honoured: CinuxOS injects its own
+// sigreturn trampoline rather than calling the user-provided restorer.
+constexpr uint64_t kSaRestart   = 0x10000000;
+constexpr uint64_t kSaResethand = 0x80000000;
+
 int64_t sys_kill(uint64_t pid, uint64_t sig, uint64_t, uint64_t, uint64_t, uint64_t) {
     if (!cinux::proc::signal_valid(static_cast<int>(sig))) {
         return -22;  // EINVAL
@@ -73,9 +79,9 @@ int64_t sys_rt_sigaction(uint64_t sig, uint64_t act, uint64_t oact, uint64_t, ui
         uo->sa_handler       = (cur.type == HandlerType::kIgnore)   ? 1
                                : (cur.type == HandlerType::kCustom) ? cur.handler_addr
                                                                     : 0;
-        uo->sa_mask          = cur.sa_mask;
-        uo->sa_flags         = 0;
-        uo->sa_restorer      = 0;
+        uo->sa_flags    = (cur.sa_restart ? kSaRestart : 0) | (cur.sa_resethand ? kSaResethand : 0);
+        uo->sa_restorer = 0;  // CinuxOS injects its own sigreturn trampoline
+        uo->sa_mask     = cur.sa_mask;
     }
     if (act != 0) {
         const auto* ua  = reinterpret_cast<const UserSigAction*>(act);
@@ -88,7 +94,9 @@ int64_t sys_rt_sigaction(uint64_t sig, uint64_t act, uint64_t oact, uint64_t, ui
             dst.type         = HandlerType::kCustom;
             dst.handler_addr = ua->sa_handler;
         }
-        dst.sa_mask = ua->sa_mask;
+        dst.sa_restart   = (ua->sa_flags & kSaRestart) != 0;
+        dst.sa_resethand = (ua->sa_flags & kSaResethand) != 0;
+        dst.sa_mask      = ua->sa_mask;
     }
     return 0;
 }

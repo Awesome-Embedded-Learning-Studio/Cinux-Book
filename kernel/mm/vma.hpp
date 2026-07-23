@@ -148,6 +148,11 @@ public:
 
     /// Number of VMA nodes currently held.
     virtual std::size_t count() const = 0;
+
+    /// Free every VMA node and empty the store.  Used by execve() to discard a
+    /// forked-inherited VMA set before loading the new image (the replacement
+    /// path: a fresh AddressSpace has none, but a forked child has the parent's).
+    virtual void clear() = 0;
 };
 
 /**
@@ -177,11 +182,9 @@ public:
     VMA*                          first() override { return head_; }
     VMA*                          next(VMA* cur) override { return cur ? cur->next : nullptr; }
     std::size_t                   count() const override { return count_; }
+    void                          clear() override;
 
 private:
-    /// Free every node (destructor helper).
-    void clear();
-
     VMA*        head_{nullptr};
     std::size_t count_{0};
 };

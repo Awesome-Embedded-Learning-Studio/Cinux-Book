@@ -132,6 +132,15 @@ if(CINUX_LOCKDEP)
     target_compile_definitions(big_kernel_common PUBLIC CINUX_LOCKDEP)
 endif()
 
+# F10-M1 batch 6: opt-in musl /hello ring-3 smoke in the test harness. After the
+# unit suites pass, the harness enters the real scheduler, forks + execves the
+# musl static /hello (from tools/musl/), and treats a clean exit as the
+# end-to-end pass for batches 3+4+5. Off by default (CI has no musl sysroot and
+# no /hello on ext2); enable locally: cmake -DCINUX_MUSL_HELLO_SMOKE=ON ...
+if(CINUX_MUSL_HELLO_SMOKE)
+    target_compile_definitions(big_kernel_common PUBLIC CINUX_MUSL_HELLO_SMOKE)
+endif()
+
 # F-INFRA I-9: opt-in UBSan. -fsanitize=undefined at COMPILE only (the freestanding
 # stubs in kernel/lib/ubsan.cpp resolve the __ubsan_handle_* refs -- no libubsan).
 # Exclude the stub + the diagnostic/panic path so a UB hit cannot recurse.

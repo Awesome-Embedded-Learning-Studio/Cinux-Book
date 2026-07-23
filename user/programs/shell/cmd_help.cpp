@@ -31,5 +31,9 @@ void cmd_help(int /*argc*/, char** /*argv*/) {
         "  touch <path>      - create an empty file\n"
         "  mkdir <path>      - create a directory\n"
         "  rm <path>         - remove a file\n"
-        "  rmdir <path>      - remove an empty directory\n");
+        "  rmdir <path>      - remove an empty directory\n"
+        "  cd <path>         - change directory\n"
+        "  pwd               - print working directory\n"
+        "  stat <path>       - show file status\n"
+        "  <path>            - run a program by path (e.g. /hello)\n");
 }

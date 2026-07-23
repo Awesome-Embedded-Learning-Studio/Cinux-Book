@@ -19,13 +19,18 @@
 
 namespace cinux::syscall {
 
-/// User-space sigaction layout (subset of the Linux struct sigaction).
-/// sa_handler: 0 = SIG_DFL, 1 = SIG_IGN, otherwise a handler entry address.
+/// User-space sigaction layout, matching the Linux x86_64 `struct sigaction`
+/// (uapi/asm-generic/signal.h): { sa_handler, sa_flags, sa_restorer, sa_mask }.
+/// musl constructs exactly this layout (src/signal/sigaction.c, k_sigaction) and
+/// passes sigsetsize = _NSIG/8 = 8 as rt_sigaction's 4th arg, so sa_mask is the
+/// 8-byte kernel sigset (signals 1..64). sa_handler: 0 = SIG_DFL, 1 = SIG_IGN,
+/// otherwise a handler entry address. CinuxOS ignores sa_restorer (it injects its
+/// own sigreturn trampoline) but the field must sit at the Linux offset.
 struct UserSigAction {
     uint64_t sa_handler;
-    uint64_t sa_mask;
     uint64_t sa_flags;
     uint64_t sa_restorer;
+    uint64_t sa_mask;
 };
 
 /// Send signal @p sig to process @p pid (Linux syscall 62).
