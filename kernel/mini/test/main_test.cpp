@@ -139,7 +139,7 @@ extern "C" [[noreturn]] void mini_kernel_main(uint64_t boot_info_addr) {
             __asm__ volatile("cli; hlt");
     }
 
-    kprintf("\n=== Launching big kernel test at 0x%p ===\n",
+    kprintf("\n=== Launching big kernel test at %p ===\n",
             reinterpret_cast<void*>(big_kernel_entry));
     auto big_entry = reinterpret_cast<void (*)()>(big_kernel_entry);
     big_entry();

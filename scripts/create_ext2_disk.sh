@@ -1,7 +1,7 @@
 #!/bin/bash
 # Create a small ext2 disk image for QEMU AHCI port 1
 #
-# Usage: ./create_ext2_disk.sh <output_image> [shell_elf] [musl_hello_elf]
+# Usage: ./create_ext2_disk.sh <output_image> [shell_elf] [musl_hello_elf] [musl_forktest_elf]
 #
 # Creates a 4 MB ext2 filesystem image with:
 #   /bin/sh         - Shell executable (from shell_elf argument)
@@ -10,6 +10,9 @@
 #   /hello          - musl static hello world (F10-M1 batch 6, only if 3rd arg
 #                     names an existing file; enables the run-kernel-test
 #                     ring-3 musl smoke)
+#   /forktest       - musl static SMP CoW-race reproducer (F-VERIFY M5-2, only
+#                     if 4th arg names an existing file; the ring-3 smoke execve's
+#                     it under -smp 2 and gates on `FORKTEST races=0`)
 #
 # Uses debugfs from e2fsprogs to populate the filesystem without
 # requiring root/mount permissions.
@@ -19,6 +22,7 @@ set -e
 OUTPUT="$1"
 SHELL_ELF="$2"
 MUSL_HELLO_ELF="$3"
+MUSL_FORKTEST_ELF="$4"
 
 if [ -z "$OUTPUT" ]; then
     echo "Usage: $0 <output_image> [shell_elf]" >&2
@@ -78,6 +82,13 @@ fi
 # ring-3 smoke test).
 if [ -n "$MUSL_HELLO_ELF" ] && [ -f "$MUSL_HELLO_ELF" ]; then
     DEBUGFS_CMDS+="write $MUSL_HELLO_ELF hello\n"
+fi
+
+# F-VERIFY M5-2: optional SMP CoW-race reproducer at /forktest (musl static;
+# built by tools/musl/build-forktest.sh).  The ring-3 smoke execve's it under
+# -smp 2 to gate the F10 fork/CoW fixes.  Absent in CI (no sysroot) -> skipped.
+if [ -n "$MUSL_FORKTEST_ELF" ] && [ -f "$MUSL_FORKTEST_ELF" ]; then
+    DEBUGFS_CMDS+="write $MUSL_FORKTEST_ELF forktest\n"
 fi
 
 printf "$DEBUGFS_CMDS" | debugfs -w "$OUTPUT" >/dev/null 2>&1

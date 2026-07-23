@@ -5,6 +5,7 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/x86_64/idt.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/x86_64/interrupts.S
     ${CMAKE_CURRENT_SOURCE_DIR}/x86_64/exception_handlers.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/x86_64/fault_diag.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/x86_64/backtrace.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/x86_64/irq_backend.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/x86_64/irq_handlers.cpp

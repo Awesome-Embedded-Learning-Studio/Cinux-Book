@@ -26,6 +26,21 @@ if(CINUX_HOST_ASAN)
     add_link_options(-fsanitize=address,undefined --coverage)
 endif()
 
+# F-VERIFY M4: opt-in ThreadSanitizer for host unit tests -- the data-race
+# detector the project was missing (lockdep only does lock-order; it cannot see
+# two cores/threads touching a field with no lock).  Mutually exclusive with
+# CINUX_HOST_ASAN (TSan+ASan can't combine), race-detection only (no UBSan/
+# coverage -- pair with CINUX_HOST_ASAN for those).  Applies to the -pthread
+# tests (test_pmm concurrent alloc/free, test_sync_concurrent 8-thread lock
+# stress).  Value ramps once M2 links REAL kernel code (sync/scheduler/PMM) into
+# these tests; today it guards the concurrent mirror re-implementations + any new
+# -pthread test.  GCC -fsanitize=thread.
+option(CINUX_HOST_TSAN "Host unit tests: ThreadSanitizer (data-race detector for -pthread tests)" OFF)
+if(CINUX_HOST_TSAN)
+    add_compile_options(-fsanitize=thread -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=thread)
+endif()
+
 # Host tests need standard library; override kernel toolchain linker flags
 set(CMAKE_EXE_LINKER_FLAGS "")
 

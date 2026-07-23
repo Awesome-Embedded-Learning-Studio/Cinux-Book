@@ -241,7 +241,7 @@ void SlabAllocator::free_locked(void* ptr) {
     // repeated free of the same slot.
     uint64_t* words = reinterpret_cast<uint64_t*>(ptr);
     if (words[1] == kSlabPoison) {
-        cinux::lib::kprintf("[SLAB] double-free at 0x%p\n", ptr);
+        cinux::lib::kprintf("[SLAB] double-free at %p\n", ptr);
         return;
     }
 

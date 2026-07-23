@@ -20,6 +20,7 @@
 
 #include "arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/backtrace.hpp"
+#include "kernel/arch/x86_64/fault_diag.hpp"  // F-VERIFY: capture_first_gp/pf + CoW diag (extracted from this file)
 #include "kernel/arch/x86_64/idt.hpp"
 #include "kernel/arch/x86_64/io.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
@@ -75,91 +76,6 @@ void dump_registers(const InterruptFrame* frame, const char* name, uint8_t vecto
 [[noreturn]] void fatal_halt() {
     while (1) {
         __asm__ volatile("cli; hlt");
-    }
-}
-
-// ============================================================
-// %gs-safe first-fault capture (F4-M4 M4-2-3, GOTCHA#25)
-// ============================================================
-// A #GP whose root cause is a corrupt (non-canonical) GS_BASE recurses this
-// handler: handle_gp -> panic -> Scheduler::current() reads %gs:24 -> the
-// non-canonical GS_BASE makes the deref itself #GP -> handle_gp again, ad
-// infinitum. The register dump panic() prints is then from a RECURSIVE frame,
-// not the real faulting one, so the true faulting RIP is lost. To capture it
-// we dump the faulting frame -- plus the live GS/KERNEL_GS MSRs (is GS_BASE
-// already non-canonical at the first fault?) -- to the debug console BEFORE
-// anything touches %gs:
-//   * the frame lives on the stack, reachable via the %rdi argument pointer;
-//   * rdmsr needs no %gs;
-//   * outb needs no %gs.
-// So the dump runs even with a corrupt GS_BASE. Output lands in build/debug.log
-// (QEMU -debugcon file, iobase 0xE9). panic() then proceeds as usual; a
-// once-flag keeps the recursive frames from flooding the log. This is permanent
-// hardening: any future %gs-corrupt #GP leaves a real first-fault RIP instead
-// of an unreadable recursive crash.
-namespace {
-constexpr uint16_t kDebugconPort = 0xE9;
-
-void debugcon_str(const char* s) {
-    while (*s != '\0') {
-        cinux::io::io_outb(kDebugconPort, static_cast<uint8_t>(*s));
-        ++s;
-    }
-}
-
-void debugcon_hex64(uint64_t v) {
-    static const char kHex[] = "0123456789abcdef";
-    char              buf[19];  // "0x" + 16 hex digits + NUL
-    buf[0] = '0';
-    buf[1] = 'x';
-    for (int i = 15; i >= 0; --i) {
-        buf[2 + i] = kHex[v & 0xf];
-        v >>= 4;
-    }
-    buf[18] = '\0';
-    debugcon_str(buf);
-}
-
-// rdmsr with no %gs dependency (used to read GS_BASE/KERNEL_GS_BASE live).
-uint64_t read_msr_raw(uint32_t msr) {
-    uint32_t low;
-    uint32_t high;
-    __asm__ volatile("rdmsr" : "=a"(low), "=d"(high) : "c"(msr));
-    return (static_cast<uint64_t>(high) << 32) | low;
-}
-
-void dump_first_gp(const InterruptFrame* frame) {
-    debugcon_str("\n>>> FIRST #GP rip=");
-    debugcon_hex64(frame->rip);
-    debugcon_str(" rsp=");
-    debugcon_hex64(frame->rsp);
-    debugcon_str(" cs=0x");
-    debugcon_hex64(frame->cs & 0xffff);
-    debugcon_str(" err=");
-    debugcon_hex64(frame->error_code);
-    debugcon_str(" rax(prev)=");
-    debugcon_hex64(frame->rax);
-    debugcon_str(" rbp=");
-    debugcon_hex64(frame->rbp);
-    uint64_t cr3;
-    __asm__ volatile("movq %%cr3, %0" : "=r"(cr3));
-    debugcon_str(" cr3=");
-    debugcon_hex64(cr3);
-    debugcon_str(" gs_base=");
-    debugcon_hex64(read_msr_raw(0xC0000101));
-    debugcon_str(" kgs_base=");
-    debugcon_hex64(read_msr_raw(0xC0000102));
-    debugcon_str(" <<<\n");
-}
-}  // namespace
-
-// Dumps the first #GP's faulting frame exactly once (recursive frames from a
-// corrupt %gs are skipped). Called at the top of handle_gp, before panic().
-void capture_first_gp(const InterruptFrame* frame) {
-    static bool dumped = false;
-    if (!dumped) {
-        dumped = true;
-        dump_first_gp(frame);
     }
 }
 
@@ -273,6 +189,14 @@ void handle_pf(InterruptFrame* frame) {
     uint64_t fault_addr;
     __asm__ volatile("movq %%cr2, %0" : "=r"(fault_addr));
 
+    // F-VERIFY M6: first-fault debugcon capture on PRESENT faults only (err&P --
+    // skips benign demand-paging !P so debug.log isn't tagged by the first
+    // ordinary demand-fault).  Decodes P/W/U/RSV/I; survives the panic/klog
+    // path nesting into another #PF (log3.txt class) via the debugcon channel.
+    if (frame->error_code & 0x01) {
+        capture_first_pf(frame, fault_addr);
+    }
+
     uint64_t err = frame->error_code;
 
     // ---- Stack guard page detection (scheduler task stacks) ----
@@ -377,10 +301,11 @@ void handle_pf(InterruptFrame* frame) {
                 // syscall/execve can mutate the VMA store concurrently.
                 const bool user_fault = (err & 0x04) != 0;
                 if (user_fault && task != nullptr) {
-                    klog_error("segfault: tid=%u '%s' rip=%p rsp=%p addr=%p has no VMA -- sending SIGSEGV",
-                               static_cast<unsigned>(task->tid), task->name ? task->name : "(null)",
-                               reinterpret_cast<void*>(frame->rip), reinterpret_cast<void*>(frame->rsp),
-                               reinterpret_cast<void*>(fault_addr));
+                    klog_error(
+                        "segfault: tid=%u '%s' rip=%p rsp=%p addr=%p has no VMA -- sending SIGSEGV",
+                        static_cast<unsigned>(task->tid), task->name ? task->name : "(null)",
+                        reinterpret_cast<void*>(frame->rip), reinterpret_cast<void*>(frame->rsp),
+                        reinterpret_cast<void*>(fault_addr));
                     // F3-M1: queue SIGSEGV; the ISR stub's signal_check_deliver_isr
                     // (invoked right after handle_pf returns) delivers it -- to a
                     // custom handler if installed, else the default Terminate.
@@ -446,6 +371,10 @@ void handle_pf(InterruptFrame* frame) {
         if (cinux::proc::handle_cow_fault(fault_addr)) {
             return;
         }
+        // F-VERIFY M6-2: CoW resolution failed -- dump phys + mapcount to debugcon
+        // (lock-free PTE walk; see dump_cow_fail_diagnostic).  Rare path, no noise
+        // on the normal CoW-resolved path.
+        dump_cow_fail_diagnostic(fault_addr);
     }
 
     const char* present  = (err & 0x01) ? "protection violation" : "page not present";

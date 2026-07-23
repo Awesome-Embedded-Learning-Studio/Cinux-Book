@@ -171,8 +171,8 @@ extern int _tests_failed;
     do {                                                                                           \
         auto&& _aok_r = (expr);                                                                    \
         if (!_aok_r.ok()) {                                                                        \
-            _TEST_PRINT("[FAIL] %s\n  ASSERT_OK(%s) error\n  at %s:%d\n",                          \
-                        _current_test_name, #expr, __FILE__, __LINE__);                            \
+            _TEST_PRINT("[FAIL] %s\n  ASSERT_OK(%s) error\n  at %s:%d\n", _current_test_name,      \
+                        #expr, __FILE__, __LINE__);                                                \
             _tests_failed++;                                                                       \
             _TEST_ABORT();                                                                         \
         }                                                                                          \
@@ -200,13 +200,18 @@ static inline void RUN_ALL_TESTS() {
 
     for (int i = 0; i < _test_count; i++) {
         _current_test_name = _test_registry[i].name;
+        // Snapshot the failure count before running: a failing test's ASSERT_*
+        // macros increment _tests_failed and `return`, so a test is PASS only if
+        // _tests_failed did not move.  Previously every test was unconditionally
+        // labelled [PASS] and added to _tests_passed, inflating the headline
+        // count and mislabelling failures as passed (F-VERIFY M0-1).  The
+        // _tests_failed>0 exit-code contract is unchanged.
+        int failed_before  = _tests_failed;
         _test_registry[i].fn();
-        if (_tests_failed == 0 || /* last test passed */ true) {
-            // Only print PASS if not failed (simplified; actual implementation needs per-test
-            // tracking)
+        if (_tests_failed == failed_before) {
+            _TEST_PRINT("[PASS] %s\n", _current_test_name);
+            _tests_passed++;
         }
-        _TEST_PRINT("[PASS] %s\n", _current_test_name);
-        _tests_passed++;
     }
 
     _TEST_PRINT("\n=== Results: %d passed, %d failed ===\n", _tests_passed, _tests_failed);

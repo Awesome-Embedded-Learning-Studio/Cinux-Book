@@ -182,7 +182,7 @@ void AHCI::setup_port(uint8_t port_index) {
     // Start the port engine
     start_port(port);
 
-    cinux::lib::kprintf("[AHCI] Port %u set up: cmdlist=0x%p fis=0x%p\n", port_index,
+    cinux::lib::kprintf("[AHCI] Port %u set up: cmdlist=%p fis=%p\n", port_index,
                         reinterpret_cast<void*>(cmd_list_phys),
                         reinterpret_cast<void*>(fis_buf_phys));
 }

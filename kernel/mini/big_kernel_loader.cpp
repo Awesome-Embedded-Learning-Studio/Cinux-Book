@@ -42,7 +42,7 @@ bool check_memory_overlaps(const MemoryRegion* regions, uint32_t count) {
     kprintf("\n=== Memory Layout ===\n");
     for (uint32_t i = 0; i < count; i++) {
         uint64_t size_kb = (regions[i].end - regions[i].start) / 1024;
-        kprintf("  %s: 0x%08p - 0x%08p (%u KB)\n", regions[i].name,
+        kprintf("  %s: %p - %p (%u KB)\n", regions[i].name,
                 reinterpret_cast<const void*>(regions[i].start),
                 reinterpret_cast<const void*>(regions[i].end), static_cast<uint32_t>(size_kb));
     }
@@ -56,7 +56,7 @@ bool check_memory_overlaps(const MemoryRegion* regions, uint32_t count) {
                     regions[i].start > regions[j].start ? regions[i].start : regions[j].start;
                 uint64_t overlap_end =
                     regions[i].end < regions[j].end ? regions[i].end : regions[j].end;
-                kprintf("  OVERLAP: '%s' and '%s' at 0x%p - 0x%p\n", regions[i].name,
+                kprintf("  OVERLAP: '%s' and '%s' at %p - %p\n", regions[i].name,
                         regions[j].name, reinterpret_cast<const void*>(overlap_start),
                         reinterpret_cast<const void*>(overlap_end));
                 ok = false;
@@ -112,7 +112,7 @@ bool load_big_kernel_phase1(uint64_t disk_lba, BigKernelLoadState& state) {
     if (phdr_end > header_bytes) {
         kprintf(
             "[LOADER] ERROR: Program headers extend beyond header read "
-            "(end=0x%p, read=0x%p). Increase ELF_HEADER_SECTORS.\n",
+            "(end=%p, read=%p). Increase ELF_HEADER_SECTORS.\n",
             reinterpret_cast<const void*>(phdr_end), reinterpret_cast<const void*>(header_bytes));
         return false;
     }
@@ -145,7 +145,7 @@ bool load_big_kernel_phase1(uint64_t disk_lba, BigKernelLoadState& state) {
 
     // Safety cap
     if (state.total_elf_size > MAX_ELF_FILE_SIZE) {
-        kprintf("[LOADER] ERROR: ELF file too large (0x%p, max 0x%p)\n",
+        kprintf("[LOADER] ERROR: ELF file too large (%p, max %p)\n",
                 reinterpret_cast<const void*>(state.total_elf_size),
                 reinterpret_cast<const void*>(MAX_ELF_FILE_SIZE));
         return false;
@@ -188,7 +188,7 @@ uint64_t load_big_kernel_phase2(const BigKernelLoadState& state, uint64_t disk_l
 
 
     // Extend identity mapping
-    kprintf("[LOADER] Mapping physical memory up to 0x%p...\n",
+    kprintf("[LOADER] Mapping physical memory up to %p...\n",
             reinterpret_cast<const void*>(highest_phys));
     identity_map_up_to(highest_phys);
 
@@ -196,7 +196,7 @@ uint64_t load_big_kernel_phase2(const BigKernelLoadState& state, uint64_t disk_l
     // so the big kernel's phys_to_virt() can address every page of RAM, not just
     // the first 1 GB covered by the KERNEL_VMA higher-half window.
     arch::direct_map_up_to(highest_phys);
-    kprintf("[LOADER] Direct map window ready at 0x%p\n",
+    kprintf("[LOADER] Direct map window ready at %p\n",
             reinterpret_cast<const void*>(arch::DIRECT_MAP_BASE));
 
     // Register memory regions and check overlaps.
@@ -228,7 +228,7 @@ uint64_t load_big_kernel_phase2(const BigKernelLoadState& state, uint64_t disk_l
     }
 
     // Print staging buffer info separately (not in overlap check)
-    kprintf("[LOADER] Staging buffer: 0x%p - 0x%p (%u KB)\n",
+    kprintf("[LOADER] Staging buffer: %p - %p (%u KB)\n",
             reinterpret_cast<const void*>(BIG_KERNEL_LOAD_ADDR),
             reinterpret_cast<const void*>(BIG_KERNEL_LOAD_ADDR + state.total_elf_size),
             static_cast<uint32_t>(state.total_elf_size / 1024));
@@ -254,7 +254,7 @@ uint64_t load_big_kernel_phase2(const BigKernelLoadState& state, uint64_t disk_l
     }
 
     kprintf("[LOADER] Big kernel loaded successfully.\n");
-    kprintf("[LOADER] Entry point: 0x%p\n", reinterpret_cast<void*>(entry));
+    kprintf("[LOADER] Entry point: %p\n", reinterpret_cast<void*>(entry));
     return entry;
 }
 

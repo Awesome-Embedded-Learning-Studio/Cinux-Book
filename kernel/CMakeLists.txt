@@ -152,6 +152,7 @@ if(CINUX_UBSAN)
         ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/backtrace.cpp
         ${CMAKE_SOURCE_DIR}/kernel/mm/diagnostics.cpp
         ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/exception_handlers.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/fault_diag.cpp
         PROPERTIES COMPILE_OPTIONS "-fno-sanitize=undefined")
 endif()
 

@@ -12,7 +12,13 @@
 #include <stdint.h>
 
 #include "big_kernel_test.h"
+#include "kernel/arch/x86_64/memory_layout.hpp"  // DIRECT_MAP_BASE
+#include "kernel/arch/x86_64/paging.hpp"         // PageEntry
+#include "kernel/arch/x86_64/paging_config.hpp"  // FLAG_*
+#include "kernel/mm/address_space.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/mm/vmm.hpp"
+#include "kernel/proc/process_internal.hpp"  // copy_page_table_level
 
 using cinux::mm::g_pmm;
 
@@ -72,6 +78,55 @@ void test_simulated_fork_cow_lifecycle() {
     g_pmm.free_page(p);
 }
 
+// F-VERIFY M5-1: drive the REAL CoW-marking path (copy_page_table_level) over a
+// REAL AddressSpace.  The test above (test_simulated_fork_cow_lifecycle) calls
+// mapcount_inc/dec BY HAND; this one exercises fork.cpp's actual page-table
+// walk + CoW PTE marking + mapcount bump, with no scheduler needed (the function
+// takes src/dst PHYS, not a task).  Replaces the 0x1234-sentinel / bare-struct
+// fake coverage the M1 matrix flagged as the #1 fake test.
+void test_real_copy_page_table_level_cow() {
+    using namespace cinux::arch;
+    // 1. Parent AS; map a writable user page V -> P; store a marker at P.
+    cinux::mm::AddressSpace parent;
+    uint64_t                p = g_pmm.alloc_page();
+    TEST_ASSERT_NE(p, 0ull);
+    auto* marker         = reinterpret_cast<volatile uint64_t*>(DIRECT_MAP_BASE + p);
+    *marker              = 0xDEADBEEF12345678ULL;
+    constexpr uint64_t V = 0x40000000ULL;  // a user vaddr
+    TEST_ASSERT_TRUE(parent.map(V, p, FLAG_PRESENT | FLAG_WRITABLE | FLAG_USER));
+    TEST_ASSERT_EQ(g_pmm.mapcount_load(p), 1);
+
+    // 2. Alloc + zero a child PML4, then run the REAL CoW clone over it.
+    uint64_t child_pml4 = g_pmm.alloc_page();
+    TEST_ASSERT_NE(child_pml4, 0ull);
+    auto* ct = reinterpret_cast<volatile PageEntry*>(DIRECT_MAP_BASE + child_pml4);
+    for (int j = 0; j < 512; j++) {
+        ct[j].raw = 0;
+    }
+    // Run the REAL CoW clone.  Level semantics: level 1 = PT (leaf), so
+    // 4=PML4(root)->3 PDPT->2 PD->1 PT(leaf).  fork() uses an OUTER PML4 loop +
+    // level 3 per PDPT; calling with the PML4 root + level 4 is equivalent (the
+    // function iterates PML4 internally at level>1) and clones the whole tree.
+    cinux::proc::copy_page_table_level(parent.pml4_phys(), child_pml4, 4);
+
+    // 3. The real CoW path bumped mapcount to 2 (shared parent+child) -- NOT a
+    //    hand-simulated inc.  This is the F10 DEBT-003 fix's domain.
+    TEST_ASSERT_EQ(g_pmm.mapcount_load(p), 2);
+
+    // 4. Child shares the same physical page (translate via the child PML4).
+    TEST_ASSERT_EQ(cinux::mm::g_vmm.translate(V, &child_pml4), p);
+
+    // 5. Parent's mapping is unchanged (still resolves to P).
+    TEST_ASSERT_EQ(parent.translate(V), p);
+
+    // Cleanup.  Intermediate PT pages copy_page_table_level allocated leak in
+    // test scope -- acceptable for a one-shot in-kernel test (QEMU exits after).
+    g_pmm.mapcount_dec_and_test(p);
+    g_pmm.mapcount_dec_and_test(p);
+    g_pmm.free_page(p);
+    g_pmm.free_page(child_pml4);
+}
+
 }  // namespace test_pmm_mapcount
 
 extern "C" void run_pmm_mapcount_tests() {
@@ -81,5 +136,6 @@ extern "C" void run_pmm_mapcount_tests() {
     RUN_TEST(test_pmm_mapcount::test_dec_and_test_false_above_zero);
     RUN_TEST(test_pmm_mapcount::test_dec_and_test_true_at_zero);
     RUN_TEST(test_pmm_mapcount::test_simulated_fork_cow_lifecycle);
+    RUN_TEST(test_pmm_mapcount::test_real_copy_page_table_level_cow);  // F-VERIFY M5-1
     TEST_SUMMARY();
 }

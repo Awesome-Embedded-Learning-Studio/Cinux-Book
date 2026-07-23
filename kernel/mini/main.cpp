@@ -117,7 +117,7 @@ extern "C" [[noreturn]] void mini_kernel_main(uint64_t boot_info_addr) {
             __asm__ volatile("cli; hlt");
     }
 
-    kprintf("[MINI] Jumping to big kernel at 0x%p...\n", entry);
+    kprintf("[MINI] Jumping to big kernel at %p...\n", entry);
 
     // Indirect jump to the big kernel entry point (_start in boot.S).
     // _start sets up its own stack, clears BSS, runs global ctors,

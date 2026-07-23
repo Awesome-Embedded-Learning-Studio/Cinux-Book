@@ -192,7 +192,7 @@ cinux::lib::ErrorOr<void> Ramdisk::mount() {
         return cinux::lib::Error::IOError;
     }
 
-    cinux::lib::kprintf("[RAMDISK] Archive at 0x%p, size %lu bytes\n", base_, size_);
+    cinux::lib::kprintf("[RAMDISK] Archive at %p, size %lu bytes\n", base_, size_);
 
     // Step 2: Iterate through ustar entries and build the entry table
     entry_count_    = 0;

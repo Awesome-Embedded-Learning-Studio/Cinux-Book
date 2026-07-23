@@ -35,4 +35,41 @@ void wake_idle_ap();
 /// only one CPU.
 void boot_aps();
 
+// ============================================================
+// F-VERIFY M3-2: AP test-mode self-check hook
+// ============================================================
+// When g_ap_test_selfcheck_fn != nullptr, each AP -- right after signalling
+// online (g_aps_online++), BEFORE entering the scheduler spin -- calls it,
+// stores its readback into g_ap_selfcheck_results[cpu_id], and halts forever
+// (cli;hlt) instead of entering the scheduler idle path (the test kernel runs
+// no scheduler).  Defaults to nullptr so PRODUCTION BEHAVIOR IS UNCHANGED (the
+// branch is skipped).  The test kernel sets this + does LAPIC-IPI init +
+// boot_aps to turn run-kernel-test-smp from a BSP-only no-op into a real AP-wake
+// + AP-side mechanism-readback gate (cracks the 47/47 SMP-空转 blind spot AND
+// delivers the AP column of the mechanism-readback matrix -- the LSTAR==0 #DF
+// class).  See M3-2 in PLAN「🔄 F-VERIFY」.
+struct ApSelfcheckResult {
+    uint32_t cpu_id;
+    uint32_t magic;   // kApSelfcheckMagic once the AP actually ran the fn
+    uint64_t cr4;     // expect OSFXSR(9)|OSXMMEXCPT(10)|PAE(5); SMEP(20)|SMAP(21) if exposed
+    uint64_t efer;    // IA32_EFER (0xC0000080): NXE(11) | SCE(0) | LME(8)
+    uint64_t lstar;   // IA32_LSTAR (0xC0000082): syscall RIP -- MUST be non-zero
+    uint64_t star;    // IA32_STAR  (0xC0000081)
+    uint64_t sfmask;  // IA32_FMASK (0xC0000084)
+};
+constexpr uint32_t kApSelfcheckMagic = 0xA5C0FFEE;
+
+// Return: true = after the readback, enter the production scheduler spin+idle
+// (so the AP can pick up cross-core work, e.g. forktest children for the
+// F-VERIFY M5-2b cross-core CoW stress); false = halt forever (cli;hlt) -- used
+// when the test kernel runs no scheduler (suite-only -smp gate).  The test
+// kernel decides based on its own config (smoke on/off), keeping this production
+// header free of test-flag coupling.
+using ApSelfcheckFn = bool (*)(uint32_t cpu_id);
+
+// Defined in ap_main.cpp.  Results sized [proc::kMaxCpus] at the definition
+// (ap_main.cpp pulls in percpu.hpp); declared unsized here to avoid that dep.
+extern ApSelfcheckResult g_ap_selfcheck_results[];
+extern ApSelfcheckFn     g_ap_test_selfcheck_fn;  // default nullptr (ap_main.cpp)
+
 }  // namespace cinux::arch

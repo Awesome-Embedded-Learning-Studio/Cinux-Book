@@ -139,6 +139,14 @@ void test_f9_nxe_smep_smap_enabled() {
     if (b7 & (1u << 20)) {
         TEST_ASSERT_TRUE((cr4 >> 21) & 1);  // CR4.SMAP
     }
+
+    // F-VERIFY M0-3: CR4.OSFXSR (bit 9) + CR4.OSXMMEXCPT (bit 10) are set
+    // unconditionally by boot.S (BSP) and ap_trampoline.S (AP, OR 0x620) to
+    // enable SSE / SSE-exception support in long mode -- not CPUID-gated like
+    // SMEP/SMAP, so assert unconditionally.  Read back so a "green but the bit
+    // is silently clear" regression fails loud (the SMEP/SMAP-was-off class).
+    TEST_ASSERT_TRUE((cr4 >> 9) & 1);   // CR4.OSFXSR
+    TEST_ASSERT_TRUE((cr4 >> 10) & 1);  // CR4.OSXMMEXCPT
 }
 
 void test_sfmask_if_bit() {
