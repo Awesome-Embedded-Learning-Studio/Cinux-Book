@@ -6,6 +6,7 @@
 #include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/drivers/ahci/ahci.hpp"
 #include "kernel/drivers/ahci/ahci_block_device.hpp"
+#include "kernel/fs/devfs.hpp"
 #include "kernel/fs/ext2.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -43,6 +44,9 @@ void kernel_init_thread() {
     cinux::fs::vfs_mount_init();
     cinux::fs::vfs_mount_add("/", &ext2);
     cinux::lib::kprintf("[VFS] ext2 mounted at /\n");
+
+    // DevFS: /dev/null, /dev/zero, /dev/console (F6-M3).
+    cinux::fs::devfs::init();
 
     // Bring up userspace.  GUI build: desktop + gui_worker thread
     // (kernel/gui/desktop_launch.cpp).  Non-GUI build: fork + exec /bin/sh

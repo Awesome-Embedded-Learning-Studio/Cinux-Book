@@ -68,6 +68,7 @@ void run_ahci_tests();
 void run_ramdisk_tests();
 void run_vfs_syscall_tests();
 void run_ext2_tests();
+void run_devfs_tests();
 void run_ahci_write_tests();
 void run_ahci_block_device_tests();
 void run_ext2_allocator_tests();
@@ -586,6 +587,9 @@ extern "C" void kernel_main() {
 
     // Ext2 filesystem tests (028): mount, lookup, read, readdir, VFS integration
     run_ext2_tests();
+
+    // DevFS tests (F6-M3): /dev/null, /dev/zero, /dev/console, readdir, stat
+    run_devfs_tests();
 
     // AHCI write + ext2 write_block tests (028b): write round-trip, write_block
     run_ahci_write_tests();
