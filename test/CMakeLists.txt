@@ -64,6 +64,12 @@ function(add_cinux_test name)
     target_include_directories(test_${name} PRIVATE ${TEST_INCLUDE_DIRS})
     add_test(NAME ${name} COMMAND test_${name})
     set_tests_properties(${name} PROPERTIES LABELS "${name}")
+    # Auto-register: every test built via this helper joins ALL_HOST_TESTS so the
+    # test_host / test_all / test_verbose aggregates build+run it. Replaces a
+    # hand-maintained list that silently dropped tests added later (net L0/L1,
+    # extable, pty, tty, ...). PARENT_SCOPE accumulates across calls.
+    list(APPEND ALL_HOST_TESTS test_${name})
+    set(ALL_HOST_TESTS ${ALL_HOST_TESTS} PARENT_SCOPE)
 endfunction()
 
 # Integration test: arbitrary sources listed after the name.
@@ -78,6 +84,8 @@ function(add_cinux_integration_test name)
     )
     add_test(NAME ${name} COMMAND test_${name})
     set_tests_properties(${name} PROPERTIES LABELS "${name}")
+    list(APPEND ALL_HOST_TESTS test_${name})
+    set(ALL_HOST_TESTS ${ALL_HOST_TESTS} PARENT_SCOPE)
 endfunction()
 
 # ============================================================
@@ -311,29 +319,27 @@ add_cinux_integration_test(fork_exec
     ${CMAKE_SOURCE_DIR}/kernel/proc/elf_types.cpp
 )
 
+# F8-M2 batch 3: named FIFO -- links the real fifo.cpp + pipe.cpp + pipe_ops.cpp
+# (pure logic, host-safe blocking) so FifoRegistry + FifoOps cloning open run on
+# host.
+add_cinux_integration_test(fifo
+    unit/test_fifo.cpp
+    unit/host_spinlock.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/ipc/fifo.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/ipc/pipe.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/ipc/pipe_ops.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/fs/inode.cpp
+)
+
 # ============================================================
 # Custom test targets
 # ============================================================
 
-set(ALL_HOST_TESTS
-    test_msix
-    test_smoke test_kprintf_format test_gdt_idt test_ata test_elf_loader
-    test_big_kernel_loader test_kprintf test_pic test_pit test_font
-    test_console test_framebuffer test_keyboard test_pmm test_vmm
-    test_address_space test_scheduler test_sync test_sync_concurrent
-    test_hpet_math
-    test_rtc_math
-    test_usermode test_syscall test_shell test_ahci test_pci test_xhci test_usb test_hid test_ramdisk test_fd_table
-    test_vfs_mount test_devfs test_ext2 test_ahci_write test_ext2_allocator test_ext2_ops
-    test_ext2_inode_ops test_syscall_ext2 test_shell_write test_cwd_stat
-    test_canvas test_bitmap_icon test_mouse test_event_queue test_window
-    test_window_manager test_desktop test_terminal test_pipe test_sys_pipe
-    test_shell_redirect test_fork_exec test_multi_terminal
-    test_cinux_base_types
-    test_refcount
-    test_net_udp
-    test_net_tcp
-)
+# ALL_HOST_TESTS is auto-populated by add_cinux_test / add_cinux_integration_test
+# above (every registered host test appends itself). The aggregates below just
+# depend on it -- no test ever needs to be listed by hand, so new tests cannot
+# silently go un-built (the old hand-maintained list dropped net L0/L1, extable,
+# pty, tty, initial_stack).
 
 add_custom_target(test_host
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure

@@ -210,7 +210,8 @@ public:
 
 class PtmxOps : public cinux::fs::InodeOps {
 public:
-    cinux::lib::ErrorOr<cinux::fs::Inode*> open(cinux::fs::Inode* /*self*/) override {
+    cinux::lib::ErrorOr<cinux::fs::Inode*> open(cinux::fs::Inode* /*self*/,
+                                                uint64_t /*flags*/) override {
         auto idx = pty_alloc();
         if (!idx.ok()) {
             return idx.error();

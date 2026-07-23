@@ -20,6 +20,7 @@
 #include "kernel/drivers/tty/pty_device.hpp"  // /dev/ptmx clone + /dev/pts/N
 #include "kernel/fs/devfs.hpp"
 #include "kernel/fs/vfs_mount.hpp"
+#include "kernel/ipc/fifo.hpp"  // named FIFO dynamic lookup (F8-M2)
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/proc/process.hpp"    // Task::controlling_tty (for /dev/tty)
 #include "kernel/proc/scheduler.hpp"  // Scheduler::current()
@@ -56,17 +57,29 @@ private:
 SerialConsoleSink g_devfs_sink;
 DevFs             g_devfs{&g_devfs_sink};
 
-// Resolve a dynamic /dev name the fixed DevFs node table cannot hold.  Today
-// this is just "/dev/pts/<N>" -> the slave inode of PTY pair N (allocated on
-// demand by /dev/ptmx open).  Any other name -> NotFound.
-cinux::lib::ErrorOr<Inode*> pty_dynamic_lookup(const char* name) {
+// Resolve a dynamic /dev name the fixed DevFs node table cannot hold:
+//   - a named FIFO (mkfifo-registered) -> its stable FIFO inode (F8-M2)
+//   - "/dev/pts/<N>"                    -> the slave inode of PTY pair N
+//   - "/dev/tty"                        -> the caller's controlling terminal
+// Any other name -> NotFound.
+cinux::lib::ErrorOr<Inode*> devfs_dynamic_lookup(const char* name) {
     if (name == nullptr) {
         return cinux::lib::Error::InvalidArgument;
     }
-    // DevFs::lookup already stripped a leading '/', so expect "tty" or "pts/<N>".
+    // DevFs::lookup already stripped a leading '/', so expect "fifo", "tty",
+    // or "pts/<N>".
     const char* p = name;
     if (p[0] == '/') {
         ++p;
+    }
+    // Named FIFO: consulted first, so FIFO names never collide with the PTY
+    // fallbacks below.  NotFound falls through; any other error propagates.
+    auto fifo = cinux::ipc::FifoRegistry::instance().lookup_inode(p);
+    if (fifo.ok()) {
+        return fifo.value();
+    }
+    if (fifo.error() != cinux::lib::Error::NotFound) {
+        return fifo.error();
     }
     // /dev/tty -> the caller's controlling terminal (the slave side of its PTY).
     if (p[0] == 't' && p[1] == 't' && p[2] == 'y' && p[3] == '\0') {
@@ -107,7 +120,7 @@ bool init() {
     // resolves dynamically to the matching slave inode.  Registered here so
     // devfs.cpp itself stays PTY-free (host-testable).
     g_devfs.add_node("ptmx", &cinux::drivers::ptmx_ops());
-    g_devfs.set_dynamic_lookup(&pty_dynamic_lookup);
+    g_devfs.set_dynamic_lookup(&devfs_dynamic_lookup);
     if (!vfs_mount_add("/dev", &g_devfs)) {
         cinux::lib::kprintf("[DEVFS] vfs_mount_add /dev failed (table full?)\n");
         return false;

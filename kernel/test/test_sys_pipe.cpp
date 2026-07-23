@@ -22,9 +22,14 @@
 #include "kernel/errno.hpp"
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/inode.hpp"
+#include "kernel/fs/vfs_mount.hpp"  // g_global_fd_table (do_write_kernel fd resolution)
 #include "kernel/ipc/pipe.hpp"
 #include "kernel/ipc/pipe_ops.hpp"
+#include "kernel/proc/process.hpp"  // Task (SIGPIPE test current-task scratch)
+#include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/signal.hpp"  // sig_is_member / Signal::kSigpipe
 #include "kernel/syscall/sys_pipe.hpp"
+#include "kernel/syscall/sys_write.hpp"  // do_write_kernel (SIGPIPE end-to-end)
 
 using cinux::fs::FDTable;
 using cinux::fs::File;
@@ -407,6 +412,71 @@ void test_sys_pipe_set_preserves_fields() {
 }
 
 // ============================================================
+// 13. SIGPIPE: write to a pipe whose reader closed -> -EPIPE + SIGPIPE (F8-M1)
+// ============================================================
+
+namespace {
+// RAII: point Scheduler::current() at a scratch Task so do_write_kernel's
+// SIGPIPE delivery targets a task whose sig_pending we can inspect. Mirrors the
+// CurrentTaskGuard pattern in test_signal.cpp / test_creds.cpp.
+struct CurrentTaskGuard {
+    cinux::proc::Task* prev;
+    explicit CurrentTaskGuard(cinux::proc::Task* task) : prev(cinux::proc::Scheduler::current()) {
+        cinux::proc::Scheduler::set_current(task);
+    }
+    ~CurrentTaskGuard() { cinux::proc::Scheduler::set_current(prev); }
+};
+}  // namespace
+
+// Closing the read end, then writing through do_write_kernel must return -EPIPE
+// AND raise SIGPIPE on the writer.  Before F8-M1 this was masked: PipeWriteOps
+// returned IOError -> -EIO, so sys_write's kEpipe branch never fired.
+void test_sys_pipe_sigpipe_on_broken_write() {
+    // Build a pipe; install both ends in the GLOBAL fd table, because
+    // do_write_kernel resolves fds through current_fd_table() (== the global
+    // table in the harness).
+    auto*  pipe        = new Pipe();
+    auto*  read_ops    = new PipeReadOps(pipe);
+    auto*  write_ops   = new PipeWriteOps(pipe);
+    Inode* read_inode  = new Inode();
+    Inode* write_inode = new Inode();
+    read_inode->ops    = read_ops;
+    write_inode->ops   = write_ops;
+
+    int rfd = cinux::fs::g_global_fd_table().alloc(read_inode, OpenFlags::RDONLY);
+    int wfd = cinux::fs::g_global_fd_table().alloc(write_inode, OpenFlags::WRONLY);
+    TEST_ASSERT_GE(rfd, 0);
+    TEST_ASSERT_GE(wfd, 0);
+
+    // Reader gone -> BrokenPipe -> -EPIPE + SIGPIPE queued on current.
+    pipe->close_reader();
+
+    // signal_send() dereferences sig_actions, so the scratch Task needs a real
+    // SharedSigActions (same wiring as test_signal). {} value-inits sig_pending=0.
+    cinux::proc::Task self{};
+    self.sig_actions = cinux::proc::SharedSigActions::create();
+    {
+        CurrentTaskGuard guard(&self);
+
+        int64_t r = cinux::syscall::do_write_kernel(wfd, "x", 1);
+        TEST_ASSERT_EQ(r, -cinux::kEpipe);
+        // SIGPIPE really was queued (the regression this test guards against:
+        // previously the write returned -EIO and no signal was sent).
+        TEST_ASSERT_TRUE(
+            cinux::proc::sig_is_member(self.sig_pending, cinux::proc::Signal::kSigpipe));
+    }
+
+    // Cleanup the global table (close frees the File; pipe/inode/ops are ours).
+    cinux::fs::g_global_fd_table().close(rfd);
+    cinux::fs::g_global_fd_table().close(wfd);
+    delete write_inode;
+    delete read_inode;
+    delete write_ops;
+    delete read_ops;
+    delete pipe;
+}
+
+// ============================================================
 // Entry point
 // ============================================================
 
@@ -427,6 +497,7 @@ extern "C" void run_sys_pipe_tests() {
     RUN_TEST(test_sys_pipe_rejects_null);
     RUN_TEST(test_sys_pipe_rejects_kernel_addr);
     RUN_TEST(test_sys_pipe_set_preserves_fields);
+    RUN_TEST(test_sys_pipe_sigpipe_on_broken_write);
 
     TEST_SUMMARY();
 }

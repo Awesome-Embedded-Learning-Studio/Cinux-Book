@@ -52,6 +52,7 @@ enum class SyscallNr : uint64_t {
     SYS_mkdir    = 83,
     SYS_rmdir    = 84,
     SYS_creat    = 85,
+    SYS_mknod    = 133,  ///< create a filesystem node (FIFO via S_IFIFO; F8-M2)
     SYS_unlink   = 87,
     SYS_getuid   = 102,  ///< get real user id (F9 M3)
     SYS_dmesg    = 103,  ///< kernel log read (Linux SYS_syslog)

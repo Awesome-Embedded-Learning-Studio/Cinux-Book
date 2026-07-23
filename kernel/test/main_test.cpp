@@ -97,6 +97,7 @@ void run_gui_region_tests();
 void run_gui_dirty_tests();
 void run_pipe_tests();
 void run_sys_pipe_tests();
+void run_fifo_tests();
 void run_terminal_shell_tests();
 void run_fork_exec_tests();
 void run_process_group_tests();
@@ -537,6 +538,7 @@ extern "C" void kernel_main() {
 
     run_pipe_tests();
     run_sys_pipe_tests();
+    run_fifo_tests();
     run_canvas_tests();
     run_mouse_event_tests();
     run_window_tests();

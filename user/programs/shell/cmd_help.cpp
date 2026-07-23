@@ -35,5 +35,7 @@ void cmd_help(int /*argc*/, char** /*argv*/) {
         "  cd <path>         - change directory\n"
         "  pwd               - print working directory\n"
         "  stat <path>       - show file status\n"
+        "  mkfifo <path>     - create a named FIFO (pipe)\n"
+        "  fifotest          - end-to-end FIFO write/read smoke\n"
         "  <path>            - run a program by path (e.g. /hello)\n");
 }

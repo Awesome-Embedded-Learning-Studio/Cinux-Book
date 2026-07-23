@@ -75,8 +75,11 @@ public:
     /// the same inode (bind the fd to what lookup found).  A cloning device --
     /// Linux /dev/ptmx is the classic case -- overrides this to allocate a fresh
     /// per-open resource (a PTY pair) and return a distinct inode (the master
-    /// end) for the new fd.  Returning an error fails the open.
-    virtual cinux::lib::ErrorOr<Inode*> open(Inode* inode);
+    /// end) for the new fd.  @p flags is the raw Linux open() flag word so a
+    /// cloning device can honour direction / O_NONBLOCK (a FIFO's open() uses it
+    /// to pick the read or write end of the underlying pipe).  Returning an
+    /// error fails the open.
+    virtual cinux::lib::ErrorOr<Inode*> open(Inode* inode, uint64_t flags);
 
     /// Whether reads against this inode should be served through the file-backed
     /// PageCache.  Disk-backed filesystems (ext2) override to true so that

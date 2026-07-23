@@ -17,12 +17,21 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// Linux x86_64 open() flag bits and file-type masks used by the shell.
+#define O_RDONLY 0
+#define O_WRONLY 1
+#define O_RDWR   2
+#define S_IFIFO  0x1000  ///< FIFO (named pipe) file-type bit (st_mode)
+
 int64_t sys_open(const char* path, int flags);
 int64_t sys_close(int fd);
 int64_t sys_read(int fd, void* buf, size_t count);
 int64_t sys_write(int fd, const void* buf, size_t count);
 int64_t sys_getdents(int fd, void* buf, size_t count);
 int64_t sys_creat(const char* path);
+/// mknod(path, mode, dev): create a filesystem node. Only S_IFIFO (named FIFO)
+/// is implemented in the kernel; mkfifo(path, mode) == mknod(path, S_IFIFO|mode, 0).
+int64_t sys_mknod(const char* path, uint32_t mode, uint32_t dev);
 int64_t sys_mkdir(const char* path);
 int64_t sys_unlink(const char* path);
 int64_t sys_rmdir(const char* path);

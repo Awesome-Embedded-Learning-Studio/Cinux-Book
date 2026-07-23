@@ -86,6 +86,11 @@ int64_t sys_creat(const char* path) {
     return _syscall1(static_cast<uint64_t>(SyscallNr::SYS_creat), (uint64_t)path);
 }
 
+int64_t sys_mknod(const char* path, uint32_t mode, uint32_t dev) {
+    return _syscall3(static_cast<uint64_t>(SyscallNr::SYS_mknod), (uint64_t)path, (uint64_t)mode,
+                     (uint64_t)dev);
+}
+
 int64_t sys_mkdir(const char* path) {
     return _syscall1(static_cast<uint64_t>(SyscallNr::SYS_mkdir), (uint64_t)path);
 }

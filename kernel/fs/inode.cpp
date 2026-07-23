@@ -44,9 +44,10 @@ cinux::lib::ErrorOr<int64_t> InodeOps::ioctl(const Inode*, uint32_t, uint64_t) {
     return cinux::lib::Error::NotImplemented;
 }
 
-cinux::lib::ErrorOr<Inode*> InodeOps::open(Inode* inode) {
+cinux::lib::ErrorOr<Inode*> InodeOps::open(Inode* inode, uint64_t /*flags*/) {
     // Bind the fd to the inode lookup resolved -- no per-open clone.  A cloning
-    // device (/dev/ptmx) overrides this to hand back a fresh resource.
+    // device (/dev/ptmx, a FIFO) overrides this to hand back a fresh resource,
+    // honouring @p flags (direction / O_NONBLOCK).
     return inode;
 }
 

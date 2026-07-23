@@ -39,9 +39,10 @@ int64_t do_open_kernel(const char* resolved_path, uint64_t flags) {
 
     // Let the inode's open() substitute a per-open inode: a cloning device such
     // as /dev/ptmx allocates a fresh PTY pair here and returns the master inode
-    // for the new fd.  The default returns the same inode (no clone).
+    // for the new fd; a FIFO returns the read or write end of its pipe (honouring
+    // the open direction in @p flags).  The default returns the same inode.
     if (inode->ops != nullptr) {
-        auto opened = inode->ops->open(inode);
+        auto opened = inode->ops->open(inode, flags);
         if (!opened.ok()) {
             return -to_errno(opened.error());
         }

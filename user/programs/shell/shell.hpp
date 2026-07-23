@@ -67,3 +67,9 @@ void cmd_stat(int argc, char** argv);
 
 /** @brief ping: ICMP echo via sys_ping (cmd_ping.cpp) */
 void cmd_ping(int argc, char** argv);
+
+/** @brief mkfifo: create a named FIFO via sys_mknod (cmd_mkfifo.cpp) */
+void cmd_mkfifo(int argc, char** argv);
+
+/** @brief fifotest: end-to-end named-FIFO round-trip smoke (cmd_fifotest.cpp) */
+void cmd_fifotest(int argc, char** argv);

@@ -8,6 +8,7 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_getdents.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_creat.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_mkdir.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_mknod.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_unlink.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_rmdir.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/path_util.cpp

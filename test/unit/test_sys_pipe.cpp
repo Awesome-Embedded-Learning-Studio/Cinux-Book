@@ -217,8 +217,11 @@ TEST("sys_pipe: write returns -1 after close_reader") {
     // Close the reader
     ep.pipe->close_reader();
 
-    // Write should fail
-    ASSERT_TRUE(!ep.write_inode->ops->write(ep.write_inode, 0, "data", 4).ok());
+    // Write should fail with BrokenPipe (F8-M1: maps to -EPIPE + SIGPIPE in
+    // sys_write; was IOError/-EIO before, which never raised SIGPIPE).
+    auto wr = ep.write_inode->ops->write(ep.write_inode, 0, "data", 4);
+    ASSERT_TRUE(!wr.ok());
+    ASSERT_TRUE(wr.error() == cinux::lib::Error::BrokenPipe);
 
     // read_file/write_file were installed via set(); FDTable owns them and
     // its destructor frees them (resource-safety backstop, DEBT-017).

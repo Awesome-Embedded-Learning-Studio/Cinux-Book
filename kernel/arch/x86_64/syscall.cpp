@@ -37,6 +37,7 @@
 #include "kernel/syscall/sys_iov.hpp"
 #include "kernel/syscall/sys_lseek.hpp"
 #include "kernel/syscall/sys_mkdir.hpp"
+#include "kernel/syscall/sys_mknod.hpp"
 #include "kernel/syscall/sys_mmap.hpp"
 #include "kernel/syscall/sys_open.hpp"
 #include "kernel/syscall/sys_pgrp.hpp"
@@ -87,6 +88,7 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_getdents, sys_getdents);
     syscall_register(SyscallNr::SYS_creat, sys_creat);
     syscall_register(SyscallNr::SYS_mkdir, sys_mkdir);
+    syscall_register(SyscallNr::SYS_mknod, sys_mknod);
     syscall_register(SyscallNr::SYS_unlink, sys_unlink);
     syscall_register(SyscallNr::SYS_rmdir, sys_rmdir);
     syscall_register(SyscallNr::SYS_chdir, sys_chdir);
