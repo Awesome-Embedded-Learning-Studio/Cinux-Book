@@ -465,6 +465,17 @@ ISR_IRQ reschedule_ipi_stub, reschedule_ipi_handler, 0
 ISR_IRQ xhci_irq_stub, xhci_irq_handler, 0
 
 # ============================================================
+# NVMe MSI-X interrupt (F5-M3 batch 4, vector 0x41 kNvmeIrqVector).
+# Handler (nvme.cpp nvme_irq_handler) counts + EOIs (no schedule, no hook).
+# ============================================================
+ISR_IRQ nvme_irq_stub, nvme_irq_handler, 0
+
+# VirtIO-blk MSI-X (F5-M2 batch 3, vector 0x42). Handler counts + EOIs.
+ISR_IRQ virtio_blk_irq_stub, virtio_blk_irq_handler, 0
+# VirtIO-net MSI-X (F5-M2 batch 5, vector 0x43, single-vector RX/TX share).
+ISR_IRQ virtio_net_irq_stub, virtio_net_irq_handler, 0
+
+# ============================================================
 # LAPIC timer (F5-M5 -smp per-CPU preemption)
 # ============================================================
 # Vector 0x30 (kLapicTimerVector), fired by each AP's local APIC timer

@@ -5,14 +5,14 @@ if(NOT QEMU_EXECUTABLE)
     message(WARNING "qemu-system-x86_64 not found in PATH, using default name")
 endif()
 
-# Detect KVM — skip -accel kvm when /dev/kvm is absent (e.g. CI runners)
-# or when CINUX_NO_KVM is set (force TCG / 2MB-path for diagnosis).
-if(EXISTS "/dev/kvm" AND NOT DEFINED ENV{CINUX_NO_KVM})
+# KVM vs TCG.  Default TCG: the host's /dev/kvm GID drifted to `kmem` (the user
+# is in `kvm` only) → permission denied, so KVM is currently unusable
+# (2026-07-06).  Enable explicitly with -DCINUX_USE_KVM=ON once /dev/kvm is
+# accessible again.  -cpu max so SMAP/SMEP are emulated (qemu64 advertises
+# neither → F9 stac/clac #UD without CPUID support); applies to both backends.
+if(CINUX_USE_KVM AND EXISTS "/dev/kvm")
     set(QEMU_ACCEL -accel kvm -cpu max)
 else()
-    # No KVM (CI runners, or CINUX_NO_KVM force-TCG). Use -cpu max so SMAP/SMEP
-    # are emulated; the default qemu64 advertises neither, so F9 batch 4's
-    # stac/clac instructions #UD (CR4.SMAP can't be set without CPUID support).
     set(QEMU_ACCEL -cpu max)
 endif()
 
@@ -45,6 +45,31 @@ add_custom_command(
     OUTPUT ${AHCI_TEST_IMAGE}
     COMMAND ${CMAKE_SOURCE_DIR}/scripts/create_ahci_test_disk.sh ${AHCI_TEST_IMAGE}
     COMMENT "Creating AHCI test disk image"
+    VERBATIM
+)
+
+# F5-M3 NVMe: test disk (1 MB raw).  The batch-1 mechanism test reads CAP/VS
+# via MMIO, so disk content is irrelevant -- the file just backs -device nvme
+# so the controller enumerates and its BAR0 maps.
+set(NVME_TEST_IMAGE "${CMAKE_BINARY_DIR}/nvme_test.img")
+add_custom_command(
+    OUTPUT ${NVME_TEST_IMAGE}
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/create_ahci_test_disk.sh ${NVME_TEST_IMAGE}
+    DEPENDS ${CMAKE_SOURCE_DIR}/scripts/create_ahci_test_disk.sh
+    COMMENT "Creating NVMe test disk image"
+    VERBATIM
+)
+
+# F5-M2 VirtIO-blk: test disk (1 MB raw).  The batch-1 mechanism test reads the
+# PCI capability list + does a virtqueue round-trip, so disk content is
+# irrelevant -- the file just backs -device virtio-blk-pci so the controller
+# enumerates and its BAR/cap-list map.
+set(VIRTIO_BLK_TEST_IMAGE "${CMAKE_BINARY_DIR}/virtio_blk_test.img")
+add_custom_command(
+    OUTPUT ${VIRTIO_BLK_TEST_IMAGE}
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/create_ahci_test_disk.sh ${VIRTIO_BLK_TEST_IMAGE}
+    DEPENDS ${CMAKE_SOURCE_DIR}/scripts/create_ahci_test_disk.sh
+    COMMENT "Creating VirtIO-blk test disk image"
     VERBATIM
 )
 
@@ -86,6 +111,19 @@ set(QEMU_TEST_EXTRA_FLAGS
     -device ide-hd,drive=ahci-disk,bus=ahci.0
     -drive file=${EXT2_IMAGE},format=raw,if=none,id=ext2-disk
     -device ide-hd,drive=ext2-disk,bus=ahci.1
+    # F5-M3 NVMe: controller + 1 MB backing disk.  serial= is mandatory for
+    # -device nvme; the kernel enumerates via PCI class 0x01/0x08.
+    -drive file=${NVME_TEST_IMAGE},format=raw,if=none,id=nvme-disk
+    -device nvme,id=nvme0,serial=nvme0
+    -device nvme-ns,drive=nvme-disk,nsid=1,bus=nvme0
+    # F5-M2 VirtIO-blk: controller + 1 MB backing disk.  Enumerated via PCI
+    # vendor 0x1AF4 + device 0x1001/0x1042; modern capability transport.
+    -drive file=${VIRTIO_BLK_TEST_IMAGE},format=raw,if=none,id=virtio-blk-disk
+    -device virtio-blk-pci,drive=virtio-blk-disk,id=virtio-blk0
+    # F5-M2 batch 4: virtio-net NIC (PCI device only -- no SLIRP netdev here;
+    # the mechanism test validates bring-up + MAC + RX/TX queue config, not
+    # traffic. SLIRP ping is a production/follow-up gate).
+    -device virtio-net-pci,id=virtio-net0
 )
 
 # ============================================================
@@ -342,7 +380,7 @@ add_custom_target(run-kernel-test
         ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} ${QEMU_TEST_EXTRA_FLAGS}
         -device e1000,netdev=net0 -netdev user,id=net0
         -drive file=${CINUX_TEST_IMAGE_PATH},format=raw,index=0,media=disk
-    DEPENDS check_uaccess_boundaries test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
+    DEPENDS check_uaccess_boundaries test-image ${AHCI_TEST_IMAGE} ${NVME_TEST_IMAGE} ${VIRTIO_BLK_TEST_IMAGE} regenerate-ext2-image
     USES_TERMINAL
     COMMENT "Starting QEMU with TEST kernel (auto-exit)"
     VERBATIM
@@ -354,7 +392,7 @@ add_custom_target(run-kernel-test-net
         ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} ${QEMU_TEST_EXTRA_FLAGS}
         -device e1000,netdev=net0 -netdev user,id=net0
         -drive file=${CINUX_TEST_IMAGE_PATH},format=raw,index=0,media=disk
-    DEPENDS check_uaccess_boundaries test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
+    DEPENDS check_uaccess_boundaries test-image ${AHCI_TEST_IMAGE} ${NVME_TEST_IMAGE} ${VIRTIO_BLK_TEST_IMAGE} regenerate-ext2-image
     USES_TERMINAL
     COMMENT "Starting QEMU with TEST kernel + e1000 NIC (auto-exit)"
     VERBATIM
@@ -372,7 +410,7 @@ add_custom_target(run-kernel-test-xhci
         ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} ${QEMU_TEST_EXTRA_FLAGS}
         -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb-tablet,bus=xhci.0
         -drive file=${CINUX_TEST_IMAGE_PATH},format=raw,index=0,media=disk
-    DEPENDS check_uaccess_boundaries test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
+    DEPENDS check_uaccess_boundaries test-image ${AHCI_TEST_IMAGE} ${NVME_TEST_IMAGE} ${VIRTIO_BLK_TEST_IMAGE} regenerate-ext2-image
     USES_TERMINAL
     COMMENT "Starting QEMU with TEST kernel + qemu-xhci (auto-exit)"
     VERBATIM
@@ -383,7 +421,7 @@ add_custom_target(run-kernel-test-smp
     COMMAND ${CMAKE_SOURCE_DIR}/scripts/qemu_test_wrapper.sh
         ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} -smp 2 ${QEMU_TEST_EXTRA_FLAGS}
         -drive file=${CINUX_TEST_IMAGE_PATH},format=raw,index=0,media=disk
-    DEPENDS check_uaccess_boundaries test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
+    DEPENDS check_uaccess_boundaries test-image ${AHCI_TEST_IMAGE} ${NVME_TEST_IMAGE} ${VIRTIO_BLK_TEST_IMAGE} regenerate-ext2-image
     USES_TERMINAL
     COMMENT "Starting QEMU with TEST kernel + 2 CPUs (auto-exit)"
     VERBATIM
@@ -402,7 +440,7 @@ add_custom_target(run-kernel-test-all
     COMMAND ${CMAKE_SOURCE_DIR}/scripts/qemu_test_wrapper.sh
         ${QEMU_EXECUTABLE} ${QEMU_COMMON_FLAGS} -smp 2 ${QEMU_TEST_EXTRA_FLAGS}
         -drive file=${CINUX_TEST_IMAGE_PATH},format=raw,index=0,media=disk
-    DEPENDS check_uaccess_boundaries test-image ${AHCI_TEST_IMAGE} regenerate-ext2-image
+    DEPENDS check_uaccess_boundaries test-image ${AHCI_TEST_IMAGE} ${NVME_TEST_IMAGE} ${VIRTIO_BLK_TEST_IMAGE} regenerate-ext2-image
     USES_TERMINAL
     COMMENT "F-VERIFY: kernel tests under single-CPU THEN -smp 2 (unified AI/CI entry; individuals kept for debug)"
     VERBATIM

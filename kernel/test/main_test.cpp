@@ -83,6 +83,8 @@ void run_syscall_ext2_tests();
 void run_shell_write_tests();
 void run_cwd_stat_tests();
 void run_shared_resources_tests();
+void run_nvme_tests();    // F5-M3: NVMe controller (PCI find + BAR0 map + CAP/VS)
+void run_virtio_tests();  // F5-M2 batch 1: VirtIO transport (PCI find + cap parse + feature)
 void run_clone_tests();
 void run_sync_concurrent_tests();
 void run_canvas_tests();
@@ -778,6 +780,11 @@ extern "C" void kernel_main() {
     // AHCI tests (025): requires PMM and VMM for BAR5 mapping and DMA buffers
     run_ahci_tests();
 
+    // NVMe tests (F5-M3): PCI find + BAR0 map + CAP/VS read.  Skips (passes)
+    // when no nvme device is present; exercises real bring-up under the
+    // run-kernel-test-all target (-device nvme ...).
+    run_nvme_tests();
+
 #ifdef CINUX_USB
     // xHCI tests (F5-M5): PCI find + BAR0 map + reset.  Skips (passes) when no
     // qemu-xhci is present (default config); exercises real bring-up under the
@@ -913,6 +920,13 @@ extern "C" void kernel_main() {
         exit_code = 1;
     }
 #endif
+
+    // VirtIO transport tests (F5-M2 batch 1).  Run LAST: virtio-blk/net bring-up
+    // asserts legacy INTx (the test kernel polls, never init_msi_x), and on QEMU
+    // 8.x that pending INTx stalls other devices' BHs (e1000 TX completion).  All
+    // IRQ/timing-sensitive suites (e1000/net/socket/...) have already run, so a
+    // pending INTx here cannot break anything.
+    run_virtio_tests();
 
     // Exit via QEMU isa-debug-exit device (port 0xf4)
     __asm__ volatile("outl %0, $0xf4" : : "a"(exit_code));

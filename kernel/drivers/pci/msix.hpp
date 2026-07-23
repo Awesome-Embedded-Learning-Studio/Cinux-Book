@@ -144,10 +144,14 @@ uint16_t message_control_unmask_function(uint16_t raw);
  */
 class MsixController {
 public:
-    /// Map the MSI-X Table + PBA for @p cap on @p dev.  Assumes
+    /// Map the MSI-X Table + PBA for @p cap on @p dev.  @p table_virt / @p pba_virt
+    /// optionally override the default KMEM_MMIO sub-allocation (+0x40000 Table /
+    /// +0x41000 PBA, used by xHCI) so a second controller (e.g. NVMe) can map its
+    /// Table/PBA at a different slot; 0 = use the default.  Assumes
     /// cap.table_offset / cap.pba_offset are page-aligned (true for QEMU
     /// devices).  Does not enable MSI-X -- call enable() after programming.
-    cinux::lib::ErrorOr<void> init(const MsixCap& cap, const PCIDevice& dev);
+    cinux::lib::ErrorOr<void> init(const MsixCap& cap, const PCIDevice& dev,
+                                   uint64_t table_virt = 0, uint64_t pba_virt = 0);
 
     /// Set the Mask bit on every Table entry.
     void mask_all();

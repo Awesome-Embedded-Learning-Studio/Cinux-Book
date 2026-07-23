@@ -31,6 +31,7 @@
 #include "kernel/arch/x86_64/irq.hpp"  // sti/hlt for the SLIRP poll loop
 #include "kernel/drivers/net/e1000.hpp"
 #include "kernel/drivers/net/e1000_net_device.hpp"
+#include "kernel/drivers/virtio/virtio_net.hpp"  // F5-M2 task 2: virtio_net_device() accessor
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/net/arp.hpp"
 #include "kernel/net/icmp.hpp"
@@ -63,8 +64,10 @@ UdpModule       g_udp;     // proto 17 -- registered into the L4 table in init()
 TcpModule       g_tcp;     // proto  6 -- registered into the L4 table in init()
 LoopbackDevice  g_lo;      // 127.0.0.1 software NIC (~12 KB; static, never stack)
 Ipv4Module*     g_ipv4    = nullptr;
-E1000NetDevice* g_adapter = nullptr;
-bool            g_ready   = false;
+E1000NetDevice*        g_adapter = nullptr;
+cinux::net::NetDevice* g_virtio_adapter =
+    nullptr;  ///< F5-M2 task 2: virtio-net, preferred NIC for ping
+bool                   g_ready = false;
 
 // Background net RX poll driver kthread body.  Drains the e1000 ring via
 // NetStack::poll() and sti/hlt's to keep QEMU's main loop running so SLIRP
@@ -97,6 +100,11 @@ RxPump g_default_pump = pump_yield;
 
 }  // namespace
 
+// F5-M2 task 2 forward decl: dev_for() is defined further down (create_socket
+// section) but ping() needs it.  Route: 127/8 -> loopback, else virtio-net
+// (preferred) or e1000.
+static NetDevice& dev_for(Ipv4Addr dst);
+
 void init() {
     if (g_ready) {
         return;  // already wired (idempotent)
@@ -122,6 +130,24 @@ void init() {
     cfg.local   = kSlirpGuest;    // 10.0.2.15
     cfg.gateway = kSlirpGateway;  // 10.0.2.2 (SLIRP answers ARP + ICMP echo)
     g_stack.attach(*g_adapter, cfg);
+
+    // F5-M2 task 2: also attach virtio-net if main.cpp Step 21a3 published one.
+    // SLIRP gives each netdev its own address space, so the virtio NIC sits at
+    // 10.0.2.16 (e1000 keeps 10.0.2.15).  dev_for() prefers virtio-net so shell
+    // `ping 10.0.2.2` exercises virtio RX/TX (the verification target).
+    auto* vnet = cinux::drivers::virtio::virtio_net_device();
+    if (vnet != nullptr) {
+        g_virtio_adapter = vnet;
+        InDevice vcfg{};
+        EthAddr  vmac{};
+        vnet->mac(vmac);
+        vcfg.hw      = vmac;
+        vcfg.local   = {{10, 0, 2, 16}};
+        vcfg.gateway = kSlirpGateway;
+        g_stack.attach(*vnet, vcfg);
+        cinux::lib::kprintf(
+            "[net] virtio-net attached: 10.0.2.16 -> gw 10.0.2.2 (SLIRP ping path)\n");
+    }
 
     // Register UDP (proto 17) + TCP (proto 6) L4 handlers so inbound segments
     // reach the modules' handle() instead of a null-slot drop.  ICMP is already
@@ -159,7 +185,7 @@ cinux::lib::ErrorOr<PingResult> ping(Ipv4Addr dst, uint16_t id, uint16_t seq, Rx
     constexpr uint32_t kRounds        = 200;  // re-sends (ARP then ICMP)
     constexpr uint32_t kPumpsPerRound = 4;    // RX drains per send
     for (uint32_t s = 0; s < kRounds && g_icmp.reply_count() == 0; ++s) {
-        (void)g_icmp.send_echo_request(*g_adapter, dst, id, seq, *g_ipv4, g_stack);
+        (void)g_icmp.send_echo_request(dev_for(dst), dst, id, seq, *g_ipv4, g_stack);
         for (uint32_t k = 0; k < kPumpsPerRound; ++k) {
             if (pump()) {
                 break;
@@ -206,11 +232,15 @@ void set_default_rx_pump(RxPump pump) {
     g_default_pump = (pump != nullptr) ? pump : pump_yield;
 }
 
-// Route resolver for sockets: 127/8 -> loopback, else -> the e1000 adapter.
-// g_ready guarantees g_adapter is non-null on the non-loopback path.
+// Route resolver (forward-declared above for ping()): 127/8 -> loopback, else
+// virtio-net (F5-M2 task 2, preferred) or e1000.  g_ready guarantees g_adapter
+// is non-null on the non-loopback path.
 static NetDevice& dev_for(Ipv4Addr dst) {
     if (dst.oct[0] == 127) {
         return g_lo;
+    }
+    if (g_virtio_adapter != nullptr) {
+        return *g_virtio_adapter;  // F5-M2 task 2: prefer virtio-net for ping
     }
     return *g_adapter;
 }

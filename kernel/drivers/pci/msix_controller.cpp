@@ -40,7 +40,8 @@ uint64_t bytes_to_pages(uint64_t bytes) {
 }
 }  // namespace
 
-cinux::lib::ErrorOr<void> MsixController::init(const MsixCap& cap, const PCIDevice& dev) {
+cinux::lib::ErrorOr<void> MsixController::init(const MsixCap& cap, const PCIDevice& dev,
+                                               uint64_t table_virt, uint64_t pba_virt) {
     if (!cap.found) {
         return cinux::lib::Error::InvalidArgument;
     }
@@ -49,30 +50,42 @@ cinux::lib::ErrorOr<void> MsixController::init(const MsixCap& cap, const PCIDevi
     slot_ = dev.slot;
     func_ = dev.func;
 
+    // Resolve the KMEM_MMIO sub-allocation.  The caller may override the default
+    // (+0x40000 Table / +0x41000 PBA, used by xHCI) so a second controller can
+    // map its Table/PBA elsewhere (NVMe uses +0x74000 / +0x75000).  0 = default.
+    const uint64_t table_v = (table_virt != 0) ? table_virt : kMsixTableVirt;
+    const uint64_t pba_v   = (pba_virt != 0) ? pba_virt : kMsixPbaVirt;
+
     // Map the MSI-X Table (cap.table_size entries x 16 bytes).  table_offset
-    // is assumed page-aligned (true for QEMU xHCI); dev.bar[] is uint32_t so
-    // BARs must sit below 4 GB (also true for QEMU).
+    // is assumed page-aligned (true for QEMU); dev.bar[] is uint32_t so BARs
+    // must sit below 4 GB (also true for QEMU).
     const uint64_t table_phys = static_cast<uint64_t>(dev.bar[cap.table_bar]) + cap.table_offset;
     const uint64_t table_pages =
         bytes_to_pages(static_cast<uint64_t>(cap.table_size) * sizeof(MsixTableEntry));
     for (uint64_t i = 0; i < table_pages; ++i) {
-        if (!cinux::mm::g_vmm.map(kMsixTableVirt + i * kPageSize, table_phys + i * kPageSize,
+        if (!cinux::mm::g_vmm.map(table_v + i * kPageSize, table_phys + i * kPageSize,
                                   kMmioFlags)) {
+            // Roll back the table pages already mapped before failing.
+            for (uint64_t j = 0; j < i; ++j) {
+                cinux::mm::g_vmm.unmap(table_v + j * kPageSize);
+            }
             return cinux::lib::Error::OutOfMemory;
         }
     }
-    table_ = reinterpret_cast<volatile MsixTableEntry*>(kMsixTableVirt);
+    table_ = reinterpret_cast<volatile MsixTableEntry*>(table_v);
 
     // Map the Pending Bit Array (1 bit per entry).
     const uint64_t pba_phys  = static_cast<uint64_t>(dev.bar[cap.pba_bar]) + cap.pba_offset;
     const uint64_t pba_pages = bytes_to_pages((static_cast<uint64_t>(cap.table_size) + 7) / 8);
     for (uint64_t i = 0; i < pba_pages; ++i) {
-        if (!cinux::mm::g_vmm.map(kMsixPbaVirt + i * kPageSize, pba_phys + i * kPageSize,
-                                  kMmioFlags)) {
+        if (!cinux::mm::g_vmm.map(pba_v + i * kPageSize, pba_phys + i * kPageSize, kMmioFlags)) {
+            for (uint64_t j = 0; j < i; ++j) {
+                cinux::mm::g_vmm.unmap(pba_v + j * kPageSize);
+            }
             return cinux::lib::Error::OutOfMemory;
         }
     }
-    pba_ = reinterpret_cast<volatile uint32_t*>(kMsixPbaVirt);
+    pba_ = reinterpret_cast<volatile uint32_t*>(pba_v);
 
     return {};
 }

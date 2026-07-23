@@ -42,7 +42,7 @@ struct InDevice {
 
 class NetStack {
 public:
-    static constexpr uint32_t kMaxDevs   = 2;  ///< coexistence from day one (FOLD-B)
+    static constexpr uint32_t kMaxDevs   = 3;  ///< e1000 + virtio-net + loopback (F5-M2 task 2)
     static constexpr uint32_t kMaxProtos = 8;
 
     /// @brief Register a NIC with its IP config.  Idempotent per device pointer

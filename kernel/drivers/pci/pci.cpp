@@ -229,4 +229,88 @@ bool PCI::find_e1000(PCIDevice& out) const {
     return false;
 }
 
+bool PCI::find_nvme(PCIDevice& out) const {
+    for (uint8_t bus = 0; bus < MAX_BUS; ++bus) {
+        for (uint8_t slot = 0; slot < MAX_SLOT; ++slot) {
+            for (uint8_t func = 0; func < MAX_FUNC; ++func) {
+                PCIDevice dev{};
+                if (!scan_function(bus, slot, func, dev)) {
+                    if (func == 0) {
+                        break;
+                    }
+                    continue;
+                }
+
+                if (is_nvme_device(dev.class_code, dev.subclass)) {
+                    read_bars(dev);
+                    out = dev;
+
+                    cinux::lib::kprintf("[PCI] NVMe found: %02x:%02x.%x BAR0=0x%lx\n", dev.bus,
+                                        dev.slot, dev.func, static_cast<uint64_t>(dev.bar[0]));
+                    return true;
+                }
+            }
+        }
+    }
+
+    cinux::lib::kprintf("[PCI] No NVMe controller found.\n");
+    return false;
+}
+
+bool PCI::find_virtio_block(PCIDevice& out) const {
+    for (uint8_t bus = 0; bus < MAX_BUS; ++bus) {
+        for (uint8_t slot = 0; slot < MAX_SLOT; ++slot) {
+            for (uint8_t func = 0; func < MAX_FUNC; ++func) {
+                PCIDevice dev{};
+                if (!scan_function(bus, slot, func, dev)) {
+                    if (func == 0) {
+                        break;
+                    }
+                    continue;
+                }
+
+                if (is_virtio_block_device(dev.vendor_id, dev.device_id)) {
+                    read_bars(dev);
+                    out = dev;
+
+                    cinux::lib::kprintf("[PCI] VirtIO-blk found: %02x:%02x.%x BAR0=0x%lx\n", dev.bus,
+                                        dev.slot, dev.func, static_cast<uint64_t>(dev.bar[0]));
+                    return true;
+                }
+            }
+        }
+    }
+
+    cinux::lib::kprintf("[PCI] No VirtIO-blk controller found.\n");
+    return false;
+}
+
+bool PCI::find_virtio_net(PCIDevice& out) const {
+    for (uint8_t bus = 0; bus < MAX_BUS; ++bus) {
+        for (uint8_t slot = 0; slot < MAX_SLOT; ++slot) {
+            for (uint8_t func = 0; func < MAX_FUNC; ++func) {
+                PCIDevice dev{};
+                if (!scan_function(bus, slot, func, dev)) {
+                    if (func == 0) {
+                        break;
+                    }
+                    continue;
+                }
+
+                if (is_virtio_net_device(dev.vendor_id, dev.device_id)) {
+                    read_bars(dev);
+                    out = dev;
+
+                    cinux::lib::kprintf("[PCI] VirtIO-net found: %02x:%02x.%x BAR0=0x%lx\n", dev.bus,
+                                        dev.slot, dev.func, static_cast<uint64_t>(dev.bar[0]));
+                    return true;
+                }
+            }
+        }
+    }
+
+    cinux::lib::kprintf("[PCI] No VirtIO-net controller found.\n");
+    return false;
+}
+
 }  // namespace cinux::drivers::pci

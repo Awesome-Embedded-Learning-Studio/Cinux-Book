@@ -54,6 +54,7 @@ constexpr uint8_t CAPABILITIES_POINTER = 0x34;  ///< Pointer to first capability
 namespace PciClass {
 constexpr uint8_t MASS_STORAGE  = 0x01;
 constexpr uint8_t AHCI_SUBCLASS = 0x06;
+constexpr uint8_t NVME_SUBCLASS = 0x08;  ///< NVM controller (NVMe). PCI class 0x01/0x08.
 constexpr uint8_t SERIAL_BUS    = 0x0C;  ///< Serial bus controllers (USB, ...)
 constexpr uint8_t USB_SUBCLASS  = 0x03;  ///< USB host/controller
 constexpr uint8_t XHCI_PROG_IF  = 0x30;  ///< xHCI host controller interface
@@ -85,6 +86,7 @@ namespace PciCapId {
 constexpr uint8_t POWER_MANAGEMENT = 0x01;  ///< Power Management
 constexpr uint8_t MSI              = 0x05;  ///< Message Signalled Interrupts
 constexpr uint8_t MSI_X            = 0x11;  ///< MSI-X
+constexpr uint8_t VIRTIO           = 0x09;  ///< VirtIO struct (common/notify/isr/device cfg)
 }  // namespace PciCapId
 
 // ============================================================
@@ -105,5 +107,22 @@ constexpr uint8_t  MAX_SLOT       = 32;
 constexpr uint8_t  MAX_FUNC       = 8;
 constexpr uint8_t  BAR_COUNT      = 6;
 constexpr uint16_t VENDOR_INVALID = 0xFFFF;
+
+// ============================================================
+// VirtIO PCI Device Identification (vendor 0x1AF4)
+// ============================================================
+
+namespace VirtioPci {
+constexpr uint16_t VENDOR = 0x1AF4;  ///< VirtIO PCI vendor ID
+
+// Device IDs: legacy/transitional (0x1000-0x103F) and modern/non-transitional
+// (0x1040-0x107F).  QEMU's -device virtio-*-pci defaults to transitional, so
+// the PCI device_id reads as the legacy value, but the device still exposes
+// the modern capability list -- match BOTH and always drive via modern transport.
+constexpr uint16_t BLOCK_LEGACY = 0x1001;  ///< VirtIO Block transitional
+constexpr uint16_t BLOCK_MODERN = 0x1042;  ///< VirtIO Block non-transitional
+constexpr uint16_t NET_LEGACY   = 0x1000;  ///< VirtIO Net transitional
+constexpr uint16_t NET_MODERN   = 0x1041;  ///< VirtIO Net non-transitional
+}  // namespace VirtioPci
 
 }  // namespace cinux::drivers::pci

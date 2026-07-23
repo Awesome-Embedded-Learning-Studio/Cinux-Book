@@ -259,6 +259,8 @@ add_executable(big_kernel_test
     test/test_ext2.cpp
     test/test_ahci_write.cpp
     test/test_ahci_block_device.cpp
+    test/test_nvme.cpp
+    test/test_virtio.cpp
     test/test_ext2_allocator.cpp
     test/test_ext2_ops.cpp
     test/test_ext2_inode_ops.cpp
