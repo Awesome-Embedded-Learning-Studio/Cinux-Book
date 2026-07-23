@@ -172,6 +172,18 @@ add_cinux_integration_test(net_arp_module
     ${CMAKE_SOURCE_DIR}/kernel/net/arp.cpp
     ${CMAKE_SOURCE_DIR}/kernel/net/net_stack.cpp
 )
+# F7 M4: UdpModule (L4Handler proto 17) + the Ipv4Module inner L4 table it rides
+# on.  A no-L2 mock device gives a send -> IPv4 table -> handle -> listener
+# round-trip on host; links the real udp/ipv4/icmp/net_stack + Cinux-Base checksum.
+add_cinux_integration_test(net_udp
+    unit/test_net_udp.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/net/udp.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/net/ipv4.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/net/icmp.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/net/arp.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/net/net_stack.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/Cinux-Base/src/checksum.cpp
+)
 
 # ============================================================
 # Tests with threading support
@@ -287,6 +299,7 @@ set(ALL_HOST_TESTS
     test_shell_redirect test_fork_exec test_multi_terminal
     test_cinux_base_types
     test_refcount
+    test_net_udp
 )
 
 add_custom_target(test_host

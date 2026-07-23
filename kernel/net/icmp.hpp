@@ -2,10 +2,11 @@
  * @file kernel/net/icmp.hpp
  * @brief ICMP wire layout + IcmpModule (echo request -> reply, reply -> record).
  *
- * Composed into Ipv4Module (ICMP is IP proto 1, NOT a separate ethertype -- so
- * IcmpModule is NOT a ProtocolHandler; Ipv4Module calls it directly).  On an
- * echo request it builds a reply and hands it to Ipv4Module::send; on an echo
- * reply it records id/seq so a ping originator can observe the round-trip.
+ * An L4Handler registered into Ipv4Module's proto table (ICMP is IP proto 1,
+ * NOT a separate ethertype -- so IcmpModule is NOT a ProtocolHandler; Ipv4Module
+ * dispatches it via the inner L4 table, not the ethertype table).  On an echo
+ * request it builds a reply and hands it to Ipv4Module::send; on an echo reply
+ * it records id/seq so a ping originator can observe the round-trip.
  *
  * Namespace: cinux::net
  */
@@ -51,12 +52,12 @@ inline void build_icmp_header(const IcmpHeader& in, uint8_t* p) {
     p[7] = static_cast<uint8_t>(in.seq & 0xFF);
 }
 
-class IcmpModule {
+class IcmpModule : public L4Handler {
 public:
-    /// @brief Handle an inbound ICMP message (called by Ipv4Module, proto==1).
+    /// @brief Handle an inbound ICMP message (L4Handler, dispatched for proto==1).
     ///        Echo request -> echo reply (via ipv4.send); echo reply -> record.
     void handle(const Ipv4Header& ip, FrameView payload, NetDevice& dev, Ipv4Module& ipv4,
-                NetStack& stack);
+                NetStack& stack) override;
 
     /// @brief Send an ICMP echo request (the ping originator's TX).  src comes
     ///        from the device's InDevice (Ipv4Module::send sources it).

@@ -25,6 +25,7 @@
 #include "kernel/net/loopback_device.hpp"
 #include "kernel/net/net_init.hpp"
 #include "kernel/net/net_stack.hpp"
+#include "kernel/net/udp.hpp"
 #include "kernel/syscall/sys_ping.hpp"  // B2: call the sys_ping handler directly
 
 using cinux::drivers::net::E1000Controller;
@@ -43,6 +44,9 @@ using cinux::net::kSlirpGateway;
 using cinux::net::kSlirpGuest;
 using cinux::net::LoopbackDevice;
 using cinux::net::NetStack;
+using cinux::net::UdpListener;
+using cinux::net::UdpModule;
+using cinux::net::kIpProtoUdp;
 
 namespace test_net {
 
@@ -205,12 +209,158 @@ void test_syscall_ping() {
     cinux::lib::kprintf("[net] sys_ping(10.0.2.2) -> reply (rc=0)\n");
 }
 
+// ============================================================
+// UDP loopback: a datagram round-trips 127.0.0.1 in one poll.
+// Mirrors test_ping_loopback but for proto 17 -- proves UdpModule rides the L4
+// table + the pseudo-header checksum survives a real round-trip on the in-kernel
+// stack.  Deterministic (no SLIRP).
+// ============================================================
+
+namespace {
+/// Kernel-side UDP capture listener: records the last datagram into a fixed
+/// buffer (freestanding: no std::vector).  Mirrors IcmpModule's reply counters.
+struct UdpCapture : UdpListener {
+    uint32_t calls         = 0;
+    uint16_t last_src_port = 0;
+    uint32_t last_len      = 0;
+    uint8_t  buf[128]      = {};
+    void     on_udp(const cinux::net::Ipv4Header& /*ip*/, uint16_t src_port,
+                    cinux::net::FrameView payload) override {
+        ++calls;
+        last_src_port = src_port;
+        last_len      = payload.size() > sizeof(buf) ? sizeof(buf) : payload.size();
+        for (uint32_t i = 0; i < last_len; ++i) {
+            buf[i] = payload.data()[i];
+        }
+    }
+};
+}  // namespace
+
+void test_udp_loopback() {
+    // Static: each module + the LoopbackDevice (~12 KB) are too large for the
+    // 16 KB kernel stack.
+    static LoopbackDevice lo;
+    static ArpModule      arp;
+    static IcmpModule     icmp;
+    static Ipv4Module     ipv4(icmp, &arp);
+    static UdpModule      udp;
+    static NetStack       stack;
+    static UdpCapture     cap;
+
+    stack.add_protocol(kEtherTypeArp, arp);
+    stack.add_protocol(kEtherTypeIpv4, ipv4);
+    ipv4.add_l4(kIpProtoUdp, udp);  // UDP joins ICMP in the L4 table
+
+    InDevice cfg{};
+    cfg.local   = kLoopbackAddr;  // 127.0.0.1
+    cfg.gateway = kLoopbackAddr;
+    TEST_ASSERT_TRUE(stack.attach(lo, cfg));
+
+    TEST_ASSERT_TRUE(udp.bind(7777, cap));
+
+    static const uint8_t msg[] = {'u', 'd', 'p', '-', 'h', 'i'};
+    auto                 r = udp.send(lo, kLoopbackAddr, 1234, 7777, msg, sizeof(msg), ipv4, stack);
+    TEST_ASSERT_TRUE(r.ok());
+
+    // One poll() drains the full round-trip (budget loop): send enqueues the IP
+    // packet on loopback; poll dispatches it -> IPv4 -> L4 table -> UdpModule ->
+    // listener (the reply path ICMP also uses).
+    stack.poll();
+
+    TEST_ASSERT_EQ(cap.calls, 1u);
+    TEST_ASSERT_EQ(cap.last_src_port, 1234u);
+    TEST_ASSERT_EQ(cap.last_len, static_cast<uint32_t>(sizeof(msg)));
+    bool payload_ok = true;
+    for (uint32_t i = 0; i < sizeof(msg); ++i) {
+        if (cap.buf[i] != msg[i]) {
+            payload_ok = false;
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE(payload_ok);
+    cinux::lib::kprintf("[net] loopback UDP: %u bytes from port %u (round-trip in one poll)\n",
+                        cap.last_len, static_cast<unsigned>(cap.last_src_port));
+}
+
+// ============================================================
+// UDP TX over the real e1000 + QEMU SLIRP user-net.
+// The L3 stack + e1000 TX path are proven by ping; this isolates that a UDP
+// datagram rides the SAME path (ARP resolve for the gateway + ipv4.send accepts
+// the proto-17 packet).  SLIRP has no UDP echo service, so NO reply is expected --
+// a TX-only smoke.  Skip (pass) when no NIC is attached.
+// ============================================================
+
+void test_udp_e1000_tx() {
+    PCI pci;
+    pci.init();
+    PCIDevice dev{};
+    if (!pci.find_e1000(dev)) {
+        cinux::lib::kprintf("[net] no NIC -- skipping e1000 UDP TX test\n");
+        return;  // counts as a pass when no e1000 is attached
+    }
+
+    static E1000Controller nic;
+    if (!nic.init(dev).ok() || !nic.start_rx().ok() || !nic.start_tx().ok()) {
+        TEST_ASSERT_TRUE(false);
+        return;
+    }
+    static E1000NetDevice adapter(nic);
+    static ArpModule      arp;
+    static IcmpModule     icmp;
+    static Ipv4Module     ipv4(icmp, &arp);
+    static UdpModule      udp;
+    static NetStack       stack;
+    stack.add_protocol(kEtherTypeArp, arp);
+    stack.add_protocol(kEtherTypeIpv4, ipv4);
+    ipv4.add_l4(kIpProtoUdp, udp);
+
+    InDevice cfg{};
+    EthAddr  our_mac{};
+    adapter.mac(our_mac);
+    cfg.hw      = our_mac;
+    cfg.local   = kSlirpGuest;    // 10.0.2.15
+    cfg.gateway = kSlirpGateway;  // 10.0.2.2
+    TEST_ASSERT_TRUE(stack.attach(adapter, cfg));
+
+    // Send a UDP datagram to the SLIRP gateway + drive the RX handshake (sti/hlt
+    // lets QEMU's main loop run so SLIRP answers our ARP request).  Iter 1: ARP
+    // miss -> ARP request out (real e1000 TX); poll -> SLIRP ARP reply caches the
+    // gateway MAC.  Iter 2+: ARP hit -> the UDP IP packet goes out.  Same timing
+    // as test_ping_e1000 (NEVER a trap-loop "pump").  No UDP reply is expected.
+    static const uint8_t msg[]   = {'u', 'd', 'p', '-', 't', 'x'};
+    bool                 sent_ok = false;
+    EthAddr              gw_mac{};
+    for (uint32_t i = 0; i < 4000 && !arp.lookup(kSlirpGateway, gw_mac); ++i) {
+        auto r = udp.send(adapter, kSlirpGateway, 1234, 7777, msg, sizeof(msg), ipv4, stack);
+        if (r.ok()) {
+            sent_ok = true;
+        }
+        for (uint32_t j = 0; j < 4; ++j) {
+            stack.poll();
+            cinux::arch::irq_enable();
+            cinux::arch::hlt();
+            cinux::arch::irq_disable();
+            if (arp.lookup(kSlirpGateway, gw_mac)) {
+                break;
+            }
+        }
+    }
+
+    TEST_ASSERT_TRUE(arp.lookup(kSlirpGateway, gw_mac));  // ARP resolved over e1000
+    TEST_ASSERT_TRUE(sent_ok);                            // UDP datagram handed to ipv4.send
+    cinux::lib::kprintf(
+        "[net] e1000 UDP TX -> 10.0.2.2: ARP resolved + send ok"
+        " (no reply expected, SLIRP has no UDP echo)\n");
+}
+
 }  // namespace test_net
 
 extern "C" void run_net_tests() {
     TEST_SECTION("net");
     RUN_TEST(test_net::test_ping_loopback);
+    RUN_TEST(test_net::test_udp_loopback);
     RUN_TEST(test_net::test_ping_e1000);
+    RUN_TEST(test_net::test_udp_e1000_tx);
     RUN_TEST(test_net::test_production_ping);
     RUN_TEST(test_net::test_syscall_ping);
     TEST_SUMMARY();

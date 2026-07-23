@@ -1,12 +1,12 @@
 /**
  * @file kernel/net/ipv4.hpp
- * @brief IPv4 wire layout + Ipv4Module (ethertype 0x0800 handler) + TX.
+ * @brief IPv4 wire layout + Ipv4Module (ethertype 0x0800 handler) + L4Handler.
  *
  * HOST-order parsed header (see net_types.hpp byte-order policy).  Ipv4Module
  * validates an inbound packet (version / IHL / header checksum via
- * internet_checksum) and, for proto==ICMP, hands the L4 payload to a composed
- * IcmpModule (a fixed 3-node graph for ping -- NOT an inner proto table; a
- * TODO documents that extension for future TCP/UDP).  send() builds an IPv4
+ * internet_checksum) and dispatches the L4 payload by IP protocol number via an
+ * inner L4Handler table (proto->handler, like Linux inet_protos -- ICMP=1 is
+ * registered in the constructor, UDP=17 via add_l4).  send() builds an IPv4
  * header + emits on a device (resolving next-hop via ARP for Ethernet,
  * skipping L2 for loopback).
  *
@@ -24,9 +24,11 @@
 namespace cinux::net {
 
 class ArpModule;   // forward -- next-hop resolver (ipv4.cpp includes arp.hpp)
-class IcmpModule;  // forward -- composed L4 handler
+class IcmpModule;  // forward -- L4 handler (proto 1), registered by the ctor
+class Ipv4Module;  // forward -- L4Handler::handle takes it (defined below)
 
 constexpr uint8_t kIpProtoIcmp    = 1;
+constexpr uint8_t kIpProtoUdp     = 17;
 constexpr uint8_t kIpv4HdrWords   = 5;  // 20-byte fixed header (IHL)
 constexpr uint8_t kIpv4TtlDefault = 64;
 
@@ -88,13 +90,58 @@ inline void build_ipv4_header(const Ipv4Header& in, uint8_t* p) {
     }
 }
 
+/// @brief L4 protocol seam -- dispatched by Ipv4Module via the IP proto field.
+///
+/// Mirrors ProtocolHandler (the ethertype seam) one layer up: one handler per IP
+/// protocol number (ICMP=1, UDP=17, future TCP=6).  Ipv4Module validates the IP
+/// header + header checksum, then hands the L4 payload (PAST the IP header) to
+/// the registered handler.  Like ProtocolHandler, a handler replies or drops.
+class L4Handler {
+public:
+    virtual ~L4Handler() = default;
+
+    /// @brief Handle one inbound L4 payload (past the IP header).
+    /// @param ip      the parsed IPv4 header (src/dst for replies / checksums).
+    /// @param payload L4 bytes (ICMP message / UDP datagram / ...).  Borrowed:
+    ///                valid ONLY for this call -- copy to retain.
+    /// @param dev     device the packet arrived on -- reply on THIS one.
+    /// @param ipv4    for sending replies (ipv4.send(dev, ..., proto, ...)).
+    /// @param stack   for L3 TX + device config lookup (config_for).
+    virtual void handle(const Ipv4Header& ip, FrameView payload, NetDevice& dev, Ipv4Module& ipv4,
+                        NetStack& stack) = 0;
+};
+
 class Ipv4Module : public ProtocolHandler {
 public:
-    /// @param icmp  the composed ICMP handler (echo req -> reply, reply -> record).
-    /// @param arp   the next-hop resolver (may be null when no L2 / no ARP).
-    Ipv4Module(IcmpModule& icmp, ArpModule* arp) : icmp_(icmp), arp_(arp) {}
+    static constexpr uint32_t kMaxL4 = 4;  ///< inner proto slots (ICMP + UDP + headroom)
 
-    /// @brief Validate + dispatch an inbound IPv4 packet (proto==ICMP -> Icmp).
+    /// @param icmp  the ICMP handler (proto 1) -- auto-registered into the L4
+    ///              table by the ctor (so existing call sites stay unchanged).
+    /// @param arp   the next-hop resolver (may be null when no L2 / no ARP).
+    /// @note Defined in ipv4.cpp (the IcmpModule->L4Handler conversion needs the
+    ///       complete IcmpModule type, which the header only forward-declares).
+    Ipv4Module(IcmpModule& icmp, ArpModule* arp);
+
+    /// @brief Register an L4 handler for an IP protocol number.  Called at boot
+    ///        before RX.  Re-registering a proto replaces the handler.
+    void add_l4(uint8_t proto, L4Handler& h) {
+        for (uint32_t i = 0; i < kMaxL4; ++i) {
+            if (l4_[i].h != nullptr && l4_[i].proto == proto) {
+                l4_[i].h = &h;  // replace existing handler for this proto
+                return;
+            }
+        }
+        for (uint32_t i = 0; i < kMaxL4; ++i) {
+            if (l4_[i].h == nullptr) {
+                l4_[i].proto = proto;
+                l4_[i].h     = &h;
+                return;
+            }
+        }
+        // table full -- ignore (kMaxL4 covers ICMP + UDP + headroom)
+    }
+
+    /// @brief Validate + dispatch an inbound IPv4 packet (proto -> L4 table).
     void on_frame(const L2Info& l2, FrameView payload, NetDevice& dev, NetStack& stack) override;
 
     /// @brief Build an IPv4 header (src from the device's InDevice) + send on
@@ -105,9 +152,14 @@ public:
                                    uint32_t len, NetStack& stack);
 
 private:
-    IcmpModule& icmp_;
-    ArpModule*  arp_;  ///< nullable (null when no L2 / ARP unavailable)
-    uint16_t    next_id_ = 0;
+    struct L4Slot {
+        uint8_t    proto = 0;
+        L4Handler* h     = nullptr;
+    };
+
+    ArpModule* arp_;  ///< nullable (null when no L2 / ARP unavailable)
+    uint16_t   next_id_ = 0;
+    L4Slot     l4_[kMaxL4]{};
 };
 
 }  // namespace cinux::net

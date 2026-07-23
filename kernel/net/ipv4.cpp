@@ -3,9 +3,10 @@
  * @brief Ipv4Module -- inbound validation/dispatch + outbound IP TX.
  *
  * Inbound: parse, sanity-check (version / IHL / total_len / header checksum via
- * verify_internet_checksum), hand proto==ICMP to the composed IcmpModule.  No
- * fragmentation / options today (IHL=5 only); a non-5 IHL is honoured for the
- * header-length computation but options bytes are not parsed.  Zero kprintf.
+ * verify_internet_checksum), dispatch the L4 payload by IP proto via the inner
+ * L4Handler table (proto->handler, like Linux inet_protos).  No fragmentation /
+ * options today (IHL=5 only); a non-5 IHL is honoured for the header-length
+ * computation but options bytes are not parsed.  Zero kprintf.
  *
  * Namespace: cinux::net
  */
@@ -35,6 +36,14 @@ struct HeapBuf {
 };
 
 }  // namespace
+
+Ipv4Module::Ipv4Module(IcmpModule& icmp, ArpModule* arp) : arp_(arp) {
+    // ICMP (proto 1) routes through the L4 table like any other L4 protocol --
+    // registered here so existing call sites (which only pass icmp + arp) are
+    // unchanged.  icmp.hpp is included above, so the IcmpModule->L4Handler
+    // conversion is visible (the header forward-declares IcmpModule only).
+    add_l4(kIpProtoIcmp, icmp);
+}
 
 void Ipv4Module::on_frame(const L2Info& /*l2*/, FrameView payload, NetDevice& dev,
                           NetStack& stack) {
@@ -69,10 +78,14 @@ void Ipv4Module::on_frame(const L2Info& /*l2*/, FrameView payload, NetDevice& de
     const uint32_t l4_len = total - header_len;
     const uint8_t* l4     = payload.data() + header_len;
 
-    if (ip.proto == kIpProtoIcmp) {
-        icmp_.handle(ip, FrameView(l4, l4_len), dev, *this, stack);
+    // Dispatch by IP protocol number via the inner L4 table (proto->handler,
+    // like Linux inet_protos): ICMP=1, UDP=17, ...  No match -> silent drop.
+    for (uint32_t i = 0; i < kMaxL4; ++i) {
+        if (l4_[i].h != nullptr && l4_[i].proto == ip.proto) {
+            l4_[i].h->handle(ip, FrameView(l4, l4_len), dev, *this, stack);
+            break;
+        }
     }
-    // TODO: proto->handler table for UDP/TCP (ping only -> direct ICMP call today).
 }
 
 cinux::lib::ErrorOr<void> Ipv4Module::send(NetDevice& dev, Ipv4Addr dst, uint8_t proto,
@@ -99,7 +112,7 @@ cinux::lib::ErrorOr<void> Ipv4Module::send(NetDevice& dev, Ipv4Addr dst, uint8_t
 
     // Heap-allocated: kBuf (1504B) > 1024B frame budget. Network path uses the
     // heap (not a static buffer) so concurrent TX on SMP does not share storage.
-    HeapBuf buf(kBuf);
+    HeapBuf  buf(kBuf);
     uint8_t* p = buf.p;
     build_ipv4_header(ip, p);  // checksum field still 0
     for (uint32_t i = 0; i < len; ++i) {

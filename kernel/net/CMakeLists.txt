@@ -1,7 +1,7 @@
 #
 # kernel/net/CMakeLists.txt
 #
-# @brief F7 network L3 stack -- NetDevice seam + NetStack dispatch + ARP/IPv4/ICMP.
+# @brief F7 network L3 stack -- NetDevice seam + NetStack dispatch + ARP/IPv4/ICMP/UDP.
 #
 # §14 file gate like drivers/net: the L3 stack compiles only under CINUX_NET.
 # The core (net_stack.cpp) is pure logic -- ZERO kprintf, no kernel runtime
@@ -16,6 +16,7 @@ if(CINUX_NET)
         ${CMAKE_CURRENT_SOURCE_DIR}/arp.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/ipv4.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/icmp.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/udp.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/loopback_device.cpp
     )
 endif()
