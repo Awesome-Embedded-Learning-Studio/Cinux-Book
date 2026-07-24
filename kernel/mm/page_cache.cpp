@@ -5,6 +5,8 @@
  * Namespace: cinux::mm
  */
 
+#include <utility>
+
 #include "kernel/mm/page_cache.hpp"
 
 #include "kernel/arch/x86_64/memory_layout.hpp"
@@ -76,23 +78,22 @@ cinux::lib::ErrorOr<CachedPage*> PageCache::get_page(cinux::fs::Inode* inode, ui
         misses_++;
     }
 
-    // 2. Miss: allocate a physical page and read the file content into it.
+    // 2. Miss: allocate a page WITH its cache-ownership ref and read the file
+    //    content into it.  alloc_page sets pte_count=1 -- that single ref IS
+    //    the page cache's ownership, kept alive for the lifetime of the
+    //    CachedPage (dropped on evict/free).  Because the cache holds it,
+    //    process teardown (free_subtree) and munmap -- which only drop the PTE
+    //    refs they added -- can never reach 0 and free a page the cache still
+    //    points at (the lto_plugin corruption root cause, fix f06ea6b).
     //    This is the slow I/O path and runs OUTSIDE the cache lock -- never do
     //    I/O while holding the lock, or a reentrant page fault at IF=0 would
-    //    deadlock (F2-M4 GOTCHA).
-    const uint64_t phys = cinux::mm::g_pmm.alloc_page();
-    if (phys == 0) {
+    //    deadlock (F2-M4 GOTCHA).  On any failure below the local `own` drops
+    //    its ref (pte_count 1 -> 0 -> free) itself; nothing frees raw.
+    CachePhysRef own = CachePhysRef::alloc();
+    if (!own.valid()) {
         return cinux::lib::Error::OutOfMemory;
     }
-    // Cache-ownership ref (B fix): distinct from the user-mapping refs that
-    // file_fault / fork / CoW add and teardown/munmap drop.  Holding this +1
-    // means process teardown (free_subtree) and munmap can NEVER drop the
-    // pte_count to 0 and free a page the page cache still points at -- the
-    // lto_plugin corruption root cause (cache page phys was reclaimed and
-    // reused while CachedPage still referenced it).  Dropped only if/when a
-    // future cache-eviction path releases the page (none today; the cache is
-    // grow-only, deliberately).
-    cinux::mm::g_pmm.pte_count_inc(phys);
+    const uint64_t phys = own.phys();
     const uint64_t virt = phys + cinux::arch::DIRECT_MAP_BASE;
 
     // Start from a clean zero page so any short read (file tail) is zero-filled.
@@ -101,8 +102,7 @@ cinux::lib::ErrorOr<CachedPage*> PageCache::get_page(cinux::fs::Inode* inode, ui
     auto read_res =
         inode->ops->read(inode, offset, reinterpret_cast<void*>(virt), cinux::arch::PAGE_SIZE);
     if (!read_res.ok()) {
-        cinux::mm::g_pmm.free_page(phys);
-        return read_res.error();
+        return read_res.error();  // ~own drops the ref and frees phys
     }
     // read_res.value() bytes were filled; the remainder stays zero (EOF pad).
 
@@ -110,8 +110,7 @@ cinux::lib::ErrorOr<CachedPage*> PageCache::get_page(cinux::fs::Inode* inode, ui
     //    concurrent insert of the same key and, on collision, drop our page.
     auto* page = new CachedPage();
     if (page == nullptr) {
-        cinux::mm::g_pmm.free_page(phys);
-        return cinux::lib::Error::OutOfMemory;
+        return cinux::lib::Error::OutOfMemory;  // ~own frees phys
     }
     page->ino       = inode->ino;
     page->inode     = inode;
@@ -120,14 +119,14 @@ cinux::lib::ErrorOr<CachedPage*> PageCache::get_page(cinux::fs::Inode* inode, ui
     page->virt      = virt;
     page->valid     = true;
     page->ref_count = 1;
+    page->own       = std::move(own);  // CachedPage takes ownership
 
     {
         auto g = lock_.irq_guard();
         if (CachedPage* race = lookup_locked(inode, offset)) {
             race->ref_count++;
             hits_++;
-            cinux::mm::g_pmm.free_page(phys);
-            delete page;
+            delete page;  // ~CachePhysRef frees phys (own was moved into it)
             return race;
         }
         insert_locked(page);

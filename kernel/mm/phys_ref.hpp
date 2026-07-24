@@ -31,6 +31,11 @@ namespace cinux::mm {
 template <typename Tag>
 class PhysRef {
 public:
+    /// Empty handle (phys_ == 0).  Lets owners (e.g. CachedPage) default-
+    /// construct then move-assign a real page in.  Destructor is a no-op on
+    /// an empty handle.
+    PhysRef() noexcept = default;
+
     /// Allocate a fresh page; refcount starts at 1 (set by PMM::alloc_page).
     static PhysRef alloc() { return PhysRef(g_pmm.alloc_page()); }
 

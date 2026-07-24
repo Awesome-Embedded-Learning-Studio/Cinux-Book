@@ -37,6 +37,7 @@
 #include "kernel/proc/sync.hpp"
 #include <new>
 
+#include "kernel/mm/phys_ref.hpp"
 #include "kernel/mm/slab.hpp"
 
 namespace cinux::fs {
@@ -68,8 +69,9 @@ struct CachedPage {
     uint64_t          ino{0};
     cinux::fs::Inode* inode{nullptr};  ///< Backing inode (transient; not a key)
     uint64_t          offset{0};       ///< File offset, page-aligned (key, part 2)
-    uint64_t          phys{0};         ///< Physical page address
-    uint64_t          virt{0};         ///< Kernel vaddr = phys + DIRECT_MAP_BASE (direct map)
+    uint64_t          phys{0};         ///< Physical page address (read-only snapshot of own)
+    uint64_t          virt{0};         ///< Kernel vaddr = phys + DIRECT_MAP_BASE (snapshot)
+    CachePhysRef      own;             ///< Ownership handle; phys/virt are its read-only snapshot
     uint32_t          ref_count{0};    ///< Outstanding users (no eviction yet)
     bool              valid{false};    ///< File content has been loaded
 
