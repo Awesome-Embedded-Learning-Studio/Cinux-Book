@@ -23,6 +23,22 @@ namespace cinux::fs {
 
 Ext2::Ext2(cinux::drivers::IBlockDevice* dev) : file_ops_(*this), dir_ops_(*this), dev_(dev) {}
 
+Ext2::~Ext2() {
+    // Tear down: free every heap-owned cache object.  Ext2 is a singleton alive
+    // until shutdown, so by here every refcount should already be 0; we free
+    // unconditionally on teardown.
+    for (uint32_t b = 0; b < EXT2_INODE_CACHE_SIZE; ++b) {
+        Ext2CachedInode* entry = inode_cache_[b];
+        while (entry != nullptr) {
+            Ext2CachedInode* next = entry->hash_next;
+            delete entry;
+            entry = next;
+        }
+        inode_cache_[b] = nullptr;
+    }
+    inode_cache_count_ = 0;
+}
+
 // ============================================================
 // Block I/O
 // ============================================================
@@ -143,12 +159,9 @@ cinux::lib::ErrorOr<void> Ext2::mount() {
         return cinux::lib::Error::IOError;
     }
 
-    inode_cache_[0].ino        = 2;
-    inode_cache_[0].disk_inode = root_disk;
-    inode_cache_[0].in_use     = true;
-    populate_vfs_inode(inode_cache_[0]);
-    root_inode_ = inode_cache_[0].vfs_inode;
-
+    // Root (ino=2) is resolved on demand through the cache (lookup("") ->
+    // get_cached_inode(2)).  Reading it here is a mount-time sanity check that
+    // the inode table is readable; the kprintf mirrors the original diagnostic.
     cinux::lib::kprintf("[EXT2] Root inode: size=%u mode=0x%x\n", root_disk.i_size,
                         root_disk.i_mode);
 
@@ -271,7 +284,13 @@ cinux::lib::ErrorOr<Inode*> Ext2::lookup(const char* path) {
     }
 
     if (path[0] == '\0' || (path[0] == '/' && path[1] == '\0')) {
-        return &root_inode_;
+        // Root resolves on demand through the cache.  get_cached_inode returns
+        // a ref'd inode the caller (VFS layer) must inode_unref.
+        Inode* root = get_cached_inode(2);
+        if (root == nullptr) {
+            return cinux::lib::Error::IOError;
+        }
+        return root;
     }
 
     if (path[0] == '/') {

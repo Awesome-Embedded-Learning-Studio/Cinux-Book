@@ -13,6 +13,7 @@
 #include <stdint.h>
 
 #include "kernel/errno.hpp"
+#include "kernel/fs/file.hpp"  // inode_unref
 #include "kernel/fs/inode.hpp"
 #include "kernel/fs/path.hpp"
 #include "kernel/fs/vfs_mount.hpp"
@@ -53,10 +54,11 @@ int64_t do_rmdir_kernel(const char* resolved_path) {
         kprintf("[SYS_RMDIR] Parent directory not found for '%s'\n", resolved_path);
         return -to_errno(parent_result.error());
     }
-    cinux::fs::Inode* parent = parent_result.value();
+    cinux::fs::Inode* parent = parent_result.value();  // ref'd by lookup
 
     if (parent->ops == nullptr) {
         kprintf("[SYS_RMDIR] Parent inode has no ops\n");
+        cinux::fs::inode_unref(parent);
         return -kEio;
     }
 
@@ -64,11 +66,14 @@ int64_t do_rmdir_kernel(const char* resolved_path) {
     auto target_result = fs->lookup(rel_path);
     if (!target_result.ok()) {
         kprintf("[SYS_RMDIR] '%s' not found\n", resolved_path);
+        cinux::fs::inode_unref(parent);
         return -to_errno(target_result.error());
     }
-    cinux::fs::Inode* target = target_result.value();
+    cinux::fs::Inode* target = target_result.value();  // ref'd by lookup
     if (target->type != cinux::fs::InodeType::Directory) {
         kprintf("[SYS_RMDIR] '%s' is not a directory\n", resolved_path);
+        cinux::fs::inode_unref(target);
+        cinux::fs::inode_unref(parent);
         return -kEnotdir;
     }
     // Check directory is empty: try readdir index 2 (index 0=".", 1="..")
@@ -78,16 +83,22 @@ int64_t do_rmdir_kernel(const char* resolved_path) {
         auto dir_check = target->ops->readdir(target, 2, check_name, sizeof(check_name));
         if (!dir_check.ok()) {
             kprintf("[SYS_RMDIR] failed to check whether '%s' is empty\n", resolved_path);
+            cinux::fs::inode_unref(target);
+            cinux::fs::inode_unref(parent);
             return -to_errno(dir_check.error());
         }
         if (dir_check.value() > 0) {
             kprintf("[SYS_RMDIR] '%s' is not empty\n", resolved_path);
+            cinux::fs::inode_unref(target);
+            cinux::fs::inode_unref(parent);
             return -kEnotempty;
         }
     }
+    cinux::fs::inode_unref(target);  // drop the target lookup ref (no longer needed)
 
     // Step 5: Call unlink() on the parent directory
     auto unlink_result = parent->ops->unlink(parent, leaf_name, name_len);
+    cinux::fs::inode_unref(parent);  // drop the parent lookup ref
     if (!unlink_result.ok()) {
         kprintf("[SYS_RMDIR] Failed to rmdir '%s'\n", resolved_path);
         return -to_errno(unlink_result.error());

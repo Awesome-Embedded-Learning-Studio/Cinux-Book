@@ -1,15 +1,6 @@
-/**
- * @file kernel/fs/procfs.cpp
- * @brief ProcFS implementation: directory + pseudo-file InodeOps + ProcFs backend
- *
- * Defines the inode behaviour as InodeOps subclasses (ProcRootDirOps,
- * ProcPidDirOps, ProcStatFileOps, ProcCmdlineFileOps) in an anonymous namespace,
- * then the ProcFs FileSystem backend that owns the per-PID inode pools.
- * procfs.cpp reads the kernel task registry (signal_find_task_by_pid /
- * signal_nth_task_pid) and the live Task fields, and is therefore kernel-linked
- * -- it is NOT part of the host unit tests (DevFS stays host-testable by
- * injecting a CharSink; ProcFS has no such injection seam, so it is exercised
- * via the in-QEMU run_procfs_tests).
+/** @file kernel/fs/procfs.cpp
+ * @brief ProcFS backend + InodeOps (root, per-PID dir, stat/cmdline files).
+ * Kernel-linked (reads the task registry); exercised via run_procfs_tests.
  */
 
 #include "procfs.hpp"
@@ -17,6 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "kernel/fs/file.hpp"  // inode_ref (lookup returns a ref'd Inode*)
 #include "kernel/lib/string.hpp"
 #include "kernel/mm/pmm.hpp"    // g_pmm (F-ECO busybox: /proc/meminfo)
 #include "kernel/proc/pid.hpp"  // PidAllocator::PID_MAX (static_assert drift guard)
@@ -32,6 +24,11 @@ static_assert(cinux::fs::kProcPidMax == cinux::proc::PidAllocator::PID_MAX,
 namespace cinux::fs {
 
 using cinux::lib::Error;
+
+Inode* take_ref(Inode* i) {
+    inode_ref(i);
+    return i;
+}
 using cinux::lib::ErrorOr;
 using cinux::proc::signal_find_task_by_pid;
 using cinux::proc::signal_snapshot_task;
@@ -406,21 +403,18 @@ ErrorOr<Inode*> ProcFs::lookup(const char* path) {
 
     // Root directory: empty path or "/".
     if (path[0] == '\0' || (path[0] == '/' && path[1] == '\0')) {
-        return &root_inode_;
+        return take_ref(&root_inode_);
     }
-    // Strip a single leading '/': vfs_resolve may pass "/1/stat" (mount prefix
-    // without trailing slash) or "1/stat" (with trailing slash).
     const char* p = path;
     if (p[0] == '/') {
         ++p;
     }
     if (p[0] == '\0') {
-        return &root_inode_;  // trailing slash on the mount root
+        return take_ref(&root_inode_);  // trailing slash on the mount root
     }
 
-    // /proc/meminfo -- a root-level pseudo-file (F-ECO busybox `free`).
     if (strcmp(p, "meminfo") == 0) {
-        return &meminfo_inode_;
+        return take_ref(&meminfo_inode_);
     }
 
     int         pid;
@@ -437,12 +431,10 @@ ErrorOr<Inode*> ProcFs::lookup(const char* path) {
         if (signal_find_task_by_pid(pid) == nullptr) {
             return Error::NotFound;  // no such live task
         }
-        return &pid_dir_inodes_[pid];
+        return take_ref(&pid_dir_inodes_[pid]);
     }
 
-    // "<pid>/<leaf>" -- the per-process pseudo-files.  Re-check liveness so a
-    // file under a dead PID is NotFound (the dir may exist as an inode, the task
-    // no longer does).
+    // "<pid>/<leaf>" -- per-process pseudo-files; re-check liveness.
     if (rest[0] != '/') {
         return Error::NotFound;  // "<pid>junk" -- not a path separator
     }
@@ -451,10 +443,10 @@ ErrorOr<Inode*> ProcFs::lookup(const char* path) {
         return Error::NotFound;
     }
     if (strcmp(leaf, "stat") == 0) {
-        return &stat_inodes_[pid];
+        return take_ref(&stat_inodes_[pid]);
     }
     if (strcmp(leaf, "cmdline") == 0) {
-        return &cmdline_inodes_[pid];
+        return take_ref(&cmdline_inodes_[pid]);
     }
     return Error::NotFound;
 }

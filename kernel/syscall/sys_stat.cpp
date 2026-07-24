@@ -67,7 +67,10 @@ int64_t do_stat_kernel(const char* resolved_path, cinux::fs::stat* kst) {
         kprintf("[SYS_STAT] File not found: '%s'\n", resolved_path);
         return -to_errno(inode_result.error());
     }
-    return do_stat_inode_kernel(inode_result.value(), kst);
+    cinux::fs::Inode* inode = inode_result.value();  // ref'd by lookup
+    int64_t           r     = do_stat_inode_kernel(inode, kst);
+    cinux::fs::inode_unref(inode);  // drop the lookup ref
+    return r;
 }
 
 int64_t do_fstat_kernel(int fd, cinux::fs::stat* kst) {

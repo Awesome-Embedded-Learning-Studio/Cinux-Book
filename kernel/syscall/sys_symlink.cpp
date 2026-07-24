@@ -12,6 +12,7 @@
 #include <stdint.h>
 
 #include "kernel/errno.hpp"
+#include "kernel/fs/file.hpp"  // inode_unref
 #include "kernel/fs/path.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -43,12 +44,14 @@ int64_t do_symlink_kernel(const char* target, const char* resolved_linkpath) {
         return -to_errno(parent_result.error());
     }
 
-    cinux::fs::Inode* parent = parent_result.value();
+    cinux::fs::Inode* parent = parent_result.value();  // ref'd by lookup
     if (parent == nullptr || parent->ops == nullptr) {
+        cinux::fs::inode_unref(parent);
         return -kEio;
     }
 
     auto r = parent->ops->symlink(parent, leaf, len, target);
+    cinux::fs::inode_unref(parent);  // drop the lookup ref
     if (!r.ok()) {
         return -to_errno(r.error());
     }

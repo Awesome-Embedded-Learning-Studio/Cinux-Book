@@ -46,8 +46,22 @@ static constexpr uint32_t EXT2_TOTAL_BLOCK_PTRS = 15;
 /// Maximum directory entry name length we support
 static constexpr uint32_t EXT2_NAME_MAX = 255;
 
-/// Maximum cached inodes in the ext2 driver
-static constexpr uint32_t EXT2_INODE_CACHE_SIZE = 64;
+/// Inode cache: separate-chaining hash table (one head pointer per bucket) of
+/// heap-owned Ext2CachedInode.  Lookups are ino % EXT2_INODE_CACHE_SIZE walking
+/// the bucket chain.  Separate chaining (not open addressing) so an entry can
+/// be removed without breaking a probe chain -- the cache frees any object
+/// whose refcount has dropped to 0 when it needs room (see get_cached_inode's
+/// soft-cap eviction and invalidate_cached_inode).  512 buckets serve thousands
+/// of cached inodes at a modest chain length.
+static constexpr uint32_t EXT2_INODE_CACHE_SIZE = 512;
+
+/// Soft cap on the number of cached Ext2CachedInode objects.  When a miss would
+/// exceed it, the cache first tries to free one refcount==0 object (a file with
+/// no open fd and no VMA mapping); only if every cached inode is in use does the
+/// lookup fail -- genuine memory pressure, never recovered by evicting a LIVE
+/// inode (that would reintroduce the aliasing UAF).  Sized so a Chrome-scale
+/// build's working set fits with room to spare.
+static constexpr uint32_t EXT2_INODE_CACHE_MAX = 4096;
 
 /// Disk sector size in bytes
 static constexpr uint32_t EXT2_SECTOR_SIZE = 512;
@@ -300,14 +314,29 @@ static_assert(offsetof(Ext2DirEntry, name) == EXT2_DIR_ENTRY_HDR_SIZE,
 /**
  * @brief Cached inode with VFS integration
  *
- * Combines the on-disk Ext2Inode with the VFS Inode and marks
- * whether the cache slot is occupied.
+ * Combines the on-disk Ext2Inode with the VFS Inode and the cache's chaining
+ * link.  A cache entry is a heap-owned object whose ADDRESS is its identity:
+ * as long as ANYONE references it (Inode::refcount > 0) it is never moved nor
+ * repopulated for a different ino, so an Inode* handed out by get_cached_inode()
+ * stays valid for the holder's whole lifetime.  This is the structural fix for
+ * the cache-slot aliasing UAF where a fixed value-array slot was overwritten
+ * under a live fd -- silent corruption no tool can see.  When the last reference
+ * drops (refcount == 0) the object MAY be freed by the cache to reclaim memory;
+ * a caller holding a pointer without a ref is a real ASAN-visible UAF, not
+ * silent drift.
+ *
+ * `stale` marks an entry whose on-disk inode was mutated out-of-band (chmod /
+ * chown / utimensat / unlink) WHILE STILL REFERENCED (refcount > 0): the next
+ * get_cached_inode() hit re-reads the disk inode in place (same object, same
+ * address).  An unreferenced (refcount == 0) mutated entry is freed outright
+ * by invalidate_cached_inode() rather than marked stale.
  */
 struct Ext2CachedInode {
-    Ext2Inode disk_inode;  ///< Copy of the on-disk inode
-    Inode     vfs_inode;   ///< VFS-facing inode
-    uint32_t  ino;         ///< Inode number
-    bool      in_use;      ///< Whether this cache slot is occupied
+    Ext2Inode        disk_inode;    ///< Copy of the on-disk inode
+    Inode            vfs_inode;     ///< VFS-facing inode
+    uint32_t         ino{0};        ///< Inode number this object represents
+    bool             stale{false};  ///< Disk inode changed under a live ref; refresh on next hit
+    Ext2CachedInode* hash_next{nullptr};  ///< Separate-chaining link (ino % EXT2_INODE_CACHE_SIZE bucket)
 };
 
 }  // namespace cinux::fs

@@ -18,6 +18,7 @@
 #include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
 #include "kernel/fs/inode.hpp"
+#include "kernel/fs/inode_ref.hpp"     // InodeRef: RAII over the lookup ref
 #include "kernel/fs/vfs_lookup.hpp"  // F-USABILITY batch 1c: vfs_lookup (interp follow)
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
@@ -144,7 +145,7 @@ ExecveResult load_interpreter(cinux::mm::AddressSpace& space, const char* path, 
         cinux::lib::kprintf("[EXECVE] interp not found: %s\n", path);
         return ExecveResult::FileNotFound;
     }
-    auto* inode = lr.value().target;
+    cinux::fs::InodeRef inode(lr.value().target);  // RAII: lookup ref dropped at every return
     if (inode->type != cinux::fs::InodeType::Regular) {
         cinux::lib::kprintf("[EXECVE] interp not a regular file: %s\n", path);
         return ExecveResult::FileNotRegular;
@@ -153,7 +154,7 @@ ExecveResult load_interpreter(cinux::mm::AddressSpace& space, const char* path, 
     // Read + validate the interpreter ELF header (it is ET_DYN, which
     // validate_elf_header accepts as of F10-M2).
     elf::Elf64_Ehdr ehdr_buf;
-    auto            nread = inode->ops->read(inode, 0, &ehdr_buf, sizeof(elf::Elf64_Ehdr));
+    auto            nread = inode->ops->read(inode.get(), 0, &ehdr_buf, sizeof(elf::Elf64_Ehdr));
     if (!nread.ok() || nread.value() < static_cast<int64_t>(sizeof(elf::Elf64_Ehdr))) {
         cinux::lib::kprintf("[EXECVE] interp header read failed\n");
         return ExecveResult::ReadFailed;
@@ -172,7 +173,7 @@ ExecveResult load_interpreter(cinux::mm::AddressSpace& space, const char* path, 
     if (phdrs == nullptr) {
         return ExecveResult::MapFailed;
     }
-    auto pread = inode->ops->read(inode, ehdr->e_phoff, phdrs, phdr_bytes);
+    auto pread = inode->ops->read(inode.get(), ehdr->e_phoff, phdrs, phdr_bytes);
     if (!pread.ok() || pread.value() < static_cast<int64_t>(phdr_bytes)) {
         cinux::lib::kprintf("[EXECVE] interp phdr read failed\n");
         delete[] phdrs;
@@ -182,7 +183,7 @@ ExecveResult load_interpreter(cinux::mm::AddressSpace& space, const char* path, 
     // Map the interpreter at USER_INTERP_BASE (ET_DYN: segments are base-relative).
     LoadedImage  img{};
     ExecveResult load_res =
-        load_elf_image(space, inode, ehdr, phdrs, phnum, cinux::arch::USER_INTERP_BASE, img);
+        load_elf_image(space, inode.get(), ehdr, phdrs, phnum, cinux::arch::USER_INTERP_BASE, img);
     delete[] phdrs;
     if (load_res != ExecveResult::Ok) {
         return load_res;

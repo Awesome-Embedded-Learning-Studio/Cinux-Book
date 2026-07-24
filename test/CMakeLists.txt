@@ -276,8 +276,10 @@ add_cinux_integration_test(vfs_mount
 # The console device uses a capturing mock sink (no real serial dependency).
 add_cinux_integration_test(devfs
     unit/test_devfs.cpp
+    unit/host_spinlock.cpp
     ${CMAKE_SOURCE_DIR}/kernel/fs/inode.cpp
     ${CMAKE_SOURCE_DIR}/kernel/fs/devfs/devfs.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/fs/file.cpp  # inode_ref/unref (devfs lookup returns ref'd inodes)
 )
 
 add_cinux_integration_test(ext2_inode_ops

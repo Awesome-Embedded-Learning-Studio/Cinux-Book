@@ -11,6 +11,7 @@
 #include <stdint.h>
 
 #include "kernel/errno.hpp"
+#include "kernel/fs/file.hpp"  // inode_unref
 #include "kernel/fs/path.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -35,12 +36,14 @@ int64_t do_chmod_kernel(const char* resolved_path, uint32_t mode) {
         return -to_errno(inode_result.error());
     }
 
-    cinux::fs::Inode* inode = inode_result.value();
+    cinux::fs::Inode* inode = inode_result.value();  // ref'd by lookup
     if (inode == nullptr || inode->ops == nullptr) {
+        cinux::fs::inode_unref(inode);
         return -kEio;
     }
 
     auto r = inode->ops->chmod(inode, mode);
+    cinux::fs::inode_unref(inode);  // drop the lookup ref
     if (!r.ok()) {
         return -to_errno(r.error());
     }

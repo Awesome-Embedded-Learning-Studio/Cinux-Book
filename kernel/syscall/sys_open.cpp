@@ -44,9 +44,15 @@ int64_t do_open_kernel(const char* resolved_path, uint64_t flags) {
     if (inode->ops != nullptr) {
         auto opened = inode->ops->open(inode, flags);
         if (!opened.ok()) {
+            cinux::fs::inode_unref(inode);
             return -to_errno(opened.error());
         }
-        inode = opened.value();
+        if (opened.value() != inode) {
+            // Cloning device returned a fresh inode; drop the lookup ref on the
+            // original and adopt the override's ref on the new one.
+            cinux::fs::inode_unref(inode);
+            inode = opened.value();
+        }
     }
 
     // Step 3: Convert flags to OpenFlags
@@ -66,8 +72,12 @@ int64_t do_open_kernel(const char* resolved_path, uint64_t flags) {
         break;
     }
 
-    // Step 4: Allocate a file descriptor
+    // Step 4: Allocate a file descriptor.  FDTable::alloc takes the fd's own
+    // ref on success; the lookup ref is dropped here regardless (on FD_NONE
+    // alloc did not ref, so this releases the lookup ref; on success the fd's
+    // ref keeps the inode alive).
     int fd = cinux::fs::current_fd_table().alloc(inode, open_flags);
+    cinux::fs::inode_unref(inode);  // drop the lookup/open ref
 
     if (fd == cinux::fs::FD_NONE) {
         cinux::lib::kprintf("[SYS_OPEN] FD table full, cannot open '%s'\n", resolved_path);
@@ -123,6 +133,7 @@ int64_t do_openat_kernel(const char* resolved_path, uint64_t flags) {
     }
 
     auto inode_result = fs->lookup(rel_path);
+    cinux::fs::Inode* inode = nullptr;
     if (!inode_result.ok()) {
         // Missing file: create it if O_CREAT, otherwise it is an error.
         if (!(flags & kOCreat)) {
@@ -138,19 +149,22 @@ int64_t do_openat_kernel(const char* resolved_path, uint64_t flags) {
         if (!parent_result.ok() || parent_result.value()->ops == nullptr) {
             return parent_result.ok() ? -kEio : -to_errno(parent_result.error());
         }
-        auto create_result =
-            parent_result.value()->ops->create(parent_result.value(), leaf_name, name_len);
+        cinux::fs::Inode* parent = parent_result.value();  // ref'd by lookup
+        auto create_result = parent->ops->create(parent, leaf_name, name_len);
+        cinux::fs::inode_unref(parent);  // drop parent lookup ref now that create is done
         if (!create_result.ok()) {
             return -to_errno(create_result.error());
         }
-        inode_result = fs->lookup(rel_path);
-        if (!inode_result.ok()) {
-            return -to_errno(inode_result.error());
-        }
+        inode = create_result.value();  // create returns a ref'd inode (cache refs on return)
+    } else {
+        inode = inode_result.value();  // ref'd by lookup
     }
-    cinux::fs::Inode* inode = inode_result.value();
 
+    // inode carries one lookup/create ref; FDTable::alloc takes the fd's own ref
+    // and this final unref drops that temporary ref.  Every early return above
+    // drops its own ref (or returns before one is taken).
     int fd = cinux::fs::current_fd_table().alloc(inode, access_to_open_flags(flags));
+    cinux::fs::inode_unref(inode);  // drop lookup/create ref (the fd's own ref keeps it live)
     if (fd == cinux::fs::FD_NONE) {
         return -kEmfile;
     }

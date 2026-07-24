@@ -11,6 +11,7 @@
 #include <stdint.h>
 
 #include "kernel/errno.hpp"
+#include "kernel/fs/file.hpp"  // inode_unref
 #include "kernel/fs/path.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -42,13 +43,15 @@ int64_t do_chdir_kernel(const char* resolved_path) {
         kprintf("[SYS_CHDIR] Path not found: '%s'\n", resolved_path);
         return -to_errno(inode_result.error());
     }
-    cinux::fs::Inode* inode = inode_result.value();
+    cinux::fs::Inode* inode = inode_result.value();  // ref'd by lookup
 
     // Step 3: Verify it is a directory
     if (inode->type != cinux::fs::InodeType::Directory) {
         kprintf("[SYS_CHDIR] Not a directory: '%s'\n", resolved_path);
+        cinux::fs::inode_unref(inode);
         return -kEnotdir;
     }
+    cinux::fs::inode_unref(inode);  // drop the lookup ref (only used for the type check)
 
     // Step 4: Update cwd (in place on the refcounted SharedCwd; CLONE_FS
     // sharers see the change, a forked private copy is mutated alone).

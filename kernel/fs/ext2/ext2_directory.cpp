@@ -440,13 +440,9 @@ int Ext2::unlink(uint32_t parent_ino, const char* name, uint32_t name_len) {
         write_disk_inode(entry_ino, target_disk);
     }
 
-    // Invalidate the cache entry for the removed inode
-    for (uint32_t i = 0; i < EXT2_INODE_CACHE_SIZE; ++i) {
-        if (inode_cache_[i].in_use && inode_cache_[i].ino == entry_ino) {
-            inode_cache_[i].in_use = false;
-            break;
-        }
-    }
+    // Invalidate the cache entry for the removed inode (frees the object if
+    // unreferenced, marks stale if a fd still holds it).
+    invalidate_cached_inode(entry_ino);
 
     write_disk_inode(parent_ino, dir_disk);
 

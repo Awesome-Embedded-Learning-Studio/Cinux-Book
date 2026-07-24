@@ -11,6 +11,7 @@
 #include <stdint.h>
 
 #include "kernel/errno.hpp"
+#include "kernel/fs/file.hpp"  // inode_unref
 #include "kernel/fs/path.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -40,8 +41,9 @@ int64_t do_rename_kernel(const char* resolved_oldpath, const char* resolved_newp
     if (!old_parent_result.ok()) {
         return -to_errno(old_parent_result.error());
     }
-    cinux::fs::Inode* old_parent = old_parent_result.value();
+    cinux::fs::Inode* old_parent = old_parent_result.value();  // ref'd by lookup
     if (old_parent == nullptr || old_parent->ops == nullptr) {
+        cinux::fs::inode_unref(old_parent);
         return -kEio;
     }
 
@@ -53,18 +55,24 @@ int64_t do_rename_kernel(const char* resolved_oldpath, const char* resolved_newp
     const char*        new_leaf = nullptr;
     uint32_t           new_len  = 0;
     if (!split_pathname(rel_new, new_parent_buf, &new_leaf, &new_len)) {
+        cinux::fs::inode_unref(old_parent);
         return -kEinval;
     }
     auto new_parent_result = fs->lookup(new_parent_buf);
     if (!new_parent_result.ok()) {
+        cinux::fs::inode_unref(old_parent);
         return -to_errno(new_parent_result.error());
     }
-    cinux::fs::Inode* new_parent = new_parent_result.value();
+    cinux::fs::Inode* new_parent = new_parent_result.value();  // ref'd by lookup
     if (new_parent == nullptr) {
+        cinux::fs::inode_unref(new_parent);
+        cinux::fs::inode_unref(old_parent);
         return -kEio;
     }
 
     auto r = old_parent->ops->rename(old_parent, old_leaf, old_len, new_parent, new_leaf, new_len);
+    cinux::fs::inode_unref(new_parent);  // drop the lookup refs (rename copied what it needed)
+    cinux::fs::inode_unref(old_parent);
     if (!r.ok()) {
         return -to_errno(r.error());
     }

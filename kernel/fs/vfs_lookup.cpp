@@ -15,6 +15,7 @@
 
 #include "kernel/lib/string.hpp"  // kernel memcpy/strlen (not <cstring> -> __memcpy_chk fortify)
 
+#include "kernel/fs/file.hpp"  // inode_ref / inode_unref (refcount transfer)
 #include "kernel/fs/path.hpp"
 #include "kernel/fs/vfs_filesystem.hpp"
 #include "kernel/fs/vfs_mount.hpp"
@@ -81,11 +82,11 @@ cinux::lib::ErrorOr<LookupResult> vfs_lookup(const char* path, uint32_t flags,
         const uint32_t mount_prefix_len =
             static_cast<uint32_t>(rel - static_cast<const char*>(resolved));
 
-        auto root_r = fs->lookup("");
+        auto root_r = fs->lookup("");  // ref'd: lookup returns an inode with one ref
         if (!root_r.ok()) {
             return root_r.error();
         }
-        Inode* cur = root_r.value();
+        Inode* cur = root_r.value();  // cur owns the root ref until replaced or returned
 
         // walked_full: absolute path of `cur` (starts at the mount prefix). Used
         // as the base when a relative symlink target is spliced in.
@@ -107,27 +108,30 @@ cinux::lib::ErrorOr<LookupResult> vfs_lookup(const char* path, uint32_t flags,
             // PARENT mode: the final component is the leaf name -- do not resolve it.
             if (want_parent && is_last) {
                 if (comp_len > kLookupNameMax) {
+                    inode_unref(cur);
                     return cinux::lib::Error::InvalidArgument;  // name too long
                 }
                 LookupResult r;
-                r.parent = cur;
+                r.parent = cur;  // transfer the ref to the caller
                 memcpy(r.leaf_name, p, comp_len);  // copy into stable storage
                 r.leaf_name[comp_len] = '\0';
-                r.leaf_len = comp_len;
+                r.leaf_len            = comp_len;
                 return r;
             }
 
             // canonical rel carries no "." / ".."; guard anyway.
             if (comp_len == 1 && p[0] == '.') { p += comp_len; continue; }
             if (comp_len == 2 && p[0] == '.' && p[1] == '.') {
+                inode_unref(cur);
                 return cinux::lib::Error::NotFound;
             }
 
-            auto child_r = fs->lookup_child(cur, p, comp_len);
+            auto child_r = fs->lookup_child(cur, p, comp_len);  // ref'd
             if (!child_r.ok()) {
+                inode_unref(cur);
                 return child_r.error();
             }
-            Inode* child = child_r.value();
+            Inode* child = child_r.value();  // child owns its own ref
 
             // Follow symlink unless it is the trailing component and Follow is
             // off, or NoFollow is set on the trailing component.
@@ -137,6 +141,8 @@ cinux::lib::ErrorOr<LookupResult> vfs_lookup(const char* path, uint32_t flags,
                     PathBuf target;
                     auto rl_r = child->ops->readlink(child, target, PATH_MAX - 1);
                     if (!rl_r.ok()) {
+                        inode_unref(child);
+                        inode_unref(cur);
                         return rl_r.error();
                     }
                     target[static_cast<uint32_t>(rl_r.value())] = '\0';
@@ -150,38 +156,52 @@ cinux::lib::ErrorOr<LookupResult> vfs_lookup(const char* path, uint32_t flags,
                         // relative target: splice after the link's parent path
                         memcpy(next, static_cast<const char*>(walked_full), u32len(walked_full) + 1);
                         if (!append_comp(next, target, u32len(target))) {
+                            inode_unref(child);
+                            inode_unref(cur);
                             return cinux::lib::Error::InvalidArgument;
                         }
                     }
                     if (!append_tail(next, tail)) {
+                        inode_unref(child);
+                        inode_unref(cur);
                         return cinux::lib::Error::InvalidArgument;
                     }
                     path_canonicalize(next);
 
                     if (++depth > kMaxSymlinks) {
+                        inode_unref(child);
+                        inode_unref(cur);
                         return cinux::lib::Error::Loop;
                     }
                     memcpy(static_cast<char*>(resolved), static_cast<const char*>(next), u32len(next) + 1);
                     restarted = true;
+                    inode_unref(child);  // symlink resolved; child no longer needed
                     break;
                 }
             }
 
+            // child is the next component: drop the old cur, adopt child.
+            inode_unref(cur);
             cur = child;
             if (!append_comp(walked_full, p, comp_len)) {
+                inode_unref(cur);
                 return cinux::lib::Error::InvalidArgument;
             }
             p += comp_len;
         }
 
-        if (restarted) continue;
+        if (restarted) {
+            inode_unref(cur);  // drop this round's cur; outer loop re-lookups root
+            continue;
+        }
 
         if (want_dir && cur->type != InodeType::Directory) {
+            inode_unref(cur);
             return cinux::lib::Error::NotADirectory;
         }
 
         LookupResult r;
-        r.target = cur;
+        r.target = cur;  // transfer the ref to the caller
         return r;
     }
 }

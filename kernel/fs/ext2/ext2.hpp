@@ -51,6 +51,9 @@ public:
      */
     explicit Ext2(cinux::drivers::IBlockDevice* dev);
 
+    /// Destructor: frees every heap-owned cache object (singleton teardown).
+    ~Ext2();
+
     /**
      * @brief Mount the ext2 filesystem
      *
@@ -78,8 +81,7 @@ public:
 
     /// F-USABILITY batch 1a: single-component lookup for the vfs_lookup layer.
     /// Resolves one name within parent via lookup_in_dir + get_cached_inode.
-    cinux::lib::ErrorOr<Inode*> lookup_child(const Inode* parent,
-                                             const char* name,
+    cinux::lib::ErrorOr<Inode*> lookup_child(const Inode* parent, const char* name,
                                              uint32_t namelen) override;
 
     /**
@@ -441,11 +443,16 @@ private:
     /// Block group descriptor table (cached after mount)
     Ext2BlockGroupDescriptor bgdt_[EXT2_MAX_GROUPS]{};
 
-    /// Inode cache (fixed-size array)
-    Ext2CachedInode inode_cache_[EXT2_INODE_CACHE_SIZE]{};
+    /// Inode cache: separate-chaining hash table (bucket = ino % SIZE chain
+    /// head) of heap-owned Ext2CachedInode.  An object is freed only when its
+    /// refcount has dropped to 0 AND the cache needs room (soft cap
+    /// EXT2_INODE_CACHE_MAX) or it is invalidated; a live (refcount > 0) object
+    /// is never moved or repopulated, so an Inode* from get_cached_inode() is
+    /// stable for the holder's lifetime.  See Ext2CachedInode for the full model.
+    Ext2CachedInode* inode_cache_[EXT2_INODE_CACHE_SIZE]{};
 
-    /// Root directory VFS inode (always at cache slot 0 after mount)
-    Inode root_inode_{};
+    /// Live object count; capped at EXT2_INODE_CACHE_MAX (evict refcount==0).
+    uint32_t inode_cache_count_{0};
 };
 
 }  // namespace cinux::fs

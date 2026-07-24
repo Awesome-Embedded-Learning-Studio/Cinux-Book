@@ -11,6 +11,7 @@
 #include <stdint.h>
 
 #include "kernel/errno.hpp"
+#include "kernel/fs/file.hpp"  // inode_unref
 #include "kernel/fs/path.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -34,8 +35,9 @@ int64_t do_link_kernel(const char* resolved_oldpath, const char* resolved_newpat
     if (!target_result.ok()) {
         return -to_errno(target_result.error());
     }
-    cinux::fs::Inode* target = target_result.value();
+    cinux::fs::Inode* target = target_result.value();  // ref'd by lookup
     if (target == nullptr) {
+        cinux::fs::inode_unref(target);
         return -kEnoent;
     }
 
@@ -48,18 +50,24 @@ int64_t do_link_kernel(const char* resolved_oldpath, const char* resolved_newpat
     const char*        leaf = nullptr;
     uint32_t           len  = 0;
     if (!split_pathname(rel_new, parent_buf, &leaf, &len)) {
+        cinux::fs::inode_unref(target);
         return -kEinval;
     }
     auto parent_result = fs->lookup(parent_buf);
     if (!parent_result.ok()) {
+        cinux::fs::inode_unref(target);
         return -to_errno(parent_result.error());
     }
-    cinux::fs::Inode* parent = parent_result.value();
+    cinux::fs::Inode* parent = parent_result.value();  // ref'd by lookup
     if (parent == nullptr || parent->ops == nullptr) {
+        cinux::fs::inode_unref(parent);
+        cinux::fs::inode_unref(target);
         return -kEio;
     }
 
     auto r = parent->ops->link(parent, leaf, len, target);
+    cinux::fs::inode_unref(parent);  // drop the lookup refs (link copied what it needed)
+    cinux::fs::inode_unref(target);
     if (!r.ok()) {
         return -to_errno(r.error());
     }

@@ -11,6 +11,7 @@
 #include <stdint.h>
 
 #include "ext2.hpp"
+#include "kernel/fs/file.hpp"  // inode_ref / inode_unref (cache returns ref'd inodes)
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/lib/string.hpp"
 
@@ -102,37 +103,74 @@ bool Ext2::write_disk_inode(uint32_t ino, const Ext2Inode& inode) {
 // ============================================================
 
 Inode* Ext2::get_cached_inode(uint32_t ino) {
-    for (uint32_t i = 0; i < EXT2_INODE_CACHE_SIZE; ++i) {
-        if (inode_cache_[i].in_use && inode_cache_[i].ino == ino) {
-            return &inode_cache_[i].vfs_inode;
-        }
-    }
-
-    for (uint32_t i = 0; i < EXT2_INODE_CACHE_SIZE; ++i) {
-        if (!inode_cache_[i].in_use) {
-            if (!read_disk_inode(ino, inode_cache_[i].disk_inode)) {
-                return nullptr;
-            }
-
-            inode_cache_[i].ino    = ino;
-            inode_cache_[i].in_use = true;
-            populate_vfs_inode(inode_cache_[i]);
-            return &inode_cache_[i].vfs_inode;
-        }
-    }
-
-    // Cache full -- evict slot 1+ (slot 0 is always root)
-    uint32_t evict = 1 + (ino % (EXT2_INODE_CACHE_SIZE - 1));
-
-    inode_cache_[evict].in_use = false;
-    if (!read_disk_inode(ino, inode_cache_[evict].disk_inode)) {
+    if (ino == 0) {
         return nullptr;
     }
 
-    inode_cache_[evict].ino    = ino;
-    inode_cache_[evict].in_use = true;
-    populate_vfs_inode(inode_cache_[evict]);
-    return &inode_cache_[evict].vfs_inode;
+    // Separate-chaining hash: walk the ino % SIZE bucket chain for a hit.
+    const uint32_t bucket = ino % EXT2_INODE_CACHE_SIZE;
+    for (Ext2CachedInode* slot = inode_cache_[bucket]; slot != nullptr; slot = slot->hash_next) {
+        if (slot->ino == ino) {
+            // Hit.  If the on-disk inode was mutated out-of-band while still
+            // referenced (refcount > 0), the entry was marked stale; refresh
+            // the cached disk copy in place (same object, same address).  Then
+            // take a reference for the caller -- the Linux inode model: lookup
+            // returns a ref'd inode the caller must inode_unref().  This closes
+            // the aliasing window the old code had (returning a refcount==0
+            // pointer that eviction could silently repopulate for a different
+            // ino under a live fd).
+            if (slot->stale) {
+                if (!read_disk_inode(ino, slot->disk_inode)) {
+                    return nullptr;
+                }
+                populate_vfs_inode(*slot);
+                slot->stale = false;
+            }
+            inode_ref(&slot->vfs_inode);
+            return &slot->vfs_inode;
+        }
+    }
+
+    // Miss.  Enforce the soft cap by freeing one UNREFERENCED object (any
+    // bucket) to make room.  A live (refcount > 0) object is never freed --
+    // that would reintroduce the aliasing UAF.  If every cached inode is in
+    // use the cache is genuinely full; fail rather than corrupt.
+    if (inode_cache_count_ >= EXT2_INODE_CACHE_MAX) {
+        Ext2CachedInode** victim_prev = nullptr;
+        for (uint32_t b = 0; b < EXT2_INODE_CACHE_SIZE && victim_prev == nullptr; ++b) {
+            for (Ext2CachedInode** pp = &inode_cache_[b]; *pp != nullptr; pp = &(*pp)->hash_next) {
+                if ((*pp)->vfs_inode.refcount == 0) {
+                    victim_prev = pp;
+                    break;
+                }
+            }
+        }
+        if (victim_prev == nullptr) {
+            cinux::lib::kprintf(
+                "[EXT2] inode cache at cap (%u) with all entries in use; cannot cache ino=%u\n",
+                EXT2_INODE_CACHE_MAX, ino);
+            return nullptr;
+        }
+        Ext2CachedInode* victim = *victim_prev;
+        *victim_prev             = victim->hash_next;
+        delete victim;
+        --inode_cache_count_;
+    }
+
+    // Allocate a fresh heap object, read + populate, take a reference for the
+    // caller, and insert at the bucket head.
+    auto* obj = new Ext2CachedInode{};
+    if (!read_disk_inode(ino, obj->disk_inode)) {
+        delete obj;
+        return nullptr;
+    }
+    obj->ino = ino;
+    populate_vfs_inode(*obj);
+    inode_ref(&obj->vfs_inode);  // caller owns this ref; pair with inode_unref
+    obj->hash_next          = inode_cache_[bucket];
+    inode_cache_[bucket]    = obj;
+    ++inode_cache_count_;
+    return &obj->vfs_inode;
 }
 
 void Ext2::populate_vfs_inode(Ext2CachedInode& cached) {

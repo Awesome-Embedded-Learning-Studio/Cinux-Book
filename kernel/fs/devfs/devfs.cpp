@@ -15,6 +15,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "kernel/fs/file.hpp"     // inode_ref (lookup returns a ref'd Inode*)
 #include "kernel/lib/string.hpp"
 
 namespace cinux::fs {
@@ -285,6 +286,7 @@ cinux::lib::ErrorOr<Inode*> DevFs::lookup(const char* path) {
 
     // Root directory: empty path or "/".
     if (path[0] == '\0' || (path[0] == '/' && path[1] == '\0')) {
+        inode_ref(&root_inode_);
         return &root_inode_;
     }
     // Strip a single leading '/': vfs_resolve may pass "/null" (mount prefix
@@ -303,6 +305,7 @@ cinux::lib::ErrorOr<Inode*> DevFs::lookup(const char* path) {
             ++j;
         }
         if (a[j] == '\0' && path[j] == '\0') {
+            inode_ref(&nodes_[i].inode);
             return &nodes_[i].inode;
         }
     }

@@ -11,6 +11,7 @@
 #include <stdint.h>
 
 #include "kernel/errno.hpp"
+#include "kernel/fs/file.hpp"  // inode_unref
 #include "kernel/fs/path.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -50,15 +51,17 @@ int64_t do_mkdir_kernel(const char* resolved_path) {
         kprintf("[SYS_MKDIR] Parent directory not found for '%s'\n", resolved_path);
         return -to_errno(parent_result.error());
     }
-    cinux::fs::Inode* parent = parent_result.value();
+    cinux::fs::Inode* parent = parent_result.value();  // ref'd by lookup
 
     if (parent->ops == nullptr) {
         kprintf("[SYS_MKDIR] Parent inode has no ops\n");
+        cinux::fs::inode_unref(parent);
         return -kEio;
     }
 
     // Step 4: Call mkdir() on the parent directory
     auto mkdir_result = parent->ops->mkdir(parent, leaf_name, name_len);
+    cinux::fs::inode_unref(parent);  // drop the lookup ref
     if (!mkdir_result.ok()) {
         kprintf("[SYS_MKDIR] Failed to mkdir '%s'\n", resolved_path);
         return -to_errno(mkdir_result.error());

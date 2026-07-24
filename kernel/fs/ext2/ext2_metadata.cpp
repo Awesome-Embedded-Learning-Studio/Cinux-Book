@@ -61,11 +61,27 @@ bool Ext2::utimensat(uint32_t ino, uint64_t atime_sec, uint32_t /*atime_nsec*/, 
 }
 
 void Ext2::invalidate_cached_inode(uint32_t ino) {
-    for (uint32_t i = 0; i < EXT2_INODE_CACHE_SIZE; ++i) {
-        if (inode_cache_[i].in_use && inode_cache_[i].ino == ino) {
-            inode_cache_[i].in_use = false;
-            return;
+    // The on-disk inode for @p ino changed out-of-band (chmod / chown /
+    // utimensat wrote a fresh disk_inode; or unlink freed it).  Drop the stale
+    // cached copy.  If no one is referencing it (refcount == 0) we can free the
+    // object now -- the next lookup re-reads from disk.  If a fd / VMA still
+    // holds a reference (refcount > 0) we must keep the object (address-stability
+    // invariant), so mark it stale: the next get_cached_inode() hit refreshes
+    // the disk copy in place at the SAME address.
+    const uint32_t bucket = ino % EXT2_INODE_CACHE_SIZE;
+    for (Ext2CachedInode** pp = &inode_cache_[bucket]; *pp != nullptr; pp = &(*pp)->hash_next) {
+        Ext2CachedInode* entry = *pp;
+        if (entry->ino != ino) {
+            continue;
         }
+        if (entry->vfs_inode.refcount == 0) {
+            *pp = entry->hash_next;
+            delete entry;
+            --inode_cache_count_;
+        } else {
+            entry->stale = true;
+        }
+        return;
     }
 }
 
