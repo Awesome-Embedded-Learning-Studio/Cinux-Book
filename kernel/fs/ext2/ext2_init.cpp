@@ -321,4 +321,25 @@ cinux::lib::ErrorOr<Inode*> Ext2::lookup(const char* path) {
     return result;
 }
 
+// F-USABILITY batch 1a: single-component lookup -- the vfs_lookup layer walks
+// paths one component at a time and follows symlinks at the vfs level. Each
+// step delegates to lookup_in_dir (the same primitive lookup() uses) and hands
+// back the cached Inode.
+cinux::lib::ErrorOr<Inode*> Ext2::lookup_child(const Inode* parent,
+                                               const char* name,
+                                               uint32_t namelen) {
+    if (parent == nullptr || name == nullptr || namelen == 0) {
+        return cinux::lib::Error::InvalidArgument;
+    }
+    const uint32_t ino = lookup_in_dir(parent->ino, name, namelen);
+    if (ino == 0) {
+        return cinux::lib::Error::NotFound;
+    }
+    Inode* inode = get_cached_inode(ino);
+    if (inode == nullptr) {
+        return cinux::lib::Error::IOError;
+    }
+    return inode;
+}
+
 }  // namespace cinux::fs

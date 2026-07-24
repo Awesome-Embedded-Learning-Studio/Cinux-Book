@@ -76,6 +76,12 @@ public:
      */
     cinux::lib::ErrorOr<Inode*> lookup(const char* path) override;
 
+    /// F-USABILITY batch 1a: single-component lookup for the vfs_lookup layer.
+    /// Resolves one name within parent via lookup_in_dir + get_cached_inode.
+    cinux::lib::ErrorOr<Inode*> lookup_child(const Inode* parent,
+                                             const char* name,
+                                             uint32_t namelen) override;
+
     /**
      * @brief Get the resolved block size in bytes
      * @return Block size (1024, 2048, or 4096)

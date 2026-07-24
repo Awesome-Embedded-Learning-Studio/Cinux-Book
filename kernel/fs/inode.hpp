@@ -32,6 +32,9 @@ enum class InodeType : uint8_t {
     Unknown   = 0,
     Regular   = 1,
     Directory = 2,
+    /// F-USABILITY batch 1a: symbolic link. readlink() yields the target;
+    /// vfs_lookup() follows it (kernel/fs/vfs_lookup.{hpp,cpp}, batch 1b).
+    Symlink   = 3,
 };
 
 // ============================================================

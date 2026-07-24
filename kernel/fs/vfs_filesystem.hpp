@@ -54,6 +54,21 @@ public:
      *         no entry matches, Error::InvalidArgument for a null path
      */
     virtual cinux::lib::ErrorOr<Inode*> lookup(const char* path) = 0;
+
+    /// F-USABILITY batch 1a: single-component lookup. Resolve one path
+    /// component (name, namelen) within a parent directory inode. The vfs_lookup
+    /// layer (kernel/fs/vfs_lookup) uses this to walk paths component-by-
+    /// component and follow symlinks at the vfs level. Default returns
+    /// NotImplemented; backends with a cheap single-step primitive (ext2
+    /// lookup_in_dir, tmpfs find_child) override to enable full intermediate
+    /// symlink following. Backends that only support whole-path lookup leave the
+    /// default, and vfs_lookup falls back to lookup() (end-component follow
+    /// only -- sufficient for virtual FSes that rarely have symlinks).
+    virtual cinux::lib::ErrorOr<Inode*> lookup_child(const Inode* /*parent*/,
+                                                     const char* /*name*/,
+                                                     uint32_t /*namelen*/) {
+        return cinux::lib::Error::NotImplemented;
+    }
 };
 
 }  // namespace cinux::fs
