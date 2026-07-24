@@ -113,6 +113,19 @@ void PMM::init(const BootInfo& info) {
         pte_count_storage_[i] = 0;
     }
 
+    // Step 4c (C refactor batch 3): place the per-page refcount array
+    // (2 bytes/page) right after pte_count_storage_, page-aligned.  Tracks
+    // ownership refs (alloc baseline + cache/shm owners); the last ref frees
+    // the page.  Distinct from pte_count (mapping count) -- mirrors Linux's
+    // page->_refcount vs _mapcount split, and is the dimension that actually
+    // drives free (pte_count above only tracks PTE mappings).
+    uintptr_t rc_virt = (mc_virt + mc_bytes + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    refcount_storage_ = reinterpret_cast<int16_t*>(rc_virt);
+    uint64_t rc_bytes = total_pages_ * sizeof(int16_t);
+    for (uint64_t i = 0; i < total_pages_; ++i) {
+        refcount_storage_[i] = 0;
+    }
+
     // Step 5: Initialise the buddy over page indices [0, total_pages).
     buddy_.init(0, total_pages_, order_storage_, bitmap_storage_);
 
@@ -125,10 +138,10 @@ void PMM::init(const BootInfo& info) {
     // kernel image (order first, then bitmaps), so the bitmap tail covers both
     // metadata regions.  Exclude the whole span [kernel_phys_base, bitmap tail)
     // from the free pool.
-    uint64_t mc_phys    = mc_virt - KERNEL_VMA;
-    uint64_t mc_pages   = (mc_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
+    uint64_t rc_phys    = rc_virt - KERNEL_VMA;
+    uint64_t rc_pages   = (rc_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
     uint64_t used_start = info.kernel_phys_base;
-    uint64_t used_end   = mc_phys + mc_pages * PAGE_SIZE;  // covers order+bitmap+pte_count
+    uint64_t used_end   = rc_phys + rc_pages * PAGE_SIZE;  // covers order+bitmap+pte_count+refcount
 
     for (uint32_t i = 0; i < region_count; i++) {
         uint64_t seg_start = regions[i].base;
@@ -158,7 +171,11 @@ uint64_t PMM::alloc_page_locked() {
     uint64_t page = buddy_.alloc_order(0);
     if (page == BuddyAllocator::kInvalidPage)
         return 0;
-    __atomic_store_n(&pte_count_storage_[page], 1, __ATOMIC_RELAXED);  // Q4b-1: first ref
+    // batch 3 split: refcount=1 (ownership baseline; the caller is the lone
+    // owner until a PTE mapping / cache ref is added), pte_count=0 (no user
+    // PTE maps it yet).  Was a single mapcount=1 before the split.
+    __atomic_store_n(&refcount_storage_[page], 1, __ATOMIC_RELAXED);
+    __atomic_store_n(&pte_count_storage_[page], 0, __ATOMIC_RELAXED);
     return page * PAGE_SIZE;
 }
 
@@ -207,10 +224,12 @@ uint64_t PMM::alloc_pages(uint64_t count) {
     uint64_t page = buddy_.alloc_order(order);
     if (page == BuddyAllocator::kInvalidPage)
         return 0;
-    // Q4b-1: each page in the block gets its first reference.
+    // batch 3 split: each page in the block starts with refcount=1 (ownership)
+    // and pte_count=0 (no mappings).
     uint64_t n_pages = static_cast<uint64_t>(1) << order;
     for (uint64_t i = 0; i < n_pages; ++i) {
-        __atomic_store_n(&pte_count_storage_[page + i], 1, __ATOMIC_RELAXED);
+        __atomic_store_n(&refcount_storage_[page + i], 1, __ATOMIC_RELAXED);
+        __atomic_store_n(&pte_count_storage_[page + i], 0, __ATOMIC_RELAXED);
     }
     return page * PAGE_SIZE;
 }
@@ -235,11 +254,29 @@ void PMM::pte_count_inc(uint64_t phys) {
     __atomic_add_fetch(&pte_count_storage_[phys / PAGE_SIZE], 1, __ATOMIC_ACQ_REL);
 }
 
+void PMM::pte_count_dec(uint64_t phys) {
+    if (phys == 0) {
+        return;
+    }
+    // Pure PTE -1; never frees.  Free is driven by refcount_dec_and_test.
+    __atomic_sub_fetch(&pte_count_storage_[phys / PAGE_SIZE], 1, __ATOMIC_ACQ_REL);
+}
+
 bool PMM::pte_count_dec_and_test(uint64_t phys) {
+    // Drop one PTE ref.  When pte_count reaches 0, also drop the ownership
+    // refcount that alloc_page set (the "address space owns this page" ref);
+    // if THAT reaches 0 the page goes back to the buddy.  A page still owned
+    // by the page cache (CachePhysRef) or a live shmem segment keeps refcount
+    // > 0 after the drop and survives teardown -- the type-level guarantee
+    // f06ea6b's phantom pte_count+1 used to paper over.  Callers must NOT
+    // free_page() on a true return: the page is already freed here.
     if (phys == 0) {
         return false;
     }
-    return __atomic_sub_fetch(&pte_count_storage_[phys / PAGE_SIZE], 1, __ATOMIC_ACQ_REL) == 0;
+    if (__atomic_sub_fetch(&pte_count_storage_[phys / PAGE_SIZE], 1, __ATOMIC_ACQ_REL) != 0) {
+        return false;  // other PTEs still map it
+    }
+    return refcount_dec_and_test(phys);  // last PTE gone -> drop ownership ref (maybe free)
 }
 
 int16_t PMM::pte_count_load(uint64_t phys) const {
@@ -247,6 +284,35 @@ int16_t PMM::pte_count_load(uint64_t phys) const {
         return 0;
     }
     return __atomic_load_n(&pte_count_storage_[phys / PAGE_SIZE], __ATOMIC_RELAXED);
+}
+
+void PMM::refcount_inc(uint64_t phys) {
+    if (phys == 0) {
+        return;
+    }
+    __atomic_add_fetch(&refcount_storage_[phys / PAGE_SIZE], 1, __ATOMIC_ACQ_REL);
+}
+
+bool PMM::refcount_dec_and_test(uint64_t phys) {
+    if (phys == 0) {
+        return false;
+    }
+    if (__atomic_sub_fetch(&refcount_storage_[phys / PAGE_SIZE], 1, __ATOMIC_ACQ_REL) != 0) {
+        return false;
+    }
+    // Last ownership ref gone -> return the page to the buddy.  Reset pte_count
+    // so the next allocation (alloc_page sets refcount=1, pte_count=0) starts
+    // clean; a stale non-zero pte_count would desync fault diagnostics.
+    __atomic_store_n(&pte_count_storage_[phys / PAGE_SIZE], 0, __ATOMIC_RELAXED);
+    buddy_.free(phys / PAGE_SIZE);
+    return true;
+}
+
+int16_t PMM::refcount_load(uint64_t phys) const {
+    if (phys == 0) {
+        return 0;
+    }
+    return __atomic_load_n(&refcount_storage_[phys / PAGE_SIZE], __ATOMIC_RELAXED);
 }
 
 // ============================================================

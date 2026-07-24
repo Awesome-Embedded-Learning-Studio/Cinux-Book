@@ -110,6 +110,7 @@ ExecveResult load_elf_image(cinux::mm::AddressSpace& space, cinux::fs::Inode* in
                 cinux::mm::g_pmm.free_page(phys);
                 return ExecveResult::MapFailed;
             }
+            cinux::mm::g_pmm.pte_count_inc(phys);  // batch 3: account for the installed PTE
         }
 
         // Record the segment VMA so the page-fault handler and mprotect honour

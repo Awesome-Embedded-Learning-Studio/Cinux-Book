@@ -56,6 +56,7 @@ void enter_loaded_program(const char* path, const char* const argv[], const char
                                 reinterpret_cast<void*>(virt));
             Scheduler::exit_current();
         }
+        cinux::mm::g_pmm.pte_count_inc(phys);  // batch 3: account for the installed PTE
         if (virt == stack_top - cinux::arch::PAGE_SIZE) {
             top_page_phys = phys;
         }

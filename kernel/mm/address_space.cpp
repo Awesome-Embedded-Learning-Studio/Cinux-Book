@@ -190,9 +190,11 @@ void AddressSpace::free_subtree(uint64_t table_phys, int level) {
 
         if (level == LEVEL_PT) {
             uint64_t data_phys = table[i].phys_addr();
-            if (g_pmm.pte_count_dec_and_test(data_phys)) {
-                g_pmm.free_page(data_phys);
-            }
+            // batch 3: pte_count_dec_and_test bundles the mapping drop with a
+            // conditional ownership-ref drop; the page frees internally on the
+            // last ref, so a page-cache/shm page with refcount > 0 survives
+            // teardown even with pte_count == 0.
+            g_pmm.pte_count_dec_and_test(data_phys);
             table[i].raw = 0;
             continue;
         }

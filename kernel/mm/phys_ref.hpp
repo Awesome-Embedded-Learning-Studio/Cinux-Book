@@ -12,10 +12,12 @@
  * Tag differentiates owner kind at the type level: a CachePhysRef cannot be
  * assigned to an AnonPhysRef (compile-time guard against cross-owner frees).
  *
- * Today (batch 1, transitional) PhysRef routes through the public pte_count_*
- * PMM API, which still conflates ownership + PTE in one counter (same
- * semantics as the old mapcount).  Batch 3 splits the storage so pte_count_dec
- * stops freeing; PhysRef then switches to the private refcount_* API.
+ * Batch 3 split: PhysRef routes through the refcount_* PMM API (ownership
+ * dimension); pte_count_* is now a separate, free-neutral mapping counter.
+ * pte_count_dec_and_test (used by teardown/unmap callers) bundles a pte_count
+ * drop with a conditional refcount drop, so a page still owned by a CachePhysRef
+ * survives teardown even with pte_count == 0 (the lto_plugin corruption root
+ * cause f06ea6b prevented without a phantom pte_count+1).
  *
  * Namespace: cinux::mm
  */
@@ -57,7 +59,7 @@ public:
     /// Take another ownership ref on the same page (for VMA / fork / cache).
     PhysRef share() const {
         if (phys_ != 0) {
-            g_pmm.pte_count_inc(phys_);  // transitional: shares the unified counter
+            g_pmm.refcount_inc(phys_);  // batch 3: ownership dimension (was pte_count)
         }
         return PhysRef(phys_);
     }
@@ -77,9 +79,10 @@ private:
     explicit PhysRef(uint64_t p) : phys_(p) {}
     void drop_() {
         if (phys_ != 0) {
-            if (g_pmm.pte_count_dec_and_test(phys_)) {  // transitional
-                g_pmm.free_page(phys_);
-            }
+            // batch 3: drops one ownership ref.  On the last ref the page goes
+            // back to the buddy inside refcount_dec_and_test (was a two-step
+            // pte_count_dec_and_test + free_page under the unified counter).
+            g_pmm.refcount_dec_and_test(phys_);
             phys_ = 0;
         }
     }

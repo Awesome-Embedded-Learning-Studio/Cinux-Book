@@ -73,13 +73,32 @@ public:
     /** Total number of pages managed. */
     uint64_t total_page_count() const;
 
-    // F-QA Q4b-1 (DEBT-003): per-page pte_count = how many PTEs map this physical
-    // page. fork CoW sharing calls inc; execve clear + CoW fault call
-    // dec_and_test (free only when it reaches 0). Independent of the free pool:
-    // alloc sets 1, free does not touch it -- callers drive dec_and_test.
+    // F-QA Q4b-1 (DEBT-003): per-page pte_count = how many user PTEs map this
+    // physical page. fork CoW sharing and file/shm mapping call inc; teardown
+    // / munmap / CoW fault call dec_and_test. This counter NEVER frees on its
+    // own -- it only tracks PTE mappings (batch 3 split: was the unified
+    // mapcount that also freed). Freeing is driven by refcount below.
     void    pte_count_inc(uint64_t phys);
-    bool    pte_count_dec_and_test(uint64_t phys);  ///< true => reached 0, caller frees
+    void    pte_count_dec(uint64_t phys);  ///< pure PTE -1 (never frees)
     int16_t pte_count_load(uint64_t phys) const;
+
+    // pte_count_dec_and_test: drop one PTE ref; when pte_count reaches 0 also
+    // drop one ownership refcount (which frees the page when THAT reaches 0).
+    // Returns true iff the page was freed (both counters hit 0).  Mirrors the
+    // old unified mapcount_dec_and_test contract so the 7 teardown callers stay
+    // mechanical -- the difference is that a page still owned by the page cache
+    // (CachePhysRef) or a live shmem segment keeps refcount > 0 and survives
+    // teardown even with pte_count == 0 (the lto_plugin corruption root cause
+    // f06ea6b prevented at the type layer instead of by a phantom pte_count+1).
+    bool pte_count_dec_and_test(uint64_t phys);
+
+    // Per-page refcount = ownership refs (alloc baseline + cache/shm owners).
+    // alloc_page sets 1; CachePhysRef::alloc / shm add an extra inc; the last
+    // ref (refcount_dec_and_test -> 0) frees the page back to the buddy.  This
+    // is the dimension that decides free; pte_count above only tracks mappings.
+    void    refcount_inc(uint64_t phys);
+    bool    refcount_dec_and_test(uint64_t phys);  ///< true => reached 0, page freed
+    int16_t refcount_load(uint64_t phys) const;
 
     /**
      * @brief Lock-free page allocation (caller must guarantee exclusion)
@@ -96,9 +115,10 @@ public:
 private:
     cinux::proc::Spinlock lock_;
     BuddyAllocator        buddy_;
-    uint8_t*              order_storage_{};     ///< 1 byte/page, @ __kernel_stack_top
-    uint8_t*              bitmap_storage_{};    ///< per-order free bitmaps, after order_storage
+    uint8_t*              order_storage_{};      ///< 1 byte/page, @ __kernel_stack_top
+    uint8_t*              bitmap_storage_{};     ///< per-order free bitmaps, after order_storage
     int16_t*              pte_count_storage_{};  ///< Q4b-1: 2 bytes/page, after bitmap_storage
+    int16_t*              refcount_storage_{};   ///< batch 3: ownership refs, after pte_count
     uint64_t              total_pages_{};
     uint64_t              highest_page_{};
 };

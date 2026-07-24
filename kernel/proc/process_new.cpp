@@ -105,19 +105,17 @@ bool handle_cow_fault(uint64_t fault_vaddr) {
     pte->set_phys_addr(new_phys);
     pte->raw |= FLAG_WRITABLE;
     pte->raw &= ~FLAG_COW;
+    cinux::mm::g_pmm.pte_count_inc(new_phys);  // batch 3: account for the new private-copy PTE
 
     cinux::arch::flush_tlb(fault_vaddr & ~(cinux::arch::PAGE_SIZE - 1));
 
     // Q4b-3 (DEBT-003): this PTE no longer maps old_phys (TLB flushed above).
-    // Drop the old page's reference; free it if it was the last mapping.
-    // Without this, any CoW-shared page leaks once one mapping writes (it
-    // would stay at pte_count >= 1 forever, never reclaimed).
+    // Drop the old page's mapping ref; pte_count_dec_and_test frees it on the
+    // last ownership ref (batch 3: was a two-step dec_and_test + free_page).
     // NOTE (SMP): correct single-core and when threads do not migrate across
     // cores mid-CoW. Cross-core TLB shootdown before freeing is a deeper
     // follow-up; CinuxOS APs are mostly idle today.
-    if (cinux::mm::g_pmm.pte_count_dec_and_test(old_phys)) {
-        cinux::mm::g_pmm.free_page(old_phys);
-    }
+    cinux::mm::g_pmm.pte_count_dec_and_test(old_phys);
 
     cinux::lib::kprintf("[COW] resolved fault at vaddr=%p old_phys=%p new_phys=%p\n",
                         reinterpret_cast<void*>(fault_vaddr), reinterpret_cast<void*>(old_phys),

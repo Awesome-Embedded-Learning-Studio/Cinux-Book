@@ -120,12 +120,11 @@ void clear_user_mappings(cinux::mm::AddressSpace& space) {
                         continue;
 
                     uint64_t data_phys = pt[l].phys_addr();
-                    // Q4b-2 (DEBT-003): only free if this was the last mapping.
-                    // A CoW-shared page (fork) has pte_count > 1 here; freeing
-                    // it would leave the other process's PTE dangling (UAF).
-                    if (cinux::mm::g_pmm.pte_count_dec_and_test(data_phys)) {
-                        cinux::mm::g_pmm.free_page(data_phys);
-                    }
+                    // batch 3: drop the mapping ref; pte_count_dec_and_test
+                    // frees internally on the last ownership ref, so a CoW-
+                    // shared (fork) or page-cache page keeps refcount > 0 and
+                    // survives (was a two-step dec_and_test + free_page).
+                    cinux::mm::g_pmm.pte_count_dec_and_test(data_phys);
                     pt[l].raw = 0;
                 }
 
@@ -348,6 +347,7 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
             cinux::mm::g_pmm.free_page(sigret_phys);
             return ExecveResult::MapFailed;
         }
+        cinux::mm::g_pmm.pte_count_inc(sigret_phys);  // batch 3: account for the installed PTE
     }
 
     if (aux_out != nullptr) {
