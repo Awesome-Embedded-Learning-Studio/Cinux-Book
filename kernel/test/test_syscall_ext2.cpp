@@ -31,6 +31,7 @@
 #include "kernel/drivers/pit/pit.hpp"
 #include "kernel/fs/ext2/ext2.hpp"
 #include "kernel/fs/vfs_mount.hpp"
+#include "kernel/fs/vfs_lookup.hpp"  // F-USABILITY batch 1b: vfs_lookup follow
 #include "kernel/lib/string.hpp"
 #include "kernel/mm/page_cache.hpp"
 #include "kernel/syscall/sys_close.hpp"
@@ -632,6 +633,98 @@ void test_symlink_readlink_roundtrip() {
 }
 }  // namespace test_sys_symlink_b2
 
+namespace test_vfs_lookup_follow {
+// Build "/<prefix>_<hex>" via gen_name (unique per run, avoids cross-test pollution).
+static void build_path(char* path, const char* prefix) {
+    char name[32];
+    gen_name(name, 32, prefix);
+    path[0]    = '/';
+    uint32_t i = 0;
+    while (name[i]) {
+        path[i + 1] = name[i];
+        ++i;
+    }
+    path[i + 1] = '\0';
+}
+
+/// vfs_lookup follows an absolute symlink (/link -> /hello) to the regular
+/// target; NoFollow returns the symlink inode itself. F-USABILITY batch 1b.
+void test_follow_absolute_symlink() {
+    auto pair = setup_syscall_ext2();
+    TEST_ASSERT_NOT_NULL(pair.ext2);
+
+    char hp[64];  // follow target (regular)
+    build_path(hp, "fuh");
+    char lp[64];  // the link -> hp
+    build_path(lp, "ful");
+    TEST_ASSERT_EQ(cinux::syscall::do_creat_kernel(hp), 0);
+    TEST_ASSERT_EQ(cinux::syscall::do_symlink_kernel(hp, lp), 0);
+
+    using LF            = cinux::fs::LookupFlag;
+    const uint32_t kFol = static_cast<uint32_t>(LF::Follow);
+    const uint32_t kNoF = static_cast<uint32_t>(LF::NoFollow);
+
+    auto nf = cinux::fs::vfs_lookup(lp, kNoF, "/");
+    TEST_ASSERT_TRUE(nf.ok());
+    TEST_ASSERT_NOT_NULL(nf.value().target);
+    TEST_ASSERT_EQ(nf.value().target->type, cinux::fs::InodeType::Symlink);
+
+    auto fl = cinux::fs::vfs_lookup(lp, kFol, "/");
+    TEST_ASSERT_TRUE(fl.ok());
+    TEST_ASSERT_NOT_NULL(fl.value().target);
+    TEST_ASSERT_EQ(fl.value().target->type, cinux::fs::InodeType::Regular);
+    // Followed target is a different inode than the link itself.
+    TEST_ASSERT_TRUE(fl.value().target->ino != nf.value().target->ino);
+
+    cinux::syscall::do_unlink_kernel(lp);
+    cinux::syscall::do_unlink_kernel(hp);
+    teardown_syscall_ext2(pair);
+}
+
+/// vfs_lookup detects a symlink cycle (/a -> /b -> /a) and returns Error::Loop.
+void test_follow_loop_returns_loop_error() {
+    auto pair = setup_syscall_ext2();
+    TEST_ASSERT_NOT_NULL(pair.ext2);
+
+    char ap[64];
+    build_path(ap, "lpa");
+    char bp[64];
+    build_path(bp, "lpb");
+    TEST_ASSERT_EQ(cinux::syscall::do_symlink_kernel(bp, ap), 0);  // /a -> /b
+    TEST_ASSERT_EQ(cinux::syscall::do_symlink_kernel(ap, bp), 0);  // /b -> /a
+
+    using LF       = cinux::fs::LookupFlag;
+    auto r         = cinux::fs::vfs_lookup(ap, static_cast<uint32_t>(LF::Follow), "/");
+    TEST_ASSERT_FALSE(r.ok());
+    TEST_ASSERT_EQ(r.error(), cinux::lib::Error::Loop);
+
+    cinux::syscall::do_unlink_kernel(ap);
+    cinux::syscall::do_unlink_kernel(bp);
+    teardown_syscall_ext2(pair);
+}
+
+/// PARENT mode returns the parent directory + leaf name without resolving leaf.
+void test_parent_mode_returns_parent_and_leaf() {
+    auto pair = setup_syscall_ext2();
+    TEST_ASSERT_NOT_NULL(pair.ext2);
+
+    char np[64];
+    build_path(np, "pnt");
+    uint32_t leaf_len = 0;
+    while (np[leaf_len + 1] != '\0') ++leaf_len;  // length after the leading '/'
+
+    using LF = cinux::fs::LookupFlag;
+    auto r   = cinux::fs::vfs_lookup(np, static_cast<uint32_t>(LF::Parent), "/");
+    TEST_ASSERT_TRUE(r.ok());
+    TEST_ASSERT_NOT_NULL(r.value().parent);
+    TEST_ASSERT_EQ(r.value().parent->type, cinux::fs::InodeType::Directory);
+    TEST_ASSERT_EQ(r.value().leaf_len, leaf_len);
+    TEST_ASSERT_NULL(r.value().target);  // leaf not resolved
+
+    teardown_syscall_ext2(pair);
+}
+}  // namespace test_vfs_lookup_follow
+
 namespace test_sys_link_b2 {
 /// link(file, file2) adds a name and bumps nlink to 2.
 void test_link_bumps_nlink() {
@@ -752,6 +845,11 @@ extern "C" void run_syscall_ext2_tests() {
     RUN_TEST(test_sys_chown_b2::test_chown_changes_owner);
     RUN_TEST(test_sys_utimensat_b2::test_utimensat_changes_times);
     RUN_TEST(test_sys_symlink_b2::test_symlink_readlink_roundtrip);
+
+    // F-USABILITY batch 1b: vfs_lookup symlink follow + loop detect + parent mode.
+    RUN_TEST(test_vfs_lookup_follow::test_follow_absolute_symlink);
+    RUN_TEST(test_vfs_lookup_follow::test_follow_loop_returns_loop_error);
+    RUN_TEST(test_vfs_lookup_follow::test_parent_mode_returns_parent_and_leaf);
     RUN_TEST(test_sys_link_b2::test_link_bumps_nlink);
     RUN_TEST(test_sys_rename_b2::test_rename_moves_entry);
 

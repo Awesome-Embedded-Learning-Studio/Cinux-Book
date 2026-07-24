@@ -41,6 +41,7 @@ constexpr int kErange       = 34;   ///< Numerical result out of range (buffer t
 constexpr int kEnametoolong = 36;   ///< File name too long
 constexpr int kEnosys       = 38;   ///< Function not implemented
 constexpr int kEnotempty    = 39;   ///< Directory not empty
+constexpr int kEloop        = 40;   ///< Too many symbolic links encountered
 constexpr int kEtimedout    = 110;  ///< Connection timed out
 constexpr int kEconnrefused = 111;  ///< Connection refused
 // --- socket-specific (F7-M6); Linux x86_64 values ---
@@ -91,6 +92,10 @@ constexpr int to_errno(cinux::lib::Error e) {
         return kEtimedout;
     case cinux::lib::Error::Fault:
         return kEfault;
+    case cinux::lib::Error::NotADirectory:
+        return kEnotdir;
+    case cinux::lib::Error::Loop:
+        return kEloop;
     }
     return kEio;  // unmapped Error falls back to a generic I/O failure
 }

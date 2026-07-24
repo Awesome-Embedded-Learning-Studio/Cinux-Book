@@ -9,6 +9,7 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/file.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/vfs_mount.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/path.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/vfs_lookup.cpp
     # --- ramdisk ---
     ${CMAKE_CURRENT_SOURCE_DIR}/ramdisk/ramdisk.cpp
     # --- ext2 ---
