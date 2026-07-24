@@ -14,6 +14,13 @@ namespace cinux::arch {
 /// range (0x20-0x2F), the spurious vector (0xFF) and the sigreturn trap (0x80).
 constexpr uint8_t kRescheduleIpiVector = 0xE0;
 
+/// TLB shootdown IPI vector (B3 defect C).  Sent with the all-excluding-self
+/// shorthand by tlb_shootdown_page() to invalidate a stale mapping on every
+/// other core before a deferred page free.  0xE1 sits next to the reschedule
+/// IPI and avoids the PIC range (0x20-0x2F), spurious vector (0xFF) and the
+/// sigreturn trap (0x80).
+constexpr uint8_t kShootdownIpiVector = 0xE1;
+
 /// LAPIC timer vector (F5-M5 -smp).  Each AP's local APIC timer fires here to
 /// drive Scheduler::tick() (the BSP uses the PIT for the same role; the PIT
 /// reaches the BSP only).  0x30 avoids the PIC range and xHCI (0x40).

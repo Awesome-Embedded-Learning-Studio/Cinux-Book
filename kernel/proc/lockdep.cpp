@@ -186,6 +186,20 @@ uint32_t lockdep_held_depth() {
     return (cpu < kMaxCpus) ? static_cast<uint32_t>(g_held[cpu].depth) : 0;
 }
 
+bool lockdep_is_held(const void* lock) {
+    uint32_t cpu = percpu()->cpu_id;
+    if (cpu >= kMaxCpus) {
+        return false;  // pre-percpu boot: nothing is held
+    }
+    const HeldStack& c = g_held[cpu];
+    for (int i = 0; i < c.depth; i++) {
+        if (c.held[i] == lock) {
+            return true;
+        }
+    }
+    return false;
+}
+
 }  // namespace cinux::proc
 
 #endif  // CINUX_LOCKDEP

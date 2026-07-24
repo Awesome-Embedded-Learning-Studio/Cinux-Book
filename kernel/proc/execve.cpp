@@ -51,6 +51,7 @@ ExecveResult elf_error_to_execve(elf::ElfValidateResult r) {
         return ExecveResult::BadElfType;
     case ER::BadPhoff:
     case ER::BadPhdrSize:
+    case ER::BadPhnum:
     case ER::NoPhdrs:
         return ExecveResult::BadElfHeaders;
     default:

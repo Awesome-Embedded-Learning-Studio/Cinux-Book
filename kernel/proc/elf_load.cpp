@@ -26,6 +26,37 @@
 
 namespace cinux::proc {
 
+namespace {
+
+// DEBT-020: validate a PT_LOAD segment's fields before any arithmetic, so a
+// malformed/hostile ELF can't wrap p_vaddr+p_memsz into a tiny/wrong seg_end
+// and trick us into mapping the wrong VMA range. GCC has no -fsanitize for
+// unsigned overflow (Clang-only, per F-VERIFY M0-2), so use __builtin_*_overflow.
+ExecveResult validate_load_segment(const elf::Elf64_Phdr& phdr, uint64_t base) {
+    // ELF spec: a segment's file image can't exceed its memory image.
+    if (phdr.p_filesz > phdr.p_memsz) {
+        return ExecveResult::BadElfHeaders;
+    }
+    uint64_t seg_vaddr = 0, seg_memsz_end = 0;
+    [[maybe_unused]] uint64_t file_off_end = 0;  // p_offset + p_filesz
+    // base + p_vaddr, seg_vaddr + p_memsz, p_offset + p_filesz must not wrap.
+    if (__builtin_add_overflow(base, phdr.p_vaddr, &seg_vaddr) ||
+        __builtin_add_overflow(seg_vaddr, phdr.p_memsz, &seg_memsz_end) ||
+        __builtin_add_overflow(phdr.p_offset, phdr.p_filesz, &file_off_end)) {
+        return ExecveResult::BadElfHeaders;
+    }
+    // Stay inside canonical user VA (below the 48-bit canonical hole at
+    // 0x800000000000); a segment mapping into non-canonical/kernel space is
+    // corrupt or hostile.
+    constexpr uint64_t kUserVaTop = 0x800000000000ULL;
+    if (seg_vaddr >= kUserVaTop || seg_memsz_end > kUserVaTop) {
+        return ExecveResult::BadElfHeaders;
+    }
+    return ExecveResult::Ok;
+}
+
+}  // namespace
+
 ExecveResult load_elf_image(cinux::mm::AddressSpace& space, cinux::fs::Inode* inode,
                             const elf::Elf64_Ehdr* ehdr, const elf::Elf64_Phdr* phdrs,
                             uint16_t phnum, uint64_t base, LoadedImage& out) {
@@ -43,6 +74,16 @@ ExecveResult load_elf_image(cinux::mm::AddressSpace& space, cinux::fs::Inode* in
         }
 
         out.has_load = true;
+
+        // DEBT-020: reject segments whose p_vaddr/p_memsz/p_filesz would wrap
+        // or escape canonical user VA before we compute seg_end / map VMAs.
+        if (ExecveResult vr = validate_load_segment(phdr, base); vr != ExecveResult::Ok) {
+            cinux::lib::kprintf(
+                "[ELF] rejecting bad PT_LOAD seg %u: vaddr=0x%lx memsz=0x%lx filesz=0x%lx\n",
+                i, static_cast<unsigned long>(phdr.p_vaddr),
+                static_cast<unsigned long>(phdr.p_memsz), static_cast<unsigned long>(phdr.p_filesz));
+            return vr;
+        }
 
         // AT_PHDR for THIS image: the phdr table lives inside the first PT_LOAD
         // that covers e_phoff. User VA = base + p_vaddr + (e_phoff - p_offset).

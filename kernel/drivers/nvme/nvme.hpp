@@ -28,6 +28,7 @@
 #include "kernel/drivers/dma/dma_buffer.hpp"
 #include "kernel/drivers/pci/msix.hpp"
 #include "kernel/drivers/pci/pci.hpp"
+#include "kernel/proc/sync.hpp"  // Spinlock (io_lock_ -- SMP serialize io_submit)
 
 namespace cinux::drivers::nvme {
 
@@ -197,6 +198,10 @@ private:
     uint32_t                       io_sq_tail_   = 0;
     uint32_t                       io_cq_head_   = 0;
     uint8_t                        io_cq_phase_  = 1;
+    // SMP: io_submit (SQ enqueue + CQ poll) touches io_sq_tail_/io_cq_head_/
+    // io_cq_phase_ -- two CPUs submitting concurrently clobber each other's sq
+    // slot and mis-read completions (status=0x4080 on a legal LBA). Serialize.
+    cinux::proc::Spinlock          io_lock_;
 };
 
 }  // namespace cinux::drivers::nvme

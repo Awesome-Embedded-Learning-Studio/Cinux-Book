@@ -63,6 +63,13 @@ ElfValidateResult validate_elf_header(const Elf64_Ehdr* ehdr, uint64_t total_siz
     if (ehdr->e_phnum == 0) {
         return ElfValidateResult::NoPhdrs;
     }
+    // DEBT-012: cap e_phnum so a corrupt/hostile ELF can't force a huge phdr
+    // table alloc + read (uint16 max -> 65535*56 = ~3.6MB). Real ELFs have
+    // <30 program headers; 256 is generous.
+    constexpr uint16_t kMaxPhnum = 256;
+    if (ehdr->e_phnum > kMaxPhnum) {
+        return ElfValidateResult::BadPhnum;
+    }
 
     return ElfValidateResult::Ok;
 }

@@ -64,6 +64,7 @@ void irq13_stub();
 void irq14_stub();
 void irq15_stub();
 void reschedule_ipi_stub();  // F4-M4 M4-2: reschedule IPI (vector 0xE0)
+void shootdown_ipi_stub();   // B3 defect C: TLB shootdown IPI (vector 0xE1)
 void xhci_irq_stub();        // F5-M5 Batch 0C: xHCI event-ring MSI-X (vector 0x40)
 void nvme_irq_stub();        // F5-M3 batch 4: NVMe MSI-X (vector 0x41)
 void virtio_blk_irq_stub();  // F5-M2 batch 3: VirtIO-blk MSI-X (vector 0x42)

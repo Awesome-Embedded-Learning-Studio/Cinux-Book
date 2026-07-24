@@ -394,6 +394,11 @@ cinux::lib::ErrorOr<void> NvmeController::create_io_queues() {
 }
 
 cinux::lib::ErrorOr<uint16_t> NvmeController::io_submit(const NvmeCmd& cmd) {
+    // SMP: serialize SQ enqueue + CQ poll -- io_sq_tail_/io_cq_head_/io_cq_phase_
+    // are shared; two CPUs submitting at once clobber each other's sq slot and
+    // mis-read completions (status=0x4080 on a legal LBA). Held across the poll
+    // (busy-wait, IF=0-safe; caller is #PF demand page or syscall context).
+    auto g = io_lock_.guard();
     // Enqueue on the IO SQ (qid=1) at [tail] and ring the doorbell.
     auto*   sq                = static_cast<NvmeCmd*>(io_sq_buf_.virt());
     sq[io_sq_tail_]           = cmd;

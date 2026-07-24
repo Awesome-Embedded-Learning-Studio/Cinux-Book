@@ -453,6 +453,10 @@ ISR_IRQ irq15_stub, irq_default_handler, 15  /* IRQ15(0x2F): Secondary ATA */
 # ============================================================
 ISR_IRQ reschedule_ipi_stub, reschedule_ipi_handler, 0
 
+# TLB shootdown IPI (vector 0xE1): handler (arch/x86_64/tlb.cpp) invlpg's the
+# sender's vaddr + decs acks; ISR_IRQ stub EOIs.  \irq=0 unused (APIC-only).
+ISR_IRQ shootdown_ipi_stub, shootdown_ipi_handler, 0
+
 # ============================================================
 # xHCI event-ring MSI-X interrupt (F5-M5 Batch 0C)
 # ============================================================

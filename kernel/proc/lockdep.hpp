@@ -39,6 +39,11 @@ void lockdep_releasing(const void* lock);
 /// "no spinlock across context switch" assert.
 uint32_t lockdep_held_depth();
 
+/// True iff @p lock is currently held on THIS CPU (present on this CPU's
+/// held stack).  Backs the lockdep_assert_held() macro (race_detect.hpp) --
+/// a "must hold this lock to touch this state" check.  O(depth), depth < 3.
+bool lockdep_is_held(const void* lock);
+
 #else
 
 inline void     lockdep_acquired(const void* /*lock*/) {}

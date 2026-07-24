@@ -97,7 +97,9 @@ add_custom_command(TARGET mini_kernel
 # Library build
 add_subdirectory(lib)
 
-# Tests (only when CINUX_BUILD_TESTS is ON)
-if(CINUX_BUILD_TESTS)
-    add_subdirectory(test)
-endif()
+# Test mini-loader (boots big_kernel_test in QEMU). Built unconditionally, same
+# as big_kernel_test -- the two are a pair, and cinux_test.img / run-kernel-test-*
+# depend on mini_kernel_test. Gating only this one (while big_kernel_test stayed
+# unconditional) left those targets referencing a non-existent target under
+# CINUX_BUILD_TESTS=OFF. Host unit tests (top-level test/) stay independently gated.
+add_subdirectory(test)

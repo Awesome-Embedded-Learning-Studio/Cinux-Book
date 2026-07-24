@@ -138,6 +138,7 @@ enum class ElfValidateResult : int {
     BadPhoff,     ///< Program header offset too large
     BadPhdrSize,  ///< Program header entry size is not 56
     NoPhdrs,      ///< No program headers
+    BadPhnum,     ///< Too many program headers (DEBT-012 cap exceeded)
 };
 
 // ============================================================

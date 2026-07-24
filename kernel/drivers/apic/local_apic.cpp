@@ -84,6 +84,20 @@ void LocalAPIC::send_ipi(uint8_t dest_apic_id, uint8_t vector) {
     write(kRegIcrLow, static_cast<uint32_t>(vector) | kIcrModeFixed);
 }
 
+void LocalAPIC::send_ipi_all_others(uint8_t vector) {
+    // Destination shorthand 0b11 (all-excluding-self) in ICR low bits 18-19
+    // makes the LAPIC broadcast to every other CPU -- the dest field in ICR
+    // high is ignored, so we just clear it for cleanliness.  Fixed delivery
+    // mode, same as send_ipi.  Polled delivery status first so a previous IPI
+    // is never overwritten mid-send.
+    write(kRegIcrHigh, 0);
+    while ((read(kRegIcrLow) & kIcrDeliveryStatus) != 0) {
+        // Wait for any previous IPI to finish sending (delivery status Idle).
+    }
+    write(kRegIcrLow,
+          static_cast<uint32_t>(vector) | kIcrModeFixed | kIcrShorthandAllExclSelf);
+}
+
 void LocalAPIC::send_init(uint8_t dest_apic_id) {
     write(kRegIcrHigh, static_cast<uint32_t>(dest_apic_id) << 24);
     while ((read(kRegIcrLow) & kIcrDeliveryStatus) != 0) {

@@ -55,6 +55,10 @@ constexpr uint32_t kIcrModeFixed = 0u << 8;  ///< normal fixed-vector IPI
 constexpr uint32_t kIcrModeInit  = 5u << 8;  ///< INIT (AP startup sequence)
 constexpr uint32_t kIcrModeSipi  = 6u << 8;  ///< Startup (SIPI; vector = page nr)
 
+// Destination shorthand (ICR low bits 18-19).  Bypasses the dest field in ICR
+// high so one write broadcasts without enumerating each APIC ID.
+constexpr uint32_t kIcrShorthandAllExclSelf = 0b11u << 18;  ///< all except self
+
 class LocalAPIC {
 public:
     /// Attach to an already-mapped (or mock) 4 KB MMIO window.
@@ -98,6 +102,10 @@ public:
     // never overwritten mid-send.
     /// Send a fixed-vector IPI carrying @p vector to @p dest_apic_id.
     void send_ipi(uint8_t dest_apic_id, uint8_t vector);
+    /// Broadcast a fixed-vector IPI to every other CPU (all-excluding-self
+    /// shorthand).  Used by TLB shootdown: the sender local-invalidates and
+    /// waits for each receiver to ack before freeing the page.
+    void send_ipi_all_others(uint8_t vector);
     /// Send an INIT IPI to @p dest_apic_id (first step of AP startup).
     void send_init(uint8_t dest_apic_id);
     /// Send a Startup IPI (SIPI): @p vector is the trampoline page number
