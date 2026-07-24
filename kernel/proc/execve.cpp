@@ -17,7 +17,7 @@
 #include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
 #include "kernel/arch/x86_64/usermode.hpp"  // F9 batch 1: USER_SIGRETURN_PAGE
-#include "kernel/fs/vfs_mount.hpp"
+#include "kernel/fs/vfs_lookup.hpp"  // F-USABILITY batch 1c: symlink-following lookup
 #include "kernel/lib/aslr.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/pmm.hpp"
@@ -173,19 +173,16 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
         return ExecveResult::NoAddressSpace;
     }
 
-    const char* rel_path = nullptr;
-    auto*       fs       = cinux::fs::vfs_resolve(path, &rel_path);
-    if (fs == nullptr) {
-        cinux::lib::kprintf("[EXECVE] path not found: %s\n", path);
+    // F-USABILITY batch 1c: vfs_lookup follows symlinks (e.g. /sbin/init ->
+    // /bin/busybox), replacing the open-coded vfs_resolve + fs->lookup that
+    // stopped at the link and failed with "not a regular file".
+    const char* cwd = (task->cwd != nullptr) ? task->cwd->path : "/";
+    auto        lr  = cinux::fs::vfs_lookup(path, static_cast<uint32_t>(cinux::fs::LookupFlag::Follow), cwd);
+    if (!lr.ok()) {
+        cinux::lib::kprintf("[EXECVE] lookup failed: %s\n", path);
         return ExecveResult::FileNotFound;
     }
-
-    auto lookup_result = fs->lookup(rel_path);
-    if (!lookup_result.ok()) {
-        cinux::lib::kprintf("[EXECVE] inode not found: %s\n", rel_path);
-        return ExecveResult::FileNotFound;
-    }
-    auto* inode = lookup_result.value();
+    auto* inode = lr.value().target;
 
     if (inode->type != cinux::fs::InodeType::Regular) {
         cinux::lib::kprintf("[EXECVE] not a regular file: %s\n", path);

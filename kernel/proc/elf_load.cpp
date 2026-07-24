@@ -18,7 +18,7 @@
 #include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
 #include "kernel/fs/inode.hpp"
-#include "kernel/fs/vfs_mount.hpp"  // vfs_resolve
+#include "kernel/fs/vfs_lookup.hpp"  // F-USABILITY batch 1c: vfs_lookup (interp follow)
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/pmm.hpp"
@@ -136,19 +136,15 @@ ExecveResult load_interpreter(cinux::mm::AddressSpace& space, const char* path, 
     out_base  = 0;
     out_entry = 0;
 
-    // Resolve the interpreter path on the VFS (e.g. /lib/ld-musl-x86_64.so.1).
-    const char* rel = nullptr;
-    auto*       fs  = cinux::fs::vfs_resolve(path, &rel);
-    if (fs == nullptr) {
+    // F-USABILITY batch 1c: vfs_lookup follows the interp symlink (e.g.
+    // /lib/ld-musl-x86_64.so.1 -> libc.so) just like the main executable.
+    // PT_INTERP is absolute, so cwd="/" is sufficient.
+    auto lr = cinux::fs::vfs_lookup(path, static_cast<uint32_t>(cinux::fs::LookupFlag::Follow), "/");
+    if (!lr.ok()) {
         cinux::lib::kprintf("[EXECVE] interp not found: %s\n", path);
         return ExecveResult::FileNotFound;
     }
-    auto lookup = fs->lookup(rel);
-    if (!lookup.ok()) {
-        cinux::lib::kprintf("[EXECVE] interp inode not found: %s\n", rel);
-        return ExecveResult::FileNotFound;
-    }
-    auto* inode = lookup.value();
+    auto* inode = lr.value().target;
     if (inode->type != cinux::fs::InodeType::Regular) {
         cinux::lib::kprintf("[EXECVE] interp not a regular file: %s\n", path);
         return ExecveResult::FileNotRegular;
