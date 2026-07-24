@@ -9,6 +9,7 @@
 
 #include "kernel/arch/x86_64/memory_layout.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
+#include "kernel/drivers/mmio.hpp"  // mmio32_read/write (shared MMIO helper)
 #include "kernel/mm/vmm.hpp"
 
 namespace cinux::drivers::apic {
@@ -34,11 +35,11 @@ bool LocalAPIC::init(uint64_t mmio_phys) {
 }
 
 uint32_t LocalAPIC::read(uint32_t off) const {
-    return *reinterpret_cast<volatile uint32_t*>(reinterpret_cast<uintptr_t>(base_) + off);
+    return mmio32_read(base_, off);
 }
 
 void LocalAPIC::write(uint32_t off, uint32_t value) {
-    *reinterpret_cast<volatile uint32_t*>(reinterpret_cast<uintptr_t>(base_) + off) = value;
+    mmio32_write(base_, off, value);
 }
 
 uint32_t LocalAPIC::id() const {

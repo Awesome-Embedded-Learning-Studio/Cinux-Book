@@ -16,15 +16,23 @@
  */
 
 #include "kernel/net/udp_socket.hpp"
+#include "kernel/net/byte_order.hpp"
+#include "kernel/net/wait_queue.hpp"  // shared intrusive wait queue (was 3-way duplicated)
 
 #include <cstdint>
 
 #ifndef CINUX_HOST_TEST
-#    include "kernel/proc/process.hpp"    // Task::wait_next
+#    include "kernel/proc/process.hpp"  // Task + signal_deliverable_pending
 #    include "kernel/proc/scheduler.hpp"  // prepare_to_wait/schedule_blocked/unblock
 #endif
 
 namespace cinux::net {
+
+#ifndef CINUX_HOST_TEST
+using cinux::proc::Scheduler;
+using cinux::proc::Task;
+#endif
+
 
 namespace {
 /// Ephemeral source-port range for auto-binding an unbound UDP socket on sendto
@@ -32,55 +40,8 @@ namespace {
 constexpr uint16_t kEphemeralBase  = 32768;
 constexpr uint16_t kEphemeralRange = 16;
 
-/// Host -> network byte order for 16-bit (sockaddr_in::port is big-endian, the
-/// same layout musl lays out in user space; getsockname/getpeername hand back
-/// the wire-order value).  Local helper -- sys_socket.cpp has its own; do not
-/// reach into it.
-constexpr uint16_t byte_swap16(uint16_t v) {
-    return static_cast<uint16_t>((v >> 8) | (v << 8));
-}
 }  // namespace
 
-#ifndef CINUX_HOST_TEST
-namespace {
-using cinux::proc::Scheduler;
-using cinux::proc::Task;
-
-void wait_enqueue(Task*& head, Task* t) {
-    t->wait_next = nullptr;
-    if (head == nullptr) {
-        head = t;
-        return;
-    }
-    Task* x = head;
-    while (x->wait_next != nullptr) {
-        x = x->wait_next;
-    }
-    x->wait_next = t;
-}
-
-Task* wait_dequeue(Task*& head) {
-    Task* t = head;
-    if (t != nullptr) {
-        head         = t->wait_next;
-        t->wait_next = nullptr;
-    }
-    return t;
-}
-
-void wake_one(Task*& head) {
-    if (Task* t = wait_dequeue(head)) {
-        Scheduler::unblock(t);
-    }
-}
-
-void wake_all(Task*& head) {
-    while (Task* t = wait_dequeue(head)) {
-        Scheduler::unblock(t);
-    }
-}
-}  // namespace
-#endif  // CINUX_HOST_TEST
 
 UdpSocket::UdpSocket(UdpModule& udp, Ipv4Module& ipv4, NetStack& stack, DevRoute route)
     : Socket(kAfInet, kSockDgram), udp_(udp), ipv4_(ipv4), stack_(stack), route_(route) {}
@@ -200,6 +161,16 @@ cinux::lib::ErrorOr<int64_t> UdpSocket::recv(uint8_t* buf, uint32_t len, Ipv4Add
         if (need_block) {
             Scheduler::schedule_blocked();
         }
+        // EINTR: a signal landed while parked.  Return sentinel -1 (a value a
+        // real byte-count can never take) so sys_recvfrom maps it to -EINTR.
+        // Unlink ourselves under lock_ first so a producer does not wake a
+        // stale link.
+        if (Scheduler::current() != nullptr &&
+            signal_deliverable_pending(Scheduler::current())) {
+            auto g = lock_.irq_guard();
+            wait_remove(recv_waiters_, Scheduler::current());
+            return static_cast<int64_t>(-1);  // sentinel: sys_recvfrom -> -EINTR
+        }
         // Woken by on_udp() enqueuing a datagram; loop and dequeue.
 #endif
     }
@@ -233,6 +204,36 @@ void UdpSocket::close() {
     }
 #ifndef CINUX_HOST_TEST
     wake_all(recv_waiters_);  // blocked recv'ers retry -> empty ring -> WouldBlock
+#endif
+}
+
+uint32_t UdpSocket::poll_events([[maybe_unused]] cinux::proc::Task* waiter, bool* registered) {
+    auto g = lock_.irq_guard();
+    if (registered != nullptr) {
+        *registered = (waiter != nullptr);
+    }
+    uint32_t mask = 0;
+    if (rx_count_ > 0) {
+        mask |= cinux::fs::kPollIn;  // a datagram is queued -> readable
+    }
+    mask |= cinux::fs::kPollOut;  // UDP can generally send (no send-block yet)
+#ifndef CINUX_HOST_TEST
+    // Park on the same queue a blocked recv uses, so an incoming datagram
+    // (on_udp -> wake_one) wakes the poller too.  Atomic under lock_ with the
+    // readiness check (the prepare_to_wait contract).
+    if (waiter != nullptr) {
+        wait_enqueue(recv_waiters_, waiter);
+    }
+#else
+#endif
+    return mask;
+}
+
+void UdpSocket::poll_detach_waiter([[maybe_unused]] cinux::proc::Task* waiter) {
+#ifndef CINUX_HOST_TEST
+    auto g = lock_.irq_guard();
+    wait_remove(recv_waiters_, waiter);
+#else
 #endif
 }
 

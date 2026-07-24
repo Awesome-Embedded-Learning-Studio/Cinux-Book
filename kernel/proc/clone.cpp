@@ -54,6 +54,7 @@ constexpr uint64_t kCloneVm            = 0x00000100;
 constexpr uint64_t kCloneFs            = 0x00000200;
 constexpr uint64_t kCloneFiles         = 0x00000400;
 constexpr uint64_t kCloneSighand       = 0x00000800;
+constexpr uint64_t kCloneVfork         = 0x00004000;
 constexpr uint64_t kCloneThread        = 0x00010000;
 constexpr uint64_t kCloneSettls        = 0x00080000;
 constexpr uint64_t kCloneParentSettid  = 0x00100000;
@@ -116,7 +117,7 @@ void cow_clone_address_space(Task* parent, Task* child) {
     // Clone VMA records so bookkeeping matches the CoW page tables.
     for (cinux::mm::VMA* v = parent->addr_space->vmas().first(); v != nullptr;
          v                 = parent->addr_space->vmas().next(v)) {
-        (void)child->addr_space->vmas().insert(v->start, v->end, v->flags);
+        static_cast<void>(child->addr_space->vmas().insert(v->start, v->end, v->flags));
         if (v->backing != nullptr) {
             cinux::mm::VMA* cv = child->addr_space->vmas().find(v->start);
             if (cv != nullptr) {
@@ -132,7 +133,7 @@ void cow_clone_address_space(Task* parent, Task* child) {
 __attribute__((noinline)) int clone(uint64_t flags, uint64_t stack, uint64_t parent_tid,
                                     uint64_t child_tid, uint64_t tls) {
     KernelForkCalleeRegs caller_regs = capture_kernel_fork_callee_regs();
-    auto* parent = Scheduler::current();
+    auto*                parent      = Scheduler::current();
     if (parent == nullptr) {
         cinux::lib::kprintf("[PROC] clone: no current task\n");
         return -1;
@@ -173,6 +174,7 @@ __attribute__((noinline)) int clone(uint64_t flags, uint64_t stack, uint64_t par
     }
     child->fd_table    = nullptr;  // detached; rebuilt/shared below
     child->sig_pending = 0;
+    child->sig_forced  = 0;  // force tags are per-task; a child never inherits them
     if (child->sig_actions == nullptr || child->cwd == nullptr) {
         cinux::lib::kprintf("[PROC] clone: shared-state alloc failed\n");
         delete child;
@@ -199,13 +201,18 @@ __attribute__((noinline)) int clone(uint64_t flags, uint64_t stack, uint64_t par
         child->ppid         = parent->pid;
         child->parent       = parent;
     }
-    child->state       = TaskState::Ready;
+    child->state        = TaskState::Ready;
     // F10 SMP-race: reset the stale on_cpu inherited from the parent's memcpy
     // (see fork.cpp).  A fresh child has never run; its ctx is set up below, so
     // pick_next() must see "not running / ctx saved" (-1), not the parent's CPU.
-    child->on_cpu      = -1;
-    child->children    = nullptr;
-    child->exit_status = 0;
+    child->on_cpu       = -1;
+    child->vfork_parent = nullptr;
+    child->children     = nullptr;
+    child->exit_status  = 0;
+    // The child is brand-new -- never on a wait queue.  Clear any inherited
+    // wait_queue_head from the memcpy so a later signal_send does not wake a
+    // phantom queue.  (EINTR support.)
+    child->wait_queue_head = nullptr;
 
     // F3-M3 batch 1: derive process-group / session membership (threads and
     // forked processes alike stay in the caller's group/session; a root fork
@@ -347,10 +354,16 @@ __attribute__((noinline)) int clone(uint64_t flags, uint64_t stack, uint64_t par
         parent->children = child;
     }
 
+    if (flags & kCloneVfork) {
+        child->vfork_parent = parent;
+        Scheduler::prepare_to_wait(parent);
+    }
+
     Scheduler::add_task(child);
 
-    cinux::lib::kprintf("[PROC] clone: created child pid=%d tid=%lu tgid=%d flags=0x%lx\n",
-                        child->pid, child->tid, child->tgid, flags);
+    if (flags & kCloneVfork) {
+        Scheduler::schedule_blocked();
+    }
 
     return child_pid;
 }

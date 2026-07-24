@@ -12,6 +12,8 @@
 
 #include "kernel/mm/vma.hpp"
 
+#include "kernel/fs/file.hpp"  // inode_ref/inode_unref (VMA holds an inode ref)
+
 namespace cinux::mm {
 
 namespace {
@@ -27,6 +29,17 @@ constexpr bool page_aligned(uint64_t v) {
 /// Round @p v up to the next page boundary.
 constexpr uint64_t align_up_page(uint64_t v) {
     return (v + kPageSize - 1) & ~(kPageSize - 1);
+}
+
+/// Drop the inode reference a VMA holds for its file backing (if any).  Called
+/// before a node is freed so the backing inode stays alive exactly as long as a
+/// VMA maps it -- without this, the ext2 inode-cache slot can be evicted and
+/// reused for a different file while a VMA still points at it (the ld crash:
+/// a stale backing served libc.so-script zero pages to a mapped library .text).
+void release_backing(VMA* v) {
+    if (v != nullptr && v->backing != nullptr) {
+        cinux::fs::inode_unref(v->backing);
+    }
 }
 
 /// Allocate and initialise an unlinked VMA node.  Heap exhaustion traps via
@@ -53,6 +66,7 @@ void LinkedListVMAStore::clear() {
     VMA* cur = head_;
     while (cur != nullptr) {
         VMA* nxt = cur->next;
+        release_backing(cur);
         delete cur;
         cur = nxt;
     }
@@ -99,8 +113,13 @@ cinux::lib::ErrorOr<void> LinkedListVMAStore::insert(uint64_t start, uint64_t en
         return cinux::lib::Error::AlreadyExists;
     }
 
-    const bool merge_prev = (prev != nullptr) && (prev->end == start) && (prev->flags == flags);
-    const bool merge_next = (cur != nullptr) && (cur->start == end) && (cur->flags == flags);
+    // Only merge plain unbacked VMAs. File-backed mappings carry per-node
+    // file_offset/backing metadata; merging by flags alone would make one file
+    // offset cover non-contiguous ELF segments.
+    const bool merge_prev = (prev != nullptr) && (prev->end == start) && (prev->flags == flags) &&
+                            prev->backing == nullptr;
+    const bool merge_next =
+        (cur != nullptr) && (cur->start == end) && (cur->flags == flags) && cur->backing == nullptr;
 
     if (merge_prev && merge_next) {
         // Bridge prev and cur into a single node.
@@ -109,6 +128,7 @@ cinux::lib::ErrorOr<void> LinkedListVMAStore::insert(uint64_t start, uint64_t en
         if (cur->next != nullptr) {
             cur->next->prev = prev;
         }
+        release_backing(cur);
         delete cur;
         --count_;
         return {};
@@ -158,13 +178,19 @@ cinux::lib::ErrorOr<void> LinkedListVMAStore::remove(uint64_t start, uint64_t en
 
         if (keep_left && keep_right) {
             // Middle removed: shrink cur to the left part, splice in a fresh
-            // node for the right part (same backing/flags as cur).
-            VMA* right         = make_node(end, cur->end, cur->flags);
-            right->backing     = cur->backing;
-            right->file_offset = cur->file_offset;
-            cur->end           = start;
-            right->prev        = cur;
-            right->next        = cur->next;
+            // node for the right part (same backing/flags as cur).  The right
+            // survivor is a NEW node referencing the same backing, so it takes
+            // its own inode_ref (cur keeps its ref for the left survivor).
+            const uint64_t old_start = cur->start;
+            VMA*           right     = make_node(end, cur->end, cur->flags);
+            right->backing           = cur->backing;
+            right->file_offset       = cur->file_offset + (end - old_start);
+            if (right->backing != nullptr) {
+                cinux::fs::inode_ref(right->backing);
+            }
+            cur->end    = start;
+            right->prev = cur;
+            right->next = cur->next;
             if (cur->next != nullptr) {
                 cur->next->prev = right;
             }
@@ -173,6 +199,7 @@ cinux::lib::ErrorOr<void> LinkedListVMAStore::remove(uint64_t start, uint64_t en
         } else if (keep_left) {
             cur->end = start;  // trim right edge
         } else if (keep_right) {
+            cur->file_offset += end - cur->start;
             cur->start = end;  // trim left edge
         } else {
             // Fully inside [start, end): unlink and free.
@@ -184,6 +211,7 @@ cinux::lib::ErrorOr<void> LinkedListVMAStore::remove(uint64_t start, uint64_t en
             if (cur->next != nullptr) {
                 cur->next->prev = cur->prev;
             }
+            release_backing(cur);
             delete cur;
             --count_;
         }

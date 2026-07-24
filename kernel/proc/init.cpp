@@ -12,9 +12,12 @@
 #include "kernel/fs/devfs/devfs.hpp"
 #include "libs/ext2/ext2.hpp"
 #include "kernel/fs/procfs/procfs.hpp"
+#include "kernel/fs/tmpfs/tmpfs.hpp"  // F6-M4: tmpfs::init (/tmp)
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
+#include "kernel/arch/x86_64/tlb.hpp"  // B3 defect C: start_tlb_drain_thread
+#include "kernel/mm/diagnostics.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/proc/percpu.hpp"
 #include "kernel/proc/pid.hpp"
@@ -87,19 +90,27 @@ void kernel_init_thread() {
     auto*            nvme_bd = cinux::drivers::nvme::nvme_block_device();
     if (nvme_bd != nullptr) {
         static cinux::fs::Ext2 nvme_ext2(nvme_bd);
-        if (nvme_ext2.mount().ok()) {
+        auto                   nvme_m = nvme_ext2.mount();
+        if (nvme_m.ok()) {
             rootfs    = &nvme_ext2;
             root_bdev = nvme_bd;
             cinux::lib::kprintf("[INIT] rootfs on NVMe (perf path)\n");
+        } else {
+            // Log why the NVMe ext2 mount failed -- otherwise this fallback is
+            // silent and the boot mysteriously drops to AHCI (or #GPs on the
+            // AHCI fallback when no AHCI controller exists, as in the release
+            // run.sh boot: IDE boot disk + NVMe rootfs, no AHCI device).
+            cinux::lib::kprintf("[INIT] NVMe ext2 mount failed: %s (try AHCI)\n",
+                                cinux::lib::error_string(nvme_m.error()));
         }
     }
-    if (rootfs == nullptr) {
+    if (rootfs == nullptr && cinux::drivers::ahci::AHCI::is_present()) {
         static auto ahci_blk = cinux::drivers::ahci::AHCIBlockDevice::create(
             cinux::drivers::ahci::AHCI::instance(), 1);
         static cinux::fs::Ext2 ahci_ext2(ahci_blk.ok() ? &ahci_blk.value() : nullptr);
         auto                   m = ahci_ext2.mount();
         if (!m.ok()) {
-            cinux::lib::kprintf("[INIT] ext2 mount failed: %s\n",
+            cinux::lib::kprintf("[INIT] AHCI ext2 mount failed: %s\n",
                                 cinux::lib::error_string(m.error()));
         }
         rootfs    = &ahci_ext2;
@@ -129,15 +140,31 @@ void kernel_init_thread() {
     // /proc/<pid>/{stat,cmdline} pseudo-files (F6-M2).
     cinux::fs::procfs::init();
 
+    // TmpFS: /tmp writable in-memory filesystem -- where GCC / cc1 / as / ld
+    // write intermediate *.o / *.s during a compile (F6-M4, GCC self-host).
+    cinux::fs::tmpfs::init();
+
     // B3b: arm USB input (xHCI + HID boot mouse + keyboard) BEFORE
     // launch_userspace -- the non-GUI launch_userspace execves /sbin/init and
     // never returns, so anything placed after it never runs.  Interrupt-driven
     // once armed; graceful no-op if no xHCI controller is present or USB is
-    // compiled out (usb_stub.cpp is linked).  (The GUI build's desktop_launch
-    // spawns a separate gui_worker, so USB ordering there is unchanged.)
+    // compiled out (usb_stub.cpp is linked).  (The GUI build's desktop_launch fork+execve's the
+    // userspace GUI host, so USB ordering there is unchanged.)
     cinux::drivers::usb::init();
 
-    // Bring up userspace.  GUI build: desktop + gui_worker thread
+    // B1 gcc-stutter profiling: spawn the periodic memory-stats kthread.  No-op
+    // when CINUX_STATS_KTHREAD=OFF (stub); prints a 1 Hz PMM/slab/PageCache/#PF
+    // curve to the serial log when ON, for narrowing gcc/g++ compile-stutter.
+    cinux::mm::start_stats_thread();
+
+    // B3 defect C: spawn the TLB drain kthread.  Sets g_drain_active so CoW
+    // frees defer to it (shootdown + free at IF=1, avoiding the sync-shootdown
+    // deadlock two CoW-faulting CPUs would hit).  Empty stub when
+    // CINUX_TLB_DRAIN=OFF (then enqueue inline-frees).  Needs the scheduler
+    // (Semaphore::wait), so this production-only call sits after Scheduler::init.
+    cinux::arch::start_tlb_drain_thread();
+
+    // Bring up userspace.  GUI build: fork+execve the userspace GUI host
     // (kernel/gui/desktop_launch.cpp).  Non-GUI build: execve /sbin/init as
     // PID1 (kernel/proc/shell_launch.cpp) -- busybox init, which forks /
     // respawns /bin/sh per /etc/inittab.  §14: one interface, two impl files,
@@ -179,10 +206,12 @@ void kernel_init_thread() {
         if (nbd != nullptr) {
             perf_read("NVMe", *nbd, perf_buf);
         }
-        auto ahci_blk = cinux::drivers::ahci::AHCIBlockDevice::create(
-            cinux::drivers::ahci::AHCI::instance(), 0);
-        if (ahci_blk.ok()) {
-            perf_read("AHCI", ahci_blk.value(), perf_buf);
+        if (cinux::drivers::ahci::AHCI::is_present()) {
+            auto ahci_blk = cinux::drivers::ahci::AHCIBlockDevice::create(
+                cinux::drivers::ahci::AHCI::instance(), 0);
+            if (ahci_blk.ok()) {
+                perf_read("AHCI", ahci_blk.value(), perf_buf);
+            }
         }
     }
 

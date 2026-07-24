@@ -10,6 +10,8 @@
 
 #include "kernel/fs/file.hpp"
 
+#include <utility>  // std::move (FileRef move out of fds_[] under lock)
+
 namespace cinux::fs {
 
 // ============================================================
@@ -39,24 +41,16 @@ void inode_unref(Inode* inode) {
 // ============================================================
 
 FDTable::FDTable() : refcount_(1) {
-    for (uint32_t i = 0; i < FD_TABLE_SIZE; ++i) {
-        fds_[i] = nullptr;
-    }
+    // fds_[] are FileRef (default-constructed = empty); no manual init needed.
 }
 
 // ============================================================
 // Destruction (resource-safety backstop)
 // ============================================================
 
-FDTable::~FDTable() {
-    // Free any File that was never close()'d. delete on nullptr is a safe
-    // no-op, so under the normal release() path (which closes every slot
-    // before `delete this`) this loop touches only nullptrs. It catches
-    // stack-allocated tables and skip-release paths so no File leaks (DEBT-017).
-    for (uint32_t i = 0; i < FD_TABLE_SIZE; ++i) {
-        delete fds_[i];
-    }
-}
+// ~FDTable is = default in the header: the FileRef value members unref every
+// slot automatically. (Was a manual `delete fds_[i]` loop; FileRef made it
+// redundant, and a raw delete would no longer compile against FileRef.)
 
 // ============================================================
 // Reference counting (F3-M2 batch 3)
@@ -78,7 +72,7 @@ void FDTable::release() {
     if (__atomic_sub_fetch(&refcount_, 1, __ATOMIC_ACQ_REL) == 0) {
         // Last reference: close every live descriptor, then free the table itself.
         for (uint32_t i = 0; i < FD_TABLE_SIZE; ++i) {
-            if (fds_[i] != nullptr) {
+            if (fds_[i]) {  // non-empty FileRef
                 close(static_cast<int>(i));
             }
         }
@@ -90,16 +84,12 @@ void FDTable::release() {
 // Alloc
 // ============================================================
 
-/// First assignable fd (0=stdin, 1=stdout, 2=stderr are reserved)
-static constexpr uint32_t FD_FIRST = 3;
-
 int FDTable::alloc(Inode* inode, OpenFlags flags) {
     auto g = lock_.guard();
-    (void)g;
 
-    for (uint32_t i = FD_FIRST; i < FD_TABLE_SIZE; ++i) {
-        if (fds_[i] == nullptr) {
-            fds_[i] = new File(inode, 0, flags);
+    for (uint32_t i = 0; i < FD_TABLE_SIZE; ++i) {
+        if (!fds_[i]) {  // empty FileRef = unused slot
+            fds_[i] = FileRef(new File(inode, 0, flags));
             inode_ref(inode);  // DEBT-023: this fd holds one inode reference
             return static_cast<int>(i);
         }
@@ -112,30 +102,27 @@ int FDTable::alloc(Inode* inode, OpenFlags flags) {
 // ============================================================
 
 int FDTable::close(int fd) {
-    File*  file  = nullptr;
-    Inode* inode = nullptr;
+    FileRef detached;
+    Inode*  inode = nullptr;
     {
         auto g = lock_.guard();
-        (void)g;
 
         if (fd < 0 || fd >= static_cast<int>(FD_TABLE_SIZE)) {
             return -1;
         }
-        if (fds_[fd] == nullptr) {
+        if (!fds_[fd]) {
             return -1;
         }
-        // Detach under the lock; destroy + unref OUTSIDE so InodeOps::release
-        // (a socket FIN, a pipe close_writer waking blocked peers) cannot block
-        // the fd table.  File is a plain struct (no inode touch on destroy), so
-        // deleting it is always safe; inode_unref does the refcount + last-close
-        // release (DEBT-023).
-        file     = fds_[fd];
-        inode    = file->inode;
-        fds_[fd] = nullptr;
+        // Detach under the lock; drop OUTSIDE so InodeOps::release (a socket
+        // FIN, a pipe close_writer waking blocked peers) cannot block the fd
+        // table. inode_unref does the refcount + last-close release (DEBT-023);
+        // ~detached then unref's the File (deletes on 0) on scope exit.
+        inode    = fds_[fd]->inode;
+        detached = std::move(fds_[fd]);  // fds_[fd] becomes empty
     }
-    delete file;         // plain struct: no inode touch
     inode_unref(inode);  // --refcount; on last close -> InodeOps::release
     return 0;
+    // ~detached (outside lock): FileRef unref -> delete File on 0
 }
 
 // ============================================================
@@ -144,12 +131,11 @@ int FDTable::close(int fd) {
 
 File* FDTable::get(int fd) const {
     auto g = lock_.guard();
-    (void)g;
 
     if (fd < 0 || fd >= static_cast<int>(FD_TABLE_SIZE)) {
         return nullptr;
     }
-    return fds_[fd];
+    return fds_[fd].get();
 }
 
 // ============================================================
@@ -157,19 +143,26 @@ File* FDTable::get(int fd) const {
 // ============================================================
 
 bool FDTable::set(int fd, File* file) {
-    auto g = lock_.guard();
-    (void)g;
+    FileRef displaced;
+    {
+        auto g = lock_.guard();
 
-    if (fd < 0 || fd >= static_cast<int>(FD_TABLE_SIZE)) {
-        return false;
-    }
-    // The caller owns any previous occupant (header doc); the incoming file
-    // gains an inode reference here (DEBT-023), paired with close()'s unref.
-    fds_[fd] = file;
-    if (file != nullptr) {
-        inode_ref(file->inode);
+        if (fd < 0 || fd >= static_cast<int>(FD_TABLE_SIZE)) {
+            return false;
+        }
+        // The incoming File gains an inode reference (DEBT-023), paired with
+        // close()'s unref. The previous occupant (if any) is dropped OUTSIDE
+        // the lock by ~displaced, so a last-close release cannot block the fd
+        // table. (FDTable now owns every installed File; the old "caller owns
+        // previous occupant" contract is gone -- RAII manages lifetime.)
+        displaced = std::move(fds_[fd]);  // old out (fds_[fd] empty)
+        fds_[fd]  = FileRef(file);        // new in (adopt: FileRef +1)
+        if (file != nullptr) {
+            inode_ref(file->inode);
+        }
     }
     return true;
+    // ~displaced (outside lock): FileRef unref the previous occupant
 }
 
 // ============================================================
@@ -178,19 +171,17 @@ bool FDTable::set(int fd, File* file) {
 
 int FDTable::dup(int oldfd, int min_fd) {
     auto g = lock_.guard();
-    (void)g;
 
-    if (oldfd < 0 || oldfd >= static_cast<int>(FD_TABLE_SIZE) || fds_[oldfd] == nullptr) {
+    if (oldfd < 0 || oldfd >= static_cast<int>(FD_TABLE_SIZE) || !fds_[oldfd]) {
         return FD_NONE;
     }
-    // dup never hands out the reserved stdin/out/err slots (0/1/2): start at
-    // FD_FIRST.  This is a hobby-OS deviation from Linux (which dup's lowest >=
-    // 0); it keeps tests deterministic and avoids clobbering the console fds.
-    int start = min_fd < static_cast<int>(FD_FIRST) ? static_cast<int>(FD_FIRST) : min_fd;
+    int start = min_fd < 0 ? 0 : min_fd;
     for (int i = start; i < static_cast<int>(FD_TABLE_SIZE); ++i) {
-        if (fds_[i] == nullptr) {
-            File* src = fds_[oldfd];
-            fds_[i]   = new File(src->inode, src->offset, src->flags, src->cloexec);
+        if (!fds_[i]) {
+            // Batch 1: still an INDEPENDENT copy (each fd its own offset).
+            // Batch 2 changes this to SHARE one File (Linux open-file-description).
+            File* src = fds_[oldfd].get();
+            fds_[i]   = FileRef(new File(src->inode, src->offset, src->flags, src->cloexec));
             inode_ref(src->inode);  // DEBT-023: the duplicate holds its own ref
             return i;
         }
@@ -199,13 +190,12 @@ int FDTable::dup(int oldfd, int min_fd) {
 }
 
 int FDTable::dup2(int oldfd, int newfd) {
-    File*  displaced  = nullptr;
-    Inode* disp_inode = nullptr;
+    FileRef displaced;
+    Inode*  disp_inode = nullptr;
     {
         auto g = lock_.guard();
-        (void)g;
 
-        if (oldfd < 0 || oldfd >= static_cast<int>(FD_TABLE_SIZE) || fds_[oldfd] == nullptr) {
+        if (oldfd < 0 || oldfd >= static_cast<int>(FD_TABLE_SIZE) || !fds_[oldfd]) {
             return FD_NONE;
         }
         if (newfd < 0 || newfd >= static_cast<int>(FD_TABLE_SIZE)) {
@@ -214,20 +204,20 @@ int FDTable::dup2(int oldfd, int newfd) {
         if (oldfd == newfd) {
             return newfd;  // Linux: valid + same -> no-op, return newfd
         }
-        if (fds_[newfd] != nullptr) {
+        if (fds_[newfd]) {
             // Detach the old occupant; finalize outside the lock so its
             // InodeOps::release cannot block the fd table (DEBT-023).
-            displaced   = fds_[newfd];
-            disp_inode  = displaced->inode;
-            fds_[newfd] = nullptr;
+            disp_inode = fds_[newfd]->inode;
+            displaced  = std::move(fds_[newfd]);  // newfd becomes empty
         }
-        File* src   = fds_[oldfd];
-        fds_[newfd] = new File(src->inode, src->offset, src->flags, src->cloexec);
+        // Batch 1: still an INDEPENDENT copy. Batch 2 shares the File.
+        File* src   = fds_[oldfd].get();
+        fds_[newfd] = FileRef(new File(src->inode, src->offset, src->flags, src->cloexec));
         inode_ref(src->inode);  // DEBT-023: the duplicate holds its own ref
     }
-    delete displaced;         // plain struct: no inode touch (no-op if null)
     inode_unref(disp_inode);  // old occupant's reference, last-close release (null-safe)
     return newfd;
+    // ~displaced (outside lock): FileRef unref the displaced File (delete on 0)
 }
 
 }  // namespace cinux::fs

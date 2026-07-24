@@ -7,6 +7,8 @@
 
 #include "kernel/mm/buddy.hpp"
 
+#include "kernel/lib/kprintf.hpp"
+
 namespace cinux::mm {
 
 // ============================================================
@@ -72,10 +74,26 @@ void BuddyAllocator::mark_free_region(uint64_t base_page, uint64_t count) {
 // ============================================================
 
 void BuddyAllocator::set_bit(int o, uint64_t block) {
+    // [BUDDY-DIAG] catch the nested-fork/PageCache buddy-corruption at the
+    // exact wild-deref site (production #GP had RDX non-canonical here). Panic
+    // with the bad indices + backtrace BEFORE the deref so the smash source is
+    // obvious. Kept narrow (no free_page pte_count assert) to avoid the
+    // console-gate false-positive that bit the earlier DIAG rollup.
+    if (o < 0 || o > kMaxOrder || block >= blocks_per_order(o)) {
+        cinux::lib::kpanic("[BUDDY-DIAG] set_bit OOB o=%d block=%lu bpo=%lu\n", o,
+                           static_cast<unsigned long>(block),
+                           static_cast<unsigned long>(blocks_per_order(o)));
+    }
     free_bitmap_[o][block / 64] |= (1ULL << (block % 64));
 }
 
 void BuddyAllocator::clear_bit(int o, uint64_t block) {
+    // [BUDDY-DIAG] see set_bit -- this is the exact production #GP site.
+    if (o < 0 || o > kMaxOrder || block >= blocks_per_order(o)) {
+        cinux::lib::kpanic("[BUDDY-DIAG] clear_bit OOB o=%d block=%lu bpo=%lu\n", o,
+                           static_cast<unsigned long>(block),
+                           static_cast<unsigned long>(blocks_per_order(o)));
+    }
     free_bitmap_[o][block / 64] &= ~(1ULL << (block % 64));
 }
 
@@ -117,10 +135,36 @@ uint64_t BuddyAllocator::alloc_order(int order) {
     int o = order;
     while (o <= kMaxOrder && find_first_set(o) == kInvalidPage)
         o++;
-    if (o > kMaxOrder)
+    if (o > kMaxOrder) {
+        uint64_t bpo0      = blocks_per_order(0);
+        uint64_t words0    = (bpo0 + 63) / 64;
+        uint64_t free_bits = 0, padding_bits = 0;
+        for (uint64_t b = 0; b < words0 * 64; b++) {
+            bool set = (free_bitmap_[0][b / 64] >> (b % 64)) & 1ULL;
+            if (b < bpo0) {
+                if (set) free_bits++;
+            } else {
+                if (set) padding_bits++;
+            }
+        }
+        if (padding_bits > 0 || (free_pages_ > 0 && free_bits == 0)) {
+            cinux::lib::kprintf("[BUDDY] OOM(%d) CORRUPT-SUSPECT: free_pages=%lu free_bits=%lu "
+                                "padding=%lu\n", order, static_cast<unsigned long>(free_pages_),
+                                static_cast<unsigned long>(free_bits),
+                                static_cast<unsigned long>(padding_bits));
+            if (padding_bits > 0)
+                cinux::lib::kprintf("[BUDDY] -> SCAN PROBLEM (padding polluted)\n");
+            else
+                cinux::lib::kprintf("[BUDDY] -> bitmap corrupt (double-free/clear)\n");
+        }
         return kInvalidPage;  // OOM
+    }
 
     uint64_t block = find_first_set(o);
+    if (block == kInvalidPage || block >= blocks_per_order(o)) {
+        cinux::lib::kprintf("[BUDDY] alloc_order(%d) INCONSISTENT o=%d -> OOM\n", order, o);
+        return kInvalidPage;
+    }
     clear_bit(o, block);
     uint64_t page = block << o;
 

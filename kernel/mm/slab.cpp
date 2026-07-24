@@ -264,13 +264,11 @@ void SlabAllocator::free_locked(void* ptr) {
 
 void* SlabAllocator::alloc(size_t size) {
     auto g = lock_.irq_guard();
-    (void)g;
     return alloc_locked(size);
 }
 
 void SlabAllocator::free(void* ptr) {
     auto g = lock_.irq_guard();
-    (void)g;
     free_locked(ptr);
 }
 
@@ -308,7 +306,6 @@ void* SlabAllocator::cache_alloc(SlabCache* cache) {
         return nullptr;
     }
     auto g = lock_.irq_guard();
-    (void)g;
     void* obj = cache_alloc_locked(*cache);
     if (obj != nullptr && cache->ctor != nullptr) {
         cache->ctor(obj);
@@ -324,7 +321,6 @@ void SlabAllocator::cache_free(SlabCache* cache, void* obj) {
         cache->dtor(obj);
     }
     auto g = lock_.irq_guard();
-    (void)g;
     free_locked(obj);  // the slab page header records the owning cache
 }
 

@@ -47,6 +47,7 @@ namespace {
 constexpr uint64_t kCloneVm            = 0x00000100;
 constexpr uint64_t kCloneFiles         = 0x00000400;
 constexpr uint64_t kCloneSighand       = 0x00000800;
+constexpr uint64_t kCloneVfork         = 0x00004000;
 constexpr uint64_t kCloneThread        = 0x00010000;
 constexpr uint64_t kCloneSettls        = 0x00080000;
 constexpr uint64_t kCloneChildCleartid = 0x00200000;
@@ -216,6 +217,22 @@ void test_clone_thread_is_sibling() {
     quarantine_child(child_pid);
 }
 
+void test_clone_vfork_blocks_parent() {
+    TmpCurrent                   cur;
+    Scheduler::NoRescheduleGuard no_resched;
+    InterruptGuard               ig;
+
+    int child_pid = clone(kCloneVm | kCloneVfork, 0x40000000ULL, 0, 0, 0);
+
+    TEST_ASSERT_GT(child_pid, 0);
+    Task* child = signal_find_task_by_pid(child_pid);
+    TEST_ASSERT_NOT_NULL(child);
+    TEST_ASSERT_EQ(static_cast<int>(cur.tmp.state), static_cast<int>(TaskState::Blocked));
+    TEST_ASSERT_EQ(child->vfork_parent, &cur.tmp);
+    cur.tmp.state = TaskState::Running;
+    quarantine_child(child_pid);
+}
+
 }  // namespace test_clone_thread_group
 
 namespace test_clone_tid_tls {
@@ -233,12 +250,12 @@ void test_settls_sets_fs_base() {
 }
 
 void test_child_cleartid_settid_recorded() {
-    TmpCurrent     cur;
-    InterruptGuard ig;
+    TmpCurrent            cur;
+    InterruptGuard        ig;
     cinux::test::UserPage page(kCloneUserPage);
     TEST_ASSERT_TRUE(page.ok());
     uint64_t ctid = page.addr();
-    int            child_pid =
+    int      child_pid =
         clone(kCloneVm | kCloneThread | kCloneChildCleartid | kCloneChildSettid, 0, 0, ctid, 0);
     TEST_ASSERT_GT(child_pid, 0);
     int stored_tid = 0;
@@ -313,6 +330,7 @@ extern "C" void run_clone_tests() {
 
     RUN_TEST(test_clone_thread_group::test_new_process_is_own_group_leader);
     RUN_TEST(test_clone_thread_group::test_clone_thread_is_sibling);
+    RUN_TEST(test_clone_thread_group::test_clone_vfork_blocks_parent);
 
     RUN_TEST(test_clone_tid_tls::test_settls_sets_fs_base);
     RUN_TEST(test_clone_tid_tls::test_child_cleartid_settid_recorded);

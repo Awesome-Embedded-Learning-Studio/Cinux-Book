@@ -86,6 +86,16 @@ void copy_page_table_level(uint64_t src_phys, uint64_t dst_phys, int level,
         } else {
             uint64_t entry_flags = src_table[i].raw & FLAG_MASK;
 
+            // F-GUI-USERSPACE batch 1: device (IoPhys) pages -- identified by
+            // FLAG_PCD, which only uncached device mappings carry -- are shared
+            // verbatim: NO CoW (writing the framebuffer must hit the real fb,
+            // not a private RAM copy) and NO pte_count (device memory is not
+            // PMM-managed, so there is nothing to bump and nothing to free).
+            if (entry_flags & FLAG_PCD) {
+                dst_table[i].raw = src_table[i].raw;
+                continue;
+            }
+
             dst_table[i].raw = src_table[i].raw;
             // Q4b-2 (DEBT-003): both PTEs now point at the same physical page
             // (writable-CoW or read-only-shared). Bump its pte_count so a later
@@ -159,7 +169,7 @@ void prepare_user_fork_context(Task* child, uint64_t parent_kernel_stack_top) {
 
 void prepare_kernel_fork_context(Task* child, uint64_t parent_stack_start,
                                  uint64_t parent_stack_top, uint64_t child_stack_start,
-                                 uint64_t parent_frame_base,
+                                 uint64_t                    parent_frame_base,
                                  const KernelForkCalleeRegs& caller_regs) {
     // ctx.rsp -> the fork/clone return-address slot (frame_base + 8) in the
     // copied stack; fork_child_trampoline does `xor rax,rax; ret`, so the child
@@ -212,7 +222,7 @@ void prepare_kernel_fork_context(Task* child, uint64_t parent_stack_start,
 
 __attribute__((noinline)) int fork(PidAllocator& pid_alloc) {
     KernelForkCalleeRegs caller_regs = capture_kernel_fork_callee_regs();
-    auto* parent = Scheduler::current();
+    auto*                parent      = Scheduler::current();
     if (parent == nullptr) {
         cinux::lib::kprintf("[PROC] fork: no current task\n");
         return -1;
@@ -244,6 +254,7 @@ __attribute__((noinline)) int fork(PidAllocator& pid_alloc) {
     child->cwd         = SharedCwd::create_copy(parent->cwd);
     child->fd_table    = nullptr;  // detached; rebuilt fresh below
     child->sig_pending = 0;
+    child->sig_forced  = 0;  // force tags are per-task; a child never inherits them
     if (child->sig_actions == nullptr || child->cwd == nullptr) {
         cinux::lib::kprintf("[PROC] fork: shared-state copy failed\n");
         delete child;
@@ -269,8 +280,14 @@ __attribute__((noinline)) int fork(PidAllocator& pid_alloc) {
     // violates the guard's invariant.  See [[smp-migration-context-race]].
     child->on_cpu          = -1;
     child->parent          = parent;
+    child->vfork_parent    = nullptr;
     child->children        = nullptr;
     child->exit_status     = 0;
+    // The child is a brand-new task -- never on a wait queue.  The memcpy may
+    // have inherited the parent's wait_queue_head (non-null if the parent was
+    // itself mid-block, which it is not here, but defensively clear it so a
+    // later signal_send never wakes a phantom queue).  (EINTR support.)
+    child->wait_queue_head = nullptr;
 
     // F3-M3 batch 1: derive process-group / session membership.  memcpy
     // already copied the parent's pgid/sid/session_leader, but we re-derive
@@ -408,13 +425,14 @@ __attribute__((noinline)) int fork(PidAllocator& pid_alloc) {
         // shared by pointer; their contents are demand-read in M4 (Page Cache).
         for (cinux::mm::VMA* v = parent->addr_space->vmas().first(); v != nullptr;
              v                 = parent->addr_space->vmas().next(v)) {
-            (void)child->addr_space->vmas().insert(v->start, v->end, v->flags);
-            if (v->backing != nullptr) {
-                cinux::mm::VMA* cv = child->addr_space->vmas().find(v->start);
-                if (cv != nullptr) {
-                    cv->backing     = v->backing;
-                    cv->file_offset = v->file_offset;
-                }
+            static_cast<void>(child->addr_space->vmas().insert(v->start, v->end, v->flags));
+            cinux::mm::VMA* cv = child->addr_space->vmas().find(v->start);
+            if (cv != nullptr) {
+                cv->backing     = v->backing;  // null for anonymous / IoPhys
+                cv->file_offset = v->file_offset;
+                // F-GUI-USERSPACE batch 1: carry the device physical base so the
+                // child's IoPhys VMA faults on the same device memory.
+                cv->phys_base   = v->phys_base;
             }
         }
     }
@@ -445,9 +463,6 @@ __attribute__((noinline)) int fork(PidAllocator& pid_alloc) {
     }
 
     Scheduler::add_task(child);
-
-    cinux::lib::kprintf("[PROC] fork: created child pid=%d tid=%lu parent_pid=%d\n", child->pid,
-                        child->tid, parent->pid);
 
     return child_pid;
 }

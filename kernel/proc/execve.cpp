@@ -17,8 +17,8 @@
 #include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
 #include "kernel/arch/x86_64/usermode.hpp"  // F9 batch 1: USER_SIGRETURN_PAGE
-#include "kernel/fs/inode_ref.hpp"  // InodeRef: RAII over the lookup ref
-#include "kernel/fs/vfs_lookup.hpp"  // F-USABILITY batch 1c: symlink-following lookup
+#include "kernel/fs/inode_ref.hpp"          // InodeRef: RAII over the lookup ref
+#include "kernel/fs/vfs_lookup.hpp"         // F-USABILITY batch 1c: symlink-following lookup
 #include "kernel/lib/aslr.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/pmm.hpp"
@@ -151,12 +151,10 @@ void clear_user_mappings(cinux::mm::AddressSpace& space) {
 // execve implementation
 // ============================================================
 
-ExecveResult execve(const char* path, const char* const argv[], const char* const envp[],
-                    ElfAuxInfo* aux_out) {
+ExecveResult execve(const char* path, [[maybe_unused]] const char* const argv[],
+                    [[maybe_unused]] const char* const envp[], ElfAuxInfo* aux_out) {
     using namespace cinux::arch;
 
-    (void)argv;
-    (void)envp;
 
     if (path == nullptr || path[0] == '\0') {
         cinux::lib::kprintf("[EXECVE] invalid path\n");
@@ -178,7 +176,8 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
     // /bin/busybox), replacing the open-coded vfs_resolve + fs->lookup that
     // stopped at the link and failed with "not a regular file".
     const char* cwd = (task->cwd != nullptr) ? task->cwd->path : "/";
-    auto        lr  = cinux::fs::vfs_lookup(path, static_cast<uint32_t>(cinux::fs::LookupFlag::Follow), cwd);
+    auto        lr =
+        cinux::fs::vfs_lookup(path, static_cast<uint32_t>(cinux::fs::LookupFlag::Follow), cwd);
     if (!lr.ok()) {
         cinux::lib::kprintf("[EXECVE] lookup failed: %s\n", path);
         return ExecveResult::FileNotFound;
@@ -233,19 +232,40 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
         return ExecveResult::ReadFailed;
     }
 
-    clear_user_mappings(*task->addr_space);
-    // F10 shell-launch: execve replaces the image, so discard any VMA records
-    // inherited from fork (a fresh AddressSpace has none; a forked child has the
-    // parent's).  Without this the new PT_LOAD insert collides with the stale
-    // set and "VMA record failed" aborts the load.
-    task->addr_space->vmas().clear();
+    if (task->vfork_parent != nullptr) {
+        auto* new_space = new cinux::mm::AddressSpace();
+        if (new_space == nullptr) {
+            cinux::lib::kprintf("[EXECVE] vfork address-space allocation failed\n");
+            return ExecveResult::MapFailed;
+        }
+        auto* old_space  = task->addr_space;
+        task->addr_space = new_space;
+        if (old_space != nullptr && old_space->release()) {
+            delete old_space;
+        }
+        task->addr_space->activate();
+    } else {
+        clear_user_mappings(*task->addr_space);
+        // F10 shell-launch: execve replaces the image, so discard any VMA records
+        // inherited from fork (a fresh AddressSpace has none; a forked child has the
+        // parent's).  Without this the new PT_LOAD insert collides with the stale
+        // set and "VMA record failed" aborts the load.
+        task->addr_space->vmas().clear();
+    }
 
-    // Map the main program's PT_LOAD segments (base 0: non-PIE p_vaddr is the
-    // absolute load address). load_elf_image is shared with the interpreter
-    // path below; it returns the phdr VA, brk end, and entry for this image.
+    // Choose the main program's load base. ET_EXEC (non-PIE) p_vaddr is an
+    // absolute address, so base 0 honours it verbatim. ET_DYN (PIE) p_vaddr is
+    // base-relative, so we pick USER_EXEC_BASE plus a small page-aligned ASLR
+    // offset -- the main-program counterpart of the interpreter's fixed
+    // USER_INTERP_BASE. load_elf_image adds base to each p_vaddr and returns
+    // the phdr VA, brk end, and entry for this image.
+    const uint64_t main_base =
+        (ehdr->e_type == elf::ET_DYN)
+            ? (cinux::arch::USER_EXEC_BASE + cinux::lib::aslr_exec_base_offset())
+            : 0;
     LoadedImage  main_img{};
     ExecveResult load_res =
-        load_elf_image(*task->addr_space, inode.get(), ehdr, phdrs, phnum, /*base=*/0, main_img);
+        load_elf_image(*task->addr_space, inode.get(), ehdr, phdrs, phnum, main_base, main_img);
     if (load_res != ExecveResult::Ok) {
         delete[] phdrs;
         return load_res;
@@ -279,6 +299,19 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
         break;
     }
 
+    // F4-B0: scan PT_GNU_STACK to decide whether the user stack may be executable.
+    // glibc-built ELFs carry PT_GNU_STACK=RW (NX stack, the glibc default); only
+    // legacy RWX marks request an executable stack. Absence -> NX (modern default;
+    // Linux defaults to X only for ABI-legacy binaries Cinux does not host).
+    constexpr uint32_t kPtGnuStack      = 0x6474e551;
+    bool               stack_executable = false;
+    for (uint16_t i = 0; i < phnum; i++) {
+        if (phdrs[i].p_type == kPtGnuStack && (phdrs[i].p_flags & elf::PF_X)) {
+            stack_executable = true;
+            break;
+        }
+    }
+
     delete[] phdrs;
 
     if (!main_img.has_load) {
@@ -286,26 +319,32 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
         return ExecveResult::NoLoadSegments;
     }
 
-    // F2-M3: initialise the user heap.  brk starts at the page-aligned end of
-    // the ELF image; the Heap VMA spans [brk_initial, USER_BRK_MAX) so demand
+    // F2-M3: initialise the user heap. brk starts at the page-aligned end of
+    // the ELF image; the Heap VMA spans [brk_initial, brk_max) so demand
     // paging services heap growth without further bookkeeping.
     //
     // F9 batch 8 (ASLR): add a page-aligned random gap above the image so the
-    // heap start moves per-exec. Clamped to stay under USER_BRK_MAX with real
-    // heap room left (our ~4 MB image never trips the clamp).
-    uint64_t brk_start = (main_img.max_seg_end + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-    uint64_t brk_gap   = cinux::lib::aslr_brk_offset();
-    if (brk_start + brk_gap >= cinux::arch::USER_BRK_MAX) {
+    // heap start moves per-exec. PIE batch 1: brk_max follows the image. A
+    // low-loaded main (ET_EXEC, main_base 0) keeps USER_BRK_MAX as the ceiling
+    // (the gap below the interpreter at USER_INTERP_BASE = 256 MB); a high-
+    // loaded PIE main (main_base >= USER_EXEC_BASE) cannot reach USER_BRK_MAX,
+    // so its heap runs up to the mmap region instead. Without this, a PIE
+    // image ending above USER_BRK_MAX makes [brk_initial, USER_BRK_MAX) an
+    // inverted range and the VMA record fails.
+    const uint64_t brk_max   = (main_base < cinux::arch::USER_INTERP_BASE)
+                                   ? cinux::arch::USER_BRK_MAX
+                                   : cinux::arch::USER_MMAP_BASE;
+    uint64_t       brk_start = (main_img.max_seg_end + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    uint64_t       brk_gap   = cinux::lib::aslr_brk_offset();
+    if (brk_start + brk_gap >= brk_max) {
         brk_gap = 0;
     }
     task->brk_initial = brk_start + brk_gap;
     task->brk_current = task->brk_initial;
-    task->brk_max     = cinux::arch::USER_BRK_MAX;
+    task->brk_max     = brk_max;
     constexpr cinux::mm::VmaFlags kHeapVma =
         cinux::mm::VmaFlags::Read | cinux::mm::VmaFlags::Write | cinux::mm::VmaFlags::Heap;
-    if (!task->addr_space->vmas()
-             .insert(task->brk_initial, cinux::arch::USER_BRK_MAX, kHeapVma)
-             .ok()) {
+    if (!task->addr_space->vmas().insert(task->brk_initial, task->brk_max, kHeapVma).ok()) {
         cinux::lib::kprintf("[EXECVE] heap VMA record failed\n");
         return ExecveResult::MapFailed;
     }
@@ -316,7 +355,12 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
     // main entry). A static executable (no PT_INTERP) enters the main entry
     // directly, unchanged from before.
     uint64_t interp_base = 0;
-    uint64_t entry_va    = ehdr->e_entry;  // static default
+    // Static default: enter the main program directly. For ET_EXEC the entry is
+    // absolute (main_base == 0); for a static-PIE ET_DYN it is base-relative,
+    // so add main_base here too. A dynamic executable overrides entry_va below
+    // with the interpreter's entry (the ldso relocates main, then jumps to
+    // AT_ENTRY).
+    uint64_t entry_va    = main_base + ehdr->e_entry;
     if (has_interp) {
         ExecveResult ir = load_interpreter(*task->addr_space, interp_path, interp_base, entry_va);
         if (ir != ExecveResult::Ok) {
@@ -352,17 +396,22 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
     }
 
     if (aux_out != nullptr) {
-        aux_out->at_phdr    = main_img.phdr_va;
-        aux_out->at_phnum   = ehdr->e_phnum;
-        aux_out->at_phent   = sizeof(elf::Elf64_Phdr);
-        aux_out->at_entry   = ehdr->e_entry;  // ldso jumps here after relocating
-        aux_out->at_base    = interp_base;    // interpreter load base (0 if static)
-        aux_out->has_interp = has_interp;
+        aux_out->at_phdr          = main_img.phdr_va;
+        aux_out->at_phnum         = ehdr->e_phnum;
+        aux_out->at_phent         = sizeof(elf::Elf64_Phdr);
+        // AT_ENTRY is the main program's real entry VA. ET_DYN entries are
+        // base-relative, so add main_base; for ET_EXEC main_base is 0 (no-op).
+        // The ldso relocates the main image then jumps here.
+        aux_out->at_entry         = main_base + ehdr->e_entry;
+        aux_out->at_base          = interp_base;  // interpreter load base (0 if static)
+        aux_out->has_interp       = has_interp;
+        aux_out->stack_executable = stack_executable;  // F4-B0: PT_GNU_STACK PF_X
     }
 
-    cinux::lib::kprintf("[EXECVE] loaded %s entry=%p%s pid=%d\n", path,
-                        reinterpret_cast<void*>(entry_va), has_interp ? " (dynamic)" : "",
-                        task->pid);
+    if (task->vfork_parent != nullptr) {
+        Scheduler::unblock(task->vfork_parent);
+        task->vfork_parent = nullptr;
+    }
 
     return ExecveResult::Ok;
 }

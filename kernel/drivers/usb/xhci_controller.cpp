@@ -291,14 +291,22 @@ void XHCIController::poll_events() {
             }
         }
     }
-    // Advance ERDP to the current dequeue pointer (acknowledges processed events
-    // to the controller; the 16-byte-aligned ptr clears EHB).
+    // Acknowledge the event-ring interrupt so the HC will re-assert MSI-X on
+    // the next event.  Order matches Linux xhci-ring.c: USBSTS.EINT, then
+    // IMAN.IP, then advance ERDP with EHB set.
+    //
+    // CRITICAL: ERDP bit 3 (EHB = Event Handler Busy) is RW1C -- writing 1
+    // clears it.  Writing the dequeue pointer alone leaves bit 3 == 0, which
+    // does NOT clear EHB; the interrupter stays busy and the HC stops raising
+    // MSI-X after the first event (the "fires once, then never again"
+    // symptom).  The old comment claiming alignment clears EHB was wrong.
+    op_regs_->usbsts = Usbsts::kEventInterrupt;      // W1C: ack controller-level EINT
+    ir0_->iman       = ir0_->iman | Iman::kPending;  // W1C: ack interrupter-0 IP
     const uint64_t erdp =
         event_ring_buf_.phys() + static_cast<uint64_t>(event_ring_.dequeue_index()) * 16;
-    ir0_->erdp_lo = static_cast<uint32_t>(erdp);
-    ir0_->erdp_hi = static_cast<uint32_t>(erdp >> 32);
-    // Clear IMAN.IP (write-1-to-clear).
-    ir0_->iman    = ir0_->iman | Iman::kPending;
+    const uint64_t erdp_ack = erdp | Erdp::kEventHandlerBusy;  // RW1C: clear EHB
+    ir0_->erdp_lo           = static_cast<uint32_t>(erdp_ack);
+    ir0_->erdp_hi           = static_cast<uint32_t>(erdp_ack >> 32);
 }
 
 cinux::lib::ErrorOr<Trb> XHCIController::run_command(uint64_t parameter, uint32_t status,

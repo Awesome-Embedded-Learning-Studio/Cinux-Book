@@ -159,7 +159,7 @@ extern "C" void irq_init() {
 
     for (const auto& route : k_irq_routes) {
         g_idt.set_handler(static_cast<ExceptionVector>(route.vector), route.stub, GDT_KERNEL_CODE,
-                          kIRQAttr, 0);
+                          kIRQAttr, 2);
     }
 
     // Reschedule IPI (F4-M4 M4-2, vector 0xE0).  Registered into the shared IDT
@@ -167,14 +167,21 @@ extern "C" void irq_init() {
     // AP's idle loop does the actual reschedule.  Dormant on a single-core
     // system (wake_idle_ap never sends it).
     g_idt.set_handler(static_cast<ExceptionVector>(cinux::arch::kRescheduleIpiVector),
-                      reschedule_ipi_stub, GDT_KERNEL_CODE, kIRQAttr, 0);
+                      reschedule_ipi_stub, GDT_KERNEL_CODE, kIRQAttr, 2);
+
+    // TLB shootdown IPI (B3 defect C, vector 0xE1).  Registered into the shared
+    // IDT so any CPU can take it; the handler (tlb.cpp) invlpg's + decrements
+    // acks_remaining, and the ISR_IRQ stub EOIs.  Dormant until stage 2 wires
+    // handle_cow_fault -> tlb_shootdown_page (the mechanism test fires it first).
+    g_idt.set_handler(static_cast<ExceptionVector>(cinux::arch::kShootdownIpiVector),
+                      shootdown_ipi_stub, GDT_KERNEL_CODE, kIRQAttr, 2);
 
     // xHCI event-ring MSI-X interrupt (F5-M5 Batch 0C, vector kXhciIrqVector).
     // Registered at boot so the shared IDT has the entry before APs start.  The
     // handler is a no-op+counter until Batch 2C wires the controller, and MSI-X
     // is not programmed until then, so it never fires prematurely.
     g_idt.set_handler(static_cast<ExceptionVector>(cinux::drivers::usb::kXhciIrqVector),
-                      xhci_irq_stub, GDT_KERNEL_CODE, kIRQAttr, 0);
+                      xhci_irq_stub, GDT_KERNEL_CODE, kIRQAttr, 2);
 
     // NVMe MSI-X interrupt (F5-M3 batch 4, vector kNvmeIrqVector=0x41). Registered
     // at boot so the shared IDT has the entry before APs start; MSI-X is not
@@ -205,7 +212,7 @@ extern "C" void irq_init() {
     // shared IDT so APs can take it; the BSP is preempted by the PIT and never
     // arms its LAPIC timer, so this stays dormant there.  See ap_main().
     g_idt.set_handler(static_cast<ExceptionVector>(cinux::arch::kLapicTimerVector),
-                      lapic_timer_stub, GDT_KERNEL_CODE, kIRQAttr, 0);
+                      lapic_timer_stub, GDT_KERNEL_CODE, kIRQAttr, 2);
 
     kprintf("[IRQ] All IRQ handlers registered.\n");
 }

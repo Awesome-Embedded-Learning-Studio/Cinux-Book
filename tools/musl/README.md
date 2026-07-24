@@ -1,7 +1,7 @@
-# CinuxOS musl tooling (F10-M1)
+# Cinux musl tooling (F10-M1)
 
 Build a self-contained **musl** sysroot and static user programs targeting the
-CinuxOS (Linux x86_64 ABI) user runtime. CinuxOS does **not** ship its own libc
+Cinux (Linux x86_64 ABI) user runtime. Cinux does **not** ship its own libc
 — musl is the libc. These scripts build it from source and compile programs
 against it.
 
@@ -16,7 +16,7 @@ tools/musl/build-hello.sh
 
 # 3. Sanity-run on the host Linux (same ABI; proves the libc works)
 ./build/musl/hello
-# -> Hello from musl on CinuxOS!
+# -> Hello from musl on Cinux!
 ```
 
 Output: `build/musl-sysroot/` (sysroot: `lib/libc.a`, `lib/crt1.o`,

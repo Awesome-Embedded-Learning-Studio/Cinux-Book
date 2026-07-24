@@ -2,7 +2,7 @@
  * @file kernel/syscall/sys_reboot.hpp
  * @brief sys_reboot handler (B3b busybox-init)
  *
- * Linux reboot(2) powers off / restarts / halts the system.  CinuxOS does not
+ * Linux reboot(2) powers off / restarts / halts the system.  Cinux does not
  * implement reboot -- it is a hobby OS that exits via isa-debug-exit, not
  * reboot.  busybox init probes reboot during startup; returning -EPERM (not
  * permitted even for root) lets init continue without depending on it.

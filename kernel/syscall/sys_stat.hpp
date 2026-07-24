@@ -41,10 +41,18 @@ int64_t sys_fstat(uint64_t fd, uint64_t st_virt, uint64_t, uint64_t, uint64_t, u
  *
  * musl's stat()/fstat()/lstat() all route through newfstatat.  AT_FDCWD
  * resolves cwd-relative (the common case); AT_EMPTY_PATH stats @p dirfd
- * itself.  Symlink-following is implicit -- CinuxOS has no symlink support.
+ * itself.  AT_SYMLINK_NOFOLLOW selects lstat semantics (do not follow).
  */
 int64_t sys_newfstatat(uint64_t dirfd, uint64_t path_virt, uint64_t st_virt, uint64_t flags,
                        uint64_t, uint64_t);
+
+/**
+ * @brief lstat(2) -- stat without following a trailing symlink
+ *
+ * Equivalent to sys_stat except the path is resolved NoFollow, so a symlink
+ * at the tail reports its own metadata, not the target's.
+ */
+int64_t sys_lstat(uint64_t path_virt, uint64_t st_virt, uint64_t, uint64_t, uint64_t, uint64_t);
 
 // ============================================================
 // P0a (SMAP): pure kernel-to-kernel stat logic (no user memory).
@@ -52,8 +60,9 @@ int64_t sys_newfstatat(uint64_t dirfd, uint64_t path_virt, uint64_t st_virt, uin
 // ============================================================
 
 /// Stat a resolved path (already canonicalised, e.g. from path_resolve) into a
-/// kernel stat buffer. Returns 0 or -errno.
-int64_t do_stat_kernel(const char* resolved_path, cinux::fs::stat* kst);
+/// kernel stat buffer.  When @p follow is false (lstat semantics) a trailing
+/// symlink is not followed.  Returns 0 or -errno.
+int64_t do_stat_kernel(const char* resolved_path, cinux::fs::stat* kst, bool follow = true);
 
 /// Stat an open fd into a kernel stat buffer. Returns 0 or -errno.
 int64_t do_fstat_kernel(int fd, cinux::fs::stat* kst);

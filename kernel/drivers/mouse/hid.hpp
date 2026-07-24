@@ -15,6 +15,7 @@
 
 #include <stdint.h>
 
+#include "kernel/drivers/usb/hid_boot.hpp"
 #include "kernel/drivers/usb/usb_descriptor.hpp"
 
 namespace cinux::drivers::usb {
@@ -73,59 +74,10 @@ constexpr TabletReport decode_tablet(const uint8_t* r) {
 // Configuration-descriptor walk -> HID boot mouse interrupt-IN endpoint
 // ============================================================
 
-/// The interrupt-IN endpoint of an enumerated HID boot mouse.
-struct BootMouseEp {
-    uint8_t  interface_number;  ///< HID interface (for SET_PROTOCOL wIndex)
-    uint8_t  ep_number;         ///< endpoint number (low nibble of bEndpointAddress)
-    uint16_t max_packet_size;   ///< wMaxPacketSize (boot mouse interrupt = 8)
-    uint8_t  interval;          ///< bInterval (poll period)
-};
-
-/// Walk a GET_DESCRIPTOR(Configuration) blob to find the HID boot-mouse
-/// interface (class 0x03 / subclass 0x01 / protocol 0x02) and its interrupt-IN
-/// endpoint.  Descriptors are length-prefixed (bLength at byte 0).  Returns true
-/// and fills @p out on success.  Pure (host-testable).
-inline bool find_boot_mouse(const uint8_t* desc, uint32_t len, BootMouseEp& out) {
-    uint32_t pos             = 0;
-    bool     in_mouse_iface  = false;
-    uint8_t  mouse_iface_num = 0;
-    while (pos + 2 <= len) {
-        const uint8_t dlen  = desc[pos];
-        const uint8_t dtype = desc[pos + 1];
-        if (dlen < 2) {
-            break;  // malformed -- stop
-        }
-
-        if (dtype == UsbDescType::kInterface && dlen >= 9 && pos + 9 <= len) {
-            // UsbInterfaceDescriptor: [5]=class [6]=subclass [7]=protocol [2]=ifNumber
-            const uint8_t ifclass    = desc[pos + 5];
-            const uint8_t ifsubclass = desc[pos + 6];
-            const uint8_t ifproto    = desc[pos + 7];
-            in_mouse_iface =
-                (ifclass == UsbHid::kInterfaceClass && ifsubclass == UsbHid::kBootSubclass &&
-                 ifproto == UsbHid::kBootProtoMouse);
-            mouse_iface_num = desc[pos + 2];
-        } else if (dtype == UsbDescType::kEndpoint && dlen >= 7 && pos + 7 <= len) {
-            if (in_mouse_iface) {
-                // UsbEndpointDescriptor: [2]=addr [3]=attrs [4,5]=maxpacket [6]=interval
-                const uint8_t ep_addr = desc[pos + 2];
-                const uint8_t ep_attr = desc[pos + 3];
-                const bool    ep_in   = (ep_addr & 0x80) != 0;
-                const uint8_t ep_xfer = ep_attr & 0x03;
-                if (ep_in && ep_xfer == UsbXfer::kInterrupt) {
-                    out.interface_number = mouse_iface_num;
-                    out.ep_number        = ep_addr & 0x0F;
-                    out.max_packet_size  = static_cast<uint16_t>(desc[pos + 4]) |
-                                           (static_cast<uint16_t>(desc[pos + 5]) << 8);
-                    out.interval         = desc[pos + 6];
-                    return true;
-                }
-            }
-        }
-
-        pos += dlen;
-    }
-    return false;
-}
+/// HID boot-mouse endpoint.  Same on-wire shape as every boot HID endpoint; the
+/// struct + the config-descriptor walk live in kernel/drivers/usb/hid_boot.hpp
+/// (BootHidEp + find_boot_hid, parameterised by protocol, shared with keyboard).
+/// Alias kept so mouse-subsystem call sites read as "mouse".
+using BootMouseEp = BootHidEp;
 
 }  // namespace cinux::drivers::usb

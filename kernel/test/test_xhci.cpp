@@ -250,7 +250,7 @@ void test_hid_mouse() {
             continue;
         }
         BootMouseEp mep{};
-        if (!find_boot_mouse(slot.data_virt(), cfg.value(), mep)) {
+        if (!find_boot_hid(slot.data_virt(), cfg.value(), UsbHid::kBootProtoMouse, mep)) {
             continue;  // not a boot mouse (e.g. the keyboard) -- try the next port
         }
 

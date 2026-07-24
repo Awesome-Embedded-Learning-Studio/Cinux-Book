@@ -3,7 +3,7 @@
  * @brief sys_uname handler declaration (F-ECO busybox sh smoke)
  *
  * Fills a Linux utsname so busybox `uname` / `sh` (prompt hostname) work.
- * Static "CinuxOS" identity -- a real nodename (hostname syscall / /etc/hostname)
+ * Static "Cinux" identity -- a real nodename (hostname syscall / /etc/hostname)
  * is a follow-up.
  *
  * Namespace: cinux::syscall

@@ -16,63 +16,25 @@
  */
 
 #include "kernel/net/tcp_socket.hpp"
+#include "kernel/net/byte_order.hpp"
+#include "kernel/net/wait_queue.hpp"  // shared intrusive wait queue (was 3-way duplicated)
 
 #include <cstdint>
 
 #ifndef CINUX_HOST_TEST
-#    include "kernel/proc/process.hpp"    // Task::wait_next
+#    include "kernel/proc/process.hpp"  // Task + signal_deliverable_pending
 #    include "kernel/proc/scheduler.hpp"  // prepare_to_wait/schedule_blocked/unblock
 #endif
 
 namespace cinux::net {
 
-namespace {
-/// Swap a 16-bit value host<->network (sockaddr_in::port is big-endian).
-constexpr uint16_t byte_swap16(uint16_t v) {
-    return static_cast<uint16_t>((v >> 8) | (v << 8));
-}
-}  // namespace
-
 #ifndef CINUX_HOST_TEST
-namespace {
 using cinux::proc::Scheduler;
 using cinux::proc::Task;
+#endif
 
-void wait_enqueue(Task*& head, Task* t) {
-    t->wait_next = nullptr;
-    if (head == nullptr) {
-        head = t;
-        return;
-    }
-    Task* x = head;
-    while (x->wait_next != nullptr) {
-        x = x->wait_next;
-    }
-    x->wait_next = t;
-}
 
-Task* wait_dequeue(Task*& head) {
-    Task* t = head;
-    if (t != nullptr) {
-        head         = t->wait_next;
-        t->wait_next = nullptr;
-    }
-    return t;
-}
 
-void wake_one(Task*& head) {
-    if (Task* t = wait_dequeue(head)) {
-        Scheduler::unblock(t);
-    }
-}
-
-void wake_all(Task*& head) {
-    while (Task* t = wait_dequeue(head)) {
-        Scheduler::unblock(t);
-    }
-}
-}  // namespace
-#endif  // CINUX_HOST_TEST
 
 TcpSocket::TcpSocket(TcpModule& tcp, Ipv4Module& ipv4, NetStack& stack, DevRoute route)
     : Socket(kAfInet, kSockStream), tcp_(tcp), ipv4_(ipv4), stack_(stack), route_(route) {}
@@ -183,6 +145,15 @@ cinux::lib::ErrorOr<Socket*> TcpSocket::accept(Ipv4Addr* out_remote, uint16_t* o
         if (need_block) {
             Scheduler::schedule_blocked();
         }
+        // EINTR: a signal landed while parked waiting for a peer.  Return the
+        // sentinel (-1 cast to Socket*) so do_accept maps it to -EINTR.  Unlink
+        // under lock_ first so a producer does not wake a stale link.
+        if (Scheduler::current() != nullptr &&
+            signal_deliverable_pending(Scheduler::current())) {
+            auto g = lock_.irq_guard();
+            wait_remove(accept_waiters_, Scheduler::current());
+            return reinterpret_cast<Socket*>(static_cast<uintptr_t>(-1));  // EINTR sentinel
+        }
 #endif
     }
 }
@@ -251,6 +222,15 @@ cinux::lib::ErrorOr<int64_t> TcpSocket::recv(uint8_t* buf, uint32_t len, Ipv4Add
         if (need_block) {
             Scheduler::schedule_blocked();
         }
+        // EINTR: a signal landed while parked.  Return sentinel -1 (a value a
+        // real byte-count can never take) so sys_recvfrom maps it to -EINTR.
+        // Unlink under lock_ first so a producer does not wake a stale link.
+        if (Scheduler::current() != nullptr &&
+            signal_deliverable_pending(Scheduler::current())) {
+            auto g = lock_.irq_guard();
+            wait_remove(recv_waiters_, Scheduler::current());
+            return static_cast<int64_t>(-1);  // sentinel: sys_recvfrom -> -EINTR
+        }
 #endif
     }
 }
@@ -299,12 +279,56 @@ void TcpSocket::close() {
     }
     if (connected_ && !peer_closed_) {
         NetDevice& dev = route_(remote_addr_);
-        (void)tcp_.close(dev, local_port_, remote_addr_, remote_port_, ipv4_, stack_);
+        static_cast<void>(tcp_.close(dev, local_port_, remote_addr_, remote_port_, ipv4_, stack_));
     }
     peer_closed_ = true;
 #ifndef CINUX_HOST_TEST
     wake_all(recv_waiters_);
     wake_all(accept_waiters_);
+#endif
+}
+
+uint32_t TcpSocket::poll_events([[maybe_unused]] cinux::proc::Task* waiter, bool* registered) {
+    auto g = lock_.irq_guard();
+    if (registered != nullptr) {
+        *registered = (waiter != nullptr);
+    }
+    uint32_t mask = 0;
+    if (listening_) {
+        // Server: readable when a completed connection is pending accept().
+        if (accept_count_ > 0) {
+            mask |= cinux::fs::kPollIn;
+        }
+#ifndef CINUX_HOST_TEST
+        if (waiter != nullptr) {
+            wait_enqueue(accept_waiters_, waiter);
+        }
+    } else if (connected_) {
+        // Client: readable while bytes are buffered; POLLHUP once the peer closes.
+        if (rx_.size() > 0) {
+            mask |= cinux::fs::kPollIn;
+        }
+        if (peer_closed_) {
+            mask |= cinux::fs::kPollHup;
+        }
+        mask |= cinux::fs::kPollOut;  // connected -> writable
+        if (waiter != nullptr) {
+            wait_enqueue(recv_waiters_, waiter);
+        }
+    }
+#else
+#endif
+    return mask;
+}
+
+void TcpSocket::poll_detach_waiter([[maybe_unused]] cinux::proc::Task* waiter) {
+#ifndef CINUX_HOST_TEST
+    auto g = lock_.irq_guard();
+    // A poller parks on at most one of the two queues (per listening/connected
+    // state); removing from both is a harmless no-op on the empty one.
+    wait_remove(recv_waiters_, waiter);
+    wait_remove(accept_waiters_, waiter);
+#else
 #endif
 }
 

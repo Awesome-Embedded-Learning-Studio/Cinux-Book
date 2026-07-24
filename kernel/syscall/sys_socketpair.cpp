@@ -77,9 +77,9 @@ int64_t do_socketpair_kernel(uint64_t domain, uint64_t type, int* sv_kernel) {
     return 0;
 }
 
-int64_t sys_socketpair(uint64_t domain, uint64_t type, uint64_t protocol, uint64_t sv_virt,
+int64_t sys_socketpair(uint64_t domain, uint64_t type, [[maybe_unused]] uint64_t protocol, uint64_t sv_virt,
                        uint64_t /*unused5*/, uint64_t /*unused6*/) {
-    (void)protocol;  // AF_UNIX ignores protocol (always 0 in practice)
+    // AF_UNIX ignores protocol (always 0 in practice)
     int     sv[2] = {0, 0};
     int64_t rc    = do_socketpair_kernel(domain, type, sv);
     if (rc < 0) {

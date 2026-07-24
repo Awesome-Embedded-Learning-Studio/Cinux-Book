@@ -192,13 +192,11 @@ void PMM::free_page_locked(uint64_t phys) {
 
 uint64_t PMM::alloc_page() {
     auto g = lock_.guard();
-    (void)g;
     return alloc_page_locked();
 }
 
 void PMM::free_page(uint64_t phys) {
     auto g = lock_.guard();
-    (void)g;
     free_page_locked(phys);
 }
 
@@ -221,7 +219,6 @@ uint64_t PMM::alloc_pages(uint64_t count) {
         return 0;
 
     auto g = lock_.guard();
-    (void)g;
     uint64_t page = buddy_.alloc_order(order);
     if (page == BuddyAllocator::kInvalidPage)
         return 0;
@@ -235,10 +232,9 @@ uint64_t PMM::alloc_pages(uint64_t count) {
     return page * PAGE_SIZE;
 }
 
-void PMM::free_pages(uint64_t phys, uint64_t count) {
+void PMM::free_pages(uint64_t phys, [[maybe_unused]] uint64_t count) {
     // The buddy records each head's order authoritatively, so @p count is not
     // needed: freeing the head returns the whole power-of-two block.
-    (void)count;
     free_page(phys);
 }
 

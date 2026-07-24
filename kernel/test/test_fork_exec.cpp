@@ -968,11 +968,14 @@ void test_waitpid_any_zombie() {
     Task* prev = cinux::proc::Scheduler::current();
     cinux::proc::Scheduler::set_current(&tmp);
 
-    int  status = 0;
-    auto result = cinux::proc::waitpid(-1, &status, cinux::proc::kWaitNoHang, local_alloc);
+    int  reaped_pid = 0;
+    int  status     = 0;
+    auto result =
+        cinux::proc::waitpid(-1, &status, cinux::proc::kWaitNoHang, local_alloc, &reaped_pid);
 
     TEST_ASSERT_EQ(static_cast<int>(result), static_cast<int>(cinux::proc::WaitpidResult::Ok));
     TEST_ASSERT_EQ(status, 99);
+    TEST_ASSERT_EQ(reaped_pid, 32);
     // child2 should be unlinked; child1 remains
     TEST_ASSERT_EQ(tmp.children, &child1);
 

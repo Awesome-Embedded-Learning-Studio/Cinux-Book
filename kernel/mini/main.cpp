@@ -65,13 +65,6 @@ extern "C" [[noreturn]] void mini_kernel_main(uint64_t boot_info_addr) {
     init(boot_info);
 
     // ============================================================
-    // Test: #BP breakpoint exception
-    // ============================================================
-    kprintf("\n[TEST] Triggering breakpoint exception (int $3)...\n");
-    __asm__ volatile("int $3");
-    kprintf("[TEST] Breakpoint test passed! Execution continued after #BP.\n\n");
-
-    // ============================================================
     // Initialize ATA Disk Driver
     // ============================================================
     if (!cinux::mini::driver::ata::init()) {

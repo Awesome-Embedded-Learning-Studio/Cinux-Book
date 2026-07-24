@@ -34,6 +34,8 @@
 #include "big_kernel_test.h"
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/ramdisk/ramdisk.hpp"
+#include "kernel/fs/stat.hpp"
+#include "kernel/fs/tmpfs/tmpfs.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/string.hpp"
 #include "kernel/syscall/sys_close.hpp"
@@ -73,6 +75,24 @@ Ramdisk* setup_vfs() {
 void teardown_vfs(Ramdisk* rd) {
     cinux::fs::vfs_mount_remove(MOUNT_PATH);
     delete rd;
+}
+
+cinux::fs::TmpFs* setup_tmpfs_at_tmp() {
+    cinux::fs::vfs_mount_init();
+
+    auto* tfs = new cinux::fs::TmpFs();
+    ASSERT_OK(tfs->mount());
+
+    if (!cinux::fs::vfs_mount_add("/tmp", tfs)) {
+        delete tfs;
+        return nullptr;
+    }
+    return tfs;
+}
+
+void teardown_tmpfs_at_tmp(cinux::fs::TmpFs* tfs) {
+    cinux::fs::vfs_mount_remove("/tmp");
+    delete tfs;
 }
 
 }  // anonymous namespace
@@ -199,6 +219,29 @@ void test_open_no_mount_returns_error() {
 
     int64_t fd = cinux::syscall::do_open_kernel(path, 0);
     TEST_ASSERT_LT(fd, 0);
+}
+
+void test_sys_open_creates_tmpfs_file_with_o_creat() {
+    cinux::fs::TmpFs* tfs = setup_tmpfs_at_tmp();
+    TEST_ASSERT_NOT_NULL(tfs);
+
+    constexpr uint64_t kOWronly = 0x1;
+    constexpr uint64_t kOCreat  = 0x40;
+    constexpr uint64_t kOTrunc  = 0x200;
+    const char*        path     = "/tmp/cc-test.s";
+
+    int64_t fd = cinux::syscall::do_openat_kernel(path, kOWronly | kOCreat | kOTrunc, 0755);
+    TEST_ASSERT_GE(fd, 0);
+    cinux::syscall::sys_close(static_cast<uint64_t>(fd), 0, 0, 0, 0, 0);
+
+    cinux::fs::Inode* inode = lookup_or_null(tfs, "cc-test.s");
+    TEST_ASSERT_NOT_NULL(inode);
+    TEST_ASSERT_EQ(static_cast<int>(inode->type), static_cast<int>(cinux::fs::InodeType::Regular));
+    cinux::fs::stat st;
+    TEST_ASSERT_TRUE(inode->ops->stat(inode, &st).ok());
+    TEST_ASSERT_EQ(st.st_mode, static_cast<uint32_t>(cinux::fs::kTmpfsSIfReg | 0755));
+
+    teardown_tmpfs_at_tmp(tfs);
 }
 
 }  // namespace test_sys_open
@@ -593,6 +636,7 @@ extern "C" void run_vfs_syscall_tests() {
     RUN_TEST(test_sys_open::test_open_empty_path_returns_error);
     RUN_TEST(test_sys_open::test_open_invalid_addr_returns_error);
     RUN_TEST(test_sys_open::test_open_no_mount_returns_error);
+    RUN_TEST(test_sys_open::test_sys_open_creates_tmpfs_file_with_o_creat);
 
     // sys_read
     RUN_TEST(test_sys_read::test_read_returns_correct_data);

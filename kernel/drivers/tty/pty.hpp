@@ -32,6 +32,7 @@
  */
 
 #pragma once
+#include <cinux/ring_buffer.hpp>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -96,10 +97,7 @@ private:
 
     TTY slave_tty_;
 
-    char   master_buf_[kMasterBufSize];
-    size_t master_head_{0};
-    size_t master_tail_{0};
-    bool   master_full_{false};
+    cinux::lib::RingBuffer<char, kMasterBufSize> master_buf_;
 };
 
 }  // namespace cinux::drivers

@@ -73,7 +73,7 @@ inline void extable_sort(ExceptionTableEntry* begin, ExceptionTableEntry* end) {
 
 // Linker-script bounds for the __ex_table section. Mutable because sort_extable
 // reorders entries in place at boot (the section lives in writable .data space;
-// CinuxOS does not post-init read-only the data segment). extern "C" keeps the
+// Cinux does not post-init read-only the data segment). extern "C" keeps the
 // symbol names identical to the linker-script labels (no C++ mangling).
 extern "C" cinux::arch::ExceptionTableEntry __start___ex_table[];
 extern "C" cinux::arch::ExceptionTableEntry __stop___ex_table[];

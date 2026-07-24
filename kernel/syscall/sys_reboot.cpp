@@ -10,7 +10,7 @@
 namespace cinux::syscall {
 
 int64_t sys_reboot(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) {
-    // CinuxOS does not implement reboot (exits via isa-debug-exit, not reboot).
+    // Cinux does not implement reboot (exits via isa-debug-exit, not reboot).
     // -EPERM lets busybox init's startup probe fail gracefully.
     return -cinux::kEperm;
 }

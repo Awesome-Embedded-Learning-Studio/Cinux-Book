@@ -25,7 +25,6 @@ int64_t do_getdents_kernel(int fd, char* kname, uint64_t count) {
         return -cinux::kEbadf;
     }
     auto g = file->offset_lock_.guard();
-    (void)g;
     auto dir_result = file->inode->ops->readdir(file->inode, file->offset, kname, count);
     if (!dir_result.ok()) {
         return -cinux::to_errno(dir_result.error());

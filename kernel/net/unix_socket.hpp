@@ -133,6 +133,12 @@ public:
     bool get_local_addr(SockAddrStorage* out) const override;
     bool get_peer_addr(SockAddrStorage* out) const override;
 
+    // --- F8-M5 poll: listening -> POLLIN on the accept queue; connected ->
+    // POLLIN on the rx ring (+ POLLHUP once the peer signals EOF).  Mirrors
+    // TcpSocket.  Parks on the same wait queue a blocked recv/accept uses.
+    uint32_t poll_events(cinux::proc::Task* waiter, bool* registered) override;
+    void     poll_detach_waiter(cinux::proc::Task* waiter) override;
+
     /// Wire TWO unconnected UnixSockets as each other's peer (socketpair(2)).
     /// Sets connected_ on both ends under each socket's own lock (NEVER both at
     /// once) -- the connect_path peer wiring minus registry/accept-queue.  Public

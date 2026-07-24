@@ -1,5 +1,5 @@
 /*
- * forktest.c -- SMP CoW race reproducer for CinuxOS (F10 follow-up).
+ * forktest.c -- SMP CoW race reproducer for Cinux (F10 follow-up).
  *
  * A musl static user program that forks repeatedly via the raw SYS_fork (57)
  * syscall -- the exact path the shell's launch_program uses.  After each fork
@@ -19,7 +19,7 @@
  * Exit 0 if races==0 && errs==0, else 1.
  *
  * Uses only raw syscalls (write/fork/wait4/yield/exit_group) -- no printf, whose
- * musl stdout-FILE path is a separate known segfault on CinuxOS today.
+ * musl stdout-FILE path is a separate known segfault on Cinux today.
  */
 #include <unistd.h>
 

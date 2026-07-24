@@ -119,6 +119,13 @@ int64_t FileLockManager::flock(Inode* inode, proc::Task* owner, uint32_t operati
             net::wait_enqueue(g_waiters, owner);
         }
         proc::Scheduler::schedule_blocked();
+        // EINTR: a signal landed while parked.  Unlink ourselves under g_lock
+        // (a release would otherwise wake a stale link) and return -EINTR.
+        if (proc::signal_deliverable_pending(owner)) {
+            auto g = g_lock.irq_guard();
+            net::wait_remove(g_waiters, owner);
+            return -kEintr;
+        }
         // Woken (a release woke us) -- loop and re-check the conflict.
     }
 }

@@ -1,15 +1,16 @@
 /**
  * @file kernel/syscall/sys_poll.cpp
- * @brief sys_poll STUB handler (F-ECO busybox sh smoke)
+ * @brief sys_poll handler (F8-M5 real poll)
  *
- * See sys_poll.hpp.  For each pollfd with fd >= 0, set revents = events & POLLIN
- * (report readable).  No waiting -- always returns immediately.  This is enough
- * for busybox `sh`'s poll-then-read input loop: poll says "ready", sh calls
- * read(), which blocks on the console TTY until the user types.  A real poll
- * (blocking, wait-queue driven) is F8-M5.
+ * A thin user-boundary wrapper over do_poll_core(): stage the pollfd array into
+ * a kernel buffer, run the shared blocking engine, stage revents back out.  The
+ * per-fd readiness checks and the prepare_to_wait/schedule_blocked blocking live
+ * in poll_core.cpp (shared with sys_select).
  *
- * The pollfd array crosses the user boundary via copy_to/from_user, staged
- * through a kernel buffer to avoid a large user length on the kernel stack.
+ * The pollfd array is stack-staged (capped at kPollMaxFds entries -- 512 B),
+ * enough for real apps (sh polls stdin; nc/wget poll a socket); a larger nfds is
+ * -EINVAL rather than a heap alloc.  poll(NULL, 0, timeout) is a portable sleep
+ * and is honoured (do_poll_core with an empty set).
  *
  * Namespace: cinux::syscall
  */
@@ -20,44 +21,33 @@
 
 #include "kernel/arch/x86_64/user_access.hpp"  // copy_to/from_user
 #include "kernel/errno.hpp"
+#include "kernel/syscall/poll_core.hpp"  // do_poll_core, kpollfd
 
 namespace cinux::syscall {
 
-namespace {
-constexpr uint16_t kPollin = 0x0001;  ///< POLLIN (data available)
+/// Stack-staged pollfd cap.  Plenty for real apps; a larger nfds is -EINVAL.
+constexpr uint64_t kPollMaxFds = 64;
 
-/// Linux struct pollfd (x86-64): { int fd; short events; short revents; } = 8 B.
-struct kpollfd {
-    int32_t fd;
-    int16_t events;
-    int16_t revents;
-};
-}  // namespace
+int64_t sys_poll(uint64_t fds_virt, uint64_t nfds, uint64_t timeout, uint64_t, uint64_t, uint64_t) {
+    if (nfds > kPollMaxFds) {
+        return -cinux::kEinval;
+    }
+    if (nfds == 0) {
+        // poll(NULL, 0, timeout): a portable sub-second sleep.  No array to copy.
+        return do_poll_core(nullptr, 0, static_cast<int64_t>(timeout));
+    }
+    if (fds_virt == 0) {
+        return -cinux::kEfault;
+    }
 
-int64_t sys_poll(uint64_t fds_virt, uint64_t nfds, uint64_t /*timeout*/, uint64_t, uint64_t,
-                 uint64_t) {
-    if (nfds > 16) {
-        return -cinux::kEinval;  // bounded -- stack-staging cap; plenty for sh's stdin
-    }
-    if (nfds == 0 || fds_virt == 0) {
-        return 0;  // nothing to poll
-    }
-    kpollfd kfds[16];
+    kpollfd kfds[kPollMaxFds];
     if (!cinux::user::copy_from_user(kfds, reinterpret_cast<void*>(fds_virt),
                                      nfds * sizeof(kpollfd))) {
         return -cinux::kEfault;
     }
-    int64_t ready = 0;
-    for (uint64_t i = 0; i < nfds; ++i) {
-        if (kfds[i].fd < 0) {
-            kfds[i].revents = 0;  // fd < 0 -> ignored, revents untouched (Linux)
-            continue;
-        }
-        // STUB: always report POLLIN if the caller asked for it.  read() on the
-        // console TTY then blocks until real input, so no spin.
-        kfds[i].revents = static_cast<int16_t>(kfds[i].events & kPollin);
-        ++ready;
-    }
+
+    int64_t ready = do_poll_core(kfds, nfds, static_cast<int64_t>(timeout));
+
     if (!cinux::user::copy_to_user(reinterpret_cast<void*>(fds_virt), kfds,
                                    nfds * sizeof(kpollfd))) {
         return -cinux::kEfault;

@@ -10,8 +10,8 @@
  */
 
 #include "kernel/arch/x86_64/smp.hpp"  // arch::wake_idle_ap (unblock)
-#include "kernel/lib/kprintf.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/signal.hpp"  // signal_deliverable_pending (TASK_INTERRUPTIBLE)
 
 namespace cinux::proc {
 
@@ -30,8 +30,11 @@ void Scheduler::block(lib::NotNull<Task*> task, const char* reason) {
         task->sched_class->dequeue(task);
     }
 
-    cinux::lib::kprintf("[SCHED] Task tid=%lu '%s' blocked: %s\n", task->tid, task->name,
-                        reason ? reason : "unknown");
+    // reason is a caller-supplied diagnostic tag (tests pass "mutex"/"test");
+    // the per-block kprintf was removed -- it fired on every wait (a PTY shell
+    // blocks on each read, so each keystroke produced a line), flooding the log
+    // the same way the demand-page kprintf did.
+    (void)reason;
 
     // Context-switch away only when the blocked task is the running one AND a
     // real dispatch loop is active.  Inside a NoRescheduleGuard (in-kernel test
@@ -61,7 +64,6 @@ void Scheduler::unblock(lib::NotNull<Task*> task) {
     }
     task->sched_class->enqueue(task);
 
-    cinux::lib::kprintf("[SCHED] Task tid=%lu '%s' unblocked\n", task->tid, task->name);
     // Wake an idle AP so it can pick up this freshly runnable task (F4-M4 M4-2).
     // No-op on a single-core system.
     arch::wake_idle_ap();
@@ -79,6 +81,26 @@ void Scheduler::prepare_to_wait(lib::NotNull<Task*> task) {
 }
 
 void Scheduler::schedule_blocked() {
+    // TASK_INTERRUPTIBLE for user-facing blocking IO: a task that recorded a
+    // wait-queue head (pipe/socket/poll -- set via net::wait_enqueue / pipe's
+    // enqueue) AND has a deliverable signal pending must NOT sleep.  prepare_to_wait()
+    // already flipped state to Blocked; flip it back to Running and return without
+    // switching, so the wait loop's signal check returns -EINTR, the syscall goes
+    // back to user space, and the next IRQ return (signal_check_deliver_isr) builds
+    // the handler frame.  Without this a signal-woken task re-enters its wait and
+    // re-sleeps with the signal still pending -- the one-shot unblock in queue_signal
+    // already fired, so nothing wakes it again and the handler never runs.  That was
+    // the busybox-ping ^C stuck-on-Blocked bug.
+    //
+    // wait_queue_head == nullptr keeps kernel-internal sleeps (Mutex / Semaphore /
+    // futex / waitpid) uninterruptible, matching Linux's TASK_UNINTERRUPTIBLE for
+    // kernel mutexes -- only user-visible IO waits register a queue head.
+    Task* self = current();
+    if (self != nullptr && no_reschedule_depth_ == 0 && self->wait_queue_head != nullptr &&
+        signal_deliverable_pending(self)) {
+        self->state = TaskState::Running;  // undo prepare_to_wait()'s Blocked flip
+        return;
+    }
     // Wait-path partner of prepare_to_wait(): switch out unless the in-kernel
     // test harness is role-playing (NoRescheduleGuard).  Production (depth == 0)
     // always switches.

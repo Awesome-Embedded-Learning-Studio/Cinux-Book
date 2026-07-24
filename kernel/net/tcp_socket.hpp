@@ -70,6 +70,12 @@ public:
     bool get_local_addr(SockAddrStorage* out) const override;
     bool get_peer_addr(SockAddrStorage* out) const override;
 
+    // --- F8-M5 poll: listening -> POLLIN on the accept queue; connected ->
+    // POLLIN on the rx ring (+ POLLHUP once the peer closes).  Parks on the same
+    // wait queue a blocked recv/accept uses.
+    uint32_t poll_events(cinux::proc::Task* waiter, bool* registered) override;
+    void     poll_detach_waiter(cinux::proc::Task* waiter) override;
+
     // --- TcpListener: the module pushes connection lifecycle + data in here ---
     void on_accept(const TcpEndpoint& local, const TcpEndpoint& remote) override;
     void on_data(const TcpEndpoint& local, const TcpEndpoint& remote, FrameView data) override;

@@ -14,6 +14,7 @@
  */
 
 #pragma once
+#include <cinux/ring_buffer.hpp>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -128,6 +129,12 @@ public:
     /// in ~ICANON).  Returns the count copied; 0 if nothing is ready.
     size_t read_cooked(char* buf, size_t maxlen);
 
+    /// Non-destructive "is data ready to read" for poll/select (F8-M5).  True
+    /// when a committed line / raw bytes are buffered OR an EOF is pending (EOF
+    /// is readable: the app polls, then read returns 0).  Mirrors what
+    /// read_cooked + take_eof would surface, without consuming it.
+    bool has_cooked_data() const;
+
     /// Consume a pending EOF (VEOF/^D on an empty line).  Returns true once per
     /// EOF so the caller (sys_read) can return 0 to the application exactly
     /// once, distinct from "no line yet" (which blocks).
@@ -159,11 +166,9 @@ private:
     char   line_buf_[kLineBufSize];
     size_t line_len_;
 
-    // cooked output ring (committed lines + raw bytes waiting for read_cooked)
-    char   cooked_[kCookedBufSize];
-    size_t cooked_head_;
-    size_t cooked_tail_;
-    bool   cooked_full_;
+    // cooked output ring (committed lines + raw bytes waiting for read_cooked).
+    // RingBuffer encapsulates the head/tail/full bookkeeping (formerly 3 fields).
+    cinux::lib::RingBuffer<char, kCookedBufSize> cooked_;
 
     TtySignal pending_signal_;
     bool      eof_pending_;  ///< VEOF on an empty line -- next read returns 0

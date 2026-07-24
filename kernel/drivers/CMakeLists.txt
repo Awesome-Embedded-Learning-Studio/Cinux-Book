@@ -3,6 +3,11 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/serial/serial.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/keyboard/keyboard.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/video/framebuffer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/video/fb_dev.cpp
+    # F-GUI-USERSPACE batch 2: /dev/event0 userspace input device (mouse + kbd
+    # events via push_event).  Kernel-only -- pulls copy_to_user + scheduler
+    # wait primitives, so it lives here beside fb_dev.cpp (not host-linkable).
+    ${CMAKE_CURRENT_SOURCE_DIR}/input/input_event_device.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/video/font.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/video/font_data.S
     ${CMAKE_CURRENT_SOURCE_DIR}/video/console.cpp
@@ -26,6 +31,7 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/ahci/ahci_block_device.cpp
     # F5-M3: NVMe PCIe SSD controller (batch 1: PCI enumerate + BAR0 map + CAP/VS).
     ${CMAKE_CURRENT_SOURCE_DIR}/nvme/nvme.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/nvme/nvme_io.cpp
     # F5-M3 batch 4c: IBlockDevice adapter over the NVMe namespace.
     ${CMAKE_CURRENT_SOURCE_DIR}/nvme/nvme_block_device.cpp
     # F6-M1 B1b: name -> IBlockDevice registry (sys_mount -t ext2 source resolution).

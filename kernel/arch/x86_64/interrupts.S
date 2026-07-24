@@ -330,10 +330,9 @@
     /* EOI the active back-end (PIC or LAPIC).  \irq is the ISA IRQ number
        (used by PIC EOI; ignored in APIC mode, where lapic.eoi takes no arg).
        MSI-X (0x40) and the reschedule IPI (0xE0) are APIC-only, so their
-       \irq is unused.  (The PIT is NOT an ISR_IRQ stub -- it keeps an early
-       EOI inside its handler so the timer can re-fire across the inline
-       preemption switch; see pit.cpp.  Device IRQs do not preempt, so no
-       deferred-switch is needed here.) */
+       \irq is unused.  (The PIT is NOT an ISR_IRQ stub -- it owns EOI in
+       pit.cpp so Scheduler::tick() can run with irq0 still in service and
+       therefore non-reentrant.) */
     mov $\irq, %edi                   # ISA IRQ for PIC EOI
     call irq_eoi_isr                  # EOI via the active back-end
 
@@ -420,11 +419,9 @@ ISR_NOERRCODE isr_sigreturn_stub, sigreturn_handler
 
 /* Master PIC IRQs -- the 3rd arg is the ISA IRQ number (for PIC EOI; ignored
  * in APIC mode).  The ISR_IRQ stub owns the EOI; the C handlers do not EOI.
- * EXCEPTION: IRQ0 (PIT) uses ISR_NOERRCODE and EOIs early inside its handler
- * (before Scheduler::tick's inline preemption switch) so the timer is free to
- * re-fire and preempt the task we switch to.  Device IRQs do not preempt, so
- * they use ISR_IRQ (stub-owned EOI) and need no early-EOI trick. */
-ISR_NOERRCODE irq0_stub,  pit_irq0_handler      /* IRQ0(0x20): PIT (early EOI in handler) */
+ * EXCEPTION: IRQ0 (PIT) uses ISR_NOERRCODE and EOIs inside its handler after
+ * Scheduler::tick(), keeping the timer non-reentrant during tick work. */
+ISR_NOERRCODE irq0_stub,  pit_irq0_handler      /* IRQ0(0x20): PIT (handler-owned EOI) */
 ISR_IRQ irq1_stub,  keyboard_irq1_handler, 1    /* IRQ1(0x21): Keyboard */
 ISR_IRQ irq2_stub,  irq_default_handler, 2   /* IRQ2(0x22): Cascade */
 ISR_IRQ irq3_stub,  irq_default_handler, 3   /* IRQ3(0x23): COM2 */
@@ -480,15 +477,13 @@ ISR_IRQ virtio_blk_irq_stub, virtio_blk_irq_handler, 0
 ISR_IRQ virtio_net_irq_stub, virtio_net_irq_handler, 0
 
 # ============================================================
-# LAPIC timer (F5-M5 -smp per-CPU preemption)
+# LAPIC timer (F5-M5 -smp per-CPU timer tick)
 # ============================================================
 # Vector 0x30 (kLapicTimerVector), fired by each AP's local APIC timer
-# (programmed in ap_main).  Drives Scheduler::tick() on APs -- the BSP is
-# preempted by the PIT, which the IOAPIC redirects to the BSP only, so APs
-# need their own timer or a spin-waiting task (e.g. shell on stdin) deadlocks
-# the AP.  Uses ISR_NOERRCODE with an EARLY EOI inside the handler, exactly
-# like irq0_stub: the timer must be re-armed (EOI'd) before the inline
-# preemption switch in Scheduler::tick(), or the next tick could be missed.
+# (programmed in ap_main).  Drives Scheduler::tick() on APs -- the BSP gets the
+# PIT, which the IOAPIC redirects to the BSP only.  Uses ISR_NOERRCODE with
+# handler-owned EOI after tick, matching irq0_stub and keeping timer work
+# non-reentrant.
 # ============================================================
 ISR_NOERRCODE lapic_timer_stub, lapic_timer_handler
 

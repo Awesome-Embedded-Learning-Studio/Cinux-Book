@@ -28,7 +28,7 @@ void Pty::echo_thunk(char c, void* ctx) {
 void Pty::echo_to_master(char c) {
     // Echo is best-effort: if the master never drains and the ring fills,
     // drop the echoed byte rather than block the input path.
-    (void)master_push(c);
+    static_cast<void>(master_push(c));
 }
 
 // ============================================================
@@ -36,26 +36,13 @@ void Pty::echo_to_master(char c) {
 // ============================================================
 
 bool Pty::master_push(char c) {
-    if (master_full_) {
-        return false;
-    }
-    master_buf_[master_tail_] = c;
-    master_tail_              = (master_tail_ + 1) % kMasterBufSize;
-    if (master_tail_ == master_head_) {
-        master_full_ = true;
-    }
-    return true;
+    return master_buf_.push(c);  // RingBuffer::push returns false when full
 }
 
 size_t Pty::master_pop(char* buf, size_t maxlen) {
     size_t n = 0;
-    while (n < maxlen) {
-        if (master_head_ == master_tail_ && !master_full_) {
-            break;  // empty
-        }
-        buf[n++]     = master_buf_[master_head_];
-        master_head_ = (master_head_ + 1) % kMasterBufSize;
-        master_full_ = false;
+    while (n < maxlen && master_buf_.pop(buf[n])) {
+        ++n;
     }
     return n;
 }
@@ -73,7 +60,7 @@ cinux::lib::ErrorOr<int64_t> Pty::master_write(const void* buf, uint64_t count) 
         // Each byte drives canonical editing, echo (-> master), and signal
         // processing inside the discipline; the return value is ignored here
         // (signals surface via take_pending_signal, overflow drops the byte).
-        (void)slave_tty_.input_char(p[i]);
+        static_cast<void>(slave_tty_.input_char(p[i]));
     }
     return static_cast<int64_t>(count);
 }
@@ -129,9 +116,7 @@ const TTY& Pty::slave_tty() const {
 }
 
 void Pty::reset() {
-    master_head_ = 0;
-    master_tail_ = 0;
-    master_full_ = false;
+    master_buf_.clear();
     // Fresh line discipline (default termios, empty line/cooked buffers).
     slave_tty_   = TTY{};
     // The echo sink must keep routing to this object: re-wire it after the

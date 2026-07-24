@@ -14,8 +14,8 @@
 namespace cinux::syscall {
 
 /// Linux umask(2): set the file-creation mask to (@p mask & 0777) and return the
-/// previous mask. The mask is per-task (Task::umask); create/mkdir do not honour
-/// it yet (ext2 is not task-aware) -- that wiring is a follow-up.
+/// previous mask. The mask is per-task (Task::umask); open/openat(O_CREAT)
+/// honours it when applying the requested create mode.
 int64_t sys_umask(uint64_t mask, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 
 }  // namespace cinux::syscall

@@ -75,14 +75,14 @@ struct NvmeCmd {
 };
 static_assert(sizeof(NvmeCmd) == 64, "NVMe SQE must be 64 bytes");
 
-/// Admin Completion Queue Entry (16 bytes).
+/// Completion Queue Entry (16 bytes).
 struct NvmeCqe {
     uint32_t cdw0;      ///< 0x00 command-specific
     uint32_t reserved;  ///< 0x04
     uint16_t sq_head;   ///< 0x08 SQ Head pointer when the command completed
     uint16_t sq_id;     ///< 0x0A SQ Identifier
-    uint16_t cq_id;     ///< 0x0C CQ Identifier
-    uint16_t status;    ///< 0x0E bit0 = phase tag, bits[15:1] = SC/SCT
+    uint16_t cid;       ///< 0x0C Command Identifier echoed from the SQE
+    uint16_t status;    ///< 0x0E phase + SC/SCT/CRD/M/DNR
 };
 static_assert(sizeof(NvmeCqe) == 16, "NVMe CQE must be 16 bytes");
 
@@ -160,8 +160,9 @@ public:
 
 private:
     /// Submit @p cmd on the admin SQ and poll the admin CQ for its completion
-    /// (phase flip).  Returns the status field (SC/SCT, 0 = success) or
-    /// Error::TimedOut.  Shared by Identify/Create commands (batch 4a helper).
+    /// (phase flip).  Returns the status field with the phase bit removed
+    /// (including SC/SCT/CRD/M/DNR; 0 = success) or Error::TimedOut.  Shared by
+    /// Identify/Create commands (batch 4a helper).
     cinux::lib::ErrorOr<uint16_t> admin_submit(const NvmeCmd& cmd);
 
     /// Submit @p cmd on the IO SQ (qid=1) and poll the IO CQ for completion
@@ -198,9 +199,10 @@ private:
     uint32_t                       io_sq_tail_   = 0;
     uint32_t                       io_cq_head_   = 0;
     uint8_t                        io_cq_phase_  = 1;
+    uint16_t                       io_next_cid_  = 0;
     // SMP: io_submit (SQ enqueue + CQ poll) touches io_sq_tail_/io_cq_head_/
-    // io_cq_phase_ -- two CPUs submitting concurrently clobber each other's sq
-    // slot and mis-read completions (status=0x4080 on a legal LBA). Serialize.
+    // io_cq_phase_ -- two CPUs submitting concurrently clobber each other's SQ
+    // slot and desynchronize completion handling. Serialize.
     cinux::proc::Spinlock          io_lock_;
 };
 

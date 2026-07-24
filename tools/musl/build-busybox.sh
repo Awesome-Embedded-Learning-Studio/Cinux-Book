@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# build-busybox.sh -- build the static BusyBox used by the CinuxOS smoke.
+# build-busybox.sh -- build the static BusyBox used by the Cinux smoke.
 #
 # Produces build/musl/busybox by default.  The checked-in config is copied from
 # the known-good local BusyBox build that drove the F-ECO applet work.

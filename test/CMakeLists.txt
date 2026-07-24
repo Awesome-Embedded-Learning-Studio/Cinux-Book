@@ -19,8 +19,8 @@ set(CINUX_HOST_TEST ON)
 # tests. Zero kernel changes — only host test targets. Catches UAF/OOB/UB at
 # the InodeOps/mock layer; --coverage gives gcov compile+link in one flag.
 # TSan is mutually exclusive with ASan, so it is a separate follow-up
-# (-DCINUX_HOST_TSAN build) rather than combined here.
-option(CINUX_HOST_ASAN "Host unit tests: AddressSanitizer + UBSan + gcov coverage" OFF)
+# (-DCINUX_HOST_TSAN build) rather than combined here. (option() in
+# cmake/options.cmake.)
 if(CINUX_HOST_ASAN)
     add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g --coverage)
     add_link_options(-fsanitize=address,undefined --coverage)
@@ -34,8 +34,7 @@ endif()
 # tests (test_pmm concurrent alloc/free, test_sync_concurrent 8-thread lock
 # stress).  Value ramps once M2 links REAL kernel code (sync/scheduler/PMM) into
 # these tests; today it guards the concurrent mirror re-implementations + any new
-# -pthread test.  GCC -fsanitize=thread.
-option(CINUX_HOST_TSAN "Host unit tests: ThreadSanitizer (data-race detector for -pthread tests)" OFF)
+# -pthread test.  GCC -fsanitize=thread.  (option() in cmake/options.cmake.)
 if(CINUX_HOST_TSAN)
     add_compile_options(-fsanitize=thread -fno-omit-frame-pointer -g)
     add_link_options(-fsanitize=thread)
@@ -142,14 +141,8 @@ add_cinux_test(syscall_ext2)
 add_cinux_test(shell_write)
 add_cinux_test(cwd_stat)
 add_cinux_test(canvas)
-add_cinux_test(bitmap_icon)
 add_cinux_test(mouse)
 add_cinux_test(event_queue)
-add_cinux_test(window)
-add_cinux_test(window_manager)
-add_cinux_test(desktop)
-add_cinux_test(terminal)
-add_cinux_test(multi_terminal)
 
 # Cinux-Base leaf types (header-only) — proves the submodule is usable from the
 # host test build before any kernel migration relies on it. Only the include
@@ -224,12 +217,7 @@ target_link_libraries(test_pmm PRIVATE -pthread)
 add_cinux_test(sync_concurrent)
 target_link_libraries(test_sync_concurrent PRIVATE -pthread)
 
-# ============================================================
-# Tests with C++23 requirement
-# ============================================================
-
 add_cinux_test(kprintf)
-target_compile_features(test_kprintf PRIVATE cxx_std_23)
 
 # ============================================================
 # Tests with extra kernel sources
@@ -286,6 +274,57 @@ add_cinux_integration_test(ext2_inode_ops
     unit/test_ext2_inode_ops.cpp
     ${CMAKE_SOURCE_DIR}/kernel/fs/inode.cpp
 )
+
+# F6-M6: ext2 host-side build. The driver is compiled directly into each host
+# integration test (net_tcp pattern -- no STATIC lib: the kernel build needs
+# -mcmodel=kernel codegen, the host build must not, so one target cannot serve
+# both). EXT2_HOST_LIB_SOURCES is the shared link list: the real ext2 sources
+# + the host PAL (kprintf/kmalloc) + Spinlock + inode_ref/unref.
+set(EXT2_HOST_LIB_SOURCES
+    unit/ext2_host_pal.cpp
+    unit/host_spinlock.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/fs/file.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/fs/inode.cpp
+    ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_common.cpp
+    ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_dirops.cpp
+    ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_init.cpp
+    ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_inode.cpp
+    ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_block.cpp
+    ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_directory.cpp
+    ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_links.cpp
+    ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_metadata.cpp
+    ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_extent.cpp
+)
+
+# B1a: PAL link smoke. ctor + mount (zeroed image -> magic fail) + dtor. Gates
+# that the host PAL coverage is complete (the M6 make-or-break link).
+add_cinux_integration_test(ext2_host_link
+    unit/test_ext2_host_link.cpp
+    ${EXT2_HOST_LIB_SOURCES}
+)
+
+# B1b: real-logic ASAN test. Mounts the prebuilt 64 KiB image and exercises
+# readdir / multi-level lookup / read / create / write / read-back / unlink
+# through the real VFS path (the host counterpart of the F-DYN-COV QEMU
+# forensics -- races / UAF surface in milliseconds under ASAN/TSAN).
+add_cinux_integration_test(ext2_host
+    unit/test_ext2_host.cpp
+    ${EXT2_HOST_LIB_SOURCES}
+)
+target_compile_definitions(test_ext2_host PRIVATE
+    EXT2_TEST_IMG_PATH="${CMAKE_SOURCE_DIR}/test/data/ext2_test.img")
+
+# B2: host TSAN concurrency test. N threads over one Ext2 stress the
+# block_alloc_lock_ (alloc/free) and inode_cache_lock_ (lookup); TSan sees
+# races lockdep cannot -- the host counterpart of the F-DYN-COV QEMU forensics.
+# Build with -DCINUX_HOST_TSAN=ON (mutually exclusive with ASAN).
+add_cinux_integration_test(ext2_concurrent
+    unit/test_ext2_concurrent.cpp
+    ${EXT2_HOST_LIB_SOURCES}
+)
+target_compile_definitions(test_ext2_concurrent PRIVATE
+    EXT2_TEST_IMG_PATH="${CMAKE_SOURCE_DIR}/test/data/ext2_test.img")
+target_link_libraries(test_ext2_concurrent PRIVATE -pthread)
 
 add_cinux_integration_test(pipe
     unit/test_pipe.cpp

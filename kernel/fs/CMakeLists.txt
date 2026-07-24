@@ -14,7 +14,7 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/dentry.cpp  # F6-M1 B3: directory-entry cache
     # --- ramdisk ---
     ${CMAKE_CURRENT_SOURCE_DIR}/ramdisk/ramdisk.cpp
-    # --- ext2 (libs/ext2/, #75 B0a 搬家;wholesale 用 CinuxOS v1.0.0 终态) ---
+    # --- ext2 (libs/ext2/, B0a 搬家;B0b 提取 ext2_lib STATIC) ---
     ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_common.cpp
     ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_dirops.cpp
     ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_init.cpp
@@ -30,5 +30,9 @@ target_sources(big_kernel_common PRIVATE
     # --- procfs ---
     ${CMAKE_CURRENT_SOURCE_DIR}/procfs/procfs.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/procfs/procfs_content.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/procfs/procfs_pseudo.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/procfs/procfs_init.cpp
+    # --- tmpfs (F6-M4) ---
+    ${CMAKE_CURRENT_SOURCE_DIR}/tmpfs/tmpfs.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tmpfs/tmpfs_init.cpp
 )

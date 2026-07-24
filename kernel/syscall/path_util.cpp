@@ -58,8 +58,8 @@ bool resolve_user_path(uint64_t path_virt, char* out) {
     return cinux::fs::path_resolve(cwd, raw.data(), out);
 }
 
-bool split_pathname(const char* path, char* parent_out,
-                    const char** name_out, uint32_t* namelen_out) {
+bool split_pathname(const char* path, char* parent_out, const char** name_out,
+                    uint32_t* namelen_out) {
     using cinux::lib::StringView;
 
     StringView sv(path);

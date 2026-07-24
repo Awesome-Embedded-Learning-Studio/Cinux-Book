@@ -14,6 +14,7 @@
 
 #include "kernel/arch/x86_64/memory_layout.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
+#include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/errno.hpp"
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/inode.hpp"
@@ -38,6 +39,15 @@ constexpr uint64_t align_up(uint64_t v) {
 
 constexpr bool page_aligned(uint64_t v) {
     return (v & (kPageSize - 1)) == 0;
+}
+
+bool fixed_range_ok(uint64_t addr, uint64_t length) {
+    if (!page_aligned(addr) || addr == 0 || addr + length < addr) {
+        return false;
+    }
+    const uint64_t last = addr + length - 1;
+    return cinux::arch::is_user_vaddr(addr) && cinux::arch::is_user_vaddr(last) &&
+           addr + length <= cinux::arch::USER_STACK_TOP;
 }
 
 /// Translate POSIX prot/flags into the kernel VmaFlags (anonymous mappings).
@@ -115,20 +125,40 @@ int64_t sys_mmap(uint64_t addr, uint64_t length, uint64_t prot, uint64_t flags, 
 
     const uint64_t aligned_len = align_up(length);
 
+    // F-GUI-USERSPACE batch 1: device mmap probe.  For a fd-backed mapping,
+    // ask the inode's mmap hook whether it is device memory (e.g. /dev/fb0
+    // returns the framebuffer's VBE physical base).  A device mmap binds the
+    // VMA to that fixed physical range (IoPhys, uncached, not PMM-managed);
+    // NotImplemented means "ordinary file" -> take the page-cache path below.
+    bool     device_mmap = false;
+    uint64_t device_phys = 0;
+    if (backing_inode != nullptr && backing_inode->ops != nullptr) {
+        auto mp = backing_inode->ops->mmap(backing_inode, offset, aligned_len);
+        if (mp.ok()) {
+            device_mmap = true;
+            device_phys = mp.value();
+        } else if (mp.error() != cinux::lib::Error::NotImplemented) {
+            return -to_errno(mp.error());
+        }
+    }
+
     uint64_t map_addr = 0;
     if ((flags & MAP_FIXED) != 0) {
-        // Honour the requested address, validating alignment + mmap window.
-        if (!page_aligned(addr) || addr < cinux::arch::USER_MMAP_BASE ||
-            addr + aligned_len > cinux::arch::USER_MMAP_END || addr + aligned_len < addr) {
+        // Honour the exact user address. MAP_FIXED may intentionally replace a
+        // low PIE/heap VMA, so do not confine it to the high mmap arena.
+        if (!fixed_range_ok(addr, aligned_len)) {
             return -kEinval;
         }
         map_addr = addr;
         // E: teardown the old mapping's pages before the new map overwrites the
         // PTEs unconditionally -- the old phys's pte_count must drop here.
-        // (Book has no IoPhys VMAs -- GUI fb-mmap arc is §8-deferred -- so the
-        // device-unmap case is always false here; CinuxOS checks old VMA flags.)
-        teardown_range_pages(*task->addr_space, map_addr, aligned_len, /*device_unmap=*/false);
-        (void)task->addr_space->vmas().remove(map_addr, map_addr + aligned_len);
+        {
+            const cinux::mm::VMA* old = task->addr_space->vmas().find(map_addr);
+            const bool old_device = old != nullptr &&
+                cinux::mm::has_flag(old->flags, cinux::mm::VmaFlags::IoPhys);
+            teardown_range_pages(*task->addr_space, map_addr, aligned_len, old_device);
+        }
+        static_cast<void>(task->addr_space->vmas().remove(map_addr, map_addr + aligned_len));
     } else {
         // F9 batch 8 (ASLR): jitter the first-fit hint so each process's
         // mappings start at an unpredictable address. The window bounds stay
@@ -145,19 +175,35 @@ int64_t sys_mmap(uint64_t addr, uint64_t length, uint64_t prot, uint64_t flags, 
         }
     }
 
-    auto ir = task->addr_space->vmas().insert(map_addr, map_addr + aligned_len,
-                                              to_vma_flags(prot, flags));
+    // Device mmap overrides the anonymous/file-backed flags: it is its own VMA
+    // kind (IoPhys), never page-cache-backed.
+    cinux::mm::VmaFlags vflags = to_vma_flags(prot, flags);
+    if (device_mmap) {
+        vflags |= cinux::mm::VmaFlags::IoPhys;
+    }
+    auto ir = task->addr_space->vmas().insert(map_addr, map_addr + aligned_len, vflags);
     if (!ir.ok()) {
         return -to_errno(ir.error());
     }
 
-    // Attach the file backing (if any) to the freshly recorded VMA.  Contents
-    // are demand-read via the Page Cache in M4; here we only remember the inode.
-    if (backing_inode != nullptr) {
-        cinux::mm::VMA* v = task->addr_space->vmas().find(map_addr);
-        if (v != nullptr) {
+    cinux::mm::VMA* v = task->addr_space->vmas().find(map_addr);
+    if (v != nullptr) {
+        if (device_mmap) {
+            // Bind the VMA to device memory.  No inode ref: device memory is
+            // not page cache and the VMA is not file-backed in the PageCache
+            // sense; phys_base is the per-page physical source for the fault
+            // handler.  backing/file_offset stay null/0.
+            v->phys_base = device_phys;
+        } else if (backing_inode != nullptr) {
+            // Attach the file backing (if any) to the freshly recorded VMA.
+            // Contents are demand-read via the Page Cache in M4; here we only
+            // remember the inode.  Take an inode reference so the backing stays
+            // alive for the lifetime of the mapping (the fd that mmap'd it may
+            // close, but the VMA persists); the VMA store drops the ref when
+            // the node is freed (clear/split/remove in vma.cpp).
             v->backing     = backing_inode;
             v->file_offset = offset;
+            cinux::fs::inode_ref(backing_inode);
         }
     }
 
@@ -178,10 +224,20 @@ int64_t sys_munmap(uint64_t addr, uint64_t length, uint64_t, uint64_t, uint64_t,
         return -kEinval;
     }
 
+    // F-GUI-USERSPACE batch 1: a device (IoPhys) mapping's pages are device
+    // memory, not PMM-managed, so munmap only drops their PTEs -- never
+    // pte_count_dec_and_test (which would hand the framebuffer physical page
+    // back to the PMM and cause mayhem on the next allocation).  We assume the
+    // range lies in a single VMA (the normal case: munmap the whole mapping);
+    // partial split of an IoPhys VMA is a follow-up.
+    const cinux::mm::VMA* vma = task->addr_space->vmas().find(addr);
+    const bool            device_unmap =
+        vma != nullptr && cinux::mm::has_flag(vma->flags, cinux::mm::VmaFlags::IoPhys);
+
     // Free any demand-paged physical pages in the range and drop their PTEs.
     // These are user pages, not the higher-half direct map, so unmapping is
     // safe (cf. GOTCHA #7 -- never unmap phys+KERNEL_VMA).
-    teardown_range_pages(*task->addr_space, addr, aligned_len, /*device_unmap=*/false);
+    teardown_range_pages(*task->addr_space, addr, aligned_len, device_unmap);
 
     // Remove the VMA range (splits a VMA when only its interior is taken).
     auto r = task->addr_space->vmas().remove(addr, addr + aligned_len);
@@ -213,9 +269,15 @@ int64_t sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot, uint64_t, ui
 
     // Preserve the non-protection attributes; replace R/W/X from @p prot.
     using cinux::mm::VmaFlags;
-    const VmaFlags base = existing->flags & (VmaFlags::Anonymous | VmaFlags::Shared |
-                                             VmaFlags::Stack | VmaFlags::Heap);
-    VmaFlags       vma  = base;
+    const VmaFlags    base        = existing->flags & (VmaFlags::Anonymous | VmaFlags::Shared |
+                                                       VmaFlags::Stack | VmaFlags::Heap);
+    cinux::fs::Inode* backing     = existing->backing;
+    uint64_t          file_offset = existing->file_offset + (addr - existing->start);
+    if (backing != nullptr) {
+        cinux::fs::inode_ref(backing);
+    }
+
+    VmaFlags vma = base;
     if ((prot & PROT_READ) != 0) {
         vma |= VmaFlags::Read;
     }
@@ -227,10 +289,21 @@ int64_t sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot, uint64_t, ui
     }
 
     // Re-record the range with the new flags (splits when partially covered).
-    (void)task->addr_space->vmas().remove(addr, addr + aligned_len);
+    static_cast<void>(task->addr_space->vmas().remove(addr, addr + aligned_len));
     auto ir = task->addr_space->vmas().insert(addr, addr + aligned_len, vma);
     if (!ir.ok()) {
+        if (backing != nullptr) {
+            cinux::fs::inode_unref(backing);
+        }
         return -to_errno(ir.error());
+    }
+    if (backing != nullptr) {
+        if (cinux::mm::VMA* updated = task->addr_space->vmas().find(addr)) {
+            updated->backing     = backing;
+            updated->file_offset = file_offset;
+        } else {
+            cinux::fs::inode_unref(backing);
+        }
     }
 
     // Re-issue PTE permissions for any already-mapped pages (map() overwrites).

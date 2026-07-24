@@ -97,38 +97,31 @@ void Mutex::lock() {
 }
 
 void Mutex::unlock() {
-    // Step 1: Acquire the internal spinlock
-    spin_.acquire();
+    // Hold the spinlock only for the waiter handoff; release BEFORE unblocking
+    // the new owner (never wake a task while still holding its lock).
+    Task* waiter;
+    {
+        auto g = spin_.guard();
+        waiter = dequeue_waiter();
+        if (waiter == nullptr) {
+            owner_ = nullptr;
+            return;  // g releases
+        }
+        owner_ = waiter;
+    }  // g releases (spin unlocked)
 
-    // Step 2: If there is no waiter, simply release the mutex
-    Task* waiter = dequeue_waiter();
-    if (waiter == nullptr) {
-        owner_ = nullptr;
-        spin_.release();
-        return;
-    }
-
-    // Step 3: Transfer ownership to the head waiter
-    owner_ = waiter;
-
-    // Step 4: Release the spinlock before unblocking
-    spin_.release();
-
-    // Step 5: Wake the new owner
     Scheduler::unblock(waiter);
 }
 
 bool Mutex::try_lock() {
-    spin_.acquire();
+    auto g = spin_.guard();
 
     if (owner_ != nullptr) {
-        spin_.release();
-        return false;
+        return false;  // g releases
     }
 
     owner_ = percpu()->current;
-    spin_.release();
-    return true;
+    return true;  // g releases
 }
 
 // ============================================================
@@ -164,19 +157,14 @@ Task* Semaphore::dequeue_waiter() {
 }
 
 void Semaphore::post() {
-    // Step 1: Acquire the internal spinlock
-    spin_.acquire();
+    // Increment + dequeue under the lock; release BEFORE unblocking the waiter.
+    Task* waiter;
+    {
+        auto g = spin_.guard();
+        count_++;
+        waiter = dequeue_waiter();
+    }  // g releases
 
-    // Step 2: Increment the count
-    count_++;
-
-    // Step 3: If there are waiters, wake the head
-    Task* waiter = dequeue_waiter();
-
-    // Step 4: Release spinlock before unblocking
-    spin_.release();
-
-    // Step 5: Unblock the waiter (if any)
     if (waiter != nullptr) {
         Scheduler::unblock(waiter);
     }
@@ -203,16 +191,14 @@ void Semaphore::wait() {
 }
 
 bool Semaphore::try_wait() {
-    spin_.acquire();
+    auto g = spin_.guard();
 
     if (count_ <= 0) {
-        spin_.release();
-        return false;
+        return false;  // g releases
     }
 
     count_--;
-    spin_.release();
-    return true;
+    return true;  // g releases
 }
 
 int64_t Semaphore::count() const {

@@ -24,7 +24,7 @@ namespace cinux::syscall {
  * @param flags      Access mode (0=RDONLY, 1=WRONLY, 2=RDWR)
  * @return Non-negative file descriptor on success, or -1 on error
  */
-int64_t sys_open(uint64_t path_virt, uint64_t flags, uint64_t, uint64_t, uint64_t, uint64_t);
+int64_t sys_open(uint64_t path_virt, uint64_t flags, uint64_t mode, uint64_t, uint64_t, uint64_t);
 
 /**
  * @brief Open relative to a directory fd (F10-M1 batch 4)
@@ -50,7 +50,8 @@ int64_t do_open_kernel(const char* resolved_path, uint64_t flags);
 
 /// Open (creating if O_CREAT) at an already-resolved path and allocate an fd.
 /// @p flags is the raw Linux open() flag word (access mode + O_CREAT ...).
+/// @p mode is the requested permission bits for a newly created file.
 /// Returns fd or -errno.
-int64_t do_openat_kernel(const char* resolved_path, uint64_t flags);
+int64_t do_openat_kernel(const char* resolved_path, uint64_t flags, uint64_t mode = 0);
 
 }  // namespace cinux::syscall

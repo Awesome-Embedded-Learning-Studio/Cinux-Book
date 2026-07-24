@@ -15,6 +15,7 @@
 #include "kernel/arch/x86_64/user_access.hpp"  // copy_to_user (SMAP/extable)
 #include "kernel/errno.hpp"
 #include "kernel/lib/string.hpp"  // memset / strncpy-style copy
+#include "kernel/version.hpp"     // kOsName / kOsVersion / kOsRelease (single source of truth)
 
 namespace cinux::syscall {
 
@@ -37,10 +38,10 @@ int64_t do_uname_kernel(kutsname* out) {
         return -cinux::kEinval;
     }
     memset(out, 0, sizeof(*out));
-    set_field(out->sysname, "CinuxOS");
+    set_field(out->sysname, cinux::kOsName);
     set_field(out->nodename, "cinux");
-    set_field(out->release, "0.1.0");
-    set_field(out->version, "#1 SMP CinuxOS");
+    set_field(out->release, cinux::kOsVersion);
+    set_field(out->version, cinux::kOsRelease);
     set_field(out->machine, "x86_64");
     set_field(out->domainname, "(none)");
     return 0;

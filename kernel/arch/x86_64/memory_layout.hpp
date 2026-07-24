@@ -76,8 +76,11 @@ constexpr uint64_t KMEM_EXT2_DMA_BASE = KMEM_DMA_BASE + KMEM_DMA_SIZE;
 
 /// Heap start, just past the ELF image (USER_ENTRY_BASE = 0x400000).
 constexpr uint64_t USER_BRK_BASE  = 0x600000ULL;  // 6 MB
-/// Heap ceiling for brk growth.
-constexpr uint64_t USER_BRK_MAX   = 0x4000000ULL;  // 64 MB
+/// Heap ceiling for brk growth.  F4-B0: 240 MB -- the gap below the interpreter
+/// base (USER_INTERP_BASE = 256 MB) so brk cannot collide with the ldso image.
+/// Was 64 MB (too tight for glibc malloc arenas under cc1/as/ld); a true dynamic
+/// ceiling / interpreter ASLR is a follow-up noted under the GCC self-host line.
+constexpr uint64_t USER_BRK_MAX   = 0xF000000ULL;  // 240 MB
 /// Start of the mmap region (above the heap ceiling).
 constexpr uint64_t USER_MMAP_BASE = 0x100000000ULL;  // 4 GB
 /// End of the mmap region -- 8 GB below USER_STACK_TOP as a guard gap.
@@ -87,10 +90,19 @@ constexpr uint64_t USER_MMAP_END  = 0x600000000ULL;  // 24 GB
 /// interpreter is ET_DYN (position-independent), so the kernel maps its
 /// PT_LOAD segments at USER_INTERP_BASE + p_vaddr and reports this base via
 /// AT_BASE. Placed in the unused gap between the heap ceiling (USER_BRK_MAX =
-/// 64 MB) and the mmap region (USER_MMAP_BASE = 4 GB) so it cannot collide
+/// 240 MB) and the mmap region (USER_MMAP_BASE = 4 GB) so it cannot collide
 /// with either the brk heap or user mmap allocations. The interpreter finds
 /// itself via __ehdr_start, so any base works; this is fixed for determinism
-/// (ASLR of the interpreter base is a follow-up, paired with PIE main).
+/// (ASLR of the interpreter base is a follow-up).
 constexpr uint64_t USER_INTERP_BASE = 0x10000000ULL;  // 256 MB
+
+/// Load base for a PIE main executable (ET_DYN). The main-program counterpart
+/// of USER_INTERP_BASE: a PIE binary's p_vaddr is base-relative, so the kernel
+/// maps PT_LOAD at USER_EXEC_BASE + aslr_exec_base_offset() + p_vaddr. Placed
+/// above the interpreter image (USER_INTERP_BASE = 256 MB + ldso size) and well
+/// below the mmap region (USER_MMAP_BASE = 4 GB); the 0 .. 16 MB ASLR window
+/// [0x20000000, 0x21000000) collides with neither. ET_EXEC mains are absolute
+/// and bypass this (the loader passes base 0).
+constexpr uint64_t USER_EXEC_BASE = 0x20000000ULL;  // 512 MB
 
 }  // namespace cinux::arch

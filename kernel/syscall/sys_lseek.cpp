@@ -32,7 +32,6 @@ int64_t sys_lseek(uint64_t fd, uint64_t offset, uint64_t whence, uint64_t, uint6
     }
 
     auto g = file->offset_lock_.guard();
-    (void)g;
 
     int64_t signed_offset = static_cast<int64_t>(offset);
     int64_t base          = 0;

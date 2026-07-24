@@ -1,13 +1,12 @@
 /**
  * @file kernel/syscall/sys_poll.hpp
- * @brief sys_poll handler declaration (F-ECO busybox sh smoke)
+ * @brief sys_poll handler declaration (F8-M5 real poll)
  *
- * **STUB**: reports every polled fd as ready (revents = events & POLLIN).  Real
- * poll -- blocking until an fd is ready or the timeout elapses, with wait-queue
- * plumbing -- is F8-M5 (epoll/poll).  This stub unblocks busybox `sh`'s input
- * loop (it poll()s stdin before read()), which then blocks in read() on the
- * console TTY until the user types -- so the smoke test is interactive even
- * without a real poll.  Always returns immediately (ignores @p timeout).
+ * poll(fds, nfds, timeout): block until one of @p nfds fds is ready (readable /
+ * writable / hung-up) or @p timeout ms elapse, returning the count of ready fds
+ * and filling each pollfd's revents.  The blocking + wait-queue logic lives in
+ * do_poll_core() (shared with sys_select); this handler just stages the pollfd
+ * array across the user boundary.
  *
  * Namespace: cinux::syscall
  */
@@ -20,8 +19,7 @@
 
 namespace cinux::syscall {
 
-/// poll(fds, nfds, timeout) -- stub: mark each fd POLLIN-ready. Returns nfds.
-int64_t sys_poll(uint64_t fds_virt, uint64_t nfds, uint64_t /*timeout*/, uint64_t, uint64_t,
-                 uint64_t);
+/// poll(fds, nfds, timeout) -- real blocking poll over do_poll_core.
+int64_t sys_poll(uint64_t fds_virt, uint64_t nfds, uint64_t timeout, uint64_t, uint64_t, uint64_t);
 
 }  // namespace cinux::syscall

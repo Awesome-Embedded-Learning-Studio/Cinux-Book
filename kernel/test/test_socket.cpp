@@ -78,11 +78,13 @@ static constexpr uint64_t kFiller = 0;
 void test_socket_dgram_returns_fd() {
     int64_t fd = sys_socket(kAfInet, kSockDgram, 0, kFiller, kFiller, kFiller);
     TEST_ASSERT_GE(fd, 0);
+    current_fd_table().close(static_cast<int>(fd));  // do not leak the fd
 }
 
 void test_socket_stream_returns_fd() {
     int64_t fd = sys_socket(kAfInet, kSockStream, 0, kFiller, kFiller, kFiller);
     TEST_ASSERT_GE(fd, 0);
+    current_fd_table().close(static_cast<int>(fd));  // do not leak the fd
 }
 
 void test_socket_rejects_bad_family() {
@@ -92,8 +94,10 @@ void test_socket_rejects_bad_family() {
 }
 
 void test_socket_rejects_bad_type() {
-    // SOCK_RAW (3) -- only STREAM / DGRAM are supported.
-    int64_t r = sys_socket(kAfInet, 3, 0, kFiller, kFiller, kFiller);
+    // SOCK_RDM (4) / an unsupported type -- STREAM / DGRAM / RAW are supported,
+    // anything else is -EPROTONOSUPPORT.  (SOCK_RAW=3 was added for busybox
+    // ping; pick a value outside the supported set.)
+    int64_t r = sys_socket(kAfInet, 4, 0, kFiller, kFiller, kFiller);
     TEST_ASSERT_EQ(r, -cinux::kEprotonosupport);
 }
 

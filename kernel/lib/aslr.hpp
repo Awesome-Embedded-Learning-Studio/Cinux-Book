@@ -8,13 +8,14 @@
  * preserved (notably the x86_64 ABI RSP rule: USER_STACK_TOP - offset stays
  * 16-byte aligned, so subtracting USER_ABI_RSP_OFFSET still yields %16==8).
  *
- * What is NOT randomized here: the ELF text/data base. Cinux's user program
- * is non-PIE (-fno-pie -no-pie -mcmodel=small -static): global and string
- * addresses are baked in as 32-bit absolute immediates (verified: 0 RIP-
- * relative references, 99 absolute), so relocating the image would corrupt
- * every absolute reference. Text-segment ASLR needs PIE + kernel-side
- * dynamic-relocation processing (R_X86_64_RELATIVE) and is tracked as a
- * separate follow-up.
+ * What is ALSO randomized here, separately: the PIE main executable's load
+ * base -- aslr_exec_base_offset() below. A position-independent main program
+ * (ET_DYN, the gcc default) is mapped at USER_EXEC_BASE + offset, so its
+ * text/data lands at a per-exec random address. The kernel does no
+ * dynamic-relocation processing itself: the dynamic linker (ldso) applies
+ * R_X86_64_RELATIVE etc. for the main image using the same machinery already
+ * used for the interpreter. ET_EXEC mains are absolute and bypass this
+ * (base 0).
  *
  * Honest scope: these feed the boot-seeded KRandom (F9 batch 7), good enough
  * to defeat a naive address guess, not a hardened CSPRNG.
@@ -47,8 +48,17 @@ inline uint64_t aslr_mmap_offset() {
 
 /// brk heap-start gap: 0 .. 16 MiB, page-aligned. Added above the
 /// page-aligned end of the ELF image, clamped by the caller to stay under
-/// USER_BRK_MAX (64 MiB) so real heap room remains.
+/// the heap ceiling (USER_BRK_MAX for a low image, USER_MMAP_BASE for PIE).
 inline uint64_t aslr_brk_offset() {
+    return g_random.next64() & 0xFFF000ULL;  // 0 .. 16 MiB - 4K
+}
+
+/// PIE main executable load-base jitter: 0 .. 16 MiB, page-aligned. Added to
+/// USER_EXEC_BASE to place a position-independent main program (ET_DYN) at a
+/// per-exec random address. The window [USER_EXEC_BASE, USER_EXEC_BASE + 16 MiB)
+/// sits between the interpreter image and the mmap region, so the offset never
+/// collides with either; the caller does not need to clamp.
+inline uint64_t aslr_exec_base_offset() {
     return g_random.next64() & 0xFFF000ULL;  // 0 .. 16 MiB - 4K
 }
 

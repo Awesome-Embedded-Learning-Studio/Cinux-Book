@@ -14,6 +14,8 @@
 
 #include "big_kernel_test.h"
 #include "kernel/arch/x86_64/memory_layout.hpp"
+#include "kernel/fs/file.hpp"
+#include "kernel/fs/inode.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
@@ -236,6 +238,36 @@ void test_mprotect_changes_prot() {
     TEST_ASSERT_TRUE(has_flag(v->flags, VmaFlags::Anonymous));  // base preserved
 }
 
+void test_mprotect_preserves_file_backing() {
+    cinux::mm::AddressSpace as;
+    cinux::proc::Task       tmp{};
+    tmp.addr_space = &as;
+    CurrentTaskGuard guard(&tmp);
+
+    constexpr uint64_t kBase       = USER_MMAP_BASE;
+    constexpr uint64_t kFileOffset = 0x3000;
+    cinux::fs::Inode   inode{};
+    inode.ino      = 42;
+    inode.type     = cinux::fs::InodeType::Regular;
+    inode.refcount = 1;
+
+    TEST_ASSERT_TRUE(as.vmas().insert(kBase, kBase + 8192, VmaFlags::Read).ok());
+    cinux::mm::VMA* v = as.vmas().find(kBase);
+    TEST_ASSERT_NOT_NULL(v);
+    v->backing     = &inode;
+    v->file_offset = kFileOffset;
+    cinux::fs::inode_ref(&inode);
+
+    int64_t mp = sys_mprotect(kBase + 4096, 4096, PROT_READ | PROT_WRITE, 0, 0, 0);
+    TEST_ASSERT_TRUE(mp == 0);
+
+    v = as.vmas().find(kBase + 4096);
+    TEST_ASSERT_NOT_NULL(v);
+    TEST_ASSERT_TRUE(has_flag(v->flags, VmaFlags::Write));
+    TEST_ASSERT_EQ(v->backing, &inode);
+    TEST_ASSERT_EQ(v->file_offset, kFileOffset + 4096);
+}
+
 }  // namespace test_mprotect_flags
 
 // ============================================================
@@ -271,6 +303,7 @@ extern "C" void run_mmap_tests() {
     RUN_TEST(test_munmap_split::test_munmap_splits_vma);
     RUN_TEST(test_munmap_empty::test_munmap_unmapped_ok);
     RUN_TEST(test_mprotect_flags::test_mprotect_changes_prot);
+    RUN_TEST(test_mprotect_flags::test_mprotect_preserves_file_backing);
     RUN_TEST(test_mprotect_unmapped::test_mprotect_unmapped_fails);
 
     TEST_SUMMARY();

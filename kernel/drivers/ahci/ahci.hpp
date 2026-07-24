@@ -49,6 +49,11 @@ class AHCI {
 public:
     static AHCI& instance();
     static void  set_instance(AHCI* ahci);
+    /// @brief True once an AHCI controller was registered via set_instance().
+    /// Call BEFORE instance(): instance() dereferences the singleton and #GPs
+    /// if no controller was ever registered (e.g. a boot with only NVMe + IDE
+    /// and no AHCI device).  Absent controllers must skip the AHCI fallback.
+    static bool  is_present() { return s_instance_ != nullptr; }
     /**
      * @brief Initialise the AHCI controller from a PCI device descriptor
      *

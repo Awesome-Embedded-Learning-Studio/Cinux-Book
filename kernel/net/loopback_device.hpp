@@ -33,8 +33,7 @@ public:
     static constexpr uint32_t kBufSize = 1518;  ///< max frame this device carries
 
     // --- NetDevice ---
-    bool mac(EthAddr& out) const override {
-        (void)out;
+    bool mac([[maybe_unused]] EthAddr& out) const override {
         return false;  // no L2 address
     }
     bool     has_ethernet_header() const override { return false; }

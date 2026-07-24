@@ -77,8 +77,8 @@ int64_t sys_nanosleep(uint64_t req_virt, uint64_t rem_virt, uint64_t, uint64_t, 
     }
     if (rem_virt != 0) {
         // Best-effort: a NULL rem is allowed (caller does not care about remaining).
-        (void)cinux::user::copy_to_user(reinterpret_cast<void*>(rem_virt), &rem_local,
-                                        sizeof(rem_local));
+        static_cast<void>(cinux::user::copy_to_user(reinterpret_cast<void*>(rem_virt), &rem_local,
+                                        sizeof(rem_local)));
     }
     return 0;
 }

@@ -27,13 +27,12 @@ Serial::Serial(uint16_t port) : base_port_(port) {
 // init() -- configure the UART
 // ============================================================
 
-void Serial::init(uint16_t /*port*/, uint32_t /*baud*/) {
-    // Disable interrupts, set 8N1, enable FIFO, set MCR, verify LSR
-    io_outb(base_port_ + SerialReg::IER, 0x00);
-    io_outb(base_port_ + SerialReg::LCR, 0x03);
-    io_outb(base_port_ + SerialReg::FCR, 0xC7);
-    io_outb(base_port_ + SerialReg::MCR, 0x03);
-    io_inb(base_port_ + SerialReg::LSR);
+void Serial::init() {
+    io_outb(base_port_ + SerialReg::IER, SerialCfg::IER_DISABLE);
+    io_outb(base_port_ + SerialReg::LCR, SerialCfg::LCR_8N1);
+    io_outb(base_port_ + SerialReg::FCR, SerialCfg::FCR_ON);
+    io_outb(base_port_ + SerialReg::MCR, SerialCfg::MCR_DTR_RTS);
+    io_inb(base_port_ + SerialReg::LSR);  // read LSR to clear any pending line status
 }
 
 // ============================================================

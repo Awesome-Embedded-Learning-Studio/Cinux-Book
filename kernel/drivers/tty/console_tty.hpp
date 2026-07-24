@@ -11,10 +11,9 @@
 
 #pragma once
 
+#include <cinux/expected.hpp>  // ErrorOr (console_tty_ioctl return)
 #include <cstddef>
 #include <cstdint>
-
-#include <cinux/expected.hpp>  // ErrorOr (console_tty_ioctl return)
 
 #include "kernel/drivers/tty/tty.hpp"
 
@@ -23,6 +22,10 @@ struct Task;  // the blocked stdin reader; full def in process.hpp
 }
 
 namespace cinux::drivers {
+
+/// Task::controlling_tty value for the built-in system console.  PTY slaves use
+/// non-negative indices; -1 remains "no controlling terminal".
+constexpr int kConsoleControllingTty = -2;
 
 /// The system console TTY.  Owns its line discipline (TTY), the single blocked
 /// stdin reader, and the foreground process group for signal delivery.  A
@@ -38,6 +41,16 @@ public:
     /// line discipline commits a line or EOF (Ctrl+D on an empty line).
     /// Returns the byte count, or 0 on EOF.
     size_t read(char* buf, size_t len);
+
+    /// poll/select readiness for stdin (F8-M5).  Returns POLLIN when a cooked
+    /// line / EOF is ready; otherwise parks @p waiter in the single reader slot
+    /// (the same one read() uses) so the keyboard feeder wakes it on the next
+    /// committed line.  *@p registered is set iff a waiter was parked.
+    uint32_t poll_events(cinux::proc::Task* waiter, bool* registered);
+
+    /// Remove a poll waiter parked by poll_events() (no-op if @p waiter is not
+    /// the parked reader).  poll calls this after it wakes.
+    void poll_detach(cinux::proc::Task* waiter);
 
     /// Feed one keyboard byte: line discipline + echo + cooked buffer, and on
     /// a signal char (interrupt/quit/suspend) deliver the corresponding signal

@@ -39,6 +39,7 @@ constexpr int kAfUnix     = 1;  ///< AF_UNIX (local IPC) -- F8-M3
 constexpr int kAfInet     = 2;  ///< AF_INET (IPv4)
 constexpr int kSockStream = 1;  ///< TCP
 constexpr int kSockDgram  = 2;  ///< UDP
+constexpr int kSockRaw    = 3;  ///< RAW (IPPROTO_ICMP ping, like Linux SOCK_RAW)
 
 /// IPv4 socket address -- kernel mirror of libc sockaddr_in (16 bytes).
 /// @note port is NETWORK order on the wire (musl lays it out big-endian); the
@@ -146,6 +147,16 @@ public:
     bool         shut_write() const { return (shut_ & kShutWrBit) != 0; }
     ///@}
 
+    /// @name F8-M5 poll(2)/select(2) readiness + wait registration.
+    /// Subclasses (Udp/Tcp/Unix) override to report their rx ring / accept queue
+    /// and to park a poller on the relevant wait queue (the same queue a blocked
+    /// recv/accept sleeps on, so an incoming byte / connection wakes both).
+    /// Default: a bare unconnected socket reports nothing ready and never parks.
+    ///@{
+    virtual uint32_t poll_events(cinux::proc::Task* waiter, bool* registered);
+    virtual void     poll_detach_waiter(cinux::proc::Task* waiter);
+    ///@}
+
     int domain() const { return domain_; }  ///< AF_INET
     int type() const { return type_; }      ///< SOCK_STREAM / SOCK_DGRAM
 
@@ -157,6 +168,12 @@ protected:
     int     type_;      ///< SOCK_STREAM / SOCK_DGRAM
     uint8_t shut_ = 0;  ///< shutdown direction bits (do_shutdown)
 };
+
+/// Typed accessor: a socket inode's fs_private holds its Socket.  Centralises
+/// the downcast at the InodeOps/socket syscall seam.
+inline Socket* socket_of(const cinux::fs::Inode* inode) {
+    return static_cast<Socket*>(inode->fs_private);
+}
 
 /// @brief InodeOps shim -- makes a socket fd indistinguishable from a pipe fd to
 ///        the fd layer.  ONE shared stateless instance (socket_ops()); the
@@ -172,6 +189,13 @@ public:
                                       uint64_t count) override;
     cinux::lib::ErrorOr<int64_t> write(cinux::fs::Inode* inode, uint64_t /*offset*/,
                                        const void* buf, uint64_t count) override;
+    // F8-M5 poll: delegate to the per-fd Socket's readiness + wait registration.
+    uint32_t poll_events(const cinux::fs::Inode* inode, cinux::proc::Task* waiter,
+                         bool* registered) override;
+    void     poll_detach_waiter(const cinux::fs::Inode* inode, cinux::proc::Task* waiter) override;
+    // F8-M5 release: closing a socket fd releases its protocol resources
+    // (unbind / stop_listen / FIN).  One Socket per fd, so no refcounting needed.
+    void     release(cinux::fs::Inode* inode) override;
     // ioctl/stat/open inherit the InodeOps defaults (NotImplemented/-1/false) --
     // a socket is not a tty, not a disk file, not a cloning device.
 };

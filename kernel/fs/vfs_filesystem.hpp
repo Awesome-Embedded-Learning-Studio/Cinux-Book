@@ -14,9 +14,9 @@
 
 #include <stdint.h>
 
-#include "kernel/fs/inode.hpp"
-
 #include <cinux/expected.hpp>
+
+#include "kernel/fs/inode.hpp"
 
 namespace cinux::fs {
 
@@ -69,6 +69,14 @@ public:
                                                      uint32_t /*namelen*/) {
         return cinux::lib::Error::NotImplemented;
     }
+
+    /// Whether vfs_lookup may cache this filesystem's lookup_child results in
+    /// the DentryCache.  On-disk FSes (ext2/tmpfs) return true (the default) --
+    /// their entries are stable.  DevFs returns false: its lookups are dynamic
+    /// (/dev/tty resolves to the CALLER's controlling terminal, /dev/pts/N to
+    /// the N-th PTY), so caching the first result (e.g. shell 0's /dev/tty ->
+    /// PTY 0) would make every later opener see shell 0's terminal.
+    virtual bool dcache_enabled() const { return true; }
 };
 
 }  // namespace cinux::fs

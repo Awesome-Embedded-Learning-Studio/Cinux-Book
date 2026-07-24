@@ -60,6 +60,12 @@ enum class VmaFlags : uint64_t {
     Anonymous = 1 << 4,  ///< MAP_ANONYMOUS (no backing file)
     Stack     = 1 << 5,  ///< grows-down stack region (auto-expand on PF, batch 4)
     Heap      = 1 << 6,  ///< brk-managed heap region (M3)
+    /// F-GUI-USERSPACE batch 1: device / I-O physical mapping (e.g. framebuffer
+    /// mmap).  The VMA is pre-bound to a fixed physical range (phys_base); the
+    /// page-fault handler maps those pages verbatim with FLAG_PCD (uncached)
+    /// instead of allocating from the PMM.  Teardown (munmap) and fork never
+    /// free or CoW them -- device memory is not PMM-managed.
+    IoPhys    = 1 << 7,
 };
 
 constexpr VmaFlags operator|(VmaFlags a, VmaFlags b) noexcept {
@@ -103,13 +109,18 @@ struct VMA {
     VmaFlags          flags{VmaFlags::None};
     cinux::fs::Inode* backing{nullptr};  ///< File backend (M2 mmap); null when anonymous
     uint64_t          file_offset{0};    ///< Offset into the backing inode (M2)
-    VMA*              prev{nullptr};     ///< Intrusive list link
+    /// F-GUI-USERSPACE batch 1: base physical address for an IoPhys VMA (device
+    /// mmap such as /dev/fb0).  The fault handler resolves a faulting page to
+    /// phys_base + (fault_page - start); 0 for every other VMA kind.  Fork
+    /// carries it verbatim so the child maps the same device memory.
+    uint64_t          phys_base{0};
+    VMA*              prev{nullptr};  ///< Intrusive list link
     VMA*              next{nullptr};
 };
 
 // F-INFRA I-4 (R11): VMA nodes are slab-cached and threaded onto an intrusive
 // list; pin the layout so a field insertion does not silently desync callers.
-static_assert(sizeof(VMA) == 56, "VMA layout (slab node; 4 u64 + 3 ptr + u64 flags)");
+static_assert(sizeof(VMA) == 64, "VMA layout (slab node; 5 u64 + 3 ptr, flags counted as u64)");
 
 /**
  * @brief Abstract set of VMAs for one address space

@@ -103,7 +103,13 @@ uint64_t KRandom::next64() {
 void KRandom::fill(void* buf, size_t len) {
     auto* p = static_cast<uint8_t*>(buf);
     while (len >= 8) {
-        *reinterpret_cast<uint64_t*>(p) = next64();
+        // Byte-wise store: @p may be unaligned, so a reinterpret_cast<uint64_t*>
+        // store would be strict-aliasing/alignment UB (fine on x86 today, but
+        // not portable and the compiler may exploit it).  Stage + scatter.
+        const uint64_t v = next64();
+        for (size_t i = 0; i < 8; ++i) {
+            p[i] = static_cast<uint8_t>(v >> (i * 8));
+        }
         p += 8;
         len -= 8;
     }

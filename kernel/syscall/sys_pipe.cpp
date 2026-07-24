@@ -74,6 +74,14 @@ int64_t sys_pipe(uint64_t pipefd_virt, uint64_t, uint64_t, uint64_t, uint64_t, u
         return rc;
     }
     if (!cinux::user::copy_to_user(reinterpret_cast<void*>(pipefd_virt), pipefd, sizeof(pipefd))) {
+        // Roll back the two fds do_pipe_kernel just installed: a failed copy
+        // must not leak them. On the ring-0 test harness's shared global fd
+        // table a leaked fd lands on slot 0/1/2 (no stdin/stdout/stderr
+        // reservation) and turns busybox echo's `fflush(stdout)==0?0:1` into
+        // exit(1) in the ring-3 smoke. Production also benefits (no fd leak
+        // on a failed pipe()).
+        tbl.close(pipefd[0]);
+        tbl.close(pipefd[1]);
         return -kEfault;
     }
     return 0;

@@ -53,10 +53,10 @@ int64_t do_utimensat_kernel(const char* resolved_path, uint64_t atime_sec, uint3
     return 0;
 }
 
-int64_t sys_utimensat(uint64_t dirfd, uint64_t path_virt, uint64_t times_virt, uint64_t flags,
+int64_t sys_utimensat([[maybe_unused]] uint64_t dirfd, uint64_t path_virt, uint64_t times_virt, [[maybe_unused]] uint64_t flags,
                       uint64_t, uint64_t) {
-    (void)dirfd;   // AT_FDCWD only; per-fd cwd tracking is a follow-up.
-    (void)flags;   // AT_SYMLINK_NOFOLLOW / AT_EMPTY_PATH ignored (no symlink-follow yet).
+    // AT_FDCWD only; per-fd cwd tracking is a follow-up.
+    // AT_SYMLINK_NOFOLLOW / AT_EMPTY_PATH ignored (no symlink-follow yet).
 
     cinux::fs::PathBuf resolved;
     if (!resolve_user_path(path_virt, resolved.data())) {

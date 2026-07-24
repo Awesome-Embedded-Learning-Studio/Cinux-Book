@@ -56,6 +56,14 @@ constexpr uint8_t RX_READY = 0x01;  ///< Data available in RBR
 constexpr uint8_t TX_READY = 0x20;  ///< THR empty, safe to write
 }  // namespace SerialLSR
 
+/// UART 16550 configuration byte values written by init() (8N1, FIFO on).
+namespace SerialCfg {
+constexpr uint8_t IER_DISABLE = 0x00;  ///< no serial interrupts (polling mode)
+constexpr uint8_t LCR_8N1     = 0x03;  ///< 8 data bits, no parity, 1 stop bit
+constexpr uint8_t FCR_ON      = 0xC7;  ///< enable FIFO + clear RX/TX + 14-byte trigger
+constexpr uint8_t MCR_DTR_RTS = 0x03;  ///< Data Terminal Ready + Request To Send
+}  // namespace SerialCfg
+
 // ============================================================
 // Serial Class
 // ============================================================
@@ -78,15 +86,13 @@ public:
     explicit Serial(uint16_t port = SERIAL_COM1);
 
     /**
-     * @brief Initialise the UART to 115200 8N1
+     * @brief Initialise the UART to 115200 8N1 (polling mode)
      *
-     * Disables interrupts, sets line control (8N1), enables FIFO,
-     * and sets MCR (RTS + DTR).
-     *
-     * @param port  (unused in current design -- set at construction)
-     * @param baud  (unused -- QEMU defaults to 115200)
+     * Disables interrupts, sets line control (8N1), enables + clears the FIFO,
+     * and raises RTS + DTR.  Baud + port are fixed at construction (QEMU COM1
+     * 115200); the former port/baud parameters were always ignored.
      */
-    void init(uint16_t port = SERIAL_COM1, uint32_t baud = 115200);
+    void init();
 
     /**
      * @brief Write a single character (blocking poll on TX ready)

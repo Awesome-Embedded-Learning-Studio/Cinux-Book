@@ -32,7 +32,7 @@
 
 namespace cinux::proc {
 
-// Linux auxiliary-vector types (uapi/linux/auxvec.h); the subset CinuxOS emits.
+// Linux auxiliary-vector types (uapi/linux/auxvec.h); the subset Cinux emits.
 constexpr uint64_t AT_NULL         = 0;
 constexpr uint64_t AT_PHDR         = 3;
 constexpr uint64_t AT_PHENT        = 4;
@@ -45,6 +45,7 @@ constexpr uint64_t AT_UID          = 11;
 constexpr uint64_t AT_EUID         = 12;
 constexpr uint64_t AT_GID          = 13;
 constexpr uint64_t AT_EGID         = 14;
+constexpr uint64_t AT_PLATFORM     = 15;
 constexpr uint64_t AT_HWCAP        = 16;
 constexpr uint64_t AT_CLKTCK       = 17;
 constexpr uint64_t AT_SECURE       = 23;
@@ -107,12 +108,12 @@ inline uint64_t build_initial_stack(uint8_t* buf, uint64_t cap, uint64_t stack_t
     for (uint64_t i = 0; i < envc; ++i)
         str_bytes += str_len(envp[i]) + 1;
     uint64_t fn_len = str_len(filename) + 1;
-    str_bytes += fn_len + 16;
+    str_bytes += fn_len + 16 + sizeof("x86_64");  // F4-B0: AT_PLATFORM string
 
     // 2. Block = argc + argv ptrs + NULL + envp ptrs + NULL + auxv pairs +
-    //    AT_NULL pair. The auxv holds the caller's entries plus AT_EXECFN and
-    //    AT_RANDOM (2 extra), plus the AT_NULL terminator pair (+1).
-    uint64_t total_aux  = auxc + 2;
+    //    AT_NULL pair. The auxv holds the caller's entries plus AT_EXECFN,
+    //    AT_RANDOM and AT_PLATFORM (3 extra, F4-B0), plus the AT_NULL pair (+1).
+    uint64_t total_aux  = auxc + 3;
     uint64_t block_size = 8 * (1 + argc + 1 + envc + 1) + 16 * (total_aux + 1);
 
     uint64_t raw  = block_size + str_bytes;
@@ -172,6 +173,14 @@ inline uint64_t build_initial_stack(uint8_t* buf, uint64_t cap, uint64_t stack_t
     off += 8;
     copy_bytes(buf + str_cur, random16, 16);
     str_cur += 16;
+    // AT_PLATFORM -> "x86_64" string (F4-B0: glibc reads it for arch dispatch /
+    // gating IFUNC paths; Linux always emits it on x86-64).
+    put_u64(buf + off, AT_PLATFORM);
+    off += 8;
+    put_u64(buf + off, va(str_cur));
+    off += 8;
+    copy_bytes(buf + str_cur, reinterpret_cast<const uint8_t*>("x86_64"), sizeof("x86_64"));
+    str_cur += sizeof("x86_64");
     // AT_NULL terminator pair.
     put_u64(buf + off, AT_NULL);
     off += 8;

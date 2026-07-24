@@ -37,10 +37,15 @@ enum class SyscallNr : uint64_t {
     SYS_rt_sigprocmask = 14,  ///< examine/set signal mask (F3-M1)
     SYS_rt_sigreturn   = 15,  ///< return from signal handler (F3-M1, batch 3)
     SYS_ioctl          = 16,  ///< device-specific control (musl __stdout_write TIOCGWINSZ probe)
+    SYS_pread64        = 17,  ///< B4-B2: positioned read (glibc ldso precision-reads ELF)
     SYS_readv          = 19,  ///< read into multiple buffers (musl __stdio_read)
     SYS_writev         = 20,  ///< write from multiple buffers (musl __stdio_write)
     SYS_pipe           = 22,
+    SYS_select         = 23,  ///< select (F8-M5 real poll/select)
     SYS_yield          = 24,  ///< sched_yield
+    SYS_shmget         = 29,  ///< get a shared memory segment (F8-M4)
+    SYS_shmat          = 30,  ///< attach a shared memory segment (F8-M4)
+    SYS_shmctl         = 31,  ///< shared memory control: IPC_STAT / IPC_RMID (F8-M4)
     SYS_dup            = 32,  ///< duplicate a file descriptor (F-ECO batch 4)
     SYS_dup2           = 33,  ///< duplicate to a specific fd (F-ECO batch 4)
     SYS_nanosleep      = 35,  ///< sleep for a duration (F-ECO batch 3)
@@ -56,6 +61,7 @@ enum class SyscallNr : uint64_t {
     SYS_exit           = 60,
     SYS_waitpid  = 61,  ///< Linux x86_64 slot 61 is wait4 (4-arg; musl waitpid passes rusage=NULL)
     SYS_kill     = 62,  ///< send a signal to a process (F3-M1)
+    SYS_shmdt    = 67,  ///< detach a shared memory segment (F8-M4)
     SYS_getdents = 78,
     SYS_getdents64      = 217,  ///< F-ECO batch 1: musl opendir/readdir use this (not legacy 78)
     SYS_getcwd          = 79,
@@ -64,8 +70,11 @@ enum class SyscallNr : uint64_t {
     SYS_rmdir           = 84,
     SYS_creat           = 85,
     SYS_mknod           = 133,  ///< create a filesystem node (FIFO via S_IFIFO; F8-M2)
+    SYS_mount           = 165,  ///< mount a filesystem (F6-M1: fstype-driven, tmpfs)
+    SYS_umount2         = 166,  ///< unmount a filesystem (F6-M1: path-based, frees if owned)
     SYS_reboot          = 169,  ///< reboot/poweroff (B3b: no-op -EPERM; busybox init probes)
     SYS_rt_sigtimedwait = 128,  ///< wait for a signal (B3b: block; busybox init main loop)
+    SYS_access          = 21,   ///< check file permissions (F6 batch 3a)
     SYS_uname           = 63,   ///< system identity (F-ECO busybox sh smoke)
     SYS_unlink          = 87,
     SYS_getuid          = 102,  ///< get real user id (F9 M3)
@@ -89,6 +98,8 @@ enum class SyscallNr : uint64_t {
     SYS_openat          = 257,  ///< open relative to dirfd (musl open/openat; AT_FDCWD=-100)
     SYS_newfstatat      = 262,  ///< stat relative to dirfd (musl stat/fstat/lstat)
     SYS_ping            = 220,  ///< ICMP echo (F7 shell ping; Cinux-custom)
+    SYS_cinux_exit =
+        221,  ///< QEMU isa-debug-exit gate (F-USABILITY buildroot-usability; Cinux-custom)
     // --- F7-M6 socket API (Linux x86_64 numbers; slots 41-50 were free) ---
     SYS_socket          = 41,   ///< create a socket (AF_INET / SOCK_STREAM | SOCK_DGRAM)
     SYS_connect         = 42,   ///< initiate a connection (TCP) / set peer (UDP)
@@ -102,6 +113,8 @@ enum class SyscallNr : uint64_t {
     SYS_getpeername     = 52,   ///< retrieve peer addr (F-ECO batch 7b)
     SYS_socketpair      = 53,   ///< create a pair of connected sockets (F-ECO batch 7b)
     SYS_setsockopt      = 54,   ///< set a socket option (no-op accept) (F-ECO batch 7a)
+    SYS_setitimer       = 38,   ///< setitimer (stub 0; busybox ping SIGALRM probe)
+    SYS_tkill           = 200, ///< tkill (send signal to tid; busybox job control)
     SYS_getsockopt      = 55,   ///< get a socket option (SO_TYPE/SO_ERROR) (F-ECO batch 7a)
     SYS_accept4         = 288,  ///< accept + flags (SOCK_CLOEXEC) (F-ECO batch 7a)
     // --- F-ECO batch 2: VFS metadata + dirent syscalls (Linux x86_64 numbers) ---
@@ -115,6 +128,17 @@ enum class SyscallNr : uint64_t {
     SYS_getgroups       = 115,  ///< list supplementary groups (F-ECO batch 8)
     SYS_setgroups       = 116,  ///< set supplementary groups (root-only) (F-ECO batch 8)
     SYS_utimensat       = 312,  ///< set access / modification times (touch)
+    // --- gcc/g++ self-host (2026-07-05): probed/missing Linux syscalls ---
+    SYS_sendfile        = 40,   ///< sendfile (stub -ENOSYS; cp falls back to read+write)
+    SYS_gettimeofday    = 96,   ///< wall-clock time (CLOCK_REALTIME; same source as clock_gettime)
+    SYS_set_robust_list = 273,  ///< robust-futex probe (stub 0; no real robust cleanup yet)
+    SYS_prlimit64       = 302,  ///< resource-limit probe (stub; reports RLIM_INFINITY)
+    SYS_getcpu          = 309,  ///< getcpu (stub -ENOSYS; glibc falls back from per-CPU hint)
+    SYS_getrandom       = 318,  ///< random bytes (KRandom PRNG)
+    SYS_rseq            = 334,  ///< restartable-sequence probe (stub -ENOSYS)
+    SYS_clone3          = 435,  ///< clone3 probe (stub -ENOSYS; libc falls back to clone)
+    SYS_time            = 201,  ///< time in seconds (CLOCK_REALTIME)
+    SYS_sched_getaffinity = 204,  ///< CPU affinity mask (busybox nproc / glibc probe)
 };
 
 /// Dispatch table covers all assigned Linux x86_64 numbers (max ~440) with

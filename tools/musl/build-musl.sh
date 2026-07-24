@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# build-musl.sh — build a self-contained musl sysroot for CinuxOS user programs.
+# build-musl.sh — build a self-contained musl sysroot for Cinux user programs.
 #
 # Produces $MUSL_SYSROOT/{lib/libc.a, crt1.o, Scrt1.o, rcrt1.o, crti.o, crtn.o,
-# include/...}.  CinuxOS targets the Linux x86_64 ABI, so we build musl natively
+# include/...}.  Cinux targets the Linux x86_64 ABI, so we build musl natively
 # with the host GCC (no cross prefix).  The resulting libc.a is what static
-# CinuxOS user programs (musl hello world, later CFBox) link against.
+# Cinux user programs (musl hello world, later CFBox) link against.
 #
 # Idempotent: skips work if $MUSL_SYSROOT/lib/libc.a already exists.
 #
@@ -83,7 +83,7 @@ cd "$SRC"
 if [ ! -f config.mak ]; then
     echo "[build-musl] configuring..."
     # musl default -O2. The earlier -O0 workaround is no longer needed: the real
-    # root cause was CinuxOS syscall/ISR clobbering Linux-ABI-preserved user
+    # root cause was Cinux syscall/ISR clobbering Linux-ABI-preserved user
     # state. Fixed by restoring caller-saved arg registers (a90cc4a) AND
     # saving/restoring user SIMD/FPU via FXSAVE (57e2664) -- musl -O2 uses XMM,
     # and the kernel's own C/C++ code was corrupting user SIMD -> heap damage

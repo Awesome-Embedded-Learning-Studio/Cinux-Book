@@ -16,8 +16,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "kernel/errno.hpp"  // kEintr
+
 #ifndef CINUX_HOST_TEST
-#    include "kernel/proc/process.hpp"    // Task::wait_next
+#    include "kernel/proc/process.hpp"  // Task + signal_deliverable_pending
 #    include "kernel/proc/scheduler.hpp"  // prepare_to_wait/schedule_blocked/unblock
 #endif
 
@@ -29,8 +31,11 @@ using cinux::proc::Scheduler;
 using cinux::proc::Task;
 
 /// Append @p t to the tail of a wait queue (intrusive via Task::wait_next).
+/// Records the head address in t->wait_queue_head so signal_send() can wake
+/// @p t for EINTR (see Task::wait_queue_head).
 void wait_enqueue(Task*& head, Task* t) {
     t->wait_next = nullptr;
+    t->wait_queue_head = &head;
     if (head == nullptr) {
         head = t;
         return;
@@ -46,10 +51,35 @@ void wait_enqueue(Task*& head, Task* t) {
 Task* wait_dequeue(Task*& head) {
     Task* t = head;
     if (t != nullptr) {
-        head         = t->wait_next;
-        t->wait_next = nullptr;
+        head               = t->wait_next;
+        t->wait_next       = nullptr;
+        t->wait_queue_head = nullptr;
     }
     return t;
+}
+
+/// Unlink @p t from the wait queue (F8-M5 poll, or a signal-woken task
+/// unlinking itself after EINTR).  No-op if @p t is not queued.  Caller
+/// holds lock_.
+void wait_remove(Task*& head, Task* t) {
+    if (head == nullptr || t == nullptr) {
+        return;
+    }
+    if (head == t) {
+        head               = t->wait_next;
+        t->wait_next       = nullptr;
+        t->wait_queue_head = nullptr;
+        return;
+    }
+    Task* prev = head;
+    while (prev->wait_next != nullptr && prev->wait_next != t) {
+        prev = prev->wait_next;
+    }
+    if (prev->wait_next == t) {
+        prev->wait_next    = t->wait_next;
+        t->wait_next       = nullptr;
+        t->wait_queue_head = nullptr;
+    }
 }
 
 /// Wake one waiter (FIFO head).  Called under lock_; this is safe because,
@@ -142,6 +172,16 @@ int64_t Pipe::write(const char* data, uint64_t count, bool nonblock) {
         if (need_block) {
             Scheduler::schedule_blocked();
         }
+        // EINTR: a signal landed while we were parked.  Return what we have so
+        // far (partial writes are valid POSIX), or -EINTR if nothing was pushed
+        // yet.  The woken task must unlink itself from the write queue -- do it
+        // under lock_ so a concurrent producer does not see a stale link.
+        if (Scheduler::current() != nullptr &&
+            signal_deliverable_pending(Scheduler::current())) {
+            auto g = lock_.irq_guard();
+            wait_remove(write_waiters_, Scheduler::current());
+            return written > 0 ? static_cast<int64_t>(written) : -cinux::kEintr;
+        }
         // Woken by a reader freeing space (or by close_reader); loop and retry.
 #endif
     }
@@ -212,6 +252,15 @@ int64_t Pipe::read(char* buf, uint64_t count, bool nonblock) {
 #ifndef CINUX_HOST_TEST
         if (need_block) {
             Scheduler::schedule_blocked();
+        }
+        // EINTR: a signal landed while we were parked.  Return what we have so
+        // far (partial reads are valid POSIX), or -EINTR if nothing was read.
+        // Unlink ourselves under lock_ so a producer does not wake a stale link.
+        if (Scheduler::current() != nullptr &&
+            signal_deliverable_pending(Scheduler::current())) {
+            auto g = lock_.irq_guard();
+            wait_remove(read_waiters_, Scheduler::current());
+            return total_read > 0 ? static_cast<int64_t>(total_read) : -cinux::kEintr;
         }
 #endif
     }
@@ -317,6 +366,71 @@ bool Pipe::is_full() const {
 
 uint32_t Pipe::available() const {
     return static_cast<uint32_t>(buf_.size());
+}
+
+// ============================================================
+// poll(2) / select(2) readiness (F8-M5)
+// ============================================================
+
+uint32_t Pipe::poll_read_events([[maybe_unused]] cinux::proc::Task* waiter) {
+    auto     g    = lock_.irq_guard();
+    uint32_t mask = 0;
+    // POLLIN whenever bytes are buffered; POLLHUP once the writer closes (Linux
+    // reports both when unread data remains after close).
+    if (!buf_.empty()) {
+        mask |= cinux::fs::kPollIn;
+    }
+    if (!writer_open_) {
+        mask |= cinux::fs::kPollHup;
+    }
+#ifndef CINUX_HOST_TEST
+    // Register the poller so a later write / close wakes it.  Done under lock_
+    // (and IRQs off) atomically with the readiness check -- the prepare_to_wait
+    // contract: a write that lands in the window is either seen as POLLIN here
+    // or finds the waiter already queued and wakes it, never lost.
+    if (waiter != nullptr) {
+        wait_enqueue(read_waiters_, waiter);
+    }
+#else
+    // host: no scheduler / wait queues -- readiness only
+#endif
+    return mask;
+}
+
+uint32_t Pipe::poll_write_events([[maybe_unused]] cinux::proc::Task* waiter) {
+    auto     g    = lock_.irq_guard();
+    uint32_t mask = 0;
+    // POLLOUT while there is space; POLLERR once the reader closes (a further
+    // write would SIGPIPE).  A closed reader is an error, not a hangup.
+    if (!buf_.full()) {
+        mask |= cinux::fs::kPollOut;
+    }
+    if (!reader_open_) {
+        mask |= cinux::fs::kPollErr;
+    }
+#ifndef CINUX_HOST_TEST
+    if (waiter != nullptr) {
+        wait_enqueue(write_waiters_, waiter);
+    }
+#else
+#endif
+    return mask;
+}
+
+void Pipe::remove_read_waiter([[maybe_unused]] cinux::proc::Task* waiter) {
+#ifndef CINUX_HOST_TEST
+    auto g = lock_.irq_guard();
+    wait_remove(read_waiters_, waiter);
+#else
+#endif
+}
+
+void Pipe::remove_write_waiter([[maybe_unused]] cinux::proc::Task* waiter) {
+#ifndef CINUX_HOST_TEST
+    auto g = lock_.irq_guard();
+    wait_remove(write_waiters_, waiter);
+#else
+#endif
 }
 
 // ============================================================

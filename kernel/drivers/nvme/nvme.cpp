@@ -6,7 +6,7 @@
  * reinterpret_cast).  BAR0 is mapped at KMEM_MMIO+0x70000 (4 pages = 16 KB),
  * avoiding every existing MMIO sub-allocation (AHCI/xHCI/MSI-X/e1000/HPET).
  *
- * BAR self-assignment.  The CinuxOS PCI layer reads BARs but does not assign
+ * BAR self-assignment.  The Cinux PCI layer reads BARs but does not assign
  * them -- it relies on SeaBIOS, which configures AHCI/e1000 but NOT the QEMU
  * nvme controller (dev.bar[0] reads 0).  Reading CAP/VS through an unassigned
  * BAR maps phys 0x0 (low RAM) and returns garbage that still satisfies a naive
@@ -50,9 +50,9 @@ constexpr uint64_t kMmioFlags =
 constexpr uint32_t kAssignedBar0 = 0xfeb40000;
 
 // Admin queue geometry + enable constants (batch 2a).
-constexpr uint16_t kAdminQSize = 64;       // Admin SQ/CQ entries (well under MQES+1=2048)
+constexpr uint16_t kAdminQSize = 64;  // Admin SQ/CQ entries (well under MQES+1=2048)
 // IO queue geometry (batch 4a/4b).  qid=1, 64 entries (well under MQES+1=2048).
-constexpr uint16_t kIoQSize = 64;
+constexpr uint16_t kIoQSize    = 64;
 constexpr uint32_t kReadyIters = 1000000;  // CSTS.RDY spin budget (no IRQ until batch 3)
 constexpr uint32_t kCstsRdy    = 0x1;      // CSTS.RDY bit
 // CC (NVMe 1.4): IOCQES[23:20]=4 (16 B CQ entry), IOSQES[19:16]=6 (64 B SQ
@@ -224,7 +224,7 @@ cinux::lib::ErrorOr<void> NvmeController::identify_controller(IdentifyController
         volatile NvmeCqe& cqe          = cq[admin_cq_head_];
         const uint16_t    status_field = cqe.status;
         if ((status_field & 0x1) == cq_phase_) {
-            const uint16_t status = static_cast<uint16_t>(status_field >> 1);  // SC/SCT
+            const uint16_t status = static_cast<uint16_t>(status_field >> 1);  // phase removed
             admin_cq_head_        = (admin_cq_head_ + 1) % kAdminQSize;
             if (admin_cq_head_ == 0) {
                 cq_phase_ ^= 1;  // phase wraps at CQ ring rollover
@@ -238,9 +238,8 @@ cinux::lib::ErrorOr<void> NvmeController::identify_controller(IdentifyController
             const auto*    raw = static_cast<const uint8_t*>(buf.virt());
             const uint32_t nn  = *reinterpret_cast<const uint32_t*>(raw + 516);
             out                = *id;
-            cinux::lib::kprintf(
-                "[NVMe] Identify: VID=0x%x SSVID=0x%x SN=%.20s MN=%.40s NN=%u\n", id->vid,
-                id->ssvid, id->sn, id->mn, nn);
+            cinux::lib::kprintf("[NVMe] Identify: VID=0x%x SSVID=0x%x SN=%.20s MN=%.40s NN=%u\n",
+                                id->vid, id->ssvid, id->sn, id->mn, nn);
             return {};
         }
     }
@@ -287,10 +286,10 @@ cinux::lib::ErrorOr<void> NvmeController::init_msi_x() {
 
 cinux::lib::ErrorOr<uint16_t> NvmeController::admin_submit(const NvmeCmd& cmd) {
     // Enqueue on the admin SQ at [tail] and ring the doorbell.
-    auto*      sq            = static_cast<NvmeCmd*>(admin_sq_buf_.virt());
-    sq[admin_sq_tail_]       = cmd;
-    admin_sq_tail_           = (admin_sq_tail_ + 1) % kAdminQSize;
-    *admin_sq_tdbell_        = admin_sq_tail_;
+    auto* sq           = static_cast<NvmeCmd*>(admin_sq_buf_.virt());
+    sq[admin_sq_tail_] = cmd;
+    admin_sq_tail_     = (admin_sq_tail_ + 1) % kAdminQSize;
+    *admin_sq_tdbell_  = admin_sq_tail_;
 
     // Poll the admin CQ for this command's completion (phase tag flips).
     auto* cq = reinterpret_cast<volatile NvmeCqe*>(admin_cq_buf_.virt());
@@ -343,7 +342,7 @@ cinux::lib::ErrorOr<void> NvmeController::identify_namespace(uint32_t nsid, Name
 }
 
 cinux::lib::ErrorOr<void> NvmeController::create_io_queues() {
-    constexpr uint16_t kIoQid         = 1;
+    constexpr uint16_t kIoQid = 1;
 
     auto sq_r = cinux::drivers::dma::g_dma_pool.alloc(static_cast<uint64_t>(kIoQSize) * 64);
     auto cq_r = cinux::drivers::dma::g_dma_pool.alloc(static_cast<uint64_t>(kIoQSize) * 16);
@@ -364,7 +363,8 @@ cinux::lib::ErrorOr<void> NvmeController::create_io_queues() {
         cmd.cdw11  = (1u << 16) | (1u << 1) | 1u;  // IV=1 (MSI-X entry 1), IEN=1, PC=1
         auto sr    = admin_submit(cmd);
         if (!sr.ok() || sr.value() != 0) {
-            cinux::lib::kprintf("[NVMe] Create IO CQ failed status=%d\n", sr.ok() ? sr.value() : -1);
+            cinux::lib::kprintf("[NVMe] Create IO CQ failed status=%d\n",
+                                sr.ok() ? sr.value() : -1);
             return cinux::lib::Error::IOError;
         }
     }
@@ -377,87 +377,22 @@ cinux::lib::ErrorOr<void> NvmeController::create_io_queues() {
         cmd.cdw11  = (static_cast<uint32_t>(kIoQid) << 16) | 1u;  // CQID=1, QPRIO=0, PC
         auto sr    = admin_submit(cmd);
         if (!sr.ok() || sr.value() != 0) {
-            cinux::lib::kprintf("[NVMe] Create IO SQ failed status=%d\n", sr.ok() ? sr.value() : -1);
+            cinux::lib::kprintf("[NVMe] Create IO SQ failed status=%d\n",
+                                sr.ok() ? sr.value() : -1);
             return cinux::lib::Error::IOError;
         }
     }
 
     // IO doorbells: SQ qid=1 tail @ BAR0+0x1000+2*1*stride, CQ qid=1 head @ +0x1000+3*stride.
     const uintptr_t base = reinterpret_cast<uintptr_t>(regs_);
-    io_sq_tdbell_        = reinterpret_cast<volatile uint32_t*>(base + 0x1000 + 2 * doorbell_stride_);
-    io_cq_hdbell_        = reinterpret_cast<volatile uint32_t*>(base + 0x1000 + 3 * doorbell_stride_);
-    io_sq_tail_          = 0;
-    io_cq_head_          = 0;
-    io_cq_phase_         = 1;
+    io_sq_tdbell_ = reinterpret_cast<volatile uint32_t*>(base + 0x1000 + 2 * doorbell_stride_);
+    io_cq_hdbell_ = reinterpret_cast<volatile uint32_t*>(base + 0x1000 + 3 * doorbell_stride_);
+    io_sq_tail_   = 0;
+    io_cq_head_   = 0;
+    io_cq_phase_  = 1;
+    io_next_cid_  = 0;
     cinux::lib::kprintf("[NVMe] IO queues created (qid=1 size=%u)\n", kIoQSize);
     return {};
-}
-
-cinux::lib::ErrorOr<uint16_t> NvmeController::io_submit(const NvmeCmd& cmd) {
-    // SMP: serialize SQ enqueue + CQ poll -- io_sq_tail_/io_cq_head_/io_cq_phase_
-    // are shared; two CPUs submitting at once clobber each other's sq slot and
-    // mis-read completions (status=0x4080 on a legal LBA). Held across the poll
-    // (busy-wait, IF=0-safe; caller is #PF demand page or syscall context).
-    auto g = io_lock_.guard();
-    // Enqueue on the IO SQ (qid=1) at [tail] and ring the doorbell.
-    auto*   sq                = static_cast<NvmeCmd*>(io_sq_buf_.virt());
-    sq[io_sq_tail_]           = cmd;
-    io_sq_tail_               = (io_sq_tail_ + 1) % kIoQSize;
-    *io_sq_tdbell_            = io_sq_tail_;
-
-    // Poll the IO CQ for this command's completion (phase tag flips).
-    auto* cq = reinterpret_cast<volatile NvmeCqe*>(io_cq_buf_.virt());
-    for (uint32_t i = 0; i < kReadyIters; ++i) {
-        volatile NvmeCqe& cqe          = cq[io_cq_head_];
-        const uint16_t    status_field = cqe.status;
-        if ((status_field & 0x1) == io_cq_phase_) {
-            const uint16_t status = static_cast<uint16_t>(status_field >> 1);
-            io_cq_head_           = (io_cq_head_ + 1) % kIoQSize;
-            if (io_cq_head_ == 0) {
-                io_cq_phase_ ^= 1;
-            }
-            *io_cq_hdbell_ = io_cq_head_;
-            return status;
-        }
-    }
-    return cinux::lib::Error::TimedOut;
-}
-
-cinux::lib::ErrorOr<void> NvmeController::nvm_io(uint8_t opcode, uint32_t nsid, uint64_t slba,
-                                                 uint16_t                              nlb,
-                                                 cinux::drivers::dma::DmaBuffer& buf) {
-    // NVM Read (0x02) / Write (0x01) -- NvmeRwCmd layout (QEMU hw/nvme/nvme.h):
-    //   cdw10/11 = SLBA (64-bit), cdw12[15:0] = NLB-1 (0-based), dptr = PRP1/PRP2.
-    // Single-page transfer: PRP1 = buf.phys() (page-aligned), PRP2 = 0.
-    NvmeCmd cmd{};
-    cmd.opcode = opcode;
-    cmd.nsid   = nsid;
-    cmd.prp1   = buf.phys();
-    cmd.prp2   = 0;
-    cmd.cdw10  = static_cast<uint32_t>(slba);
-    cmd.cdw11  = static_cast<uint32_t>(slba >> 32);
-    cmd.cdw12  = static_cast<uint32_t>(nlb - 1);
-    auto sr    = io_submit(cmd);
-    if (!sr.ok()) {
-        return sr.error();
-    }
-    if (sr.value() != 0) {
-        cinux::lib::kprintf(
-            "[NVMe] NVM I/O opcode=0x%x nsid=%u slba=%llu nlb=%u failed status=0x%x\n", opcode,
-            nsid, static_cast<unsigned long long>(slba), nlb, sr.value());
-        return cinux::lib::Error::IOError;
-    }
-    return {};
-}
-
-cinux::lib::ErrorOr<void> NvmeController::read_blocks(uint32_t nsid, uint64_t slba, uint16_t nlb,
-                                                      cinux::drivers::dma::DmaBuffer& buf) {
-    return nvm_io(0x02, nsid, slba, nlb, buf);
-}
-
-cinux::lib::ErrorOr<void> NvmeController::write_blocks(uint32_t nsid, uint64_t slba, uint16_t nlb,
-                                                       cinux::drivers::dma::DmaBuffer& buf) {
-    return nvm_io(0x01, nsid, slba, nlb, buf);
 }
 
 }  // namespace cinux::drivers::nvme
@@ -467,6 +402,6 @@ struct InterruptFrame;  // fwd decl for the ISR C handler signature
 }
 
 volatile uint64_t g_nvme_irq_count = 0;
-extern "C" void nvme_irq_handler(cinux::arch::InterruptFrame* /*frame*/) {
+extern "C" void   nvme_irq_handler(cinux::arch::InterruptFrame* /*frame*/) {
     g_nvme_irq_count = g_nvme_irq_count + 1;  // EOI by ISR_IRQ stub
 }

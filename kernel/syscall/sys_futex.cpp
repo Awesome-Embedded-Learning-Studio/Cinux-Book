@@ -17,6 +17,7 @@
 #include <stdint.h>
 
 #include "kernel/arch/x86_64/user_access.hpp"  // get_user for futex words
+#include "kernel/errno.hpp"                     // kEagain/kEfault/kEinval/kEnosys (canonical int errno)
 #include "kernel/proc/percpu.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
@@ -35,12 +36,6 @@ constexpr int FUTEX_WAKE         = 1;
 constexpr int FUTEX_WAIT_BITSET  = 9;
 constexpr int FUTEX_WAKE_BITSET  = 10;
 constexpr int FUTEX_PRIVATE_FLAG = 0x80;
-
-// Errno (literal, sys_signal convention).
-constexpr int64_t kEagain = 11;  ///< Try again (*uaddr != val)
-constexpr int64_t kEfault = 14;  ///< Bad address
-constexpr int64_t kEinval = 22;  ///< Invalid argument
-constexpr int64_t kEnosys = 38;  ///< Function not implemented
 
 constexpr int      kFutexBuckets = 256;
 constexpr uint32_t kFutexAllBits = 0xFFFFFFFFu;

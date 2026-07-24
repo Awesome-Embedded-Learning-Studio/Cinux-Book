@@ -64,11 +64,52 @@ void IcmpModule::handle(const Ipv4Header& ip, FrameView payload, NetDevice& dev,
         buf.p[2]          = static_cast<uint8_t>(cs >> 8);
         buf.p[3]          = static_cast<uint8_t>(cs & 0xFF);
         // Reply to the request's source; Ipv4Module sources our local address.
-        (void)ipv4.send(dev, ip.src, kIpProtoIcmp, buf.p, n, stack);
+        static_cast<void>(ipv4.send(dev, ip.src, kIpProtoIcmp, buf.p, n, stack));
     } else if (hdr.type == kIcmpEchoReply) {
         ++reply_count_;
         last_id_  = hdr.id;
         last_seq_ = hdr.seq;
+        // SOCK_RAW ping: deliver a COPY of the whole ICMP message (header +
+        // data) to every registered RawSocket so a busybox recvfrom() reads it.
+        // payload is borrowed (the device recycles the frame after dispatch);
+        // RawSocket::on_icmp_reply copies under its own lock.  No lock here --
+        // the list is mutated only at socket construct/destruct (syscall path),
+        // and handle() runs single-threaded per device poll.
+        for (uint32_t i = 0; i < kMaxRawSockets; ++i) {
+            if (raw_sockets_[i] != nullptr) {
+                raw_sockets_[i]->on_icmp_reply(ip, payload);
+            }
+        }
+    }
+}
+
+void IcmpModule::register_raw_socket(RawListener* s) {
+    if (s == nullptr) {
+        return;
+    }
+    for (uint32_t i = 0; i < kMaxRawSockets; ++i) {
+        if (raw_sockets_[i] == s) {
+            return;  // already registered (idempotent)
+        }
+    }
+    for (uint32_t i = 0; i < kMaxRawSockets; ++i) {
+        if (raw_sockets_[i] == nullptr) {
+            raw_sockets_[i] = s;
+            return;
+        }
+    }
+    // table full -- ignore (kMaxRawSockets covers the realistic ping load)
+}
+
+void IcmpModule::unregister_raw_socket(RawListener* s) {
+    if (s == nullptr) {
+        return;
+    }
+    for (uint32_t i = 0; i < kMaxRawSockets; ++i) {
+        if (raw_sockets_[i] == s) {
+            raw_sockets_[i] = nullptr;
+            return;  // a socket registers at most once
+        }
     }
 }
 

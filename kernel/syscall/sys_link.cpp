@@ -44,7 +44,7 @@ int64_t do_link_kernel(const char* resolved_oldpath, const char* resolved_newpat
     // Resolve the new parent directory + leaf (assumes same filesystem; cross-fs
     // hard links return EXDEV on Linux -- a hobby-OS follow-up).
     const char* rel_new = nullptr;
-    (void)cinux::fs::vfs_resolve(resolved_newpath, &rel_new);
+    static_cast<void>(cinux::fs::vfs_resolve(resolved_newpath, &rel_new));
 
     cinux::fs::PathBuf parent_buf;
     const char*        leaf = nullptr;

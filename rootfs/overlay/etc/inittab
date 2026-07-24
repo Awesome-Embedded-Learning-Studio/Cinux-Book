@@ -1,0 +1,11 @@
+# Cinux Buildroot base inittab
+#
+# 直接 respawn /bin/sh，不依赖 getty/ttyS0：
+#   - Cinux DevFS 无 /dev/ttyS0 设备节点（只有 null/zero/console）
+#   - busybox init 给 respawn 进程的 stdin/stdout 连 /dev/console（DevFS 有）
+#   - 复用 F-ECO B3b 已验证的 ::respawn:/bin/sh 模式（~ # 提示符）
+#
+# 阶段2:::once 通过 /bin/sh 跑可用性测试(内核暂不支持 shebang 脚本 exec)。
+::sysinit:/bin/echo Cinux Buildroot init: userspace up
+::once:/bin/sh /etc/cinux-usability-test.sh
+::respawn:/bin/sh

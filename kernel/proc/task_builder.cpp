@@ -148,9 +148,6 @@ Task* TaskBuilder::build() {
         return nullptr;
     }
 
-    cinux::lib::kprintf("[PROC] Created task tid=%lu name='%s' stack=%p\n", task->tid, task->name,
-                        reinterpret_cast<void*>(task->kernel_stack_top));
-
     return task;
 }
 

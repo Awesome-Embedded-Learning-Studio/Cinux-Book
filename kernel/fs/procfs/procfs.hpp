@@ -44,6 +44,14 @@
 
 namespace cinux::fs {
 
+/// @name Pseudo-file ops factories (defined in procfs_pseudo.cpp).
+/// procfs.cpp mount() calls these so the InodeOps subclasses can live in a
+/// separate translation unit (procfs.cpp stays under the 500-line cap).
+///@{
+InodeOps* procfs_new_meminfo_ops();  // /proc/meminfo (F-ECO busybox `free`)
+InodeOps* procfs_new_cpuinfo_ops();  // /proc/cpuinfo (F4 SMP)
+///@}
+
 /// Upper bound on PID values.  Must match PidAllocator::PID_MAX
 /// (kernel/proc/pid.hpp); ProcFS keeps a fixed inode pool indexed by PID, so
 /// the bound is asserted in procfs.cpp.  PIDs are 1..kProcPidMax (slot 0 is
@@ -77,6 +85,12 @@ public:
 
     cinux::lib::ErrorOr<void>   mount() override;
     cinux::lib::ErrorOr<Inode*> lookup(const char* path) override;
+    // Single-component lookup for the vfs_lookup resolver (F-USABILITY batch 4).
+    // vfs_lookup walks one component at a time and follows symlinks; without
+    // this override the FileSystem base returns ENOSYS and open("/proc/meminfo")
+    // fails -> busybox free reports "Function not implemented".
+    cinux::lib::ErrorOr<Inode*> lookup_child(const Inode* parent, const char* name,
+                                             uint32_t namelen) override;
 
     /// Whether mount() has run (F6-M1: procfs::instance() exposes the singleton
     /// only once mounted, so sys_mount -t proc refuses an uninitialised FS).
@@ -91,6 +105,7 @@ private:
     InodeOps* stat_file_ops_{nullptr};
     InodeOps* cmdline_file_ops_{nullptr};
     InodeOps* meminfo_file_ops_{nullptr};  // F-ECO busybox: /proc/meminfo
+    InodeOps* cpuinfo_file_ops_{nullptr};  // F4 SMP: /proc/cpuinfo
 
     /// /proc root directory inode.  readdir snapshots the live PID registry.
     Inode root_inode_{};
@@ -98,6 +113,10 @@ private:
     /// /proc/meminfo pseudo-file inode (F-ECO busybox).  read regenerates the
     /// content from g_pmm; ino is fixed (not a PID).
     Inode meminfo_inode_{};
+
+    /// /proc/cpuinfo pseudo-file inode (F4 SMP).  read regenerates content from
+    /// g_acpi_info (cpu_count + apic_ids); ino is fixed (not a PID).
+    Inode cpuinfo_inode_{};
 
     /// /proc/<pid> directory inodes, indexed [pid] (slot 0 unused).  ino = pid,
     /// fs_private = this ProcFs.  Stamped eagerly in mount(); lookup still

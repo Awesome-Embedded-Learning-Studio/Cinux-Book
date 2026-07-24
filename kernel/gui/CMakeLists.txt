@@ -1,51 +1,32 @@
 #
 # kernel/gui/CMakeLists.txt
 #
-# @brief GUI subsystem CMake configuration
+# @brief GUI subsystem CMake configuration (F13-B)
 #
-# Contains GUI-only components: event queue, window manager, etc.
+# F-GUI-USERSPACE (2026-07-08): the in-kernel host adapter (host_cinux.cpp) is
+# deleted -- the widget tree + Host ABI table + GuiCore pump now live entirely in
+# the USERSPACE GUI host (user/cinux_gui_host, fork+execve'd by desktop_launch).
+# kernel/gui/ keeps only the kernel-side plumbing the userspace host can't do:
+#   - event.cpp        : unified mouse+keyboard EventQueue (test_mouse_event
+#                        exercises it; production input reaches the host via
+#                        /dev/event0, not this queue)
+#   - gui_init.cpp     : PS/2 mouse + keyboard listener -- dual-writes each
+#                        decoded key into /dev/event0 for the userspace host
+#   - desktop_launch.cpp: GUI-side launch_userspace (fork+execve /cinux_gui_host)
+#                        + handoff_framebuffer_to_gui (§14 interface, non-GUI
+#                        counterpart in proc/)
+# The host-neutral core (widget tree + Compositor + GuiCore + swraster + region)
+# lives at third_party/Cinux-GUI/ and is built as the cinux-gui STATIC lib
+# (linked into the userspace host ELF; kernel no longer needs it).
 #
 
-# Event queue (ring buffer for mouse/keyboard events)
+# Unified event queue (ring buffer for mouse+keyboard events)
 target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/event.cpp
 )
 
-# Window class (off-screen canvas, title bar, hit testing)
-target_sources(big_kernel_common PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/window.cpp
-)
-
-# Window manager (Z-ordering, compositing, drag)
-target_sources(big_kernel_common PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/window_manager.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/window_manager_input.cpp
-)
-
-# GUI initialisation (mouse driver, WM setup, PIT tick callback)
+# Input init + userspace GUI host launch (host_cinux.cpp deleted in F-GUI-USERSPACE)
 target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/gui_init.cpp
-)
-
-# Terminal window (80x25 character buffer, cursor, ANSI sequences).  ANSI
-# escape handling is split into terminal_ansi.cpp (CI 500-line limit).
-target_sources(big_kernel_common PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/terminal.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/terminal_ansi.cpp
-)
-
-# F13 cinux-gui: the host-neutral core now lives at third_party/Cinux-GUI/ (built as the
-# cinux-gui STATIC lib, linked into the kernel from kernel/CMakeLists.txt).
-# kernel/gui/ keeps ONLY the Cinux host adapter -- the single host-specific TU
-# that fills the ABI table against the kernel's drivers/framebuffer. The core
-# (pump / region / swraseter / abi_check) compiles standalone; see host/ (standalone).
-target_sources(big_kernel_common PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/host_cinux.cpp
-)
-
-# Desktop launch: GUI-side impl of cinux::proc::launch_userspace (§14).  The
-# non-GUI counterpart shell_launch.cpp lives in proc/ and is linked under
-# if(NOT CINUX_GUI) in proc/CMakeLists.txt.
-target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/desktop_launch.cpp
 )

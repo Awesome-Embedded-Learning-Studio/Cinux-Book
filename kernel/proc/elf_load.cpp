@@ -2,9 +2,14 @@
  * @file kernel/proc/elf_load.cpp
  * @brief Shared ELF PT_LOAD segment mapper implementation (F10-M2)
  *
- * The per-page alloc/zero/read/map/VMA-record loop, parameterised by a load
- * base so it serves both the ET_EXEC main program (base 0) and the ET_DYN
- * interpreter (base USER_INTERP_BASE). See elf_load.hpp.
+ * Each PT_LOAD segment gets a file-backed VMA for its whole file pages (lazy
+ * demand-paged by handle_pf via PageCache::get_page, B2 -- the bulk of large
+ * ELFs like cc1's .text); the single page straddling p_filesz (plus any pure
+ * BSS pages after it) is eager-mapped with a precise zero-fill. This mirrors
+ * Linux load_elf_binary: elf_map() for whole file pages, padzero() for the
+ * straddle page's BSS tail, set_brk() for the pure-BSS pages. Parameterised by
+ * a load base so it serves both the ET_EXEC main program (base 0) and the
+ * ET_DYN interpreter (base USER_INTERP_BASE). See elf_load.hpp.
  */
 
 #include "kernel/proc/elf_load.hpp"
@@ -17,12 +22,13 @@
 #include "kernel/arch/x86_64/memory_layout.hpp"  // USER_INTERP_BASE
 #include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
+#include "kernel/fs/file.hpp"         // inode_ref (B2 lazy PT_LOAD VMA backing)
 #include "kernel/fs/inode.hpp"
 #include "kernel/fs/inode_ref.hpp"     // InodeRef: RAII over the lookup ref
 #include "kernel/fs/vfs_lookup.hpp"  // F-USABILITY batch 1c: vfs_lookup (interp follow)
 #include "kernel/lib/kprintf.hpp"
-#include "kernel/mm/address_space.hpp"
-#include "kernel/mm/pmm.hpp"
+#include "kernel/mm/address_space.hpp"  // VmaFlags / VMA / vmas() (B2 lazy PT_LOAD)
+#include "kernel/mm/pmm.hpp"             // g_pmm (eager path for BSS segments)
 
 namespace cinux::proc {
 
@@ -100,62 +106,20 @@ ExecveResult load_elf_image(cinux::mm::AddressSpace& space, cinux::fs::Inode* in
             out.max_seg_end = seg_end;
         }
 
-        uint64_t page_flags = FLAG_PRESENT | FLAG_USER;
-        if (phdr.p_flags & elf::PF_W) {
-            page_flags |= FLAG_WRITABLE;
-        }
-        if (!(phdr.p_flags & elf::PF_X)) {
-            page_flags |= FLAG_NX;
-        }
-
-        for (uint64_t vaddr = seg_start; vaddr < seg_end; vaddr += PAGE_SIZE) {
-            uint64_t phys = cinux::mm::g_pmm.alloc_page();
-            if (phys == 0) {
-                cinux::lib::kprintf("[ELF] page alloc failed at vaddr=%p\n",
-                                    reinterpret_cast<void*>(vaddr));
-                return ExecveResult::MapFailed;
-            }
-
-            auto* dst = reinterpret_cast<uint8_t*>(phys + cinux::arch::DIRECT_MAP_BASE);
-            for (uint64_t b = 0; b < PAGE_SIZE; b++) {
-                dst[b] = 0;
-            }
-
-            // The head page of a segment may precede p_vaddr; data_vaddr is the
-            // first real byte. seg_offset is the byte offset into the segment
-            // (identical in file and memory, base-independent for the file read).
-            uint64_t data_vaddr  = (vaddr < seg_vaddr) ? seg_vaddr : vaddr;
-            uint64_t in_page_off = data_vaddr - vaddr;
-            uint64_t seg_offset  = data_vaddr - seg_vaddr;
-
-            if (seg_offset < phdr.p_filesz) {
-                uint64_t copy_len = phdr.p_filesz - seg_offset;
-                uint64_t avail    = PAGE_SIZE - in_page_off;
-                if (copy_len > avail) {
-                    copy_len = avail;
-                }
-
-                auto bread = inode->ops->read(inode, phdr.p_offset + seg_offset, dst + in_page_off,
-                                              copy_len);
-                if (!bread.ok() || bread.value() < static_cast<int64_t>(copy_len)) {
-                    cinux::lib::kprintf("[ELF] segment read failed at offset %lu\n",
-                                        static_cast<unsigned long>(phdr.p_offset + seg_offset));
-                    cinux::mm::g_pmm.refcount_dec_and_test(phys);  // batch 4: roll back alloc
-                    return ExecveResult::ReadFailed;
-                }
-            }
-
-            if (!space.map(vaddr, phys, page_flags)) {
-                cinux::lib::kprintf("[ELF] map failed at vaddr=%p\n",
-                                    reinterpret_cast<void*>(vaddr));
-                cinux::mm::g_pmm.refcount_dec_and_test(phys);  // batch 4: roll back alloc
-                return ExecveResult::MapFailed;
-            }
-            cinux::mm::g_pmm.pte_count_inc(phys);  // batch 3: account for the installed PTE
-        }
-
-        // Record the segment VMA so the page-fault handler and mprotect honour
-        // its permissions (the interpreter mprotects RELRO ranges read-only).
+        // ---- B2 (Linux load_elf_binary style). Each PT_LOAD segment is split
+        // three ways:
+        //   (a) whole file pages  -> file-backed VMA, lazy demand-paged by
+        //                            handle_pf via PageCache::get_page
+        //                           (= Linux elf_map; the bulk of large ELFs like
+        //                            cc1's 47 MB .text, previously eager-read at
+        //                            ~22 s of AHCI I/O per the B1 stats curve)
+        //   (b) straddle page      -> eager: holds the last p_filesz tail bytes
+        //                            plus same-page BSS zero-fill
+        //                           (= Linux padzero + one CoW write)
+        //   (c) pure-BSS pages     -> eager: anonymous zero pages
+        //                           (= Linux set_brk)
+        // The straddle page MUST be eager because lazy get_page reads the file
+        // past p_filesz into the section headers and would pollute same-page BSS.
         cinux::mm::VmaFlags seg_vma = cinux::mm::VmaFlags::Read;
         if (phdr.p_flags & elf::PF_W) {
             seg_vma |= cinux::mm::VmaFlags::Write;
@@ -163,11 +127,91 @@ ExecveResult load_elf_image(cinux::mm::AddressSpace& space, cinux::fs::Inode* in
         if (phdr.p_flags & elf::PF_X) {
             seg_vma |= cinux::mm::VmaFlags::Exec;
         }
-        if (!space.vmas().insert(seg_start, seg_end, seg_vma).ok()) {
-            cinux::lib::kprintf("[ELF] VMA record failed for %p-%p\n",
-                                reinterpret_cast<void*>(seg_start),
-                                reinterpret_cast<void*>(seg_end));
-            return ExecveResult::MapFailed;
+
+        // seg_start maps to file offset p_offset - (seg_vaddr - seg_start); ELF
+        // requires p_offset ≡ p_vaddr (mod PAGE_SIZE), so this stays page-aligned.
+        const uint64_t file_off_base  = phdr.p_offset - (seg_vaddr - seg_start);
+        // Last VA covered by a WHOLE file page = p_filesz rounded DOWN to a page.
+        const uint64_t file_pages_end = (seg_vaddr + phdr.p_filesz) & ~(PAGE_SIZE - 1);
+
+        // (a) Whole-file pages [seg_start, file_pages_end): lazy file-backed VMA.
+        if (phdr.p_filesz > 0 && file_pages_end > seg_start) {
+            auto ir = space.vmas().insert(seg_start, file_pages_end, seg_vma);
+            if (!ir.ok()) {
+                cinux::lib::kprintf("[ELF] VMA record failed for %p-%p\n",
+                                    reinterpret_cast<void*>(seg_start),
+                                    reinterpret_cast<void*>(file_pages_end));
+                return ExecveResult::MapFailed;
+            }
+            if (cinux::mm::VMA* v = space.vmas().find(seg_start)) {
+                v->backing     = inode;
+                v->file_offset = file_off_base;
+                cinux::fs::inode_ref(inode);  // VMA holds a ref; release_backing unrefs on clear/split
+            }
+        }
+
+        // (b)+(c) Straddle page + pure-BSS pages [file_pages_end, seg_end): eager
+        // per-page alloc+zero+read+map. The straddle page reads the file tail
+        // (seg_offset < p_filesz); pure-BSS pages read nothing and stay zero.
+        if (seg_end > file_pages_end) {
+            uint64_t page_flags = FLAG_PRESENT | FLAG_USER;
+            if (phdr.p_flags & elf::PF_W) {
+                page_flags |= FLAG_WRITABLE;
+            }
+            if (!(phdr.p_flags & elf::PF_X)) {
+                page_flags |= FLAG_NX;
+            }
+            for (uint64_t vaddr = file_pages_end; vaddr < seg_end; vaddr += PAGE_SIZE) {
+                uint64_t phys = cinux::mm::g_pmm.alloc_page();
+                if (phys == 0) {
+                    cinux::lib::kprintf("[ELF] page alloc failed at vaddr=%p\n",
+                                        reinterpret_cast<void*>(vaddr));
+                    return ExecveResult::MapFailed;
+                }
+                auto* dst = reinterpret_cast<uint8_t*>(phys + cinux::arch::DIRECT_MAP_BASE);
+                for (uint64_t b = 0; b < PAGE_SIZE; b++) {
+                    dst[b] = 0;
+                }
+                uint64_t data_vaddr  = (vaddr < seg_vaddr) ? seg_vaddr : vaddr;
+                uint64_t in_page_off = data_vaddr - vaddr;
+                uint64_t seg_offset  = data_vaddr - seg_vaddr;
+                if (seg_offset < phdr.p_filesz) {
+                    uint64_t copy_len = phdr.p_filesz - seg_offset;
+                    uint64_t avail    = PAGE_SIZE - in_page_off;
+                    if (copy_len > avail) {
+                        copy_len = avail;
+                    }
+                    auto bread = inode->ops->read(inode, phdr.p_offset + seg_offset, dst + in_page_off,
+                                                  copy_len);
+                    if (!bread.ok() || bread.value() < static_cast<int64_t>(copy_len)) {
+                        cinux::lib::kprintf("[ELF] segment read failed at offset %lu\n",
+                                            static_cast<unsigned long>(phdr.p_offset + seg_offset));
+                        cinux::mm::g_pmm.refcount_dec_and_test(phys);
+                        return ExecveResult::ReadFailed;
+                    }
+                }
+                if (!space.map(vaddr, phys, page_flags)) {
+                    cinux::lib::kprintf("[ELF] map failed at vaddr=%p\n",
+                                        reinterpret_cast<void*>(vaddr));
+                    cinux::mm::g_pmm.refcount_dec_and_test(phys);
+                    return ExecveResult::MapFailed;
+                }
+                cinux::mm::g_pmm.pte_count_inc(phys);
+            }
+            // Eager-mapped tail is private memory (no backing file). Tag it
+            // Anonymous so vmas().insert does NOT merge it with the file-backed
+            // VMA above -- a merge drops the file-backed VMA's backing inode ref
+            // (release_backing), turning lazy .text pages into anonymous zero
+            // pages and crashing on execute (0x00 0x00 = add %al,(%rax) into
+            // NULL). Different flags => no merge; the eager tail stays private.
+            if (!space.vmas().insert(file_pages_end, seg_end,
+                                     seg_vma | cinux::mm::VmaFlags::Anonymous)
+                     .ok()) {
+                cinux::lib::kprintf("[ELF] tail VMA record failed for %p-%p\n",
+                                    reinterpret_cast<void*>(file_pages_end),
+                                    reinterpret_cast<void*>(seg_end));
+                return ExecveResult::MapFailed;
+            }
         }
     }
 
@@ -237,8 +281,6 @@ ExecveResult load_interpreter(cinux::mm::AddressSpace& space, const char* path, 
 
     out_base  = cinux::arch::USER_INTERP_BASE;
     out_entry = cinux::arch::USER_INTERP_BASE + ehdr->e_entry;  // ET_DYN: entry is base-relative
-    cinux::lib::kprintf("[EXECVE] loaded interp %s base=%p entry=%p\n", path,
-                        reinterpret_cast<void*>(out_base), reinterpret_cast<void*>(out_entry));
     return ExecveResult::Ok;
 }
 

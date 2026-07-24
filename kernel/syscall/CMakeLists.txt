@@ -1,4 +1,5 @@
 target_sources(big_kernel_common PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_pread64.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_read.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_write.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_open.cpp
@@ -25,6 +26,10 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_waitpid.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_dmesg.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_mmap.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_shm.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_mount.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_umount2.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_access.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_brk.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_signal.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_reboot.cpp
@@ -38,6 +43,7 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_set_tid_address.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_clock_gettime.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_ping.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_cinux_exit.cpp  # F-USABILITY: buildroot isa-debug-exit gate
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_socket.cpp
     # F-ECO batch 2: VFS metadata + dirent syscalls.
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_chmod.cpp
@@ -69,4 +75,12 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_getpeername.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_shutdown.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_socketpair.cpp
+    # F8-M5: real poll/select (shared do_poll_core engine).
+    ${CMAKE_CURRENT_SOURCE_DIR}/poll_core.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_select.cpp
+    # gcc/g++ self-host (2026-07-05): probed/missing Linux syscalls.
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_getrandom.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_linux_stubs.cpp  # rseq/clone3/set_robust_list/sendfile
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_prlimit64.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_time.cpp  # gettimeofday + time
 )

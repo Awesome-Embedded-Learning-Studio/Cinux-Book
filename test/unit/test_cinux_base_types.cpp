@@ -12,12 +12,12 @@
  */
 
 #define TEST_FRAMEWORK_IMPL
-#include "test_framework.h"
-
 #include <cinux/buffer.hpp>
 #include <cinux/expected.hpp>
 #include <cinux/span.hpp>
 #include <cinux/string_view.hpp>
+
+#include "test_framework.h"
 
 using cinux::lib::BufferView;
 using cinux::lib::ByteSpan;
@@ -49,7 +49,7 @@ TEST("cinux_base: ErrorOr error path") {
 }
 
 TEST("cinux_base: ErrorOr<void> specialization") {
-    ErrorOr<void> ok;                       // default = success
+    ErrorOr<void> ok;  // default = success
     ASSERT_TRUE(ok.ok());
     ASSERT_EQ(ok.error(), Error::Ok);
 
@@ -60,8 +60,7 @@ TEST("cinux_base: ErrorOr<void> specialization") {
 
 TEST("cinux_base: error_string covers enum values") {
     ASSERT_TRUE(StringView(cinux::lib::error_string(Error::Ok)).equals("Ok"));
-    ASSERT_TRUE(
-        StringView(cinux::lib::error_string(Error::NotFound)).equals("NotFound"));
+    ASSERT_TRUE(StringView(cinux::lib::error_string(Error::NotFound)).equals("NotFound"));
 }
 
 // ============================================================
@@ -115,7 +114,7 @@ TEST("cinux_base: StringView comparison operators") {
 // ============================================================
 
 TEST("cinux_base: Span from C array & iteration") {
-    int arr[] = {1, 2, 3, 4};
+    int       arr[] = {1, 2, 3, 4};
     Span<int> s(arr);
 
     ASSERT_EQ(s.size(), 4u);
@@ -131,7 +130,7 @@ TEST("cinux_base: Span from C array & iteration") {
 }
 
 TEST("cinux_base: Span subviews") {
-    int arr[] = {10, 20, 30, 40};
+    int       arr[] = {10, 20, 30, 40};
     Span<int> s(arr);
 
     Span<int> first_two = s.first(2);
@@ -149,7 +148,7 @@ TEST("cinux_base: Span subviews") {
 }
 
 TEST("cinux_base: ByteSpan alias") {
-    uint8_t bytes[] = {0xDE, 0xAD, 0xBE, 0xEF};
+    uint8_t  bytes[] = {0xDE, 0xAD, 0xBE, 0xEF};
     ByteSpan b(bytes);
 
     ASSERT_EQ(b.size(), 4u);
@@ -190,7 +189,7 @@ TEST("cinux_base: StaticBuffer fill & view") {
 }
 
 TEST("cinux_base: BufferView slice") {
-    uint8_t raw[] = {0, 1, 2, 3, 4, 5};
+    uint8_t    raw[] = {0, 1, 2, 3, 4, 5};
     BufferView view(raw, 6);
 
     BufferView mid = view.slice(2, 2);

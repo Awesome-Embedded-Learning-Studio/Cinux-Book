@@ -2,7 +2,7 @@
  * @file kernel/arch/x86_64/user_access.hpp
  * @brief SMAP-aware user-memory accessors (Linux uaccess.h aligned)
  *
- * CinuxOS SMAP model (see document/ai for the design that replaced F9 batch 4's
+ * Cinux SMAP model (see document/ai for the design that replaced F9 batch 4's
  * broken global-STAC approach):
  *   - CR4.SMAP is set, so by default (RFLAGS.AC = 0) the kernel CANNOT read or
  *     write user pages. Any direct dereference of a user pointer from kernel

@@ -2,7 +2,7 @@
  * @file kernel/syscall/sys_getrusage.hpp
  * @brief sys_getrusage handler declaration (F-ECO batch 5)
  *
- * Fills Linux struct rusage.  CinuxOS does not yet do per-task resource
+ * Fills Linux struct rusage.  Cinux does not yet do per-task resource
  * accounting (no user/system CPU time, no fault / context-switch counters, no
  * max-RSS), so every field is reported 0 -- honest, not fabricated.  busybox
  * `time` / `top` link but read zeros until an accounting milestone wires real

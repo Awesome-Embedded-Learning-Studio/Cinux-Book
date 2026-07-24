@@ -15,6 +15,8 @@
 
 #include <stdint.h>
 
+#include "kernel/fs/devfs/devfs.hpp"
+#include "kernel/fs/file.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/proc/process.hpp"  // Task (Scheduler::current()->addr_space)
@@ -23,6 +25,30 @@
 #include "kernel/proc/userspace.hpp"
 
 namespace cinux::proc {
+
+namespace {
+
+void install_init_stdio(Task* task) {
+    if (task == nullptr) {
+        return;
+    }
+
+    auto* console = cinux::fs::devfs::console_inode();
+    if (console == nullptr) {
+        cinux::lib::kprintf("[INIT] warning: cannot open /dev/console for stdio\n");
+        return;
+    }
+
+    if (task->fd_table != nullptr) {
+        task->fd_table->release();
+    }
+    task->fd_table = new cinux::fs::FDTable();
+    for (int fd = 0; fd < 3; ++fd) {
+        task->fd_table->set(fd, new cinux::fs::File(console, 0, cinux::fs::OpenFlags::RDWR));
+    }
+}
+
+}  // namespace
 
 void launch_userspace() {
     // B3b (GCC self-host): the init kthread itself execves /sbin/init -- it
@@ -33,11 +59,12 @@ void launch_userspace() {
     // the image and does not return.
     cinux::lib::kprintf("[INIT] Executing /sbin/init as PID1 (busybox init)...\n");
 
-    auto* self = Scheduler::current();
+    auto* self       = Scheduler::current();
     // execve requires a non-null address space (kernel threads start without
     // one): install a fresh one.  execve clears any mappings first, so the
     // kernel thread never leaks user mappings into init.
     self->addr_space = new cinux::mm::AddressSpace();
+    install_init_stdio(self);
 
     const char* path   = "/sbin/init";
     const char* argv[] = {"init", nullptr};  // basename "init" -> busybox init applet

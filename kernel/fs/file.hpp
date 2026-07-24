@@ -67,6 +67,61 @@ struct File {
     bool      cloexec;  ///< FD_CLOEXEC (F-ECO batch 4: fcntl F_GETFD/F_SETFD)
 
     mutable cinux::proc::Spinlock offset_lock_;
+
+    /// Reference count: how many FileRef holders (fd slots) point at this File.
+    /// __atomic_* ACQ_REL (a File is shared across FDTables after fork/clone).
+    /// FileRef bumps on copy/adopt, drops on destroy; on 0 it deletes the File.
+    /// File itself still does NOT touch inode on ctor/dtor (test fixtures may
+    /// free an inode before its File); inode refcount stays with FDTable
+    /// (DEBT-023). Moving the inode ref onto the File (needed for dup/fork to
+    /// SHARE one File, Linux open-file-description semantics) is batch 2.
+    uint32_t refcount{0};
+};
+
+// ============================================================
+// FileRef (RAII handle to a File; refcount-managed)
+// ============================================================
+
+/// RAII handle to a File. Copying SHARES the File (bumps refcount) -- exactly
+/// Linux's open-file-description sharing across dup/fork. Destruction drops the
+/// refcount and deletes the File on 0. FDTable stores FileRef, so fd install /
+/// remove / close is refcount-correct by value semantics: no manual delete, no
+/// double-free (the test `delete retrieved` + `~FDTable delete` class of bug
+/// becomes impossible -- nothing manually deletes a File anymore).
+class FileRef {
+public:
+    FileRef() = default;
+    explicit FileRef(File* f) : f_(f) { ref(); }     // adopt: +1
+    FileRef(const FileRef& o) : f_(o.f_) { ref(); }  // copy:  +1 (share)
+    FileRef& operator=(const FileRef& o) {
+        unref();
+        f_ = o.f_;
+        ref();
+        return *this;
+    }
+    FileRef(FileRef&& o) noexcept : f_(o.f_) { o.f_ = nullptr; }
+    FileRef& operator=(FileRef&& o) noexcept {
+        unref();
+        f_   = o.f_;
+        o.f_ = nullptr;
+        return *this;
+    }
+    ~FileRef() { unref(); }
+    File*    get() const { return f_; }
+    File*    operator->() const { return f_; }
+    explicit operator bool() const { return f_ != nullptr; }
+
+private:
+    void ref() {
+        if (f_ != nullptr)
+            __atomic_add_fetch(&f_->refcount, 1, __ATOMIC_ACQ_REL);
+    }
+    void unref() {
+        if (f_ != nullptr && __atomic_sub_fetch(&f_->refcount, 1, __ATOMIC_ACQ_REL) == 0) {
+            delete f_;
+        }
+    }
+    File* f_{nullptr};
 };
 
 /// Bump an inode's open-description refcount (DEBT-023). Called when a File
@@ -90,9 +145,9 @@ void inode_unref(Inode* inode);
 /**
  * @brief Per-process file descriptor table
  *
- * Manages a fixed-size array of File pointers.  Descriptor 0 is
- * reserved for stdin, 1 for stdout, and 2 for stderr (allocated
- * externally by the shell / init setup).
+ * Manages a fixed-size array of File pointers.  alloc() follows Linux fd
+ * allocation semantics: return the lowest unused descriptor, including
+ * standard-stream slots 0/1/2 when they are free.
  *
  * Lifetime: the FDTable owns the File objects; close() releases them.
  */
@@ -107,16 +162,14 @@ public:
     FDTable();
 
     /**
-     * @brief Resource-safety backstop: free every still-open File
+     * @brief Resource-safety backstop: drop every still-open FileRef
      *
-     * The normal lifecycle is release(): when the refcount drops to 0 every
-     * slot is close()'d (File freed, slot set to nullptr) and the table is
-     * `delete`d.  This destructor closes the gaps release() does not cover —
-     * a stack-allocated FDTable (unit tests) or any path that skips release()
-     * — so no File can ever leak.  It is a no-op on the release() path, where
-     * every slot is already nullptr by the time this runs.
+     * `fds_[]` are FileRef value members, so the implicit destructor already
+     * unref's every slot -- no manual loop is needed. The backstop (no File
+     * leaks for stack-allocated FDTables / skip-release paths) is now provided
+     * by FileRef's own destructor.
      */
-    ~FDTable();
+    ~FDTable() = default;
 
     /**
      * @name Reference counting (F3-M2 batch 3)
@@ -198,8 +251,8 @@ public:
     ///@}
 
 private:
-    /// Fixed-size array of File pointers (nullptr = unused slot)
-    File*                         fds_[FD_TABLE_SIZE];
+    /// Fixed-size array of file handles (empty FileRef = unused slot)
+    FileRef                       fds_[FD_TABLE_SIZE];
     mutable cinux::proc::Spinlock lock_;
     uint32_t                      refcount_;  ///< F3-M2 batch 3: shared by CLONE_FILES threads
 };

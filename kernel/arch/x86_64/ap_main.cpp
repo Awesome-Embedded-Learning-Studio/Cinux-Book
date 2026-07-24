@@ -317,14 +317,12 @@ extern "C" void reschedule_ipi_handler(InterruptFrame* /*frame*/) {
 // LAPIC timer tick (F5-M5 -smp): each AP's periodic preemption source.
 // ============================================================
 // The PIT preempts only the BSP (the IOAPIC redirect targets the BSP), so APs
-// arm their own LAPIC timer (ap_main) and land here.  This mirrors the PIT path
-// (pit_irq0_handler): an EARLY EOI before Scheduler::tick() so the timer is
-// re-armed ahead of tick's inline preemption switch (otherwise the next tick
-// could be missed on the task we switch to).  tick() runs the per-class
-// preemption policy and may context-switch.
+// arm their own LAPIC timer (ap_main) and land here.  tick() accounts quanta and
+// wakes timer sleepers, but does not context-switch inline from IRQ context; EOI
+// after tick keeps the timer non-reentrant while that work runs.
 extern "C" void lapic_timer_handler(InterruptFrame* /*frame*/) {
-    cinux::arch::irq_eoi(0);  // EOI the LAPIC timer before the preempt switch
     cinux::proc::Scheduler::tick();
+    cinux::arch::irq_eoi(0);
 }
 
 uint32_t online_ap_count() {

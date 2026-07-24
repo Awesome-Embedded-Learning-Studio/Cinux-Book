@@ -71,7 +71,7 @@ void ArpModule::on_frame(const L2Info& /*l2*/, FrameView payload, NetDevice& dev
     uint8_t body[28];
     build_arp_body(kArpReply, our_mac, cfg->local, arp.sha, arp.spa, body);
     // Reply unicasts to the requester's MAC; egresses the SAME device (FOLD-B).
-    (void)stack.send_l3(dev, arp.sha, kEtherTypeArp, body, sizeof(body));
+    static_cast<void>(stack.send_l3(dev, arp.sha, kEtherTypeArp, body, sizeof(body)));
 }
 
 bool ArpModule::resolve_l3(NetDevice& dev, Ipv4Addr ip, NetStack& stack, EthAddr& out) {
@@ -89,7 +89,7 @@ bool ArpModule::resolve_l3(NetDevice& dev, Ipv4Addr ip, NetStack& stack, EthAddr
     }
     uint8_t body[28];
     build_arp_body(kArpRequest, our_mac, cfg->local, EthAddr{}, ip, body);
-    (void)stack.send_l3(dev, broadcast_mac(), kEtherTypeArp, body, sizeof(body));
+    static_cast<void>(stack.send_l3(dev, broadcast_mac(), kEtherTypeArp, body, sizeof(body)));
     ++sent_requests_;
     return false;  // not yet resolved -- caller retries on the next poll
 }

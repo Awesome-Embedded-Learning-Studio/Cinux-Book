@@ -17,6 +17,7 @@
 #    include <cstdint>
 
 #    include "drivers/mouse/hid.hpp"
+#    include "drivers/usb/hid_boot.hpp"  // find_boot_hid (refactor merged find_boot_mouse/keyboard)
 
 using namespace cinux::drivers::usb;
 
@@ -75,7 +76,7 @@ TEST("hid: find_boot_mouse locates the interrupt-IN endpoint") {
         0x0A,
     };
     BootMouseEp ep{};
-    ASSERT_TRUE(find_boot_mouse(cfg, sizeof(cfg), ep));
+    ASSERT_TRUE(find_boot_hid(cfg, sizeof(cfg), UsbHid::kBootProtoMouse, ep));
     ASSERT_EQ(static_cast<uint32_t>(ep.interface_number), 0u);
     ASSERT_EQ(static_cast<uint32_t>(ep.ep_number), 1u);
     ASSERT_EQ(ep.max_packet_size, 8u);
@@ -89,7 +90,7 @@ TEST("hid: find_boot_mouse ignores a keyboard (proto 0x01) interface") {
         0x07, 0x05, 0x81, 0x03, 0x08, 0x00, 0x0A,
     };
     BootMouseEp ep{};
-    ASSERT_FALSE(find_boot_mouse(cfg, sizeof(cfg), ep));
+    ASSERT_FALSE(find_boot_hid(cfg, sizeof(cfg), UsbHid::kBootProtoMouse, ep));
 }
 
 TEST("hid: find_boot_mouse skips an OUT interrupt endpoint, takes the IN one") {
@@ -101,7 +102,7 @@ TEST("hid: find_boot_mouse skips an OUT interrupt endpoint, takes the IN one") {
         0x07, 0x05, 0x82, 0x03, 0x08, 0x00, 0x0A,              // EP2 IN interrupt
     };
     BootMouseEp ep{};
-    ASSERT_TRUE(find_boot_mouse(cfg, sizeof(cfg), ep));
+    ASSERT_TRUE(find_boot_hid(cfg, sizeof(cfg), UsbHid::kBootProtoMouse, ep));
     ASSERT_EQ(static_cast<uint32_t>(ep.ep_number), 2u);  // the IN endpoint
 }
 

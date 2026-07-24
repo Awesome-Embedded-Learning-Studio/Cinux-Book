@@ -36,7 +36,7 @@ using cinux::proc::SigAction;
 using cinux::proc::SigSet;
 using cinux::proc::Task;
 
-// Linux sigaction flags (uapi). SA_RESTORER (0x04000000) not honoured: CinuxOS
+// Linux sigaction flags (uapi). SA_RESTORER (0x04000000) not honoured: Cinux
 // injects its own sigreturn trampoline rather than the user restorer.
 constexpr uint64_t kSaRestart   = 0x10000000;
 constexpr uint64_t kSaResethand = 0x80000000;
@@ -62,7 +62,7 @@ void kernel_to_user_sigaction(const SigAction& k, UserSigAction& u) {
                     : (k.type == HandlerType::kCustom) ? k.handler_addr
                                                        : 0;
     u.sa_flags    = (k.sa_restart ? kSaRestart : 0) | (k.sa_resethand ? kSaResethand : 0);
-    u.sa_restorer = 0;  // CinuxOS injects its own sigreturn trampoline
+    u.sa_restorer = 0;  // Cinux injects its own sigreturn trampoline
     u.sa_mask     = k.sa_mask;
 }
 
@@ -237,7 +237,6 @@ int64_t sys_rt_sigtimedwait(uint64_t set, uint64_t info, uint64_t /*timeout*/, u
     // opt-in Task::sigwait_blocked wake in signal_send() stays wired for a
     // future blocking+timeout variant.
     cinux::proc::InterruptGuard guard;
-    (void)guard;
     SigSet avail = task->sig_pending & wait_set;
     if (avail != 0) {
         for (int n = 1; n <= cinux::proc::kSignalMax; ++n) {

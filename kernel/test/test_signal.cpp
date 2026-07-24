@@ -171,6 +171,28 @@ void test_send_uncatchable_overrides_ignore() {
     TEST_ASSERT_TRUE(sig_is_member(t.sig_pending, Signal::kSigkill));  // SIGKILL not ignored
 }
 
+void test_force_send_bypasses_block_and_ignore() {
+    Task t{};
+    t.sig_actions = SharedSigActions::create();
+    CurrentTaskGuard guard(&t);
+    t.pid                                                           = 1;
+    t.state                                                         = TaskState::Running;
+    t.sig_actions->actions[static_cast<int>(Signal::kSigsegv)].type = HandlerType::kIgnore;
+    sig_set_add(t.sig_blocked, Signal::kSigsegv);
+
+    TEST_ASSERT_EQ(signal_force_send(&t, Signal::kSigsegv), 0);
+
+    // force is delivery-time only: it tags sig_forced but must NOT persistently
+    // mutate sig_blocked or the shared sig_actions (SMP-safe; matches Linux
+    // force_sig_info).  The bypass itself is exercised by the delivery path
+    // (signal_pick_deliverable avail + forced->default in the kernel fault tests).
+    TEST_ASSERT_TRUE(sig_is_member(t.sig_forced, Signal::kSigsegv));
+    TEST_ASSERT_TRUE(sig_is_member(t.sig_blocked, Signal::kSigsegv));  // block mask retained
+    TEST_ASSERT_TRUE(sig_is_member(t.sig_pending, Signal::kSigsegv));
+    TEST_ASSERT_EQ(t.sig_actions->actions[static_cast<int>(Signal::kSigsegv)].type,
+                   HandlerType::kIgnore);  // disposition retained
+}
+
 }  // namespace test_sig_send
 
 namespace test_sig_pick {
@@ -400,6 +422,7 @@ extern "C" void run_signal_tests() {
     RUN_TEST(test_sig_send::test_send_sets_pending);
     RUN_TEST(test_sig_send::test_send_ignored_is_discarded);
     RUN_TEST(test_sig_send::test_send_uncatchable_overrides_ignore);
+    RUN_TEST(test_sig_send::test_force_send_bypasses_block_and_ignore);
     RUN_TEST(test_sig_pick::test_pick_clears_and_respects_block);
     RUN_TEST(test_sig_pick::test_pick_skips_custom);
     RUN_TEST(test_sig_syscall::test_sigaction_install_and_query);

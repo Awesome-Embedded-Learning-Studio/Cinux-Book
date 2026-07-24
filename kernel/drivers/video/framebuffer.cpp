@@ -16,6 +16,7 @@ namespace cinux::drivers {
 
 void Framebuffer::init(const BootInfo& bi) {
     uint64_t fb_phys = bi.fb_addr;
+    phys_base_       = fb_phys;  // F-GUI-USERSPACE b1: expose to /dev/fb0 mmap
     width_           = bi.fb_width;
     height_          = bi.fb_height;
     pitch_           = bi.fb_pitch;
@@ -85,6 +86,20 @@ void Framebuffer::clear(uint32_t argb) {
             addr_[y * (pitch_ / 4) + x] = argb;
         }
     }
+}
+
+// F-GUI-USERSPACE batch 1: system framebuffer singleton.  Set once from
+// kernel_main after init, read by /dev/fb0 (and any device-mmap consumer).
+namespace {
+Framebuffer* g_system_fb = nullptr;
+}
+
+Framebuffer* system_framebuffer() {
+    return g_system_fb;
+}
+
+void set_system_framebuffer(Framebuffer* fb) {
+    g_system_fb = fb;
 }
 
 }  // namespace cinux::drivers

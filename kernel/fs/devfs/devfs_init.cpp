@@ -16,9 +16,12 @@
 
 #include <stdint.h>
 
+#include "kernel/drivers/block_registry.hpp"  // BlockRegistry (F6-M1 B1b: /dev/<name> nodes)
+#include "kernel/drivers/input/input_event_device.hpp"  // /dev/event0 (F-GUI-USERSPACE b2)
 #include "kernel/drivers/serial/serial.hpp"
 #include "kernel/drivers/tty/console_tty.hpp"  // console_tty + console_tty_ioctl (B3b)
 #include "kernel/drivers/tty/pty_device.hpp"   // /dev/ptmx clone + /dev/pts/N
+#include "kernel/drivers/video/fb_dev.hpp"     // /dev/fb0 mmap (F-GUI-USERSPACE b1)
 #include "kernel/fs/devfs/devfs.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/ipc/fifo.hpp"  // named FIFO dynamic lookup (F8-M2)
@@ -108,11 +111,20 @@ cinux::lib::ErrorOr<Inode*> devfs_dynamic_lookup(const char* name) {
     if (fifo.error() != cinux::lib::Error::NotFound) {
         return fifo.error();
     }
-    // /dev/tty -> the caller's controlling terminal (the slave side of its PTY).
+    // /dev/tty -> the caller's controlling terminal.  In console-only boots
+    // busybox init may spawn ash with stdio on /dev/console without issuing
+    // TIOCSCTTY first, so no controlling tty is recorded; treat the built-in
+    // console as the fallback controlling terminal until a PTY is acquired.
     if (p[0] == 't' && p[1] == 't' && p[2] == 'y' && p[3] == '\0') {
         cinux::proc::Task* task = cinux::proc::Scheduler::current();
         if (task == nullptr || task->controlling_tty < 0) {
-            return cinux::lib::Error::NotFound;  // no controlling terminal
+            if (task != nullptr) {
+                task->controlling_tty = cinux::drivers::kConsoleControllingTty;
+                if (cinux::drivers::console_tty().foreground_pgid() == 0 && task->pgid != 0) {
+                    cinux::drivers::console_tty().set_foreground_pgid(task->pgid);
+                }
+            }
+            return g_devfs.lookup("console");
         }
         return cinux::drivers::pty_slave_inode(task->controlling_tty);
     }
@@ -147,6 +159,17 @@ bool init() {
     // resolves dynamically to the matching slave inode.  Registered here so
     // devfs.cpp itself stays PTY-free (host-testable).
     g_devfs.add_node("ptmx", &cinux::drivers::ptmx_ops());
+    // F-GUI-USERSPACE batch 1: /dev/fb0 -- mmap binds a user VMA to the VBE
+    // framebuffer physical memory.
+    g_devfs.add_node("fb0", &cinux::drivers::framebuffer_dev_ops());
+    // F-GUI-USERSPACE batch 2: /dev/event0 -- userspace input device.  Mouse +
+    // keyboard ISRs (via gui_init's listener) push Events; userspace reads them.
+    g_devfs.add_node("event0", &cinux::input::input_event_device_ops());
+    // F6-M1 B1b: register /dev/<name> for every block device in the registry.
+    for (uint32_t i = 0; i < cinux::drivers::BlockRegistry::count(); ++i) {
+        g_devfs.add_block_node(cinux::drivers::BlockRegistry::name_at(i),
+                               cinux::drivers::BlockRegistry::device_at(i));
+    }
     g_devfs.set_dynamic_lookup(&devfs_dynamic_lookup);
     if (!vfs_mount_add("/dev", &g_devfs)) {
         cinux::lib::kprintf("[DEVFS] vfs_mount_add /dev failed (table full?)\n");
@@ -154,6 +177,15 @@ bool init() {
     }
     cinux::lib::kprintf("[DEVFS] mounted at /dev (%u nodes)\n", g_devfs.node_count());
     return true;
+}
+
+Inode* console_inode() {
+    auto r = g_devfs.lookup("console");
+    return r.ok() ? r.value() : nullptr;
+}
+
+DevFs* instance() {
+    return g_devfs.is_mounted() ? &g_devfs : nullptr;
 }
 
 }  // namespace devfs

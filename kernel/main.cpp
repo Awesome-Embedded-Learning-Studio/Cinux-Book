@@ -116,7 +116,7 @@ extern "C" void kernel_main() {
 
     // Step 3: Initialise the GDT (must come before IDT)
     cinux::arch::gdt_blocks[0].init();
-    cinux::lib::kprintf("[BIG] GDT loaded (TSS with IST1 Double Fault stack).\n");
+    cinux::lib::kprintf("[BIG] GDT loaded (TSS with IST1 #DF + IST2 IRQ stacks).\n");
 
     // Step 4: Initialise the IDT (depends on GDT selectors)
     cinux::arch::g_idt.init();
@@ -152,12 +152,6 @@ extern "C" void kernel_main() {
     // that M2 consumes.  Only needs the loader's direct map, which is already up.
     cinux::drivers::acpi::init();
 
-    // Step 8: Trigger a software breakpoint to verify exception
-    // handling still works after PIC/IRQ setup
-    cinux::lib::kprintf("[BIG] Triggering int $3 breakpoint...\n");
-    __asm__ volatile("int $3");
-    cinux::lib::kprintf("[BIG] Breakpoint returned, continuing.\n");
-
     // Step 9: Initialise Physical Memory Manager
     auto* boot_info = reinterpret_cast<const BootInfo*>(BOOT_INFO_PHYS);
     cinux::mm::g_pmm.init(*boot_info);
@@ -187,6 +181,7 @@ extern "C" void kernel_main() {
     // Step 13: Initialise framebuffer from BootInfo
     Framebuffer fb;
     fb.init(*boot_info);
+    cinux::drivers::set_system_framebuffer(&fb);  // F-GUI-USERSPACE b1: /dev/fb0 mmap
     cinux::lib::kprintf("[BIG] Framebuffer initialised: %ux%u %ubpp\n", fb.width(), fb.height(),
                         boot_info->fb_bpp);
 
@@ -382,9 +377,10 @@ extern "C" void kernel_main() {
     Scheduler::init();
 
     // F7 follow-up: start the resident net RX poll-driver kthread (sti/hlt +
-    // NetStack::poll). Must come after the scheduler is up; queued here, it runs
-    // once run_first() begins dispatch. Lets ping() yield (default pump) instead
-    // of sti/hlt-ing inside the syscall (the #DF hazard). No-op if no NIC.
+    // NetStack::poll). Must come after the scheduler is up; it runs at low
+    // priority and yields cooperatively after each poll/sleep round. Lets ping()
+    // yield (default pump) instead of sti/hlt-ing inside the syscall (the #DF
+    // hazard). No-op if no NIC.
     cinux::net::start_poll_driver();
 
     auto* init_task =

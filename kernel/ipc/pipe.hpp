@@ -32,6 +32,7 @@
 
 #include <cinux/ring_buffer.hpp>
 
+#include "kernel/fs/inode.hpp"  // kPoll* event bits (poll readiness helpers)
 #include "kernel/proc/sync.hpp"
 
 namespace cinux::proc {
@@ -147,6 +148,37 @@ public:
 
     /** @brief Number of bytes currently available to read. */
     uint32_t available() const;
+
+    // -- poll(2) / select(2) readiness (F8-M5) -----------------------------
+    // These register a poller on this pipe's wait queue (atomically with the
+    // readiness check, under lock_) so sys_poll can block until the peer makes
+    // progress.  The poller follows with remove_*_waiter() after it wakes.
+
+    /**
+     * @brief Read-end readiness for poll/select.
+     *
+     * Returns @c kPollIn if bytes are buffered and @c kPollHup if the writer
+     * end has closed (Linux reports both when data remains after close).  If
+     * @p waiter is non-null, also enqueues it on the read wait queue so a later
+     * write/close wakes it.
+     */
+    uint32_t poll_read_events(cinux::proc::Task* waiter);
+
+    /**
+     * @brief Write-end readiness for poll/select.
+     *
+     * Returns @c kPollOut if the buffer has space and @c kPollErr if the reader
+     * end has closed (further writes would raise SIGPIPE).  If @p waiter is
+     * non-null, also enqueues it on the write wait queue so a later drain/close
+     * wakes it.
+     */
+    uint32_t poll_write_events(cinux::proc::Task* waiter);
+
+    /** Remove a poll waiter from the read wait queue (no-op if not queued). */
+    void remove_read_waiter(cinux::proc::Task* waiter);
+
+    /** Remove a poll waiter from the write wait queue (no-op if not queued). */
+    void remove_write_waiter(cinux::proc::Task* waiter);
 
     /**
      * @brief Non-blocking read (ignores wait queues)

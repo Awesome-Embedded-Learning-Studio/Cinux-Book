@@ -117,6 +117,29 @@ void test_remove_head_middle_tail() {
     TEST_ASSERT_NULL(s.find(0x4800));
 }
 
+void test_remove_preserves_file_offsets_for_right_survivors() {
+    LinkedListVMAStore s;
+    TEST_ASSERT_TRUE(s.insert(kA, kF, kRw).ok());
+    VMA* v = s.find(kA);
+    TEST_ASSERT_NOT_NULL(v);
+    v->file_offset = 0x9000;
+
+    // Remove the middle [kB, kD): the right survivor starts two pages later in
+    // both virtual and file space.
+    TEST_ASSERT_TRUE(s.remove(kB, kD).ok());
+    VMA* right = s.find(kD);
+    TEST_ASSERT_NOT_NULL(right);
+    TEST_ASSERT_TRUE(right->start == kD);
+    TEST_ASSERT_TRUE(right->file_offset == 0xC000);
+
+    // Trim the left page of the right survivor: file offset advances again.
+    TEST_ASSERT_TRUE(s.remove(kD, kE).ok());
+    right = s.find(kE);
+    TEST_ASSERT_NOT_NULL(right);
+    TEST_ASSERT_TRUE(right->start == kE);
+    TEST_ASSERT_TRUE(right->file_offset == 0xD000);
+}
+
 }  // namespace test_vma_remove
 
 // ============================================================
@@ -138,6 +161,25 @@ void test_merge_adjacent_same_flags() {
     // Different flags do not merge.
     TEST_ASSERT_TRUE(s.insert(kC, kD, kRo).ok());
     TEST_ASSERT_TRUE(s.count() == 2);
+}
+
+void test_backed_vma_does_not_merge_by_flags_only() {
+    LinkedListVMAStore s;
+    TEST_ASSERT_TRUE(s.insert(kA, kB, kRo).ok());
+    VMA* left = s.find(kA);
+    TEST_ASSERT_NOT_NULL(left);
+    left->backing     = reinterpret_cast<cinux::fs::Inode*>(0x1);
+    left->file_offset = 0x2000;
+
+    TEST_ASSERT_TRUE(s.insert(kB, kC, kRo).ok());
+    TEST_ASSERT_TRUE(s.count() == 2);
+
+    VMA* right = s.find(kB);
+    TEST_ASSERT_NOT_NULL(right);
+    TEST_ASSERT_TRUE(right->start == kB);
+    TEST_ASSERT_TRUE(right->file_offset == 0);
+
+    left->backing = nullptr;
 }
 
 }  // namespace test_vma_merge
@@ -185,7 +227,9 @@ extern "C" void run_vma_tests() {
     RUN_TEST(test_vma_find::test_insert_ordered_and_find);
     RUN_TEST(test_vma_reject::test_overlap_and_bad_range);
     RUN_TEST(test_vma_remove::test_remove_head_middle_tail);
+    RUN_TEST(test_vma_remove::test_remove_preserves_file_offsets_for_right_survivors);
     RUN_TEST(test_vma_merge::test_merge_adjacent_same_flags);
+    RUN_TEST(test_vma_merge::test_backed_vma_does_not_merge_by_flags_only);
     RUN_TEST(test_vma_free_area::test_find_free_area);
 
     TEST_SUMMARY();

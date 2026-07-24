@@ -84,7 +84,7 @@ SocketOps& socket_ops() {
 
 cinux::lib::ErrorOr<int64_t> SocketOps::read(const cinux::fs::Inode* inode, uint64_t /*offset*/,
                                              void* buf, uint64_t count) {
-    auto* s = static_cast<Socket*>(inode->fs_private);
+    auto* s = socket_of(inode);
     if (s == nullptr) {
         return cinux::lib::Error::InvalidArgument;
     }
@@ -97,7 +97,7 @@ cinux::lib::ErrorOr<int64_t> SocketOps::read(const cinux::fs::Inode* inode, uint
 
 cinux::lib::ErrorOr<int64_t> SocketOps::write(cinux::fs::Inode* inode, uint64_t /*offset*/,
                                               const void* buf, uint64_t count) {
-    auto* s = static_cast<Socket*>(inode->fs_private);
+    auto* s = socket_of(inode);
     if (s == nullptr) {
         return cinux::lib::Error::InvalidArgument;
     }
@@ -106,6 +106,53 @@ cinux::lib::ErrorOr<int64_t> SocketOps::write(cinux::fs::Inode* inode, uint64_t 
         return r.error();
     }
     return *r;
+}
+
+// ============================================================
+// F8-M5: poll readiness.  Socket base default + SocketOps delegation.
+// ============================================================
+
+// Base default: a bare/unconnected socket reports nothing ready and never parks
+// a poller.  Udp/Tcp/Unix override to inspect their rx ring / accept queue and
+// register on the wait queue a blocked recv/accept already uses.
+uint32_t Socket::poll_events(cinux::proc::Task*, bool* registered) {
+    if (registered != nullptr) {
+        *registered = false;
+    }
+    return 0;
+}
+
+void Socket::poll_detach_waiter(cinux::proc::Task*) {
+    // Base never registers; nothing to remove.
+}
+
+uint32_t SocketOps::poll_events(const cinux::fs::Inode* inode, cinux::proc::Task* waiter,
+                                bool* registered) {
+    auto* s = socket_of(inode);
+    if (s == nullptr) {
+        if (registered != nullptr) {
+            *registered = false;
+        }
+        return cinux::fs::kPollErr;  // no Socket bound to this inode -> error
+    }
+    return s->poll_events(waiter, registered);
+}
+
+void SocketOps::poll_detach_waiter(const cinux::fs::Inode* inode, cinux::proc::Task* waiter) {
+    auto* s = socket_of(inode);
+    if (s != nullptr) {
+        s->poll_detach_waiter(waiter);
+    }
+}
+
+void SocketOps::release(cinux::fs::Inode* inode) {
+    // Closing a socket fd: release the protocol resources (unbind the port,
+    // stop listening, send FIN).  Each socket fd owns exactly one Socket, so a
+    // plain close -> Socket::close() is correct without inode refcounting.
+    auto* s = socket_of(inode);
+    if (s != nullptr) {
+        s->close();
+    }
 }
 
 }  // namespace cinux::net

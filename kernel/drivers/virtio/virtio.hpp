@@ -197,7 +197,7 @@ private:
     /// Self-assign a fixed MMIO slot to BAR @p bar_index.  SeaBIOS does not
     /// reliably allocate the QEMU virtio-pci modern BAR (BAR4 carries a bogus
     /// 64-bit prefetchable marker with a junk upper word), so probe the size
-    /// and write a fixed CinuxOS slot, mirroring the NVMe BAR0 self-assign.
+    /// and write a fixed Cinux slot, mirroring the NVMe BAR0 self-assign.
     void self_assign_bar(uint8_t bar_index);
 
     /// Resolve the common_cfg/notify/isr/device_cfg virt pointers after caps_

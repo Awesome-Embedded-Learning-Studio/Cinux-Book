@@ -14,6 +14,7 @@
 #include <stdint.h>
 
 #include "kernel/arch/x86_64/memory_layout.hpp"
+#include "kernel/drivers/mmio.hpp"  // mmio32_read/write (shared MMIO helper)
 #include "kernel/arch/x86_64/paging_config.hpp"
 #include "kernel/drivers/acpi/acpi.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -38,11 +39,11 @@ constexpr uint64_t kHpetMmioFlags =
 HPET g_hpet;
 
 uint32_t HPET::read32(uint32_t off) const {
-    return *reinterpret_cast<volatile uint32_t*>(reinterpret_cast<uintptr_t>(base_) + off);
+    return mmio32_read(base_, off);
 }
 
 void HPET::write32(uint32_t off, uint32_t value) {
-    *reinterpret_cast<volatile uint32_t*>(reinterpret_cast<uintptr_t>(base_) + off) = value;
+    mmio32_write(base_, off, value);
 }
 
 uint64_t HPET::read_counter() const {

@@ -25,14 +25,16 @@ int64_t sys_waitpid(uint64_t pid_arg, uint64_t status_arg, uint64_t options_arg,
 
     // P0 (SMAP): waitpid() is a kernel function that writes a kernel-side out
     // param; only this syscall boundary crosses into user memory, via put_user.
-    int  kstatus = 0;
-    auto result  = cinux::proc::waitpid(pid, &kstatus, options, cinux::proc::g_pid_alloc);
+    int  reaped_pid = 0;
+    int  kstatus    = 0;
+    auto result =
+        cinux::proc::waitpid(pid, &kstatus, options, cinux::proc::g_pid_alloc, &reaped_pid);
 
     if (result == cinux::proc::WaitpidResult::Ok) {
         if (status != nullptr && !cinux::user::put_user(kstatus, status)) {
             return -cinux::kEfault;  // child already reaped; status write failed
         }
-        return static_cast<int64_t>(pid);
+        return static_cast<int64_t>(reaped_pid);
     }
 
     if (result == cinux::proc::WaitpidResult::NotExited) {

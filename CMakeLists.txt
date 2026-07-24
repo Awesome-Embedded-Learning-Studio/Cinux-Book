@@ -1,51 +1,15 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(cinux 
-    VERSION 0.1.0 
+project(cinux
+    VERSION 1.0.0
     LANGUAGES C CXX ASM)
 
-option(CINUX_GUI "Enable GUI mode" ON)
-option(CINUX_USB "Enable USB (xHCI host controller + PCI MSI-X) driver" ON)
-option(CINUX_NET "Enable e1000 Intel NIC driver" ON)
-option(CINUX_VIRTIO "Enable VirtIO PCI modern transport + virtio-blk/net driver" ON)
+# All user-facing build switches live in the single registry below. Add a new
+# option there (plus a CINUX_COMPILE_DEF_OPTS entry if it maps 1:1 to a compile
+# definition) -- not here. Included before any if() that reads a CINUX_ flag.
+include(cmake/options.cmake)
 
-# F-INFRA I-10: opt-in lockdep -- assert no spinlock is held across schedule()
-# (would deadlock single-core). Off by default (zero cost); enable for deadlock
-# hunting: cmake -DCINUX_LOCKDEP=ON ...
-option(CINUX_LOCKDEP "Enable lockdep schedule-while-locked debug checks" OFF)
-
-# F-INFRA I-9: opt-in UBSan. -fsanitize=undefined instruments the kernel to call
-# freestanding __ubsan_handle_* stubs (kernel/lib/ubsan.cpp) that kpanic on UB.
-# Compile-only (no libubsan at link -- the stubs resolve the references). Off by
-# default; enable for UB hunting: cmake -DCINUX_UBSAN=ON ...
-option(CINUX_UBSAN "Enable -fsanitize=undefined with freestanding UBSan stubs" OFF)
-
-# F10-M1 batch 6 / P3: musl /hello ring-3 smoke in the kernel test harness.
-# ON by default -- this is the ONLY test that exercises real user-space
-# syscall paths under SMAP. run-kernel-test uses kernel addresses, so SMAP
-# never fires there (the F9 "4-batch 931/0 假绿" blind spot); only ring-3
-# smoke catches cleartid/futex/signal/path accessor regressions. Requires the
-# musl sysroot + /hello + /forktest on ext2: tools/musl/build-musl.sh +
-# build-hello.sh + build-forktest.sh (CI caches the sysroot; ~30s one-time
-# locally). Set -DCINUX_MUSL_HELLO_SMOKE=OFF to skip.
-option(CINUX_MUSL_HELLO_SMOKE "Enable musl /hello ring-3 smoke in run-kernel-test" ON)
-
-# F10-M2: musl DYNAMIC /hello-dyn ring-3 smoke. Exercises the kernel's PT_INTERP
-# / interpreter-load path (ldso relocates the program in user space). Requires
-# the musl sysroot + /hello-dyn + /lib/ld-musl-x86_64.so.1 on ext2:
-# tools/musl/build-musl.sh + build-hello-dyn.sh. Default OFF (CI has no sysroot;
-# enable locally with the static smoke or alone). The harness shares the
-# static smoke's scheduler/ext2 scaffolding; the two phases gate independently.
-option(CINUX_MUSL_DYN_SMOKE "Enable musl dynamic /hello-dyn ring-3 smoke in run-kernel-test" OFF)
-
-# F-ECO: busybox ring-3 ecosystem smoke. fork+execve /bin/busybox to run a spread
-# of applets -- the first "run real programs" touchstone. Requires the busybox
-# ELF at build/musl/busybox (tools/musl/build-busybox.sh; not a CMake target).
-# Default OFF for local/kernel matrix speed; CI enables it in the dedicated
-# busybox-smoke job.
-option(CINUX_BUSYBOX_SMOKE "Enable busybox ring-3 ecosystem smoke in run-kernel-test" OFF)
-
-# Toolchain version gate (G2). CinuxOS is freestanding C++17 with -mcmodel=kernel
+# Toolchain version gate (G2). Cinux is freestanding C++17 with -mcmodel=kernel
 # codegen, inline asm, and (F-INFRA) GCC-sensitive UBSAN (-fsanitize=undefined) and
 # strict warning flags whose behavior varies across major GCC releases. Fail fast at
 # configure time if GCC predates the tested floor so a too-old toolchain does not
@@ -54,7 +18,7 @@ option(CINUX_BUSYBOX_SMOKE "Enable busybox ring-3 ecosystem smoke in run-kernel-
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11)
         message(FATAL_ERROR
-            "CinuxOS requires GCC >= 11 (C++17 freestanding + strict warnings + UBSAN); "
+            "Cinux requires GCC >= 11 (C++17 freestanding + strict warnings + UBSAN); "
             "found GCC ${CMAKE_CXX_COMPILER_VERSION}.")
     endif()
 endif()
@@ -104,7 +68,16 @@ if(CINUX_GUI)
     # (no TLS canary slot); the legacy PF handler's zero-page demand-paging
     # masked it (read 0, canary 0==0 false-OK), so pump() silently ran with a
     # dead canary. Point the canary at the kernel's global __stack_chk_guard.
-    target_compile_options(cinux-gui PRIVATE -mstack-protector-guard=global)
+    target_compile_options(cinux-gui PRIVATE
+        -mstack-protector-guard=global
+        # F13-B: match the kernel's freestanding C++ discipline. cinux-gui is
+        # added at the root, so it does NOT inherit kernel/CMakeLists.txt's
+        # -fno-rtti -fno-exceptions. Without this the widget tree's virtual
+        # dispatch generates typeinfo referencing __cxxabiv1 symbols the kernel
+        # does not link (crt_stub provides __cxa_atexit/guard/pure_virtual +
+        # operator new/delete, but no class_type_info vtable).
+        -fno-rtti
+        -fno-exceptions)
 endif()
 add_subdirectory(kernel)
 
@@ -116,15 +89,22 @@ endif()
 
 message(STATUS "")
 message(STATUS "=== Cinux Build Configuration ===")
-message(STATUS "  Project:     ${PROJECT_NAME} v${PROJECT_VERSION}")
-message(STATUS "  Build type:  ${CMAKE_BUILD_TYPE}")
-message(STATUS "  C Compiler:  ${CMAKE_C_COMPILER}")
-message(STATUS "  CXX Compiler:${CMAKE_CXX_COMPILER}")
-message(STATUS "  ASM Compiler:${CMAKE_ASM_COMPILER}")
-message(STATUS "  Toolchain:   ${CMAKE_TOOLCHAIN_FILE}")
-message(STATUS "  Build tests: ${CINUX_BUILD_TESTS}")
-message(STATUS "  GUI mode:    ${CINUX_GUI}")
-message(STATUS "  USB driver:  ${CINUX_USB}")
-message(STATUS "  NIC driver:  ${CINUX_NET}")
+message(STATUS "  Project:      ${PROJECT_NAME} v${PROJECT_VERSION}")
+message(STATUS "  Build type:   ${CMAKE_BUILD_TYPE}")
+message(STATUS "  C Compiler:   ${CMAKE_C_COMPILER}")
+message(STATUS "  CXX Compiler: ${CMAKE_CXX_COMPILER}")
+message(STATUS "  ASM Compiler: ${CMAKE_ASM_COMPILER}")
+message(STATUS "  Toolchain:    ${CMAKE_TOOLCHAIN_FILE}")
+message(STATUS "  -- Feature switches (add one in cmake/options.cmake) --")
+foreach(_o IN ITEMS GUI USB NET BUILD_TESTS
+                    LOCKDEP UBSAN
+                    MUSL_HELLO_SMOKE MUSL_DYN_SMOKE BUSYBOX_SMOKE GCC_TOOLCHAIN
+                    HOST_ASAN HOST_TSAN)
+    message(STATUS "  CINUX_${_o} = ${CINUX_${_o}}")
+endforeach()
+message(STATUS "  -- Paths / runtime --")
+message(STATUS "  IMAGE_PATH:        ${CINUX_IMAGE_PATH}")
+message(STATUS "  ROOTFS:            ${CINUX_ROOTFS_BUILDROOT_IMG}")
+message(STATUS "  CINUX_NO_KVM: $ENV{CINUX_NO_KVM}   CI: $ENV{CI}")
 message(STATUS "===================================")
 message(STATUS "")

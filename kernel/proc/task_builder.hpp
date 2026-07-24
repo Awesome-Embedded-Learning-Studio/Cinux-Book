@@ -70,8 +70,10 @@ public:
     /** Magic value written at the bottom of every kernel stack. */
     static constexpr uint64_t STACK_MAGIC = 0xDEADC0DE;
 
-    /** Number of 4 KB pages per kernel stack (16 KB total). */
-    static constexpr uint64_t STACK_PAGES = 4;
+    /** Number of 4 KB pages per kernel stack (8 KB total, Linux-aligned). */
+    static constexpr uint64_t STACK_PAGES = 2;
+    static_assert(STACK_PAGES == 2,
+                  "kernel stacks must stay 8KB; fix stack depth instead of growing them");
 
 private:
     void (*entry_)()                      = nullptr;

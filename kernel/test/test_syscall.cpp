@@ -37,6 +37,7 @@
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/mm/pmm.hpp"  // g_pmm (batch 5 sysinfo cross-check)
 #include "kernel/proc/process.hpp"
+#include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/signal.hpp"
 #include "kernel/syscall/sys_clock_gettime.hpp"
 #include "kernel/syscall/sys_creds.hpp"  // do_getgroups/do_setgroups_kernel (F-ECO batch 8)
@@ -79,6 +80,23 @@ uint64_t read_msr(uint32_t msr) {
     __asm__ volatile("rdmsr" : "=a"(low), "=d"(high) : "c"(msr));
     return (static_cast<uint64_t>(high) << 32) | low;
 }
+
+class CurrentFdTableGuard {
+public:
+    CurrentFdTableGuard() : prev_(cinux::proc::Scheduler::current()), task_(new Task()) {
+        task_->fd_table = new cinux::fs::FDTable();
+        cinux::proc::Scheduler::set_current(task_);
+    }
+
+    ~CurrentFdTableGuard() {
+        cinux::proc::Scheduler::set_current(prev_);
+        delete task_;
+    }
+
+private:
+    Task* prev_;
+    Task* task_;
+};
 
 }  // anonymous namespace
 
@@ -254,14 +272,14 @@ void test_sys_write_valid_fd1() {
 }
 
 void test_sys_write_invalid_fd() {
+    CurrentFdTableGuard guard;
+
     // P0b: bad fds are a kernel-logic concern (do_write_kernel -> -EBADF), not
     // an access_ok boundary, so target do_write_kernel with a kernel buffer.
     const char buf[5] = {0};
     int64_t    r0     = cinux::syscall::do_write_kernel(0, buf, 5);
-    int64_t    r2     = cinux::syscall::do_write_kernel(2, buf, 5);
     int64_t    r3     = cinux::syscall::do_write_kernel(42, buf, 5);
     TEST_ASSERT_LT(r0, 0);
-    TEST_ASSERT_LT(r2, 0);
     TEST_ASSERT_LT(r3, 0);
 }
 
@@ -272,10 +290,14 @@ void test_sys_write_null_buf_rejected() {
 }
 
 void test_sys_write_returns_count() {
-    // P0b: fd=1 returns the count written via do_write_kernel (kprintf path).
+    CurrentFdTableGuard guard;
+
+    // P0b: fd=1/2 return the count written via do_write_kernel (kprintf path).
     const char buf[10] = {0};
     int64_t    result  = cinux::syscall::do_write_kernel(1, buf, 10);
+    int64_t    err     = cinux::syscall::do_write_kernel(2, buf, 10);
     TEST_ASSERT_EQ(result, 10);
+    TEST_ASSERT_EQ(err, 10);
 }
 
 }  // namespace test_sys_write
@@ -357,6 +379,8 @@ struct kiovec {
 };
 
 void test_sys_writev_sums_iov() {
+    CurrentFdTableGuard guard;
+
     // P0b: writev delegates per-segment to the sys_write boundary; test the
     // underlying do_write_kernel sum via fd=1 (3 + 4 = 7).
     const char seg1[3] = {'a', 'b', 'c'};
@@ -378,12 +402,16 @@ void test_sys_ioctl_non_tty_fd_enotty() {
 }
 
 void test_sys_ioctl_unknown_cmd_enotty() {
+    CurrentFdTableGuard guard;
+
     // An unknown request on the console TTY (fd 1) -> -ENOTTY.
     int64_t r = sys_ioctl(1, 0x1234 /*unknown*/, 0x1000, 0, 0, 0);
     TEST_ASSERT_EQ(r, static_cast<int64_t>(-cinux::kEnotty));
 }
 
 void test_sys_ioctl_tcgets_unmapped_efault() {
+    CurrentFdTableGuard guard;
+
     // TCGETS routes through copy_to_user (the F-EXTABLE accessor). An unmapped
     // user pointer (0x7000000000 -- access_ok passes, the page faults on copy)
     // hits the extable fixup and returns -EFAULT, not a panic. Proves the
@@ -396,37 +424,37 @@ void test_console_tty_ctrl_c_sends_sigint_to_foreground() {
     // A task in pgid 5 is the foreground group; feeding Ctrl+C routes through
     // the line discipline -> ConsoleTty::input -> killpg -> SIGINT pending on
     // the task.  Proves the batch-5 signal wiring end to end, not just "green".
-    cinux::proc::Task t{};
-    t.pid         = 77;
-    t.pgid        = 5;
-    t.sig_actions = cinux::proc::SharedSigActions::create();
-    t.state       = cinux::proc::TaskState::Ready;
-    cinux::proc::signal_register_task(&t);
+    cinux::proc::Task* t = new cinux::proc::Task();
+    t->pid               = 77;
+    t->pgid              = 5;
+    t->sig_actions       = cinux::proc::SharedSigActions::create();
+    t->state             = cinux::proc::TaskState::Ready;
+    cinux::proc::signal_register_task(t);
     cinux::drivers::console_tty().set_foreground_pgid(5);
 
     cinux::drivers::console_tty().input(cinux::drivers::kCharIntr);  // Ctrl+C
 
-    bool got = cinux::proc::sig_is_member(t.sig_pending, cinux::proc::Signal::kSigint);
-    cinux::proc::signal_unregister_task(&t);
-    t.sig_actions->release();
+    bool got = cinux::proc::sig_is_member(t->sig_pending, cinux::proc::Signal::kSigint);
+    cinux::proc::signal_unregister_task(t);
+    delete t;
     cinux::drivers::console_tty().set_foreground_pgid(0);  // reset shared global
     TEST_ASSERT(got);
 }
 
 void test_console_tty_ctrl_z_sends_sigtstp_to_foreground() {
-    cinux::proc::Task t{};
-    t.pid         = 78;
-    t.pgid        = 6;
-    t.sig_actions = cinux::proc::SharedSigActions::create();
-    t.state       = cinux::proc::TaskState::Ready;
-    cinux::proc::signal_register_task(&t);
+    cinux::proc::Task* t = new cinux::proc::Task();
+    t->pid               = 78;
+    t->pgid              = 6;
+    t->sig_actions       = cinux::proc::SharedSigActions::create();
+    t->state             = cinux::proc::TaskState::Ready;
+    cinux::proc::signal_register_task(t);
     cinux::drivers::console_tty().set_foreground_pgid(6);
 
     cinux::drivers::console_tty().input(cinux::drivers::kCharSusp);  // Ctrl+Z
 
-    bool got = cinux::proc::sig_is_member(t.sig_pending, cinux::proc::Signal::kSigtstp);
-    cinux::proc::signal_unregister_task(&t);
-    t.sig_actions->release();
+    bool got = cinux::proc::sig_is_member(t->sig_pending, cinux::proc::Signal::kSigtstp);
+    cinux::proc::signal_unregister_task(t);
+    delete t;
     cinux::drivers::console_tty().set_foreground_pgid(0);
     TEST_ASSERT(got);
 }
@@ -726,33 +754,36 @@ namespace test_feco_b8 {
 // logic directly.  Default Task is euid==0 (root) + ngroups==0.
 
 void test_getgroups_count_and_array() {
-    cinux::proc::Task t;  // root, no groups
-    const uint32_t    g[3] = {10, 20, 30};
-    TEST_ASSERT_EQ(cinux::syscall::do_setgroups_kernel(&t, g, 3), 0);
+    cinux::proc::Task* t    = new cinux::proc::Task();  // root, no groups
+    const uint32_t     g[3] = {10, 20, 30};
+    TEST_ASSERT_EQ(cinux::syscall::do_setgroups_kernel(t, g, 3), 0);
     // Count query (nullptr out / cap 0).
-    TEST_ASSERT_EQ(cinux::syscall::do_getgroups_kernel(&t, nullptr, 0), 3);
+    TEST_ASSERT_EQ(cinux::syscall::do_getgroups_kernel(t, nullptr, 0), 3);
     // Fill a kernel buffer.
     uint32_t buf[32] = {0};
-    TEST_ASSERT_EQ(cinux::syscall::do_getgroups_kernel(&t, buf, 32), 3);
+    TEST_ASSERT_EQ(cinux::syscall::do_getgroups_kernel(t, buf, 32), 3);
     TEST_ASSERT_EQ(buf[0], 10u);
     TEST_ASSERT_EQ(buf[1], 20u);
     TEST_ASSERT_EQ(buf[2], 30u);
     // Buffer too small -> -EINVAL.
-    TEST_ASSERT_EQ(cinux::syscall::do_getgroups_kernel(&t, buf, 2), -cinux::kEinval);
+    TEST_ASSERT_EQ(cinux::syscall::do_getgroups_kernel(t, buf, 2), -cinux::kEinval);
+    delete t;
 }
 
 void test_setgroups_too_many() {
-    cinux::proc::Task t;
-    uint32_t          g[2] = {0};
+    cinux::proc::Task* t    = new cinux::proc::Task();
+    uint32_t           g[2] = {0};
     // count > NGROUPS_MAX (32) -> -EINVAL (root, so passes the perm check first).
-    TEST_ASSERT_EQ(cinux::syscall::do_setgroups_kernel(&t, g, 99), -cinux::kEinval);
+    TEST_ASSERT_EQ(cinux::syscall::do_setgroups_kernel(t, g, 99), -cinux::kEinval);
+    delete t;
 }
 
 void test_setgroups_nonroot_eperm() {
-    cinux::proc::Task t;
-    t.euid        = 1;  // non-root
-    uint32_t g[1] = {5};
-    TEST_ASSERT_EQ(cinux::syscall::do_setgroups_kernel(&t, g, 1), -cinux::kEperm);
+    cinux::proc::Task* t = new cinux::proc::Task();
+    t->euid              = 1;  // non-root
+    uint32_t g[1]        = {5};
+    TEST_ASSERT_EQ(cinux::syscall::do_setgroups_kernel(t, g, 1), -cinux::kEperm);
+    delete t;
 }
 
 }  // namespace test_feco_b8

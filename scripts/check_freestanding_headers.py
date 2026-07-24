@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """check_freestanding_headers.py — forbid hosted/STL headers in the kernel.
 
-The CinuxOS kernel is freestanding C++17 with no exceptions/RTTI and no STL
+The Cinux kernel is freestanding C++17 with no exceptions/RTTI and no STL
 (DIRECTIVES A). Only a small set of <cxxx>/<type_traits>/<utility> headers is
 permitted; containers, strings, streams, smart pointers, <atomic>/<thread>,
 and exception/RTTI machinery are prohibited because they either heap-allocate,
@@ -24,7 +24,7 @@ import sys
 # Prohibited <...> headers (the angle-bracket name only, no brackets).
 # Mirrors DIRECTIVES A's forbidden list plus the rest of the hosted STL family.
 PROHIBITED = {
-    # Containers (DIRECTIVES A; CinuxOS has no Array<T,N> yet)
+    # Containers (DIRECTIVES A; Cinux has no Array<T,N> yet)
     "array", "vector", "deque", "forward_list", "list", "map", "unordered_map",
     "set", "unordered_set", "multimap", "unordered_multimap", "multiset",
     "unordered_multiset", "bitset", "stack", "queue", "priority_queue",
@@ -49,7 +49,7 @@ PROHIBITED = {
 
 INCLUDE_RE = re.compile(r'^\s*#\s*include\s*<([a-z0-9_]+)>', re.MULTILINE)
 
-# Per-file exemptions.  CinuxOS is freestanding, but a few kernel sources pull
+# Per-file exemptions.  Cinux is freestanding, but a few kernel sources pull
 # <memory> for std::unique_ptr (RAII over raw new/delete).  unique_ptr compiles
 # fine under -fno-exceptions (no hosted runtime needed; see the memory note
 # `kernel-can-use-std-smart-ptr`), and DIRECTIVES A's <memory> ban scopes to the
@@ -59,6 +59,9 @@ INCLUDE_RE = re.compile(r'^\s*#\s*include\s*<([a-z0-9_]+)>', re.MULTILINE)
 EXEMPT = {
     "kernel/syscall/sys_pipe.cpp": {"memory"},
     "kernel/syscall/sys_execve.cpp": {"memory"},
+    "kernel/syscall/sys_mount.cpp": {"memory"},  # do_mount_kernel: unique_ptr<TmpFs> RAII over new/delete
+    "kernel/syscall/sys_socket.cpp": {"memory"},  # install_socket_fd: unique_ptr<Socket/Inode> RAII over new/delete
+    "kernel/ipc/fifo.cpp": {"memory"},  # FifoOps::open: unique_ptr<Inode> RAII over new/delete
 }
 
 
@@ -103,7 +106,7 @@ def main() -> int:
         print("ERROR: prohibited freestanding-hosted headers in kernel:", file=sys.stderr)
         for path, line_no, header in violations:
             print(f"  {path}:{line_no}: #include <{header}>", file=sys.stderr)
-        print("\nCinuxOS is freestanding: use cinux::lib (Span/StringView/Atomic), "
+        print("\nCinux is freestanding: use cinux::lib (Span/StringView/Atomic), "
               "the kernel slab/locks, or a local aggregate instead.", file=sys.stderr)
         return 1
 

@@ -11,7 +11,7 @@
  *   - NO IRQ wake: a timer-interrupt-driven wake (HPET 周期中断) is the F5-M4
  *     follow-up.  Until then the loop busy-polls the counter with yield() giving
  *     other tasks the CPU -- correct, just not efficient.
- * Signal-interruption (-EINTR + remaining time) is not delivered: CinuxOS does
+ * Signal-interruption (-EINTR + remaining time) is not delivered: Cinux does
  * not wake nanosleep on signal, so a requested sleep always completes and @p rem
  * is zeroed.  busybox `sleep` (whole-second) works; sub-second + EINTR later.
  *

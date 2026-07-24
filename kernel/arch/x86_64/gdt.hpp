@@ -112,6 +112,13 @@ private:
 
     alignas(16) uint8_t df_stack_[DF_STACK_PAGES * 4096]{};
 
+    /// 4 KB stack for IST2 (hardware IRQ). fxsave + ISR push frame land here,
+    /// NOT on the interrupted task's stack -- fixes F13-B Bug ② where an IRQ
+    /// striking mid-render stomped render_frame's stack objects (Surface s,
+    /// Compositor font ref, ...) via the 512 B fxsave area.
+    static constexpr uint64_t IRQ_STACK_PAGES = 1;
+    alignas(16) uint8_t irq_stack_[IRQ_STACK_PAGES * 4096]{};
+
     // Constexpr factory functions
     static constexpr Entry null_entry() { return {0, 0, 0, 0, 0, 0}; }
 

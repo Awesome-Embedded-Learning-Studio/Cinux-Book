@@ -62,6 +62,10 @@ public:
     bool get_local_addr(SockAddrStorage* out) const override;
     bool get_peer_addr(SockAddrStorage* out) const override;
 
+    // --- F8-M5 poll: POLLIN when a datagram is queued, else park on recv_waiters_.
+    uint32_t poll_events(cinux::proc::Task* waiter, bool* registered) override;
+    void     poll_detach_waiter(cinux::proc::Task* waiter) override;
+
     // --- UdpListener: the modules push inbound datagrams INTO the ring here ---
     void on_udp(const Ipv4Header& ip, uint16_t src_port, FrameView payload) override;
 

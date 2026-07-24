@@ -11,6 +11,7 @@
 
 #include <stdint.h>
 
+#include "kernel/arch/x86_64/cpuid.hpp"
 #include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/lib/aslr.hpp"
@@ -29,6 +30,16 @@ void enter_loaded_program(const char* path, const char* const argv[], const char
                           const ElfAuxInfo& elf_aux) {
     auto* task = Scheduler::current();
 
+    // execve replaces the program image, so reset FPU/SSE to a clean default
+    // (fninit + fxsave).  The new program must NOT inherit the previous image's
+    // SSE/XMM residue -- Linux does this in execve.  Without it a fork+execve
+    // child carries the parent's fpu_state (a TaskBuilder-spawned shell carries
+    // kernel-SSE residue from fxsave-at-build-time, vs init-fork which inherits
+    // a clean kernel fpu), and ldso/glibc tripping over the stale state returns
+    // from __libc_start_main (noreturn) into the _start hlt.
+    __asm__ volatile("fninit");
+    __asm__ volatile("fxsave %0" : : "m"(task->fpu_state));
+
     // User stack: pre-map the top USER_STACK_PAGES, then record the full
     // demand-growth Stack VMA under the F2-M5 hard gate. Accesses below
     // [USER_STACK_TOP - USER_STACK_GROWTH) hit no VMA -> segfault (guard).
@@ -39,10 +50,14 @@ void enter_loaded_program(const char* path, const char* const argv[], const char
     // initial-stack build so they all agree.
     const uint64_t stack_top = cinux::arch::USER_STACK_TOP - cinux::lib::aslr_stack_offset();
 
-    constexpr uint64_t kUserPageFlags =
-        cinux::arch::FLAG_PRESENT | cinux::arch::FLAG_WRITABLE | cinux::arch::FLAG_USER;
-    uint64_t stack_base    = stack_top - cinux::arch::USER_STACK_PAGES * cinux::arch::PAGE_SIZE;
-    uint64_t top_page_phys = 0;  // the page containing stack_top (we write the entry stack here)
+    // F4-B0: stack is NX unless PT_GNU_STACK asked for an executable stack
+    // (elf_aux.stack_executable). Modern gcc-built ELFs carry PT_GNU_STACK=RW,
+    // so the default is NX -- which glibc expects; legacy RWX marks clear NX.
+    const uint64_t kUserPageFlags = cinux::arch::FLAG_PRESENT | cinux::arch::FLAG_WRITABLE |
+                                    cinux::arch::FLAG_USER |
+                                    (elf_aux.stack_executable ? 0 : cinux::arch::FLAG_NX);
+    uint64_t       stack_base = stack_top - cinux::arch::USER_STACK_PAGES * cinux::arch::PAGE_SIZE;
+    uint64_t top_page_phys    = 0;  // the page containing stack_top (we write the entry stack here)
 
     for (uint64_t i = 0; i < cinux::arch::USER_STACK_PAGES; i++) {
         uint64_t phys = cinux::mm::g_pmm.alloc_page();
@@ -62,8 +77,11 @@ void enter_loaded_program(const char* path, const char* const argv[], const char
         }
     }
 
-    constexpr cinux::mm::VmaFlags kStackVma =
+    cinux::mm::VmaFlags kStackVma =
         cinux::mm::VmaFlags::Read | cinux::mm::VmaFlags::Write | cinux::mm::VmaFlags::Stack;
+    if (elf_aux.stack_executable) {
+        kStackVma |= cinux::mm::VmaFlags::Exec;  // match the pre-mapped pages above
+    }
     const uint64_t kStackVmaStart = stack_top - cinux::arch::USER_STACK_GROWTH;
     if (!task->addr_space->vmas().insert(kStackVmaStart, stack_top, kStackVma).ok()) {
         cinux::lib::kprintf("[PROC] stack VMA record failed\n");
@@ -105,7 +123,7 @@ void enter_loaded_program(const char* path, const char* const argv[], const char
         {AT_EUID, task->euid},
         {AT_GID, task->gid},
         {AT_EGID, task->egid},
-        {AT_HWCAP, 0},
+        {AT_HWCAP, cinux::arch::hwcap_from_cpuid()},  // F4-B0: CPUID.01H:EDX (glibc IFUNC)
         {AT_CLKTCK, 100},
         {AT_SECURE, secure ? 1ULL : 0ULL},
     };
@@ -118,10 +136,6 @@ void enter_loaded_program(const char* path, const char* const argv[], const char
         Scheduler::exit_current();
     }
     uint64_t user_rsp = stack_top - size;
-
-    cinux::lib::kprintf("[PROC] jumping to user mode: entry=%p rsp=%p stack_top=%p\n",
-                        reinterpret_cast<void*>(entry), reinterpret_cast<void*>(user_rsp),
-                        reinterpret_cast<void*>(stack_top));
 
     task->addr_space->activate();
     update_syscall_stack(task->kernel_stack_top);

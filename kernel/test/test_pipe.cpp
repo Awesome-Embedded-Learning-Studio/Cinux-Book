@@ -141,7 +141,7 @@ void test_pipe_read_ops_delegates_read() {
 
     PipeReadOps read_ops(pipe);
     char        buf[8] = {};
-    auto    r_res = read_ops.read(nullptr, 0, buf, 8);
+    auto        r_res  = read_ops.read(nullptr, 0, buf, 8);
     int64_t     r      = r_res.ok() ? r_res.value() : -1;
     TEST_ASSERT_EQ(r, 2);
     TEST_ASSERT_EQ(buf[0], 'O');
@@ -155,7 +155,7 @@ void test_pipe_read_ops_write_returns_minus1() {
     PipeReadOps read_ops(pipe);
 
     auto    w_res = read_ops.write(nullptr, 0, "data", 4);
-    int64_t w = w_res.ok() ? w_res.value() : -1;
+    int64_t w     = w_res.ok() ? w_res.value() : -1;
     TEST_ASSERT_EQ(w, -1);
 
     delete pipe;
@@ -165,8 +165,8 @@ void test_pipe_write_ops_delegates_write() {
     auto* pipe = new Pipe();
 
     PipeWriteOps write_ops(pipe);
-    auto    w_res = write_ops.write(nullptr, 0, "W", 1);
-    int64_t      w = w_res.ok() ? w_res.value() : -1;
+    auto         w_res = write_ops.write(nullptr, 0, "W", 1);
+    int64_t      w     = w_res.ok() ? w_res.value() : -1;
     TEST_ASSERT_EQ(w, 1);
 
     char    buf[8] = {};
@@ -183,7 +183,7 @@ void test_pipe_write_ops_read_returns_minus1() {
 
     // PipeWriteOps inherits read() from InodeOps, which is unsupported
     char    buf[8] = {};
-    auto    r_res = write_ops.read(nullptr, 0, buf, 8);
+    auto    r_res  = write_ops.read(nullptr, 0, buf, 8);
     int64_t r      = r_res.ok() ? r_res.value() : -1;
     TEST_ASSERT_EQ(r, -1);
 

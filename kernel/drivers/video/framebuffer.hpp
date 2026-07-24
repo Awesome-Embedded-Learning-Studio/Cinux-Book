@@ -92,6 +92,14 @@ public:
     uint32_t height() const { return height_; }
     uint32_t pitch() const { return pitch_; }
 
+    /// F-GUI-USERSPACE batch 1: physical base of the linear framebuffer (the
+    /// VBE PhysBasePtr from BootInfo).  Exposed so /dev/fb0's mmap can bind a
+    /// user VMA to this device memory.
+    uint64_t phys_base() const { return phys_base_; }
+
+    /// Total byte size of the screen memory (pitch * height).
+    uint64_t size() const { return static_cast<uint64_t>(pitch_) * height_; }
+
     /**
      * @brief Access the raw framebuffer memory pointer
      *
@@ -103,11 +111,19 @@ public:
     volatile uint32_t* data() const { return addr_; }
 
 private:
-    volatile uint32_t* addr_   = nullptr;
-    uint32_t           width_  = 0;
-    uint32_t           height_ = 0;
-    uint32_t           pitch_  = 0;  // bytes per scan line
-    uint32_t           bpp_    = 0;
+    volatile uint32_t* addr_      = nullptr;
+    uint64_t           phys_base_ = 0;  // F-GUI-USERSPACE b1: VBE physical base
+    uint32_t           width_     = 0;
+    uint32_t           height_    = 0;
+    uint32_t           pitch_     = 0;  // bytes per scan line
+    uint32_t           bpp_       = 0;
 };
+
+/// F-GUI-USERSPACE batch 1: system framebuffer singleton accessor.  Set once
+/// from kernel_main after Framebuffer::init, so /dev/fb0 (and other
+/// device-mmap consumers) can reach the VBE framebuffer without depending on
+/// the GUI host adapter.  Returns nullptr before init.
+Framebuffer* system_framebuffer();
+void         set_system_framebuffer(Framebuffer* fb);
 
 }  // namespace cinux::drivers

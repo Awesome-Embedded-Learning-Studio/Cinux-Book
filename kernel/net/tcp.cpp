@@ -334,12 +334,12 @@ void TcpModule::handle(const Ipv4Header& ip, FrameView payload, NetDevice& dev, 
                 nc->rcv_nxt = h.seq + 1;    // peer's SYN consumes one
                 nc->snd_nxt = nc->iss + 1;  // our SYN-ACK's SYN consumes one
                 nc->state   = TcpState::kSynReceived;
-                (void)send_segment(dev, ip.src, h.dst_port, h.src_port, nc->iss, nc->rcv_nxt,
-                                   kTcpSyn | kTcpAck, nullptr, 0, ipv4, stack);
+                static_cast<void>(send_segment(dev, ip.src, h.dst_port, h.src_port, nc->iss, nc->rcv_nxt,
+                                   kTcpSyn | kTcpAck, nullptr, 0, ipv4, stack));
             } else {
                 // SYN to a closed port -> RST (RFC 793: ack = SEG.SEQ + 1).
-                (void)send_segment(dev, ip.src, h.dst_port, h.src_port, 0, h.seq + 1,
-                                   kTcpRst | kTcpAck, nullptr, 0, ipv4, stack);
+                static_cast<void>(send_segment(dev, ip.src, h.dst_port, h.src_port, 0, h.seq + 1,
+                                   kTcpRst | kTcpAck, nullptr, 0, ipv4, stack));
             }
         }
         return;
@@ -357,8 +357,8 @@ void TcpModule::handle(const Ipv4Header& ip, FrameView payload, NetDevice& dev, 
         // here is not handled -- minimal viable, no retransmit.)
         if ((h.flags & kTcpSyn) && (h.flags & kTcpAck) && h.ack == c->iss + 1) {
             c->rcv_nxt = h.seq + 1;  // peer's SYN consumes one
-            (void)send_segment(dev, ip.src, c->local_port, c->remote_port, c->snd_nxt, c->rcv_nxt,
-                               kTcpAck, nullptr, 0, ipv4, stack);
+            static_cast<void>(send_segment(dev, ip.src, c->local_port, c->remote_port, c->snd_nxt, c->rcv_nxt,
+                               kTcpAck, nullptr, 0, ipv4, stack));
             c->state = TcpState::kEstablished;
         }
         break;
@@ -406,8 +406,8 @@ void TcpModule::handle(const Ipv4Header& ip, FrameView payload, NetDevice& dev, 
             c->state = TcpState::kCloseWait;
         }
         if (need_ack) {
-            (void)send_segment(dev, ip.src, c->local_port, c->remote_port, c->snd_nxt, c->rcv_nxt,
-                               kTcpAck, nullptr, 0, ipv4, stack);
+            static_cast<void>(send_segment(dev, ip.src, c->local_port, c->remote_port, c->snd_nxt, c->rcv_nxt,
+                               kTcpAck, nullptr, 0, ipv4, stack));
         }
         break;
     }
@@ -421,16 +421,16 @@ void TcpModule::handle(const Ipv4Header& ip, FrameView payload, NetDevice& dev, 
         // Expecting the peer's FIN -> ACK it (seq+1) and we are done.  No
         // TIME_WAIT: no timer here, and the closed peer's final ACK is trusted.
         if (h.flags & kTcpFin) {
-            (void)send_segment(dev, ip.src, c->local_port, c->remote_port, c->snd_nxt, h.seq + 1,
-                               kTcpAck, nullptr, 0, ipv4, stack);
+            static_cast<void>(send_segment(dev, ip.src, c->local_port, c->remote_port, c->snd_nxt, h.seq + 1,
+                               kTcpAck, nullptr, 0, ipv4, stack));
             c->state = TcpState::kClosed;
         }
         break;
     case TcpState::kCloseWait:
         // Waiting for our app to call close().  A retransmitted peer FIN -> re-ACK.
         if (h.flags & kTcpFin) {
-            (void)send_segment(dev, ip.src, c->local_port, c->remote_port, c->snd_nxt, h.seq + 1,
-                               kTcpAck, nullptr, 0, ipv4, stack);
+            static_cast<void>(send_segment(dev, ip.src, c->local_port, c->remote_port, c->snd_nxt, h.seq + 1,
+                               kTcpAck, nullptr, 0, ipv4, stack));
         }
         break;
     case TcpState::kLastAck:

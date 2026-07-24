@@ -56,7 +56,7 @@ void test_sys_pipe_fdtable_set_slot0() {
     TEST_ASSERT_NOT_NULL(retrieved);
     TEST_ASSERT_TRUE(retrieved == f);
 
-    delete retrieved;
+    // retrieved is owned by FDTable (FileRef); ~FDTable unref's it on exit
 }
 
 void test_sys_pipe_fdtable_set_slot1() {
@@ -71,7 +71,7 @@ void test_sys_pipe_fdtable_set_slot1() {
     TEST_ASSERT_NOT_NULL(retrieved);
     TEST_ASSERT_TRUE(retrieved->flags == OpenFlags::WRONLY);
 
-    delete retrieved;
+    // retrieved is owned by FDTable (FileRef); ~FDTable unref's it on exit
 }
 
 // ============================================================
@@ -144,8 +144,8 @@ void test_sys_pipe_write_read_roundtrip() {
     TEST_ASSERT_EQ(buf[9], 'e');
 
     // Cleanup
-    delete write_file;
-    delete read_file;
+    // write_file owned by FDTable (FileRef); no manual delete
+    // read_file owned by FDTable (FileRef); no manual delete
     delete write_inode;
     delete read_inode;
     delete write_ops;
@@ -183,8 +183,8 @@ void test_sys_pipe_write_after_close_reader() {
     int64_t w = write_or_neg1(write_inode, 0, "data", 4);
     TEST_ASSERT_EQ(w, -1);
 
-    delete write_file;
-    delete read_file;
+    // write_file owned by FDTable (FileRef); no manual delete
+    // read_file owned by FDTable (FileRef); no manual delete
     delete write_inode;
     delete read_inode;
     delete write_ops;
@@ -272,8 +272,8 @@ void test_sys_pipe_read_eof_after_close_writer() {
     int64_t r       = read_or_neg1(read_inode, 0, buf, 8);
     TEST_ASSERT_EQ(r, 0);
 
-    delete write_file;
-    delete read_file;
+    // write_file owned by FDTable (FileRef); no manual delete
+    // read_file owned by FDTable (FileRef); no manual delete
     delete write_inode;
     delete read_inode;
     delete write_ops;
@@ -322,8 +322,8 @@ void test_sys_pipe_drain_then_eof() {
     r = read_or_neg1(read_inode, 0, buf, 8);
     TEST_ASSERT_EQ(r, 0);
 
-    delete write_file;
-    delete read_file;
+    // write_file owned by FDTable (FileRef); no manual delete
+    // read_file owned by FDTable (FileRef); no manual delete
     delete write_inode;
     delete read_inode;
     delete write_ops;
@@ -369,8 +369,8 @@ void test_sys_pipe_multiple_cycles() {
     TEST_ASSERT_EQ(buf[2], 'E');
     TEST_ASSERT_EQ(buf[3], 'F');
 
-    delete write_file;
-    delete read_file;
+    // write_file owned by FDTable (FileRef); no manual delete
+    // read_file owned by FDTable (FileRef); no manual delete
     delete write_inode;
     delete read_inode;
     delete write_ops;
@@ -415,8 +415,8 @@ void test_sys_pipe_set_replaces() {
     TEST_ASSERT_TRUE(retrieved == f2);
     TEST_ASSERT_TRUE(retrieved->flags == OpenFlags::WRONLY);
 
-    delete f1;
-    delete retrieved;
+    // f1 was dropped when set(0, f2) displaced it (FileRef already unref'd)
+    // retrieved is owned by FDTable (FileRef); ~FDTable unref's it on exit
 }
 
 // ============================================================
@@ -457,7 +457,7 @@ void test_sys_pipe_set_preserves_fields() {
     TEST_ASSERT_EQ(retrieved->offset, 99ULL);
     TEST_ASSERT_TRUE(retrieved->flags == OpenFlags::RDWR);
 
-    delete retrieved;
+    // retrieved is owned by FDTable (FileRef); ~FDTable unref's it on exit
 }
 
 // ============================================================

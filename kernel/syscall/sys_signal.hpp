@@ -27,7 +27,7 @@ namespace cinux::syscall {
 /// musl constructs exactly this layout (src/signal/sigaction.c, k_sigaction) and
 /// passes sigsetsize = _NSIG/8 = 8 as rt_sigaction's 4th arg, so sa_mask is the
 /// 8-byte kernel sigset (signals 1..64). sa_handler: 0 = SIG_DFL, 1 = SIG_IGN,
-/// otherwise a handler entry address. CinuxOS ignores sa_restorer (it injects its
+/// otherwise a handler entry address. Cinux ignores sa_restorer (it injects its
 /// own sigreturn trampoline) but the field must sit at the Linux offset.
 struct UserSigAction {
     uint64_t sa_handler;

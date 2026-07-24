@@ -7,11 +7,13 @@
  */
 
 #include "keyboard.hpp"
+#include "kernel/drivers/ps2/ps2.hpp"  // 8042 controller constants (shared with mouse)
 
 #include <stdint.h>
 
 #include "hid.hpp"  // HID keycode->ASCII tables + modifier bits (USB keyboard)
 #include "kernel/arch/x86_64/io.hpp"
+#include "kernel/drivers/hpet/hpet.hpp"  // g_hpet.monotonic_ns (USB autorepeat)
 #include "kernel/drivers/tty/console_tty.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/proc/sync.hpp"
@@ -23,30 +25,9 @@ using cinux::lib::kprintf;
 
 namespace cinux::drivers {
 
-// ============================================================
-// PS/2 Controller Constants (internal)
-// ============================================================
-
-namespace Ps2Port {
-constexpr uint16_t DATA    = 0x60;  ///< PS/2 data register (read/write)
-constexpr uint16_t STATUS  = 0x64;  ///< PS/2 status register (read)
-constexpr uint16_t COMMAND = 0x64;  ///< PS/2 controller command (write)
-}  // namespace Ps2Port
-
-namespace Ps2Cmd {
-constexpr uint8_t READ_CONFIG   = 0x20;
-constexpr uint8_t WRITE_CONFIG  = 0x60;
-constexpr uint8_t DISABLE_PORT2 = 0xA7;
-constexpr uint8_t ENABLE_PORT2  = 0xA8;
-constexpr uint8_t DISABLE_PORT1 = 0xAD;
-constexpr uint8_t ENABLE_PORT1  = 0xAE;
-constexpr uint8_t SELF_TEST     = 0xAA;
-}  // namespace Ps2Cmd
-
-namespace Ps2Status {
-constexpr uint8_t OUTPUT_FULL = 0x01;
-constexpr uint8_t INPUT_FULL  = 0x02;
-}  // namespace Ps2Status
+// PS/2 controller constants (Ps2Port / Ps2Cmd / Ps2Status) live in
+// kernel/drivers/ps2/ps2.hpp -- shared with mouse.cpp (the 8042 is one
+// controller wired to both devices).
 
 // ============================================================
 // Scan Code Set 1 Special Keys (internal)
@@ -130,6 +111,8 @@ bool Keyboard::alt_held_   = false;
 bool                  Keyboard::usb_primary_      = false;
 uint8_t               Keyboard::usb_prev_keys_[6] = {};
 Keyboard::KeyListener Keyboard::key_listener_     = nullptr;
+uint8_t               Keyboard::usb_repeat_key_      = 0;
+uint64_t              Keyboard::usb_repeat_deadline_ = 0;
 
 // ============================================================
 // Internal helpers
@@ -267,7 +250,6 @@ void Keyboard::irq1_handler(cinux::arch::InterruptFrame* /*frame*/) {
 
 bool Keyboard::poll(KeyEvent& out) {
     cinux::proc::InterruptGuard guard;
-    (void)guard;
 
     return buf_.pop(out);
 }
@@ -279,7 +261,7 @@ bool Keyboard::poll(KeyEvent& out) {
 void Keyboard::enqueue(const KeyEvent& ev) {
     // Drop the event if the buffer is full -- RingBuffer::push returns
     // false when full, matching the previous drop-newest semantics.
-    (void)buf_.push(ev);
+    static_cast<void>(buf_.push(ev));
 }
 
 // ============================================================
@@ -347,6 +329,23 @@ void Keyboard::dispatch_key(uint8_t code, char ascii, bool pressed, bool shift, 
     }
 }
 
+// Ctrl+letter -> POSIX control char (^A=0x01..^Z=0x1A); Ctrl+C becomes the
+// 0x03 INTR the TTY line discipline maps to SIGINT.  HID only gives us the
+// shifted/unshifted letter, so without this the INTR byte never reaches the
+// tty and Ctrl+C can't interrupt a foreground process (e.g. busybox ping).
+char apply_ctrl_modifier(char ascii, bool ctrl) {
+    if (!ctrl) {
+        return ascii;
+    }
+    if (ascii >= 'A' && ascii <= 'Z') {
+        return static_cast<char>(ascii - 'A' + 1);
+    }
+    if (ascii >= 'a' && ascii <= 'z') {
+        return static_cast<char>(ascii - 'a' + 1);
+    }
+    return ascii;
+}
+
 void Keyboard::inject_usb_report(uint8_t modifier, const uint8_t* keycodes, uint8_t n) {
     const bool shift = (modifier & (usb::HidKbdMod::kLShift | usb::HidKbdMod::kRShift)) != 0;
     const bool ctrl  = (modifier & (usb::HidKbdMod::kLCtrl | usb::HidKbdMod::kRCtrl)) != 0;
@@ -355,17 +354,36 @@ void Keyboard::inject_usb_report(uint8_t modifier, const uint8_t* keycodes, uint
     ctrl_held_       = ctrl;
     alt_held_        = alt;
 
-    // Press edges: held now but absent from the previous report.
+    // Press edges + autorepeat.  USB HID reports the same key every interval
+    // (~10ms) while held; without software repeat the line discipline would
+    // only see one backspace per keypress.  Arm a deadline on the first edge,
+    // then re-emit at kUsbRepeatIntervalNs once it passes (Linux-style).
+    const uint64_t now = g_hpet.available() ? g_hpet.monotonic_ns() : 0;
     for (uint8_t i = 0; i < n; ++i) {
         const uint8_t code = keycodes[i];
-        if (code <= 1 || key_in(usb_prev_keys_, 6, code)) {
-            continue;  // 0 = none, 1 = rollover error; or already held
+        if (code <= 1) {
+            continue;  // 0 = none, 1 = rollover error
         }
-        char ascii = 0;
-        if (code < usb::kHidKeymapSize) {
-            ascii = shift ? usb::kHidShifted[code] : usb::kHidUnshifted[code];
+        if (!key_in(usb_prev_keys_, 6, code)) {
+            // new press edge -> dispatch + arm autorepeat
+            char ascii = 0;
+            if (code < usb::kHidKeymapSize) {
+                ascii = shift ? usb::kHidShifted[code] : usb::kHidUnshifted[code];
+            }
+            ascii = apply_ctrl_modifier(ascii, ctrl);  // ^C=0x03 INTR, ^D=0x04 EOF, ^Z=0x1A SUSP
+            dispatch_key(code, ascii, /*pressed=*/true, shift, ctrl, alt);
+            usb_repeat_key_      = code;
+            usb_repeat_deadline_ = now + kUsbRepeatDelayNs;
+        } else if (now != 0 && code == usb_repeat_key_ && now >= usb_repeat_deadline_) {
+            // held past the deadline -> emit a repeat
+            char ascii = 0;
+            if (code < usb::kHidKeymapSize) {
+                ascii = shift ? usb::kHidShifted[code] : usb::kHidUnshifted[code];
+            }
+            ascii = apply_ctrl_modifier(ascii, ctrl);  // ^C=0x03 INTR, ^D=0x04 EOF, ^Z=0x1A SUSP
+            dispatch_key(code, ascii, /*pressed=*/true, shift, ctrl, alt);
+            usb_repeat_deadline_ = now + kUsbRepeatIntervalNs;
         }
-        dispatch_key(code, ascii, /*pressed=*/true, shift, ctrl, alt);
     }
 
     // Release edges: in the previous report but not held now.
@@ -375,6 +393,9 @@ void Keyboard::inject_usb_report(uint8_t modifier, const uint8_t* keycodes, uint
             continue;
         }
         dispatch_key(code, 0, /*pressed=*/false, shift, ctrl, alt);
+        if (code == usb_repeat_key_) {
+            usb_repeat_key_ = 0;  // releasing the repeating key stops autorepeat
+        }
     }
 
     // Save this report for the next edge comparison.

@@ -109,7 +109,7 @@ void init() {
 
         BootMouseEp    mep{};
         BootKeyboardEp kep{};
-        if (!mouse_ok && find_boot_mouse(desc, cfg_len, mep)) {
+        if (!mouse_ok && find_boot_hid(desc, cfg_len, UsbHid::kBootProtoMouse, mep)) {
             if (!slot.set_configuration(g_xhci, 1).ok()) {
                 continue;
             }
@@ -128,7 +128,7 @@ void init() {
             ++slot_idx;
             cinux::lib::kprintf("[xHCI] HID tablet armed: port=%u ep%u-IN (async absolute)\n", port,
                                 mep.ep_number);
-        } else if (!kbd_ok && find_boot_keyboard(desc, cfg_len, kep)) {
+        } else if (!kbd_ok && find_boot_hid(desc, cfg_len, UsbHid::kBootProtoKeyboard, kep)) {
             if (!slot.set_configuration(g_xhci, 1).ok()) {
                 continue;
             }

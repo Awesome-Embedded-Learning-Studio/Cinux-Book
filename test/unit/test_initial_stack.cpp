@@ -131,8 +131,9 @@ TEST("initial_stack: auxv entries incl AT_RANDOM/AT_EXECFN, AT_NULL terminator")
 
     // Scan the auxv for the entries we care about; collect into a small map.
     uint64_t found_phdr = 0, found_pagesz = 0, found_entry = 0;
-    uint64_t found_uid = 0xFFFFFFFF, found_random_va = 0, found_execfn_va = 0;
-    uint64_t saw_null = 0;
+    uint64_t found_uid = 0xFFFFFFFF, found_random_va = 0, found_execfn_va = 0,
+             found_platform_va = 0;
+    uint64_t saw_null          = 0;
     for (int i = 0; i < 64; ++i) {
         uint64_t type = r.u64(p);
         uint64_t val  = r.u64(p + 8);
@@ -159,6 +160,9 @@ TEST("initial_stack: auxv entries incl AT_RANDOM/AT_EXECFN, AT_NULL terminator")
         case AT_EXECFN:
             found_execfn_va = val;
             break;
+        case AT_PLATFORM:
+            found_platform_va = val;
+            break;
         }
         p += 16;
     }
@@ -175,6 +179,10 @@ TEST("initial_stack: auxv entries incl AT_RANDOM/AT_EXECFN, AT_NULL terminator")
     // AT_EXECFN points at the filename string.
     ASSERT_TRUE(found_execfn_va != 0);
     ASSERT_TRUE(r.str_eq(found_execfn_va, "/bin/prog"));
+
+    // F4-B0: AT_PLATFORM points at "x86_64" (glibc arch dispatch / IFUNC gating).
+    ASSERT_TRUE(found_platform_va != 0);
+    ASSERT_TRUE(r.str_eq(found_platform_va, "x86_64"));
 }
 
 TEST("initial_stack: overflow returns 0") {

@@ -9,6 +9,7 @@
 #include "kernel/proc/percpu.hpp"
 #include "kernel/proc/process_internal.hpp"  // Q4e-3: free_kernel_stack
 #include "kernel/proc/sync.hpp"              // Q4e-3: Spinlock (deferred list)
+#include "kernel/proc/timer_queue.hpp"       // F8-M5: timer-wake in tick()
 
 namespace cinux::proc {
 
@@ -219,8 +220,6 @@ void Scheduler::add_task(lib::NotNull<Task*> task, bool wake_ap) {
     }
     task->sched_class->enqueue(task);
     signal_register_task(task);
-    cinux::lib::kprintf("[SCHED] Task tid=%lu '%s' added to %s\n", task->tid, task->name,
-                        task->sched_class->name());
     // A newly runnable task may be claimable by an idle AP (F4-M4 M4-2).  No-op
     // on a single-core system.  Suppressed by the bootstrap path (wake_ap=false)
     // so run_first() deterministically picks the first worker on the BSP
@@ -239,7 +238,6 @@ void Scheduler::remove_task(lib::NotNull<Task*> task) {
     }
     signal_unregister_task(task);
     task->state = TaskState::Dead;
-    cinux::lib::kprintf("[SCHED] Task tid=%lu '%s' removed\n", task->tid, task->name);
 }
 
 // F-QA Q4e-3 (DEBT-002): free tasks that exit_current() deferred. A task on
@@ -374,10 +372,19 @@ void Scheduler::tick() {
 
     tick_count_.fetch_add(1, lib::MemoryOrder::Relaxed);
 
-    // Preemption policy is owned by the task's scheduling class.  The class
-    // returns true when the running task should yield its time slice.
-    if (cur->sched_class != nullptr && cur->sched_class->task_tick(cur)) {
-        schedule();
+    // F8-M5 timer-wake: unblock any parked poll/select/nanosleep whose deadline
+    // passed since the last tick.  Cheap no-op when nothing is armed (one locked
+    // scan of a small table); runs before preemption so a woken task is runnable
+    // for the pick below.
+    timer_queue_tick();
+
+    // Account the running task's quantum, but do not context-switch inline from
+    // the timer IRQ.  context_switch.S enables IF before jumping to the next
+    // task; doing that while the old irq0 frame is still live lets the PIT
+    // re-enter recursively.  Real preemption needs a return-from-IRQ resched
+    // point; until then tasks switch via yield/block/exit only.
+    if (cur->sched_class != nullptr) {
+        (void)cur->sched_class->task_tick(cur);
     }
 }
 

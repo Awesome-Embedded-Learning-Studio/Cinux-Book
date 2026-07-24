@@ -115,12 +115,16 @@ bool handle_cow_fault(uint64_t fault_vaddr) {
     // last ownership ref (batch 3: was a two-step dec_and_test + free_page).
     // NOTE (SMP): correct single-core and when threads do not migrate across
     // cores mid-CoW. Cross-core TLB shootdown before freeing is a deeper
-    // follow-up; CinuxOS APs are mostly idle today.
-    cinux::mm::g_pmm.pte_count_dec_and_test(old_phys);
-
-    cinux::lib::kprintf("[COW] resolved fault at vaddr=%p old_phys=%p new_phys=%p\n",
-                        reinterpret_cast<void*>(fault_vaddr), reinterpret_cast<void*>(old_phys),
-                        reinterpret_cast<void*>(new_phys));
+    // follow-up; Cinux APs are mostly idle today.
+    // B3 defect C: defer the free.  pte_count_dec_and_test_no_free returns
+    // true when the page would be freed (pte_count+refcount hit 0, audit
+    // passed) but does NOT free -- another core's TLB may still cache a
+    // mapping to old_phys.  enqueue_pending_shootdown either pushes (phys,
+    // vaddr) for the drain kthread to shootdown+free (production), or falls
+    // back to an inline free_page (suite-only / pre-init, single-core-safe).
+    if (cinux::mm::g_pmm.pte_count_dec_and_test_no_free(old_phys)) {
+        cinux::arch::enqueue_pending_shootdown(old_phys, fault_vaddr);
+    }
 
     return true;
 }
@@ -157,7 +161,7 @@ void free_kernel_stack(Task* task) {
 // waitpid implementation
 // ============================================================
 
-WaitpidResult waitpid(int pid, int* status, int options, PidAllocator& pid_alloc) {
+WaitpidResult waitpid(int pid, int* status, int options, PidAllocator& pid_alloc, int* reaped_pid) {
     auto* parent = Scheduler::current();
     if (parent == nullptr) {
         cinux::lib::kprintf("[WAITPID] no current task\n");
@@ -192,8 +196,12 @@ WaitpidResult waitpid(int pid, int* status, int options, PidAllocator& pid_alloc
 
         if (target != nullptr) {
             // Reap: collect status, unlink, free pid, mark Dead.
+            int target_pid = target->pid;
             if (status != nullptr) {
                 *status = target->exit_status;
+            }
+            if (reaped_pid != nullptr) {
+                *reaped_pid = target_pid;
             }
             if (prev != nullptr) {
                 prev->wait_next = target->wait_next;
@@ -204,7 +212,7 @@ WaitpidResult waitpid(int pid, int* status, int options, PidAllocator& pid_alloc
             target->state  = TaskState::Dead;
             target->parent = nullptr;
             cinux::lib::kprintf("[WAITPID] reaped child pid=%d exit_status=%d by parent pid=%d\n",
-                                target->pid, target->exit_status, parent->pid);
+                                target_pid, target->exit_status, parent->pid);
             // SMP reap/free safety: the child exited (became Zombie) on its own
             // CPU BEFORE its yield()->schedule()->context_switch finished. We can
             // observe Zombie here on the parent's CPU while the child's CPU is
@@ -231,7 +239,7 @@ WaitpidResult waitpid(int pid, int* status, int options, PidAllocator& pid_alloc
                 cinux::lib::kprintf(
                     "[WAITPID] WARN: child pid=%d still on_cpu=%d after spin -- "
                     "leaking struct (no free)\n",
-                    target->pid, target->on_cpu);
+                    target_pid, target->on_cpu);
                 return WaitpidResult::Ok;
             }
             // Q4e-2 (DEBT-002): now that the child's switch is provably done,

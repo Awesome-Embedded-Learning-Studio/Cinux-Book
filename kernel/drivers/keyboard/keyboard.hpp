@@ -138,6 +138,15 @@ private:
     static uint8_t usb_prev_keys_[6];  ///< previous report keycodes (edge detect)
     static KeyListener key_listener_;  ///< optional key-consumer hook (§14)
 
+    // Autorepeat (software-driven via HPET; USB HID has no hardware repeat).
+    static uint8_t  usb_repeat_key_;       ///< keycode currently autorepeating (0 = none)
+    static uint64_t usb_repeat_deadline_;  ///< monotonic_ns deadline of the next repeat
+
+    /// Initial hold delay before autorepeat begins (matches Linux defaults).
+    static constexpr uint64_t kUsbRepeatDelayNs    = 500'000'000;   // 500 ms
+    /// Interval between repeated events once repeating (20 keys/s).
+    static constexpr uint64_t kUsbRepeatIntervalNs = 50'000'000;    // 50 ms
+
     /// Build + enqueue a KeyEvent and dual-dispatch to the GUI queue (shared by
     /// the PS/2 and USB paths).  @p code = HID usage ID (USB) or scan code (PS/2).
     static void dispatch_key(uint8_t code, char ascii, bool pressed, bool shift, bool ctrl,

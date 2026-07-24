@@ -52,6 +52,11 @@ void GDT::init() {
 
     // Set up IST1 to point at the top of the dedicated Double Fault stack
     tss_.ist[0] = reinterpret_cast<uint64_t>(&df_stack_[sizeof(df_stack_)]);
+    // IST2: dedicated IRQ stack. Hardware IRQs (registered with ist=2) land
+    // their fxsave + ISR frame here instead of the interrupted task's stack,
+    // so a 100 Hz PIT tick or a mouse IRQ cannot stomp the running task's
+    // render-frame stack objects (F13-B Bug ②).
+    tss_.ist[1] = reinterpret_cast<uint64_t>(&irq_stack_[sizeof(irq_stack_)]);
 
     const auto tss_addr = reinterpret_cast<uint64_t>(&tss_);
     entries_[7]         = tss_low_entry(tss_addr, sizeof(TaskStateSegment) - 1);

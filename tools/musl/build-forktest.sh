@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # build-forktest.sh — compile the SMP CoW-race reproducer (forktest.c) as a musl
-# static binary against the CinuxOS sysroot.  Mirrors build-hello.sh (same manual
+# static binary against the Cinux sysroot.  Mirrors build-hello.sh (same manual
 # -nostdlib crt link order; see build-hello.sh for why we bypass musl-gcc).
 #
 # F-VERIFY M5-2: packed as /forktest on the ext2 smoke image so the ring-3 smoke

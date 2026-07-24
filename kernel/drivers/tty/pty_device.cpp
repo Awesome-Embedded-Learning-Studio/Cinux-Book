@@ -24,6 +24,7 @@
 #include "kernel/lib/string.hpp"      // memset for stat
 #include "kernel/proc/process.hpp"    // Task::session_leader / controlling_tty
 #include "kernel/proc/scheduler.hpp"  // Scheduler::current()
+#include "kernel/proc/signal.hpp"     // killpg + Signal (foreground pgrp delivery)
 #include "kernel/proc/sync.hpp"       // Spinlock
 
 // `struct stat` lives in cinux::fs; pull it into view so the unqualified
@@ -51,6 +52,12 @@ struct PtySlot {
     cinux::fs::Inode      slave_inode{};
     cinux::proc::Spinlock lock{};
     cinux::proc::Task*    slave_read_waiters{nullptr};
+    // Foreground process group of this terminal (POSIX tcsetpgrp / TIOCSPGRP).
+    // ^C/^\/^Z typed on the master are delivered here via killpg().  Defaults to
+    // the session leader's pgrp when the slave is acquired as a controlling tty
+    // (TIOCSCTTY), so signal chars reach the foreground job even before the
+    // shell issues TIOCSPGRP.  0 = unset (no signal delivery yet).
+    int                   foreground_pgid{0};
 };
 
 PtySlot g_slots[kMaxPtys];
@@ -98,6 +105,19 @@ void wake_all(cinux::proc::Task*& head) {
     }
 }
 
+// Map a slave line-discipline signal char to its POSIX signal number.  Returns
+// false for kNone (no signal requested this write).  Mirrors console_tty.cpp's
+// switch, but lives here because the PTY master, not the console, owns delivery
+// for PTY-backed shells (the GUI terminals).
+bool tty_signal_to_signo(TtySignal ts, cinux::proc::Signal& out) {
+    switch (ts) {
+    case TtySignal::kSigint:  out = cinux::proc::Signal::kSigint;  return true;
+    case TtySignal::kSigquit: out = cinux::proc::Signal::kSigquit; return true;
+    case TtySignal::kSigtstp: out = cinux::proc::Signal::kSigtstp; return true;
+    default: return false;  // kNone
+    }
+}
+
 void fill_pty_stat(const cinux::fs::Inode* inode, struct stat* st, uint64_t rdev) {
     memset(st, 0, sizeof(*st));
     st->st_ino     = inode->ino;
@@ -139,6 +159,14 @@ public:
             return cinux::lib::Error::InvalidArgument;
         }
         auto r = cinux::lib::ErrorOr<int64_t>(cinux::lib::Error::InvalidArgument);
+        // A signal char (^C/^\/^Z) typed on the master is latched by the slave
+        // line discipline as a TtySignal.  The pure Pty only sets it aside -- the
+        // kernel wiring must DELIVER it (mirrors console_tty::input's killpg).
+        // Snapshot the signal + foreground pgrp under slot->lock, then deliver
+        // AFTER releasing: killpg takes the registry lock and may unblock the
+        // target, none of which needs slot->lock.
+        TtySignal pending_sig = TtySignal::kNone;
+        int       fg_pgid     = 0;
         {
             auto guard = slot->lock.irq_guard();
             cinux::debug::trace_bytes("pty.master_write from_terminal", buf,
@@ -147,6 +175,12 @@ public:
             if (r.ok() && *r > 0) {
                 wake_all(slot->slave_read_waiters);
             }
+            pending_sig = slot->pty.take_pending_signal();
+            fg_pgid     = slot->foreground_pgid;
+        }
+        cinux::proc::Signal sig;
+        if (pending_sig != TtySignal::kNone && fg_pgid > 0 && tty_signal_to_signo(pending_sig, sig)) {
+            cinux::proc::killpg(fg_pgid, sig);
         }
         return r;
     }
@@ -246,10 +280,6 @@ public:
         switch (request) {
         case cinux::drivers::kTcgets: {
             const Termios& tm = p->slave_tty().termios();
-            if (cinux::debug::kEchoTrace) {
-                cinux::lib::kprintf("[ECHO_TRACE] pty.slave_ioctl TCGETS lflag=0x%x\n",
-                                    static_cast<unsigned>(tm.c_lflag));
-            }
             if (!cinux::user::copy_to_user(uptr, &tm, sizeof(Termios))) {
                 return cinux::lib::Error::InvalidArgument;  // ~EFAULT (no Fault enum)
             }
@@ -259,10 +289,6 @@ public:
             Termios tm;
             if (!cinux::user::copy_from_user(&tm, uptr, sizeof(Termios))) {
                 return cinux::lib::Error::InvalidArgument;
-            }
-            if (cinux::debug::kEchoTrace) {
-                cinux::lib::kprintf("[ECHO_TRACE] pty.slave_ioctl TCSETS lflag=0x%x\n",
-                                    static_cast<unsigned>(tm.c_lflag));
             }
             p->slave_tty().set_termios(tm);
             return 0;
@@ -296,6 +322,51 @@ public:
                 }
             }
             task->controlling_tty = index;
+            // The acquiring session leader's pgrp is the initial foreground group
+            // of this terminal (POSIX: until tcsetpgrp changes it).  Lets ^C typed
+            // on the master reach the foreground job even before the shell issues
+            // TIOCSPGRP (and regardless of whether the shell uses job control).
+            if (PtySlot* slot = slot_of(inode)) {
+                auto g = slot->lock.irq_guard();
+                if (slot->foreground_pgid == 0) {
+                    slot->foreground_pgid = task->pgid;
+                }
+            }
+            return 0;
+        }
+        case cinux::drivers::kTiocspgrp: {
+            // tcsetpgrp: name the foreground process group of this terminal.  A
+            // shell with job control sets this to the foreground job's pgrp so ^C
+            // reaches it (not the shell).
+            int pgid;
+            if (!cinux::user::copy_from_user(&pgid, uptr, sizeof(int))) {
+                return cinux::lib::Error::InvalidArgument;  // ~EFAULT
+            }
+            if (pgid < 0) {
+                return cinux::lib::Error::InvalidArgument;  // EINVAL
+            }
+            PtySlot* slot = slot_of(inode);
+            if (slot == nullptr) {
+                return cinux::lib::Error::InvalidArgument;
+            }
+            auto g = slot->lock.irq_guard();
+            slot->foreground_pgid = pgid;
+            return 0;
+        }
+        case cinux::drivers::kTiocgpgrp: {
+            // tcgetpgrp: read the foreground process group of this terminal.
+            PtySlot* slot = slot_of(inode);
+            if (slot == nullptr) {
+                return cinux::lib::Error::InvalidArgument;
+            }
+            int pgid;
+            {
+                auto g = slot->lock.irq_guard();
+                pgid = slot->foreground_pgid;
+            }
+            if (!cinux::user::copy_to_user(uptr, &pgid, sizeof(int))) {
+                return cinux::lib::Error::InvalidArgument;  // ~EFAULT
+            }
             return 0;
         }
         default:

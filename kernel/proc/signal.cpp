@@ -171,7 +171,7 @@ bool signal_is_uncatchable(Signal sig) {
 // Delivery (batch 2)
 // ============================================================
 
-int signal_send(Task* target, Signal sig) {
+int queue_signal(Task* target, Signal sig, bool force) {
     if (!signal_valid(static_cast<int>(sig))) {
         return -22;  // EINVAL
     }
@@ -179,9 +179,18 @@ int signal_send(Task* target, Signal sig) {
         target->state == TaskState::Dead) {
         return -3;  // ESRCH
     }
+    if (force) {
+        // SMP-safe force: tag the signal per-task so delivery bypasses the
+        // block mask and SIG_IGN.  Do NOT mutate sig_blocked or the shared
+        // SharedSigActions table -- both are read locklessly by other CPUs and
+        // CLONE_SIGHAND siblings, so rewriting them (a) races those readers and
+        // (b) permanently corrupts user disposition across the group.  Mirrors
+        // Linux force_sig_info: force is a delivery-time behaviour, not state.
+        sig_set_add(target->sig_forced, sig);
+    }
     // A signal with disposition SIG_IGN is discarded unless it is uncatchable
     // (SIGKILL/SIGSTOP), which override SIG_IGN.
-    if (!signal_is_uncatchable(sig) &&
+    if (!force && !signal_is_uncatchable(sig) &&
         target->sig_actions->actions[static_cast<int>(sig)].type == HandlerType::kIgnore) {
         return 0;
     }
@@ -210,7 +219,43 @@ int signal_send(Task* target, Signal sig) {
         target->sigwait_blocked = false;
         Scheduler::unblock(target);
     }
+    // EINTR: a task parked in a blocking syscall (pipe/socket/poll) recorded
+    // its wait-queue head in wait_queue_head.  Wake it so its blocking loop
+    // resumes, sees signal_deliverable_pending(), and returns -EINTR.  Only
+    // fires when the signal is actually deliverable right now (unblocked or
+    // forced) -- a blocked-but-pending signal (e.g. SIGINT while sigprocmask
+    // hides it) must NOT spuriously kick a sleeper out (it would busy-loop).
+    // Scheduler::unblock is idempotent: if a fd/timer already woke it, this is
+    // a no-op and the loop's normal data-ready path still wins.  Mutex/
+    // Semaphore/futex/waitpid sleeps leave wait_queue_head == nullptr and so
+    // are never interrupted here (matches Linux: kernel mutexes are
+    // TASK_UNINTERRUPTIBLE).
+    if (target->wait_queue_head != nullptr && target->state == TaskState::Blocked &&
+        signal_deliverable_pending(target)) {
+        Scheduler::unblock(target);
+    }
     return 0;
+}
+
+int signal_send(Task* target, Signal sig) {
+    return queue_signal(target, sig, /*force=*/false);
+}
+
+int signal_force_send(Task* target, Signal sig) {
+    return queue_signal(target, sig, /*force=*/true);
+}
+
+bool signal_deliverable_pending(const Task* task) {
+    // EINTR check for blocking IO loops: does @p task have ANY signal that
+    // would be delivered if it returned to user mode right now?  Mirrors the
+    // avail-mask of signal_pick_deliverable() (unblocked OR forced) but peeks
+    // WITHOUT consuming -- a wake followed by -EINTR only makes sense if the
+    // signal will actually fire on the return-to-user path.
+    if (task == nullptr) {
+        return false;
+    }
+    const SigSet avail = (task->sig_pending & ~task->sig_blocked) | task->sig_forced;
+    return avail != 0;
 }
 
 int killpg(int pgid, Signal sig) {
@@ -248,11 +293,48 @@ int killpg(int pgid, Signal sig) {
     return sent;
 }
 
+void itimer_real_tick(uint64_t delta_ns) {
+    // Walk every task under the registry lock, decrement its ITIMER_REAL, and
+    // collect those that expired.  signal_send() runs AFTER releasing the lock:
+    // it may wake/terminate the target (queue_signal -> unblock / exit_current),
+    // none of which needs the registry lock, and holding it across that would
+    // risk lockdep/deadlock.  The PIT IRQ is non-reentrant (irq0, EOI after),
+    // so this runs once per tick; cross-CPU setitimer races the fields but
+    // aligned 64-bit rw are atomic and a missed/repeated SIGALRM is benign.
+    constexpr int kMaxExpired = 64;  // matches killpg's cap; rarely >1 timer armed
+    Task*         expired[kMaxExpired];
+    int           nexpired = 0;
+    {
+        auto g = g_registry_lock.irq_guard();
+        for (Task* t = g_registry_head; t != nullptr; t = t->registry_next) {
+            if (t->itimer_real_value_ns == 0) {
+                continue;  // disarmed
+            }
+            if (t->itimer_real_value_ns > delta_ns) {
+                t->itimer_real_value_ns -= delta_ns;
+            } else {
+                // Expired: reload from interval (0 = one-shot -> disarms) and
+                // queue SIGALRM.  Reload BEFORE signalling so a periodic timer
+                // keeps ticking even while the handler is pending.
+                t->itimer_real_value_ns = t->itimer_real_interval_ns;
+                if (nexpired < kMaxExpired) {
+                    expired[nexpired++] = t;
+                }
+            }
+        }
+    }
+    for (int i = 0; i < nexpired; ++i) {
+        signal_send(expired[i], Signal::kSigalrm);
+    }
+}
+
 int signal_pick_deliverable(Task* task, bool allow_custom) {
     if (task == nullptr) {
         return 0;
     }
-    const SigSet avail = task->sig_pending & ~task->sig_blocked;
+    // Forced signals (sync faults) bypass the block mask; the force tag is
+    // consumed (cleared) in the delivery paths below.
+    const SigSet avail = (task->sig_pending & ~task->sig_blocked) | task->sig_forced;
     for (int n = 1; n <= kSignalMax; n++) {
         if ((avail & (SigSet{1} << n)) == 0) {
             continue;
@@ -283,7 +365,7 @@ void signal_exec_default(Task* task, Signal sig) {
         // further down is the same class -- left as follow-up, off the smoke path.)
         cinux::lib::kprintf("[SIGNAL] default kill: tid=%u '%s' by SIG%d\n",
                             static_cast<unsigned>(task->tid), task->name, static_cast<int>(sig));
-        cinux::syscall::sys_exit(static_cast<uint64_t>(sig), 0, 0, 0, 0, 0);  // does not return
+        cinux::syscall::exit_and_reap_current(static_cast<int>(sig));  // WIFSIGNALED (sig in low byte); does not return
         break;
     case SigDefault::kIgnore:
         break;
@@ -325,13 +407,20 @@ void signal_check_and_deliver() {
     if (n == 0) {
         return;
     }
-    Signal           sig = static_cast<Signal>(n);
+    Signal     sig    = static_cast<Signal>(n);
+    const bool forced = (task->sig_forced & (SigSet{1} << n)) != 0;
+    task->sig_forced &= ~(SigSet{1} << n);  // consume the force tag
     const SigAction& act = task->sig_actions->actions[n];
     switch (act.type) {
     case HandlerType::kDefault:
         signal_exec_default(task, sig);  // may not return (terminate)
         break;
     case HandlerType::kIgnore:
+        // A forced signal bypasses SIG_IGN and runs the default action so a
+        // sync fault cannot livelock by returning to the faulting RIP.
+        if (forced) {
+            signal_exec_default(task, sig);
+        }
         break;
     case HandlerType::kCustom:
         // Left pending; delivered on the interrupt return path (batch 3).

@@ -32,6 +32,7 @@
 
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/slab.hpp"
+#include "kernel/proc/cpu_context.hpp"  // CpuContext (split out for the 500-line limit)
 #include "kernel/proc/elf_types.hpp"
 #include "kernel/proc/execve.hpp"
 #include "kernel/proc/pid.hpp"
@@ -60,53 +61,8 @@ enum class TaskState : uint8_t {
     Dead
 };
 
-// ============================================================
-// CPU context for context switching
-// ============================================================
-
-/**
- * @brief Callee-saved register snapshot for cooperative context switch
- *
- * Only the callee-saved registers (r15-r12, rbp, rbx) plus rsp and
- * rip need to be saved/restored because the switch happens at known
- * call boundaries where caller-saved registers are already clobbered.
- *
- * Only FS base is saved per task (per-thread TLS, MSR_FS_BASE).  The
- * gs_base/kgs_base fields are RESERVED (unused) since F4-M3 P1-2: GS is
- * per-CPU, maintained by the swapgs discipline rather than per-task
- * save/restore.  The fields are kept (and the offset static_asserts below)
- * so the CpuContext layout is unchanged.
- *
- * Layout must match the offsets used in context_switch.S exactly.
- * Note: alignas(16) pads the explicit 88-byte payload to 96 bytes;
- * bytes 88..95 are unused alignment padding (never accessed by asm).
- */
-struct alignas(16) CpuContext {
-    uint64_t r15;
-    uint64_t r14;
-    uint64_t r13;
-    uint64_t r12;
-    uint64_t rbp;
-    uint64_t rbx;
-    uint64_t rsp;
-    uint64_t rip;
-    uint64_t gs_base;
-    uint64_t kgs_base;
-    uint64_t fs_base;  ///< Per-thread TLS base (MSR_FS_BASE 0xC0000100), F3-M2
-};
-
-static_assert(offsetof(CpuContext, r15) == 0, "r15 at offset 0");
-static_assert(offsetof(CpuContext, r14) == 8, "r14 at offset 8");
-static_assert(offsetof(CpuContext, r13) == 16, "r13 at offset 16");
-static_assert(offsetof(CpuContext, r12) == 24, "r12 at offset 24");
-static_assert(offsetof(CpuContext, rbp) == 32, "rbp at offset 32");
-static_assert(offsetof(CpuContext, rbx) == 40, "rbx at offset 40");
-static_assert(offsetof(CpuContext, rsp) == 48, "rsp at offset 48");
-static_assert(offsetof(CpuContext, rip) == 56, "rip at offset 56");
-static_assert(offsetof(CpuContext, gs_base) == 64, "gs_base at offset 64");
-static_assert(offsetof(CpuContext, kgs_base) == 72, "kgs_base at offset 72");
-static_assert(offsetof(CpuContext, fs_base) == 80, "fs_base at offset 80");
-static_assert(sizeof(CpuContext) == 96, "CpuContext must be 96 bytes (alignas(16) pads 88->96)");
+// CpuContext (callee-saved register snapshot, matches context_switch.S) lives
+// in cpu_context.hpp -- split out to keep this file under the 500-line limit.
 
 // SharedCwd (reference-counted cwd) lives in shared_cwd.hpp; included below.
 
@@ -162,6 +118,14 @@ struct Task {
     /** Current lifecycle state. */
     TaskState state;
 
+    /** Whether this task is currently on its scheduling class's run queue.
+     *  Guarded by the run-queue lock.  Makes RoundRobin::enqueue idempotent: a
+     *  task already queued is not re-added, so the classic prepare_to_wait lost-
+     *  wakeup race (a producer unblocks a Blocked task -> Ready + enqueued, then
+     *  schedule() re-enqueues the same Ready prev) cannot leave a duplicate entry
+     *  in the queue (F8-M5). */
+    bool on_runq{false};
+
     /** Unique task identifier (monotonically increasing). */
     uint64_t tid;
 
@@ -189,22 +153,24 @@ struct Task {
     /** Per-process page tables (nullptr for kernel-only threads). */
     cinux::mm::AddressSpace* addr_space;
 
-    // Program break (user heap end).  brk is lazy: sys_brk only moves
+    // Program break (user heap end). brk is lazy: sys_brk only moves
     // brk_current; the Heap VMA (created by execve) covers [brk_initial,
-    // USER_BRK_MAX) and pages are demand-paged on first access.
+    // brk_max) and pages are demand-paged on first access.
     uint64_t brk_current{};  ///< Current heap end
     uint64_t brk_initial{};  ///< Heap start (ELF image end, set by execve)
-    uint64_t brk_max{};      ///< Heap ceiling (USER_BRK_MAX)
+    uint64_t brk_max{};      ///< Heap ceiling (USER_BRK_MAX low image / USER_MMAP_BASE PIE)
 
     // F3-M1: POSIX signal state.  The block mask (sig_blocked) is inherited
     // across fork(); pending signals are not (cleared in fork()).  F3-M2 batch
     // 3: dispositions live in a refcounted SharedSigActions so CLONE_SIGHAND
     // threads can share them (fork copies, clone may share).
     SharedSigActions* sig_actions{
-        nullptr};                   ///< Refcounted dispositions (never null for a live task)
-    SigSet   sig_pending{0};        ///< Signals pending delivery
-    SigSet   sig_blocked{0};        ///< Signals blocked from delivery
-    uint64_t sig_altstack{0};       ///< sigaltstack base (0 = main stack)
+        nullptr};              ///< Refcounted dispositions (never null for a live task)
+    SigSet   sig_pending{0};   ///< Signals pending delivery
+    SigSet   sig_blocked{0};   ///< Signals blocked from delivery
+    SigSet   sig_forced{0};    ///< Force-delivered (sync faults): bypass block mask + SIG_IGN at
+                               ///< delivery (per-task, SMP-safe)
+    uint64_t sig_altstack{0};  ///< sigaltstack base (0 = main stack)
     uint64_t sig_altstack_size{0};  ///< sigaltstack size in bytes
 
     // F3-M2: futex wait state.  Set in FUTEX_WAIT just before blocking, then
@@ -325,7 +291,33 @@ struct Task {
      *  (futex/waitpid Blocked waits stay non-interruptible until the broader
      *  "interruptible sleep" TODO at signal_send lands).  After fpu_state. */
     bool sigwait_blocked{false};
+
+    /** Parent blocked by CLONE_VFORK until this task execs or exits. */
+    Task* vfork_parent{nullptr};
+
+    // ---- EINTR / interruptible sleep (signal breaks blocking IO) ----
+    // A task parked in a blocking syscall (pipe R/W, socket recv/accept, poll)
+    // records its wait-queue HEAD address here so signal_send() can wake it for
+    // EINTR delivery.  Mutex/Semaphore (kernel-internal) and futex/waitpid
+    // sleeps leave this nullptr -- they are NOT interruptible by signals
+    // (matches Linux: kernel mutexes / TASK_UNINTERRUPTIBLE never take signals).
+    //   wait_enqueue(head,self) -> self->wait_queue_head = &head
+    //   signal_send(self,sig)   -> if non-null + deliverable, unblock(self); the
+    //                              woken loop checks signal_deliverable_pending()
+    //                              and returns -EINTR after unlinking itself
+    //                              (under its own lock -- no cross-CPU remove).
+    Task** wait_queue_head{nullptr};
+
+    // ITIMER_REAL (setitimer): wall-clock timer ticked from the PIT IRQ (100 Hz);
+    // expiry -> SIGALRM + reload from interval (0 = one-shot).  value==0 disarms.
+    // Aligned 64-bit rw atomic (TSO); cross-CPU race vs setitimer is benign.
+    uint64_t itimer_real_value_ns{0};
+    uint64_t itimer_real_interval_ns{0};
 };
+
+/// True if @p task has a deliverable pending signal (unblocked or forced) --
+/// the EINTR check a blocking syscall loop makes after waking.  signal.cpp.
+bool signal_deliverable_pending(const Task* task);
 
 // F4-followup (SMP migration race): context_switch.S writes from->on_cpu = -1
 // via a hardcoded offset, relying on rdi (=&from->ctx) being &from because ctx
@@ -458,9 +450,12 @@ constexpr int kWaitNoHang = 1;
  * @param status     Pointer to store the child's exit status (may be nullptr)
  * @param options    Bitmask: kWaitNoHang => return NotExited instead of blocking
  * @param pid_alloc  Reference to the global PID allocator
+ * @param reaped_pid Optional out parameter receiving the child PID that was
+ *                   reaped when the result is Ok.
  * @return WaitpidResult::Ok on success, or an error code
  */
-WaitpidResult waitpid(int pid, int* status, int options, PidAllocator& pid_alloc);
+WaitpidResult waitpid(int pid, int* status, int options, PidAllocator& pid_alloc,
+                      int* reaped_pid = nullptr);
 
 // ============================================================
 // Assembly entry point (C linkage)

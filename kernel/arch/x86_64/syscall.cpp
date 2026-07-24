@@ -13,13 +13,16 @@
 #include <stdint.h>
 
 #include "kernel/arch/x86_64/gdt.hpp"
+#include "kernel/arch/x86_64/msr.hpp"  // write_msr canonical (local anon-namespace copy removed)
 #include "kernel/errno.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/proc/signal.hpp"
 #include "kernel/syscall/sys_accept4.hpp"  // F-ECO batch 7a
+#include "kernel/syscall/sys_access.hpp"   // F6 batch 3a
 #include "kernel/syscall/sys_arch_prctl.hpp"
 #include "kernel/syscall/sys_brk.hpp"
 #include "kernel/syscall/sys_chdir.hpp"
+#include "kernel/syscall/sys_cinux_exit.hpp"  // F-USABILITY buildroot gate
 #include "kernel/syscall/sys_clock_gettime.hpp"
 #include "kernel/syscall/sys_clone.hpp"
 #include "kernel/syscall/sys_close.hpp"
@@ -31,7 +34,6 @@
 #include "kernel/syscall/sys_exit.hpp"
 #include "kernel/syscall/sys_fcntl.hpp"  // F-ECO batch 4
 #include "kernel/syscall/sys_fork.hpp"
-#include "kernel/syscall/sys_reboot.hpp"  // B3b: busybox init
 #include "kernel/syscall/sys_futex.hpp"
 #include "kernel/syscall/sys_getcwd.hpp"
 #include "kernel/syscall/sys_getdents.hpp"
@@ -48,28 +50,34 @@
 #include "kernel/syscall/sys_mkdir.hpp"
 #include "kernel/syscall/sys_mknod.hpp"
 #include "kernel/syscall/sys_mmap.hpp"
+#include "kernel/syscall/sys_mount.hpp"      // F6-M1
 #include "kernel/syscall/sys_nanosleep.hpp"  // F-ECO batch 3
 #include "kernel/syscall/sys_open.hpp"
 #include "kernel/syscall/sys_pgrp.hpp"
 #include "kernel/syscall/sys_ping.hpp"
 #include "kernel/syscall/sys_pipe.hpp"
 #include "kernel/syscall/sys_poll.hpp"        // F-ECO busybox sh smoke
+#include "kernel/syscall/sys_reboot.hpp"      // B3b: busybox init
 #include "kernel/syscall/sys_setsockopt.hpp"  // F-ECO batch 7a
+#include "kernel/syscall/sys_shm.hpp"         // F8-M4
 #include "kernel/syscall/sys_shutdown.hpp"    // F-ECO batch 7b
 #include "kernel/syscall/sys_socket.hpp"
 #include "kernel/syscall/sys_socketpair.hpp"  // F-ECO batch 7b
 #include "kernel/syscall/sys_sysinfo.hpp"     // F-ECO batch 5
+#include "kernel/syscall/sys_umount2.hpp"     // F6-M1
 #include "kernel/syscall/sys_uname.hpp"       // F-ECO busybox sh smoke
 // F-ECO batch 2: VFS metadata + dirent syscalls.
 #include "kernel/syscall/sys_chmod.hpp"
 #include "kernel/syscall/sys_chown.hpp"
 #include "kernel/syscall/sys_link.hpp"
+#include "kernel/syscall/sys_pread64.hpp"
 #include "kernel/syscall/sys_read.hpp"
 #include "kernel/syscall/sys_readlink.hpp"
 #include "kernel/syscall/sys_rename.hpp"
 #include "kernel/syscall/sys_rmdir.hpp"
+#include "kernel/syscall/sys_select.hpp"  // F8-M5 real poll/select
 #include "kernel/syscall/sys_set_tid_address.hpp"
-#include "kernel/syscall/sys_flock.hpp"  // F6-M1 vfs finale: POSIX flock
+#include "kernel/syscall/sys_flock.hpp"
 #include "kernel/syscall/sys_signal.hpp"
 #include "kernel/syscall/sys_stat.hpp"
 #include "kernel/syscall/sys_symlink.hpp"
@@ -79,6 +87,11 @@
 #include "kernel/syscall/sys_waitpid.hpp"
 #include "kernel/syscall/sys_write.hpp"
 #include "kernel/syscall/sys_yield.hpp"
+// gcc/g++ self-host (2026-07-05): probed/missing Linux syscalls.
+#include "kernel/syscall/sys_getrandom.hpp"
+#include "kernel/syscall/sys_linux_stubs.hpp"  // rseq / clone3 / set_robust_list / sendfile
+#include "kernel/syscall/sys_prlimit64.hpp"
+#include "kernel/syscall/sys_time.hpp"  // gettimeofday / time
 
 namespace cinux::arch {
 
@@ -96,17 +109,12 @@ SyscallFn syscall_table[cinux::syscall::SYSCALL_TABLE_SIZE] = {};
 
 uint64_t g_syscall_kernel_rsp = 0;
 
-void write_msr(uint32_t msr, uint64_t value) {
-    __asm__ volatile("wrmsr"
-                     :
-                     : "c"(msr), "a"(static_cast<uint32_t>(value & 0xFFFFFFFF)),
-                       "d"(static_cast<uint32_t>(value >> 32)));
-}
 
 /// Register all built-in syscall handlers into the dispatch table
 void register_builtin_handlers() {
     using namespace cinux::syscall;
     syscall_register(SyscallNr::SYS_read, sys_read);
+    syscall_register(SyscallNr::SYS_pread64, sys_pread64);
     syscall_register(SyscallNr::SYS_write, sys_write);
     syscall_register(SyscallNr::SYS_open, sys_open);
     syscall_register(SyscallNr::SYS_close, sys_close);
@@ -124,7 +132,7 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_getcwd, sys_getcwd);
     syscall_register(SyscallNr::SYS_stat, sys_stat);
     syscall_register(SyscallNr::SYS_fstat, sys_fstat);
-    syscall_register(SyscallNr::SYS_lstat, sys_stat);  // F-ECO b1: lstat = stat (no symlinks yet)
+    syscall_register(SyscallNr::SYS_lstat, sys_lstat);  // lstat: stat without symlink follow
     syscall_register(SyscallNr::SYS_pipe, sys_pipe);
     syscall_register(SyscallNr::SYS_dup, sys_dup);              // F-ECO batch 4
     syscall_register(SyscallNr::SYS_dup2, sys_dup2);            // F-ECO batch 4
@@ -159,7 +167,8 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_getegid, sys_getegid);
     syscall_register(SyscallNr::SYS_setuid, sys_setuid);
     syscall_register(SyscallNr::SYS_setgid, sys_setgid);
-    syscall_register(SyscallNr::SYS_poll, sys_poll);            // F-ECO busybox sh smoke
+    syscall_register(SyscallNr::SYS_poll, sys_poll);            // F8-M5 real poll
+    syscall_register(SyscallNr::SYS_select, sys_select);        // F8-M5 real select
     syscall_register(SyscallNr::SYS_uname, sys_uname);          // F-ECO busybox sh smoke
     syscall_register(SyscallNr::SYS_getgroups, sys_getgroups);  // F-ECO batch 8
     syscall_register(SyscallNr::SYS_setgroups, sys_setgroups);  // F-ECO batch 8
@@ -179,6 +188,9 @@ void register_builtin_handlers() {
     // F7: ICMP echo (shell ping).
     syscall_register(SyscallNr::SYS_ping, sys_ping);
 
+    // F-USABILITY: QEMU isa-debug-exit gate (buildroot-usability test script).
+    syscall_register(SyscallNr::SYS_cinux_exit, sys_cinux_exit);
+
     // F7-M6: BSD socket API (Linux x86_64 numbers 41-50).
     syscall_register(SyscallNr::SYS_socket, sys_socket);
     syscall_register(SyscallNr::SYS_connect, sys_connect);
@@ -189,6 +201,8 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_listen, sys_listen);
     syscall_register(SyscallNr::SYS_accept4, sys_accept4);          // F-ECO batch 7a
     syscall_register(SyscallNr::SYS_setsockopt, sys_setsockopt);    // F-ECO batch 7a
+    syscall_register(SyscallNr::SYS_setitimer, sys_setitimer);
+    syscall_register(SyscallNr::SYS_tkill, sys_tkill);
     syscall_register(SyscallNr::SYS_getsockopt, sys_getsockopt);    // F-ECO batch 7a
     syscall_register(SyscallNr::SYS_shutdown, sys_shutdown);        // F-ECO batch 7b
     syscall_register(SyscallNr::SYS_getsockname, sys_getsockname);  // F-ECO batch 7b
@@ -205,6 +219,29 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_chown, sys_chown);
     syscall_register(SyscallNr::SYS_umask, sys_umask);
     syscall_register(SyscallNr::SYS_utimensat, sys_utimensat);
+
+    // F8-M4: SysV shared memory.
+    syscall_register(SyscallNr::SYS_shmget, sys_shmget);
+    syscall_register(SyscallNr::SYS_shmat, sys_shmat);
+    syscall_register(SyscallNr::SYS_shmctl, sys_shmctl);
+    syscall_register(SyscallNr::SYS_shmdt, sys_shmdt);
+
+    // F6-M1: mount / umount2 (runtime fstype-driven; boot /tmp uses tmpfs::init).
+    syscall_register(SyscallNr::SYS_mount, sys_mount);
+    syscall_register(SyscallNr::SYS_umount2, sys_umount2);
+    syscall_register(SyscallNr::SYS_access, sys_access);  // F6 batch 3a
+
+    // gcc/g++ self-host (2026-07-05): probed/missing Linux syscalls.
+    syscall_register(SyscallNr::SYS_sendfile, sys_sendfile);
+    syscall_register(SyscallNr::SYS_gettimeofday, sys_gettimeofday);
+    syscall_register(SyscallNr::SYS_getcpu, sys_getcpu);
+    syscall_register(SyscallNr::SYS_sched_getaffinity, sys_sched_getaffinity);
+    syscall_register(SyscallNr::SYS_set_robust_list, sys_set_robust_list);
+    syscall_register(SyscallNr::SYS_prlimit64, sys_prlimit64);
+    syscall_register(SyscallNr::SYS_getrandom, sys_getrandom);
+    syscall_register(SyscallNr::SYS_rseq, sys_rseq);
+    syscall_register(SyscallNr::SYS_clone3, sys_clone3);
+    syscall_register(SyscallNr::SYS_time, sys_time);
 }
 
 }  // anonymous namespace

@@ -119,6 +119,17 @@ public:
 
     cinux::lib::ErrorOr<void>   mount() override;
     cinux::lib::ErrorOr<Inode*> lookup(const char* path) override;
+    // Single-component lookup for the vfs_lookup resolver (F-USABILITY batch 4):
+    // without this the FileSystem base returns ENOSYS and open("/dev/null") etc.
+    // fails.  DevFs is flat (root directory + device nodes only).
+    cinux::lib::ErrorOr<Inode*> lookup_child(const Inode* parent, const char* name,
+                                             uint32_t namelen) override;
+
+    /// DevFs lookups are dynamic (/dev/tty -> caller's controlling terminal,
+    /// /dev/pts/N -> N-th PTY), so the DentryCache must not pin the first
+    /// resolution -- otherwise every opener after the first sees the first
+    /// opener's terminal (multi-shell SIGTTIN bug).
+    bool dcache_enabled() const override { return false; }
 
     /// Number of registered device nodes (excludes the root directory).
     uint32_t node_count() const { return node_count_; }
@@ -184,8 +195,16 @@ private:
     /// Root directory inode (readdir walks nodes_ via fs_private == this).
     Inode root_inode_{};
 
+    /// Virtual /dev/pts directory inode.  DevFs is otherwise flat, but the vfs
+    /// resolver walks paths component-by-component, so "pts" must resolve to a
+    /// directory it can descend into before looking up "<N>".  Without it
+    /// open("/dev/pts/N") dies at the "pts" component (dynamic_lookup_ expects
+    /// the whole "pts/N" spelling) and the slave fd is never returned -- the
+    /// shell then inherits /dev/console and all IO bypasses the PTY.
+    Inode pts_dir_inode_{};
+
     /// Sink wired into the console device; null => console writes discard.
-    CharSink* console_sink_;
+    CharSink*     console_sink_;
     /// Read+ioctl backend for /dev/console (B3b); null => read/ioctl return
     /// NotImplemented (host unit tests).
     ConsoleInput* console_input_;
@@ -199,7 +218,10 @@ private:
  * @return true on success, false if mount() or vfs_mount_add(/dev) fails.
  */
 namespace devfs {
-bool init();
+bool    init();
+Inode*  console_inode();
+DevFs*  instance();  ///< Boot-owned DevFs singleton (F6-M1: sys_mount -t devfs).
+                     ///< nullptr before devfs::init().
 }  // namespace devfs
 
 }  // namespace cinux::fs

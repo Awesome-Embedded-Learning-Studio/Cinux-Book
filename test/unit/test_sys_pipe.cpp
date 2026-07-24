@@ -5,7 +5,7 @@
  * Test coverage:
  *   - FDTable::set() installs a File at a specific slot
  *   - FDTable::set() returns false for out-of-range fd
- *   - FDTable::set() replaces an existing entry (caller manages old File)
+ *   - FDTable::set() replaces an existing entry (FileRef unrefs the displaced File)
  *   - Pipe + FDTable::set() + InodeOps round-trip: write via PipeWriteOps,
  *     read via PipeReadOps through the FDTable indirection
  *   - Close read end (via FDTable) then write returns -1
@@ -142,7 +142,7 @@ TEST("sys_pipe: FDTable set rejects fd beyond table size") {
 // 3. FDTable::set() -- replaces existing entry
 // ============================================================
 
-// set() replaces whatever was at the slot (caller manages old entry).
+// set() replaces whatever was at the slot (FileRef unrefs the displaced old).
 TEST("sys_pipe: FDTable set replaces existing entry") {
     FDTable table;
     Inode   inode1{};
@@ -159,9 +159,10 @@ TEST("sys_pipe: FDTable set replaces existing entry") {
     ASSERT_TRUE(retrieved == f2);
     ASSERT_TRUE(retrieved->flags == OpenFlags::WRONLY);
 
-    // f1 was replaced out of the table -- caller frees it. f2 stays in the
-    // table; FDTable's destructor releases it (DEBT-017).
-    delete f1;
+    // set(0, f2) DISPLACED f1: under FileRef semantics the displaced File is
+    // unref'd (deleted on 0) when the fd-table lock is released, so f1 is
+    // already gone -- do NOT free it here. f2 stays in the table; ~FDTable
+    // releases it via FileRef.
 }
 
 // ============================================================

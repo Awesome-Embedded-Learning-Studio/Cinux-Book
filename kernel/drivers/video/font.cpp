@@ -52,12 +52,16 @@ void PSFFont::render_char(Framebuffer& fb, uint8_t c, uint32_t x, uint32_t y, ui
     if (c >= num_glyphs_)
         c = 0;
 
-    const uint8_t* glyph = glyphs_ + static_cast<uint32_t>(c) * bytes_per_glyph_;
+    const uint8_t* glyph         = glyphs_ + static_cast<uint32_t>(c) * bytes_per_glyph_;
+    const uint32_t bytes_per_row = (width_ + 7u) / 8u;  // PSF2 rows pack width bits, byte-aligned
 
     for (uint32_t row = 0; row < height_; row++) {
-        uint8_t bits = glyph[row];
         for (uint32_t col = 0; col < width_; col++) {
-            bool on = (bits >> (7 - col)) & 1;
+            // Wide glyphs (>8px) span multiple bytes per row; index the byte
+            // holding col's bit, then the bit within it.  For width<=8 this
+            // collapses to the old single-byte path (bytes_per_row==1, col/8==0).
+            uint8_t bits = glyph[row * bytes_per_row + (col / 8u)];
+            bool    on   = (bits >> (7u - (col % 8u))) & 1u;
             fb.put_pixel(x + col, y + row, on ? fg : bg);
         }
     }

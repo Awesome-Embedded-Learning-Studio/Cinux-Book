@@ -17,6 +17,7 @@
 #include "kernel/arch/x86_64/pic.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/signal.hpp"  // itimer_real_tick (ITIMER_REAL -> SIGALRM)
 
 using cinux::arch::InterruptFrame;
 using cinux::arch::PIC;
@@ -50,13 +51,20 @@ void PIT::init(uint32_t freq_hz) {
         divisor = 1;
     }
 
-    // Command byte 0x36:
+    // Command byte 0x34:
     //   0x30 = channel 0, LSB-then-MSB access mode
-    //   0x06 = square wave generator (mode 3)
+    //   0x04 = rate generator (mode 2)
     //   0x00 = binary counter (not BCD)
-    // Total: 0x36
+    // Total: 0x34
+    // Mode 2 (rate generator), not mode 3 (square wave): mode 3's counter
+    // reaches terminal count twice per output period (it decrements by 2 and
+    // toggles at 0), and QEMU raises IRQ0 at each terminal count -- so mode 3
+    // fires IRQ0 at 2x the configured frequency (a 100 Hz timer ran at 200 Hz,
+    // surfacing as busybox ping's 1 s interval firing every ~0.5 s).  Mode 2
+    // decrements by 1 and pulses once per period -> exactly freq_hz_ IRQs/s.
+    // This is the mode Linux uses for the periodic clock source.
     io_outb(PitHW::COMMAND,
-            PitHW::CMD_CHANNEL_0 | PitHW::CMD_LSB_MSB | PitHW::CMD_MODE_3 | PitHW::CMD_BINARY);
+            PitHW::CMD_CHANNEL_0 | PitHW::CMD_LSB_MSB | PitHW::CMD_MODE_2 | PitHW::CMD_BINARY);
 
     // Write divisor: low byte first, then high byte
     io_outb(PitHW::CHANNEL_0, static_cast<uint8_t>(divisor & 0xFF));
@@ -75,14 +83,16 @@ void PIT::init(uint32_t freq_hz) {
 void PIT::irq0_handler(InterruptFrame* /*frame*/) {
     // Increment the global tick counter
     tick_count_.fetch_add(1, lib::MemoryOrder::Relaxed);
-    // EOI early (before Scheduler::tick's preemption switch) so the timer is
-    // free to re-fire and preempt the task we switch to.  The PIT is the one
-    // IRQ that owns its EOI (it uses ISR_NOERRCODE, not ISR_IRQ) precisely so
-    // it can place the EOI before the inline preemption switch; every device
-    // IRQ instead gets a stub-owned EOI via the ISR_IRQ macro.
-    cinux::arch::irq_eoi(0);
-
+    // Scheduler::tick() accounts timer state only; it must not switch tasks
+    // inline from IRQ context.  EOI after the tick keeps irq0 non-reentrant
+    // while timer_queue_tick() runs.
     cinux::proc::Scheduler::tick();
+    // ITIMER_REAL wall-clock advance: the PIT is the global tick source (BSP;
+    // the AP's LAPIC timer drives preemption only), so decrement every task's
+    // itimer here and queue SIGALRM on expiry.  Runs before EOI so a periodic
+    // 1 s timer (busybox ping) fires ~every 100 ticks at 100 Hz.
+    cinux::proc::itimer_real_tick(1'000'000'000ULL / freq_hz_);
+    cinux::arch::irq_eoi(0);
 }
 
 // ============================================================

@@ -12,6 +12,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <memory>  // std::unique_ptr (RAII; EXEMPT-reviewed in check_freestanding_headers.py)
+
 #include "kernel/ipc/pipe.hpp"
 #include "kernel/ipc/pipe_ops.hpp"
 #include "kernel/lib/string.hpp"  // memset (stat)
@@ -149,21 +151,21 @@ cinux::lib::ErrorOr<cinux::fs::Inode*> FifoOps::open(cinux::fs::Inode* inode, ui
     bool is_write = (flags & kOAccessMask) == kOWronly;
     bool nonblock = (flags & kONonblock) != 0;
 
-    // Per-open inode bound to one end of the shared pipe.  Leaked on close
-    // (no InodeOps::release hook) -- the same hobby-OS limitation as anonymous
-    // pipes (see sys_pipe: closing a fd frees the File but not the ops/pipe).
-    auto* end = new cinux::fs::Inode();
-    if (end == nullptr) {
+    // Per-open inode bound to one end of the shared pipe.  unique_ptr holds it
+    // until both allocations succeed; on success .release() hands ownership to
+    // the caller (intentionally leaked on close -- no InodeOps::release hook,
+    // the same hobby-OS limitation as anonymous pipes).
+    auto end = std::unique_ptr<cinux::fs::Inode>(new cinux::fs::Inode());
+    if (!end) {
         return cinux::lib::Error::OutOfMemory;
     }
     end->type = cinux::fs::InodeType::Regular;
     end->ops  = is_write ? static_cast<cinux::fs::InodeOps*>(new PipeWriteOps(pipe, nonblock))
                          : static_cast<cinux::fs::InodeOps*>(new PipeReadOps(pipe, nonblock));
     if (end->ops == nullptr) {
-        delete end;
-        return cinux::lib::Error::OutOfMemory;
+        return cinux::lib::Error::OutOfMemory;  // end auto-freed by unique_ptr
     }
-    return end;
+    return end.release();  // success: caller owns (intentional leak on close)
 }
 
 cinux::lib::ErrorOr<void> FifoOps::stat(const cinux::fs::Inode* inode, cinux::fs::stat* st) {

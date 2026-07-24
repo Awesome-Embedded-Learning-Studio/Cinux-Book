@@ -22,4 +22,14 @@ namespace cinux::mm {
  */
 void dump_memory_stats();
 
+/**
+ * @brief Spawn the periodic memory-stats kthread (CINUX_STATS_KTHREAD=ON only).
+ *
+ * Resident low-priority kthread calling dump_memory_stats() every ~1 s, paced
+ * by the HPET counter.  For ad-hoc profiling (e.g. gcc-compile-stutter).  When
+ * CINUX_STATS_KTHREAD=OFF (the default), stats_kthread_stub.cpp supplies an
+ * empty body, so callers (init.cpp) need no #ifdef (§14 file gate).
+ */
+void start_stats_thread();
+
 }  // namespace cinux::mm

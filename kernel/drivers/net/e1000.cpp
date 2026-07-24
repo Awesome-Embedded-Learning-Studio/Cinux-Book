@@ -242,7 +242,7 @@ bool E1000Controller::poll_rx(uint8_t* dst, uint32_t max_len, uint32_t& out_len)
     // runs and a LAPIC-timer IRQ wakes it (see main_test.cpp).  In production
     // the PIT/LAPIC tick already keeps the main loop alive, so this single read
     // is plenty.  Harmless on real HW.
-    (void)reg_read(e1000reg::RDH);
+    static_cast<void>(reg_read(e1000reg::RDH));
 
     auto*            desc = static_cast<volatile RxDesc*>(desc_buf_.virt());
     volatile RxDesc& d    = desc[next_to_clean_];

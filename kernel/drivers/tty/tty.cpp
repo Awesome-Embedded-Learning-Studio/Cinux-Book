@@ -42,9 +42,6 @@ TTY::TTY()
       line_buf_{},
       line_len_(0),
       cooked_{},
-      cooked_head_(0),
-      cooked_tail_(0),
-      cooked_full_(false),
       pending_signal_(TtySignal::kNone),
       eof_pending_(false),
       echo_fn_(nullptr),
@@ -64,25 +61,11 @@ void TTY::echo(char c) const {
 }
 
 bool TTY::cooked_push(char c) {
-    if (cooked_full_) {
-        return false;  // drop (queue full)
-    }
-    cooked_[cooked_tail_] = c;
-    cooked_tail_          = (cooked_tail_ + 1) % kCookedBufSize;
-    if (cooked_tail_ == cooked_head_) {
-        cooked_full_ = true;
-    }
-    return true;
+    return cooked_.push(c);  // RingBuffer::push returns false when full (drop)
 }
 
 bool TTY::cooked_pop(char& c) {
-    if (cooked_head_ == cooked_tail_ && !cooked_full_) {
-        return false;  // empty
-    }
-    c            = cooked_[cooked_head_];
-    cooked_head_ = (cooked_head_ + 1) % kCookedBufSize;
-    cooked_full_ = false;
-    return true;
+    return cooked_.pop(c);  // RingBuffer::pop returns false when empty
 }
 
 void TTY::commit_line() {
@@ -197,6 +180,12 @@ bool TTY::take_eof() {
     bool was     = eof_pending_;
     eof_pending_ = false;
     return was;
+}
+
+bool TTY::has_cooked_data() const {
+    // Ready when the cooked ring holds bytes OR an EOF is pending (read returns
+    // 0 once).
+    return !cooked_.empty() || eof_pending_;
 }
 
 const Termios& TTY::termios() const {

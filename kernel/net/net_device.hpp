@@ -38,8 +38,7 @@ public:
     /// @brief L2 identity.  Writes 6 octets into @p out and returns true IF the
     ///        device has an L2 address.  Returns false for a no-MAC device
     ///        (loopback).  (FOLD-A.)
-    virtual bool mac(EthAddr& out) const {
-        (void)out;
+    virtual bool mac([[maybe_unused]] EthAddr& out) const {
         return false;
     }
 

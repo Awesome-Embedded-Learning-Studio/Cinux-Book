@@ -38,12 +38,18 @@ void task_exit_cleartid(Task* task) {
 
 namespace cinux::syscall {
 
-int64_t sys_exit(uint64_t code, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) {
+// Terminate the current task, recording @p encoded_status (a Linux waitpid
+// status word: WIFEXITED stores code<<8 with the low byte 0; WIFSIGNALED stores
+// the signal number in the low byte) for the reaping parent, then yield.
+// Shared by sys_exit (WIFEXITED) and signal-default-kill (WIFSIGNALED) so both
+// become a reapable Zombie with the correct status encoding.  Does not return.
+// (F-USABILITY batch 4 split this out of sys_exit so exit(code) and signal-kill
+// encode differently; before, both stored the raw value and glibc misread
+// exit(1) as WIFSIGNALED/SIGHUP.)
+void exit_and_reap_current(int encoded_status) {
     auto* task = cinux::proc::Scheduler::current();
     if (task != nullptr) {
-        // Record the exit code for a reaping waitpid().  Without this the
-        // fork-initialized exit_status==0 leaks regardless of the real code.
-        task->exit_status = static_cast<int>(code);
+        task->exit_status = encoded_status;
         // F3-M2: CLONE_CHILD_CLEARTID -- zero child_tid + wake joiner before
         // the task goes away.
         cinux::proc::task_exit_cleartid(task);
@@ -71,9 +77,16 @@ int64_t sys_exit(uint64_t code, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t
         if (task->parent != nullptr) {
             cinux::proc::Scheduler::unblock(task->parent);
         }
-        cinux::lib::kprintf("[SYSCALL] sys_exit(%u) from tid=%u '%s'\n",
-                            static_cast<unsigned>(code), static_cast<unsigned>(task->tid),
-                            task->name);
+        // CLONE_VFORK: the parent was blocked in clone() until we exec or exit.
+        // execve released it early; on exit we release it here and clear the
+        // back-pointer so the soon-to-be-reaped Task does not dangle.  unblock()
+        // is idempotent (no-op unless the target is actually Blocked).
+        if (task->vfork_parent != nullptr) {
+            cinux::proc::Scheduler::unblock(task->vfork_parent);
+            task->vfork_parent = nullptr;
+        }
+        cinux::lib::kprintf("[SYSCALL] exit status=%d from tid=%u '%s'\n", encoded_status,
+                            static_cast<unsigned>(task->tid), task->name);
     }
 
     if (cinux::proc::Scheduler::is_initialized()) {
@@ -84,7 +97,15 @@ int64_t sys_exit(uint64_t code, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t
             __asm__ volatile("cli; hlt");
         }
     }
+}
 
+int64_t sys_exit(uint64_t code, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) {
+    // Encode as a Linux waitpid status: WIFEXITED with the code in bits 8-15
+    // (low byte 0).  Storing the raw code made glibc's WIFEXITED test
+    // (status & 0xff) == 0 fail for any non-zero code, so exit(1) was misread
+    // as WIFSIGNALED with WTERMSIG=1 (SIGHUP) -- collect2 relayed "ld Hangup"
+    // and the g++ driver ICE'd on the misreported signal.  (F-USABILITY b4.)
+    exit_and_reap_current((static_cast<int>(code) & 0xff) << 8);
     return 0;
 }
 

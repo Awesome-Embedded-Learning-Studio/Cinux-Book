@@ -267,6 +267,13 @@ private:
      * @return      true if a device was found at this location
      */
     static bool scan_function(uint8_t bus, uint8_t slot, uint8_t func, PCIDevice& dev);
+
+    /// Triple-nested bus/slot/func scan; on the first device where @p match
+    /// returns true, read_bars() + fill @p out + log "<name> found ... BAR<log_bar>"
+    /// and return true.  Shared by find_ahci / find_xhci / find_e1000 (formerly
+    /// three byte-for-byte-identical 25-line scans).
+    bool find_device(const char* name, uint8_t log_bar,
+                     bool (*match)(const PCIDevice&), PCIDevice& out) const;
 };
 
 }  // namespace cinux::drivers::pci

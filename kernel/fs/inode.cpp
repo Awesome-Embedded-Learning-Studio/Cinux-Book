@@ -7,6 +7,8 @@
 
 #include "inode.hpp"
 
+#include <stdint.h>
+
 namespace cinux::fs {
 
 cinux::lib::ErrorOr<int64_t> InodeOps::read(const Inode*, uint64_t, void*, uint64_t) {
@@ -22,6 +24,10 @@ cinux::lib::ErrorOr<int64_t> InodeOps::readdir(const Inode*, uint64_t, char*, ui
 }
 
 cinux::lib::ErrorOr<Inode*> InodeOps::create(Inode*, const char*, uint32_t) {
+    return cinux::lib::Error::NotImplemented;
+}
+
+cinux::lib::ErrorOr<void> InodeOps::truncate(Inode*, uint64_t) {
     return cinux::lib::Error::NotImplemented;
 }
 
@@ -41,6 +47,14 @@ cinux::lib::ErrorOr<int64_t> InodeOps::ioctl(const Inode*, uint32_t, uint64_t) {
     // "This inode type does not implement ioctls."  sys_ioctl translates this
     // into -ENOTTY for the caller (the Linux convention for an ioctl an inode
     // does not handle), so the default is observationally "not a tty ioctl".
+    return cinux::lib::Error::NotImplemented;
+}
+
+// F-GUI-USERSPACE batch 1: "this inode cannot be mmap'd as device memory."
+// sys_mmap treats NotImplemented as "fall through to the normal file-backed /
+// anonymous path", so the default leaves every existing InodeOps subclass
+// unchanged.
+cinux::lib::ErrorOr<uint64_t> InodeOps::mmap(const Inode*, uint64_t, uint64_t) {
     return cinux::lib::Error::NotImplemented;
 }
 
@@ -86,13 +100,22 @@ bool InodeOps::is_page_cacheable() const {
     return false;
 }
 
-void InodeOps::release(Inode*) {
-    // Default: nothing to clean up.  Overridden by fd types with per-open
-    // protocol state (a pipe end -> EOF, a socket -> FIN).
+// F8-M5: a regular file (and every other non-blocking backend) is always ready
+// and never registers a poll waiter, so poll() on it returns immediately.
+uint32_t InodeOps::poll_events(const Inode*, cinux::proc::Task*, bool* registered) {
+    if (registered != nullptr) {
+        *registered = false;
+    }
+    return kPollIn | kPollOut;
 }
 
-cinux::lib::ErrorOr<void> InodeOps::truncate(Inode*, uint64_t) {
-    return cinux::lib::Error::NotImplemented;
+void InodeOps::poll_detach_waiter(const Inode*, cinux::proc::Task*) {
+    // Regular files never register a waiter; nothing to remove.
+}
+
+void InodeOps::release(Inode*) {
+    // Default: nothing to clean up.  Overridden by fd types with per-open
+    // protocol state (SocketOps -> Socket::close).
 }
 
 }  // namespace cinux::fs

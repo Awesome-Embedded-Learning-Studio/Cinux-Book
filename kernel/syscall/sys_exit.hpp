@@ -14,6 +14,16 @@
 namespace cinux::syscall {
 
 /**
+ * @brief Terminate the current task and reap, recording a pre-encoded waitpid
+ *        status word (WIFEXITED code<<8, or WIFSIGNALED signal number).
+ *
+ * Shared by sys_exit() (WIFEXITED) and signal-default-kill (WIFSIGNALED) so the
+ * two encode exit_status differently while reusing one Zombie+reap path.
+ * Does not return.  (F-USABILITY batch 4.)
+ */
+void exit_and_reap_current(int encoded_status);
+
+/**
  * @brief Terminate the current task with an exit code
  *
  * Marks the current task as Dead and yields to the scheduler.

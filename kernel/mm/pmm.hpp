@@ -108,19 +108,18 @@ public:
     bool    refcount_dec_and_test_no_free(uint64_t phys);  ///< B3: true => would free, NOT freed
     int16_t refcount_load(uint64_t phys) const;
 
-    /**
-     * @brief Lock-free page allocation (caller must guarantee exclusion)
-     *
-     * Does NOT acquire the internal spinlock.  Safe only from contexts
-     * where interrupts are disabled and no concurrent PMM access is
-     * possible (e.g. page fault handler under Interrupt gate).
-     */
-    uint64_t alloc_page_locked();
-
-    /** Lock-free page free (caller must guarantee exclusion). */
-    void free_page_locked(uint64_t phys);
-
 private:
+    // Lock-free buddy access (PRIVATE).  The buddy is NOT thread-safe; these
+    // bypass the PMM spinlock and are callable ONLY from the internal
+    // alloc_page / free_page (which acquire lock_).  They used to be public,
+    // which let the page-fault path (vmm walk_level, handle_pf file/anon) grab
+    // pages without the spinlock -- on SMP that raced handle_cow_fault's locked
+    // alloc and corrupted the buddy (clear_bit(kInvalidPage) #GP at
+    // alloc_order+0x9c).  Keeping them private forces every external caller
+    // through the locked public API by construction.
+    uint64_t alloc_page_locked();
+    void     free_page_locked(uint64_t phys);
+
     cinux::proc::Spinlock lock_;
     BuddyAllocator        buddy_;
     uint8_t*              order_storage_{};      ///< 1 byte/page, @ __kernel_stack_top

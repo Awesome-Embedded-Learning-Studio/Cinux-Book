@@ -20,6 +20,8 @@
 
 #include <cstdint>
 
+#include <memory>  // std::unique_ptr (RAII; EXEMPT-reviewed in check_freestanding_headers.py)
+
 #include "kernel/arch/x86_64/user_access.hpp"  // copy_to/from_user (SMAP/extable)
 #include "kernel/errno.hpp"
 #include "kernel/fs/file.hpp"          // FDTable / File
@@ -46,6 +48,7 @@ using cinux::net::create_socket;
 using cinux::net::kAfInet;
 using cinux::net::kAfUnix;
 using cinux::net::kSockDgram;
+using cinux::net::kSockRaw;
 using cinux::net::kSockStream;
 using cinux::net::socket_ops;
 using cinux::user::copy_from_user;
@@ -149,22 +152,22 @@ Socket* socket_from_fd(uint64_t fd) {
 }
 
 int64_t install_socket_fd(Socket* sock) {
-    // Manual RAII (freestanding: no <memory>/unique_ptr). On error free both;
-    // on success ownership of sock + inode transfers to the FDTable's File
-    // (closing the fd frees the File; the Socket/Inode share the pipe-style
-    // hobby-OS release-without-hook limitation).
-    Socket* s         = sock;
-    Inode*  inode     = new Inode();
+    // RAII over the raw news: on error both auto-free; on success ownership of
+    // sock + inode transfers to the FDTable's File (closing the fd frees the
+    // File; the Socket/Inode share the pipe-style hobby-OS release-without-hook
+    // limitation).  <memory> is EXEMPT-reviewed for this TU.
+    std::unique_ptr<Socket> s(sock);
+    std::unique_ptr<Inode>  inode(new Inode());
     inode->ops        = &socket_ops();
     inode->type       = InodeType::Regular;
-    inode->fs_private = s;
+    inode->fs_private = s.get();
 
-    int fd = current_fd_table().alloc(inode, OpenFlags::RDWR);
+    int fd = current_fd_table().alloc(inode.get(), OpenFlags::RDWR);
     if (fd < 0) {
-        delete inode;
-        delete s;
-        return -cinux::kEmfile;
+        return -cinux::kEmfile;  // s + inode auto-freed at scope exit
     }
+    s.release();      // FDTable now owns sock (via inode->fs_private)
+    inode.release();  // FDTable now owns inode
     return fd;
 }
 
@@ -178,6 +181,12 @@ int64_t do_accept(uint64_t fd, uint64_t addr, uint64_t addrlen_ptr, uint64_t fla
     auto     r     = s->accept(&remote, &rport);
     if (!r.ok()) {
         return -cinux::to_errno(r.error());
+    }
+    // EINTR sentinel: a blocking accept() woken by a signal returns -1 cast to
+    // Socket* (it cannot extend lib::Error without touching the Cinux-Base
+    // submodule).  Map it to -EINTR here.
+    if (*r == reinterpret_cast<Socket*>(static_cast<uintptr_t>(-1))) {
+        return -cinux::kEintr;
     }
     int64_t new_fd = install_socket_fd(*r);
     if (new_fd < 0) {
@@ -202,7 +211,8 @@ int64_t do_accept(uint64_t fd, uint64_t addr, uint64_t addrlen_ptr, uint64_t fla
 
 int64_t sys_socket(uint64_t domain, uint64_t type, uint64_t /*protocol*/, uint64_t, uint64_t,
                    uint64_t) {
-    if (type != static_cast<uint64_t>(kSockStream) && type != static_cast<uint64_t>(kSockDgram)) {
+    if (type != static_cast<uint64_t>(kSockStream) && type != static_cast<uint64_t>(kSockDgram) &&
+        type != static_cast<uint64_t>(kSockRaw)) {
         return -cinux::kEprotonosupport;
     }
     // AF_UNIX is self-contained (no NIC / L4 module), so build it here directly
@@ -287,20 +297,19 @@ int64_t sys_sendto(uint64_t fd, uint64_t buf, uint64_t len, uint64_t /*flags*/, 
     if (s == nullptr) {
         return -cinux::kEbadf;
     }
-    uint32_t n    = len > kMaxSockBuf ? kMaxSockBuf : static_cast<uint32_t>(len);
-    uint8_t* kbuf = new uint8_t[n ? n : 1];  // manual RAII (freestanding: no <memory>)
-    if (n != 0 && !copy_from_user(kbuf, reinterpret_cast<void*>(buf), n)) {
-        delete[] kbuf;
-        return -cinux::kEfault;
+    uint32_t n = len > kMaxSockBuf ? kMaxSockBuf : static_cast<uint32_t>(len);
+    std::unique_ptr<uint8_t[]> kbuf(new uint8_t[n ? n : 1]);
+    if (n != 0 && !copy_from_user(kbuf.get(), reinterpret_cast<void*>(buf), n)) {
+        return -cinux::kEfault;  // kbuf auto-freed
     }
-    cinux::lib::ErrorOr<int64_t> r = (addr == 0) ? s->send(kbuf, n) : [&] {
+    cinux::lib::ErrorOr<int64_t> r = (addr == 0) ? s->send(kbuf.get(), n) : [&] {
         Ipv4Addr a{};
         uint16_t port = 0;
         return parse_sockaddr_in(addr, addrlen, &a, &port)
-                   ? s->sendto(a, port, kbuf, n)
+                   ? s->sendto(a, port, kbuf.get(), n)
                    : cinux::lib::ErrorOr<int64_t>(cinux::lib::Error::InvalidArgument);
     }();
-    delete[] kbuf;  // send/sendto consumed it
+    // kbuf freed at scope exit (send/sendto borrow, do not consume)
     if (!r.ok()) {
         return -cinux::to_errno(r.error());
     }
@@ -313,23 +322,26 @@ int64_t sys_recvfrom(uint64_t fd, uint64_t buf, uint64_t len, uint64_t /*flags*/
     if (s == nullptr) {
         return -cinux::kEbadf;
     }
-    uint32_t n    = len > kMaxSockBuf ? kMaxSockBuf : static_cast<uint32_t>(len);
-    uint8_t* kbuf = new uint8_t[n ? n : 1];  // manual RAII (freestanding: no <memory>)
+    uint32_t n = len > kMaxSockBuf ? kMaxSockBuf : static_cast<uint32_t>(len);
+    std::unique_ptr<uint8_t[]> kbuf(new uint8_t[n ? n : 1]);
     Ipv4Addr src{};
     uint16_t sport = 0;
-    auto     r     = s->recv(kbuf, n, &src, &sport);
+    auto     r     = s->recv(kbuf.get(), n, &src, &sport);
     if (!r.ok()) {
-        delete[] kbuf;
-        return -cinux::to_errno(r.error());
+        return -cinux::to_errno(r.error());  // kbuf auto-freed
+    }
+    // EINTR sentinel: a blocking recv() woken by a signal returns -1 as a
+    // success-typed value (it cannot extend lib::Error without touching the
+    // Cinux-Base submodule).  Map it to -EINTR here, before any byte-count use.
+    if (*r == static_cast<int64_t>(-1)) {
+        return -cinux::kEintr;
     }
     uint32_t got = static_cast<uint32_t>(*r);
-    if (got != 0 && !copy_to_user(reinterpret_cast<void*>(buf), kbuf, got)) {
-        delete[] kbuf;
-        return -cinux::kEfault;
+    if (got != 0 && !copy_to_user(reinterpret_cast<void*>(buf), kbuf.get(), got)) {
+        return -cinux::kEfault;  // kbuf auto-freed
     }
-    delete[] kbuf;  // copied out to user
     fill_sockaddr_in(addr, addrlen_ptr, src, sport);
-    return *r;
+    return *r;  // kbuf freed at scope exit
 }
 
 }  // namespace cinux::syscall

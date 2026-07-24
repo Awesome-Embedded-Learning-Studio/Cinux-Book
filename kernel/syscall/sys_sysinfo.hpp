@@ -4,7 +4,7 @@
  *
  * Fills Linux struct sysinfo for busybox `free` / `uptime` / `top`.  Backed by
  * the PMM (total/free RAM), the HPET monotonic clock (uptime), and the task
- * registry (procs count).  Fields CinuxOS does not track (load averages, shared
+ * registry (procs count).  Fields Cinux does not track (load averages, shared
  * / buffer RAM, swap, highmem) are reported 0 -- honest, not fabricated; memunit
  * is 1 so the RAM fields are bytes (a real load-average + swap awaits the
  * accounting + swap milestones).

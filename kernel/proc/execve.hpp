@@ -66,6 +66,10 @@ struct ElfAuxInfo {
     uint64_t at_entry;    ///< Main program entry (user VA); ldso jumps here after relocating
     uint64_t at_base;     ///< Interpreter (ldso) load base; 0 for a static executable
     bool     has_interp;  ///< True if a PT_INTERP was found and the interpreter loaded
+    bool     stack_executable = false;  ///< F4-B0: PT_GNU_STACK requested an executable stack
+                                        ///< (p_flags & X). Modern gcc-built ELFs carry
+                                        ///< PT_GNU_STACK=RW so this stays false -> NX stack,
+                                        ///  which glibc expects; only legacy RWX marks set it.
 };
 
 /**

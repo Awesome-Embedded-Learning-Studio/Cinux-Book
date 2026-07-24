@@ -79,7 +79,7 @@ bool resolve_user_path(uint64_t path_virt, char* out);
  * @param namelen_out  Set to the length of the leaf name
  * @return true on success, false if @p path is empty or ends with '/'
  */
-bool split_pathname(const char* path, char* parent_out,
-                    const char** name_out, uint32_t* namelen_out);
+bool split_pathname(const char* path, char* parent_out, const char** name_out,
+                    uint32_t* namelen_out);
 
 }  // namespace cinux::syscall

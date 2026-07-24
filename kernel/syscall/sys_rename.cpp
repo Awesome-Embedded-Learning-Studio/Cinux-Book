@@ -51,7 +51,7 @@ int64_t do_rename_kernel(const char* resolved_oldpath, const char* resolved_newp
     // Destination parent + leaf (assumes same filesystem; cross-fs rename
     // returns EXDEV on Linux -- a hobby-OS follow-up).
     const char* rel_new = nullptr;
-    (void)cinux::fs::vfs_resolve(resolved_newpath, &rel_new);
+    static_cast<void>(cinux::fs::vfs_resolve(resolved_newpath, &rel_new));
     cinux::fs::PathBuf new_parent_buf;
     const char*        new_leaf = nullptr;
     uint32_t           new_len  = 0;

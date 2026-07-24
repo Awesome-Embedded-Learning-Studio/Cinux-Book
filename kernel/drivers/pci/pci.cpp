@@ -141,7 +141,33 @@ void PCI::init() {
     cinux::lib::kprintf("[PCI] Found %u PCI devices.\n", device_count);
 }
 
-bool PCI::find_ahci(PCIDevice& out) const {
+namespace {
+
+// Per-class match predicates for find_device().  Each is one device-specific
+// test against the scanned PCIDevice; the shared scan loop lives in find_device.
+bool match_ahci(const PCIDevice& dev) {
+    return dev.class_code == PciClass::MASS_STORAGE && dev.subclass == PciClass::AHCI_SUBCLASS;
+}
+bool match_xhci(const PCIDevice& dev) {
+    return is_xhci_device(dev.class_code, dev.subclass, dev.prog_if);
+}
+bool match_e1000(const PCIDevice& dev) {
+    return is_e1000_device(dev.vendor_id, dev.device_id);
+}
+bool match_nvme(const PCIDevice& dev) {
+    return is_nvme_device(dev.class_code, dev.subclass);
+}
+bool match_virtio_block(const PCIDevice& dev) {
+    return is_virtio_block_device(dev.vendor_id, dev.device_id);
+}
+bool match_virtio_net(const PCIDevice& dev) {
+    return is_virtio_net_device(dev.vendor_id, dev.device_id);
+}
+
+}  // namespace
+
+bool PCI::find_device(const char* name, uint8_t log_bar,
+                      bool (*match)(const PCIDevice&), PCIDevice& out) const {
     for (uint8_t bus = 0; bus < MAX_BUS; ++bus) {
         for (uint8_t slot = 0; slot < MAX_SLOT; ++slot) {
             for (uint8_t func = 0; func < MAX_FUNC; ++func) {
@@ -152,165 +178,43 @@ bool PCI::find_ahci(PCIDevice& out) const {
                     }
                     continue;
                 }
-
-                if (dev.class_code == PciClass::MASS_STORAGE &&
-                    dev.subclass == PciClass::AHCI_SUBCLASS) {
-                    // Found an AHCI controller -- read BARs
+                if (match(dev)) {
                     read_bars(dev);
                     out = dev;
-
-                    cinux::lib::kprintf(
-                        "[PCI] AHCI found: %02x:%02x.%x "
-                        "BAR5=0x%lx\n",
-                        dev.bus, dev.slot, dev.func, static_cast<uint64_t>(dev.bar[5]));
+                    cinux::lib::kprintf("[PCI] %s found: %02x:%02x.%x BAR%u=0x%lx\n", name, dev.bus,
+                                        dev.slot, dev.func, log_bar,
+                                        static_cast<uint64_t>(dev.bar[log_bar]));
                     return true;
                 }
             }
         }
     }
-
-    cinux::lib::kprintf("[PCI] No AHCI controller found.\n");
+    cinux::lib::kprintf("[PCI] No %s device found.\n", name);
     return false;
+}
+
+bool PCI::find_ahci(PCIDevice& out) const {
+    return find_device("AHCI", 5, match_ahci, out);
 }
 
 bool PCI::find_xhci(PCIDevice& out) const {
-    for (uint8_t bus = 0; bus < MAX_BUS; ++bus) {
-        for (uint8_t slot = 0; slot < MAX_SLOT; ++slot) {
-            for (uint8_t func = 0; func < MAX_FUNC; ++func) {
-                PCIDevice dev{};
-                if (!scan_function(bus, slot, func, dev)) {
-                    if (func == 0) {
-                        break;
-                    }
-                    continue;
-                }
-
-                if (is_xhci_device(dev.class_code, dev.subclass, dev.prog_if)) {
-                    read_bars(dev);
-                    out = dev;
-
-                    cinux::lib::kprintf("[PCI] xHCI found: %02x:%02x.%x BAR0=0x%lx\n", dev.bus,
-                                        dev.slot, dev.func, static_cast<uint64_t>(dev.bar[0]));
-                    return true;
-                }
-            }
-        }
-    }
-
-    cinux::lib::kprintf("[PCI] No xHCI controller found.\n");
-    return false;
+    return find_device("xHCI", 0, match_xhci, out);
 }
 
 bool PCI::find_e1000(PCIDevice& out) const {
-    for (uint8_t bus = 0; bus < MAX_BUS; ++bus) {
-        for (uint8_t slot = 0; slot < MAX_SLOT; ++slot) {
-            for (uint8_t func = 0; func < MAX_FUNC; ++func) {
-                PCIDevice dev{};
-                if (!scan_function(bus, slot, func, dev)) {
-                    if (func == 0) {
-                        break;
-                    }
-                    continue;
-                }
-
-                if (is_e1000_device(dev.vendor_id, dev.device_id)) {
-                    read_bars(dev);
-                    out = dev;
-
-                    cinux::lib::kprintf("[PCI] e1000 found: %02x:%02x.%x BAR0=0x%lx\n", dev.bus,
-                                        dev.slot, dev.func, static_cast<uint64_t>(dev.bar[0]));
-                    return true;
-                }
-            }
-        }
-    }
-
-    cinux::lib::kprintf("[PCI] No e1000 NIC found.\n");
-    return false;
+    return find_device("e1000", 0, match_e1000, out);
 }
 
 bool PCI::find_nvme(PCIDevice& out) const {
-    for (uint8_t bus = 0; bus < MAX_BUS; ++bus) {
-        for (uint8_t slot = 0; slot < MAX_SLOT; ++slot) {
-            for (uint8_t func = 0; func < MAX_FUNC; ++func) {
-                PCIDevice dev{};
-                if (!scan_function(bus, slot, func, dev)) {
-                    if (func == 0) {
-                        break;
-                    }
-                    continue;
-                }
-
-                if (is_nvme_device(dev.class_code, dev.subclass)) {
-                    read_bars(dev);
-                    out = dev;
-
-                    cinux::lib::kprintf("[PCI] NVMe found: %02x:%02x.%x BAR0=0x%lx\n", dev.bus,
-                                        dev.slot, dev.func, static_cast<uint64_t>(dev.bar[0]));
-                    return true;
-                }
-            }
-        }
-    }
-
-    cinux::lib::kprintf("[PCI] No NVMe controller found.\n");
-    return false;
+    return find_device("NVMe", 0, match_nvme, out);
 }
 
 bool PCI::find_virtio_block(PCIDevice& out) const {
-    for (uint8_t bus = 0; bus < MAX_BUS; ++bus) {
-        for (uint8_t slot = 0; slot < MAX_SLOT; ++slot) {
-            for (uint8_t func = 0; func < MAX_FUNC; ++func) {
-                PCIDevice dev{};
-                if (!scan_function(bus, slot, func, dev)) {
-                    if (func == 0) {
-                        break;
-                    }
-                    continue;
-                }
-
-                if (is_virtio_block_device(dev.vendor_id, dev.device_id)) {
-                    read_bars(dev);
-                    out = dev;
-
-                    cinux::lib::kprintf("[PCI] VirtIO-blk found: %02x:%02x.%x BAR0=0x%lx\n", dev.bus,
-                                        dev.slot, dev.func, static_cast<uint64_t>(dev.bar[0]));
-                    return true;
-                }
-            }
-        }
-    }
-
-    cinux::lib::kprintf("[PCI] No VirtIO-blk controller found.\n");
-    return false;
+    return find_device("VirtIO-blk", 0, match_virtio_block, out);
 }
 
 bool PCI::find_virtio_net(PCIDevice& out) const {
-    for (uint8_t bus = 0; bus < MAX_BUS; ++bus) {
-        for (uint8_t slot = 0; slot < MAX_SLOT; ++slot) {
-            for (uint8_t func = 0; func < MAX_FUNC; ++func) {
-                PCIDevice dev{};
-                if (!scan_function(bus, slot, func, dev)) {
-                    if (func == 0) {
-                        break;
-                    }
-                    continue;
-                }
-
-                if (is_virtio_net_device(dev.vendor_id, dev.device_id)) {
-                    read_bars(dev);
-                    out = dev;
-
-                    cinux::lib::kprintf("[PCI] VirtIO-net found: %02x:%02x.%x BAR0=0x%lx\n", dev.bus,
-                                        dev.slot, dev.func, static_cast<uint64_t>(dev.bar[0]));
-                    return true;
-                }
-            }
-        }
-    }
-
-    cinux::lib::kprintf("[PCI] No VirtIO-net controller found.\n");
-    return false;
+    return find_device("VirtIO-net", 0, match_virtio_net, out);
 }
 
 }  // namespace cinux::drivers::pci

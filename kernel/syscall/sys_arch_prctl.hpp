@@ -5,7 +5,7 @@
  * arch_prctl is the x86-64 TLS syscall.  musl's static startup calls
  * arch_prctl(ARCH_SET_FS, tp) from __init_tp() to point %fs at the
  * thread's TLS block -- without it every %fs-relative access faults.
- * CinuxOS already wires the FS base through context_switch.S and
+ * Cinux already wires the FS base through context_switch.S and
  * clone(CLONE_SETTLS); this handler reuses set_tls_base().
  */
 

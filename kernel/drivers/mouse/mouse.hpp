@@ -39,12 +39,15 @@ namespace cinux::drivers {
 // ============================================================
 
 /**
- * @brief PS/2 mouse driver with IRQ12 interrupt handling
+ * @brief Mouse / pointer sink -- dual PS/2 + USB input path
  *
- * All methods are static because there is exactly one PS/2 mouse
- * in the system.  The IRQ12 handler accumulates 3-byte packets,
- * updates the internal cursor position, and enqueues MouseEvent
- * structs into the GUI EventQueue.
+ * All methods are static because there is exactly one pointing device in the
+ * system.  PS/2 path: the IRQ12 handler accumulates 3-byte packets, updates the
+ * cursor, and enqueues MouseEvent structs into the GUI EventQueue.  USB path
+ * (QEMU usb-tablet / usb-mouse via xHCI): inject_usb_motion /
+ * inject_usb_absolute feed the same cursor + queue, and set_usb_primary() flips
+ * which source owns the queue (the PS/2 IRQ12 handler ignores bytes while USB
+ * is primary, so the queue has a single producer).
  */
 class Mouse {
 public:

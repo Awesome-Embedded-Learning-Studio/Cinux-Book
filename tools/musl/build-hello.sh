@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# build-hello.sh — compile a static musl hello world against the CinuxOS sysroot.
+# build-hello.sh — compile a static musl hello world against the Cinux sysroot.
 #
 # Links manually (-nostdlib) with the exact crt order musl-gcc.specs prescribes
 # (Scrt1.o crti.o crtbeginS.o <objs> -lc -lgcc crtendS.o crtn.o).  We bypass the

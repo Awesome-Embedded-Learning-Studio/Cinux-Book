@@ -1,20 +1,23 @@
 /**
- * @file kernel/fs/procfs_content.cpp
- * @brief ProcFS pseudo-file content generation: Task -> text (F6-M2)
+ * @file kernel/fs/procfs/procfs_content.cpp
+ * @brief ProcFS pseudo-file content generation: snapshot -> text (F6-M2)
  *
- * Implements the stat/cmdline formatters declared in procfs_content.hpp.  A
- * bounded LineBuilder replaces <string>; every append stops at the cap, so the
- * output is always NUL-terminable.
+ * Implements the stat/cmdline/meminfo/cpuinfo formatters declared in
+ * procfs_content.hpp.  All rendering goes through cinux::fmt::format ({fmt}-
+ * style {} placeholders, type-safe variadic) -- the old hand-rolled
+ * LineBuilder `b.put_s / b.put_u / b.put` eyesore is gone.
  */
 
 #include "procfs_content.hpp"
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
-#include "kernel/lib/string.hpp"          // utoa
-#include "kernel/proc/process.hpp"        // TaskState (task_state_char)
-#include "kernel/proc/task_snapshot.hpp"  // TaskSnapshot
+#include "kernel/lib/format.hpp"           // cinux::fmt::format ({} placeholders)
+#include "kernel/proc/process.hpp"         // TaskState (task_state_char)
+#include "kernel/proc/task_snapshot.hpp"   // TaskSnapshot
+#include "kernel/version.hpp"              // kCpuModel / kOsVersion
 
 namespace cinux::fs {
 namespace {
@@ -37,107 +40,58 @@ char task_state_char(cinux::proc::TaskState s) {
     return '?';
 }
 
-/// A bounded string builder for generating pseudo-file text without <string>.
-/// Every append silently stops at the cap, so output is always NUL-terminable.
-struct LineBuilder {
-    char*    p;
-    uint32_t cap;
-    uint32_t len{0};
-
-    void put(char c) {
-        if (len + 1 < cap) {
-            p[len++] = c;
-        }
-    }
-    void put_s(const char* s) {
-        if (s == nullptr) {
-            return;
-        }
-        while (*s != '\0' && len + 1 < cap) {
-            p[len++] = *s++;
-        }
-    }
-    void put_u(uint32_t v) {
-        char tmp[11];
-        utoa(tmp, v);
-        put_s(tmp);
-    }
-    /// Ensure a terminating NUL; return content length (excluding it).
-    uint32_t finish() {
-        if (len < cap) {
-            p[len] = '\0';
-        } else {
-            p[cap - 1] = '\0';
-        }
-        return len;
-    }
-};
-
-}  // anonymous namespace
+}  // namespace
 
 uint32_t format_proc_stat(const cinux::proc::TaskSnapshot& s, char* buf, uint32_t cap) {
-    LineBuilder b{buf, cap};
-    b.put_u(static_cast<uint32_t>(s.pid));
-    b.put(' ');
-    b.put('(');
-    b.put_s(s.name);  // snapshot name is always NUL-terminated and bounded
-    b.put(')');
-    b.put(' ');
-    b.put(task_state_char(s.state));
-    b.put(' ');
-    b.put_u(static_cast<uint32_t>(s.ppid));
-    b.put(' ');
-    b.put_u(static_cast<uint32_t>(s.tgid));
-    b.put(' ');
-    b.put_u(s.uid);
-    b.put(' ');
-    b.put_u(s.gid);
-    b.put('\n');
-    return b.finish();
+    // "pid (name) state ppid tgid uid gid\n" -- a documented subset of Linux's
+    // /proc/<pid>/stat (Cinux keeps no per-task accounting fields).
+    return cinux::fmt::format(buf, cap, "{} ({}) {} {} {} {} {}\n",
+                              static_cast<uint32_t>(s.pid), s.name,
+                              task_state_char(s.state),
+                              static_cast<uint32_t>(s.ppid),
+                              static_cast<uint32_t>(s.tgid), s.uid, s.gid);
 }
 
 uint32_t format_proc_cmdline(const cinux::proc::TaskSnapshot& s, char* dst, uint32_t cap) {
-    LineBuilder b{dst, cap};
-    b.put_s(s.name);  // snapshot name is always NUL-terminated and bounded
-    b.put('\0');      // cmdline always ends with a NUL
-    // Length includes the terminating NUL (count the bytes actually written).
-    return b.len < cap ? b.len + 1 : cap;
+    // /proc/<pid>/cmdline is NUL-separated argv; Cinux keeps no argv, so the
+    // task name (comm) is exposed as a best-effort single field.  Length
+    // includes the terminating NUL (the cmdline contract).
+    uint32_t len = cinux::fmt::format(dst, cap, "{}", s.name);
+    return len < cap ? len + 1 : cap;
 }
 
 uint32_t format_proc_meminfo(uint32_t total_kb, uint32_t free_kb, char* buf, uint32_t cap) {
-    // busybox `free` greps these keys (alignment is irrelevant to the parser).
-    // CinuxOS tracks no buffers/cached/swap, so those read 0 -- honest, not
-    // fabricated; the "used" column free prints is total-free, "buff/cache" 0.
-    LineBuilder b{buf, cap};
-    b.put_s("MemTotal:");
-    b.put(' ');
-    b.put_u(total_kb);
-    b.put_s(" kB\n");
-    b.put_s("MemFree:");
-    b.put(' ');
-    b.put_u(free_kb);
-    b.put_s(" kB\n");
-    b.put_s("MemAvailable:");
-    b.put(' ');
-    b.put_u(free_kb);
-    b.put_s(" kB\n");
-    b.put_s("Buffers:");
-    b.put(' ');
-    b.put_u(0);
-    b.put_s(" kB\n");
-    b.put_s("Cached:");
-    b.put(' ');
-    b.put_u(0);
-    b.put_s(" kB\n");
-    b.put_s("SwapTotal:");
-    b.put(' ');
-    b.put_u(0);
-    b.put_s(" kB\n");
-    b.put_s("SwapFree:");
-    b.put(' ');
-    b.put_u(0);
-    b.put_s(" kB\n");
-    return b.finish();
+    // busybox `free` greps MemTotal/MemFree/MemAvailable/Buffers/Cached; Cinux
+    // tracks no buffer/cache/swap, so those read 0 (honest, not fabricated).
+    return cinux::fmt::format(buf, cap,
+                              "MemTotal: {} kB\n"
+                              "MemFree: {} kB\n"
+                              "MemAvailable: {} kB\n"
+                              "Buffers: {} kB\n"
+                              "Cached: {} kB\n"
+                              "SwapTotal: {} kB\n"
+                              "SwapFree: {} kB\n",
+                              total_kb, free_kb, free_kb, 0u, 0u, 0u, 0u);
+}
+
+uint32_t format_proc_cpuinfo(uint32_t cpu_count, const uint8_t* apic_ids, char* buf,
+                             uint32_t cap) {
+    // One "processor / apicid / model name" block per CPU, blank-line
+    // separated.  busybox `nproc` counts "processor :" lines (case-insensitive);
+    // `cat /proc/cpuinfo` shows the per-CPU view.  @p apic_ids is the MADT list
+    // (null in synthetic contexts -> sequential ids fallback).
+    uint32_t len = 0;
+    for (uint32_t i = 0; i < cpu_count; ++i) {
+        uint32_t apic = apic_ids != nullptr ? apic_ids[i] : i;
+        bool     last = (i + 1 == cpu_count);
+        len += cinux::fmt::format(buf + len, cap - len,
+                                  "processor\t: {}\n"
+                                  "apicid\t\t: {}\n"
+                                  "model name\t: {} {}{}",
+                                  i, apic, cinux::kCpuModel, cinux::kOsVersion,
+                                  last ? "\n" : "\n\n");
+    }
+    return len;
 }
 
 }  // namespace cinux::fs
