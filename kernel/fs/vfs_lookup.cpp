@@ -106,9 +106,13 @@ cinux::lib::ErrorOr<LookupResult> vfs_lookup(const char* path, uint32_t flags,
 
             // PARENT mode: the final component is the leaf name -- do not resolve it.
             if (want_parent && is_last) {
+                if (comp_len > kLookupNameMax) {
+                    return cinux::lib::Error::InvalidArgument;  // name too long
+                }
                 LookupResult r;
-                r.parent   = cur;
-                r.leaf     = p;
+                r.parent = cur;
+                memcpy(r.leaf_name, p, comp_len);  // copy into stable storage
+                r.leaf_name[comp_len] = '\0';
                 r.leaf_len = comp_len;
                 return r;
             }

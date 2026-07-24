@@ -39,10 +39,21 @@ enum class LookupFlag : uint32_t {
     NoFollow  = 1u << 5,
 };
 
+/// Longest single path component vfs_lookup returns as a PARENT-mode leaf.
+/// Matches the POSIX NAME_MAX (255) every backend's create() enforces; a
+/// longer component yields InvalidArgument (maps to EINVAL / ENAMETOOLONG).
+static constexpr uint32_t kLookupNameMax = 255;
+
 struct LookupResult {
     Inode*      target{nullptr};  ///< Resolved target (non-PARENT mode).
     Inode*      parent{nullptr};  ///< Parent directory (PARENT mode).
-    const char* leaf{nullptr};    ///< Leaf component (PARENT); pointer into the path buffer.
+    /// Stable storage for the leaf name (PARENT mode).  The name is COPIED out
+    /// of the path buffer (not pointed at it) so it survives the return: callers
+    /// read it after vfs_lookup's own stack-local resolved buffer is gone.  The
+    /// old `const char* leaf` dangled and handed create() garbage names (gcc's
+    /// mkstemp created /tmp/ccXXXXXX.s nodes whose name was stack residue ->
+    /// the immediate re-lookup couldn't match -> ENOENT).
+    char        leaf_name[kLookupNameMax + 1]{};
     uint32_t    leaf_len{0};
 };
 
