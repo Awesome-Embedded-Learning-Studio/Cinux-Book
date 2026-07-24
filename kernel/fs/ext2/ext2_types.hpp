@@ -339,4 +339,61 @@ struct Ext2CachedInode {
     Ext2CachedInode* hash_next{nullptr};  ///< Separate-chaining link (ino % EXT2_INODE_CACHE_SIZE bucket)
 };
 
+// ============================================================
+// ext4 Extents (extent tree in i_block[0..14] instead of block pointers)
+// ============================================================
+//
+// When the superblock advertises EXT4_FEATURE_INCOMPAT_EXTENTS, an inode may
+// set EXT4_EXTENTS_FL in i_flags.  Such an inode repurposes the 60-byte
+// i_block[0..14] array as the root of an extent tree: a 12-byte header followed
+// by either leaf extents (depth 0) or index pointers (depth > 0).  A leaf
+// extent maps a contiguous run of logical blocks to a contiguous run of
+// physical blocks.  This driver reads depth-0 leaves only; index nodes are a
+// follow-up.
+
+/// Superblock incompatible-feature bit: filesystem uses per-inode extent trees
+static constexpr uint32_t EXT4_FEATURE_INCOMPAT_EXTENTS = 0x40;
+
+/// Inode flag: i_block[0..14] holds an extent tree (not classic block pointers)
+static constexpr uint32_t EXT4_EXTENTS_FL = 0x80000;
+
+/// Magic value stored in Ext4ExtentHeader::eh_magic
+static constexpr uint16_t EXT4_EXTENT_MAGIC = 0xF30A;
+
+/// ee_len values above this mark an *uninitialized* extent: real length is
+/// ee_len - 32768, and reads inside return zeros (sparse / preallocated space).
+static constexpr uint16_t EXT4_EXTENT_INIT_LEN_MAX = 32768;
+
+/**
+ * @brief ext4 extent tree node header (12 bytes, packed)
+ *
+ * The root node lives in i_block[0..14]; on-disk index/leaf blocks start with
+ * the same header.  eh_depth 0 selects leaf extents (Ext4Extent), >0 selects
+ * index entries (Ext4ExtentIdx, not handled by this driver).
+ */
+struct [[gnu::packed]] Ext4ExtentHeader {
+    uint16_t eh_magic;       ///< Magic 0xF30A
+    uint16_t eh_entries;     ///< Number of valid entries following the header
+    uint16_t eh_max;         ///< Capacity of this node (max entries)
+    uint16_t eh_depth;       ///< 0 = leaf, >0 = index (followed by child pointers)
+    uint32_t eh_generation;  ///< Tree generation (NFS)
+};
+
+static_assert(sizeof(Ext4ExtentHeader) == 12, "Ext4ExtentHeader must be 12 bytes");
+
+/**
+ * @brief ext4 leaf extent (depth 0): a contiguous logical→physical block run
+ *
+ * A leaf node is eh_max Ext4Extent entries (12 bytes each) immediately after
+ * the Ext4ExtentHeader.  Covers logical blocks [ee_block, ee_block + len).
+ */
+struct [[gnu::packed]] Ext4Extent {
+    uint32_t ee_block;     ///< First logical block this extent covers
+    uint16_t ee_len;       ///< Block count (>32768 ⇒ uninitialized, len = ee_len-32768)
+    uint16_t ee_start_hi;  ///< High 16 bits of physical start block
+    uint32_t ee_start_lo;  ///< Low 32 bits of physical start block
+};
+
+static_assert(sizeof(Ext4Extent) == 12, "Ext4Extent must be 12 bytes");
+
 }  // namespace cinux::fs

@@ -22,6 +22,7 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/ext2/ext2_directory.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ext2/ext2_links.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ext2/ext2_metadata.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ext2/ext2_extent.cpp
     # --- devfs ---
     ${CMAKE_CURRENT_SOURCE_DIR}/devfs/devfs.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/devfs/devfs_init.cpp
