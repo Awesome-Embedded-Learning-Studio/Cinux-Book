@@ -2,10 +2,9 @@
  * @file kernel/fs/ext2.hpp
  * @brief ext2 filesystem driver (inherits from FileSystem)
  *
- * Implements the VFS FileSystem interface for the ext2 filesystem.
- * Reads blocks from disk through a device-agnostic IBlockDevice (e.g. the
- * AHCIBlockDevice adapter), which owns any DMA plumbing.  Supports mount(),
- * lookup(), and InodeOps (read, readdir) for files and directories.
+ * Implements the VFS FileSystem interface for ext2: mount(), lookup(), and
+ * InodeOps (read, readdir) for files/dirs. Block I/O via IBlockDevice (e.g.
+ * AHCIBlockDevice, owns DMA plumbing).
  *
  * Usage:
  *   cinux::fs::Ext2 ext2(block_dev);
@@ -20,13 +19,17 @@
 
 #include <stdint.h>
 
-#include "fs/ext2/ext2_common.hpp"
-#include "fs/ext2/ext2_types.hpp"
+#include "ext2_common.hpp"
+#include "ext2_types.hpp"
 #include "fs/vfs_filesystem.hpp"
 #include "kernel/drivers/block_device.hpp"
 #include "kernel/proc/sync.hpp"  // Spinlock (inode_cache_lock_)
 
 namespace cinux::fs {
+
+uint64_t ext2_read_count();   ///< cumulative ext2 read I/O (B2.5 dump_memory_stats)
+uint64_t ext2_read_bytes();
+uint64_t ext2_read_ns();
 
 // ============================================================
 // Ext2 Filesystem Driver Class
@@ -97,6 +100,11 @@ public:
      */
     bool is_mounted() const;
 
+    /// @brief Whether the volume advertises the ext4 extents incompat feature
+    /// (s_feature_incompat & EXT4_FEATURE_INCOMPAT_EXTENTS).  Per-inode reads
+    /// still gate on EXT4_EXTENTS_FL; this surfaces the volume-level flag.
+    bool has_ext4_extents_feature() const;
+
     /**
      * @brief Get the scratch block buffer (populated by read_block())
      *
@@ -106,28 +114,39 @@ public:
      */
     uint8_t* block_buf();
 
-    /**
-     * @brief Read an ext2 block from disk into the block buffer
-     *
-     * Public wrapper used by InodeOps callbacks.  Afterwards the data is
-     * available via block_buf().
-     *
-     * @param block_num  ext2 block number (0-based)
-     * @return true on success, false on I/O error
-     */
+    /// Total on-disk blocks (s_blocks_count) -- bounds check for block pointers.
+    uint32_t blocks_count() const { return sb_.s_blocks_count; }
+
+    /// Read into block_buf_ (NOT SMP-safe; see dst overload).  @return true on success.
     bool read_block(uint32_t block_num);
+    /// SMP-safe: read straight into @p dst (caller-provided).
+    bool read_block(uint32_t block_num, void* dst);
+    /// B3a: read @p block_count contiguous on-disk blocks straight into @p buf (one DMA,
+    /// skipping block_buf_). Callers guarantee contiguity + block_count ≤ dma_buf (4 blk).
+    cinux::lib::ErrorOr<void> read_disk_range(uint32_t start_disk_block, uint64_t block_count,
+                                              void* buf);
 
     /**
      * @brief Write the block buffer contents back to an ext2 block on disk
      *
      * The caller should first populate the block buffer (via block_buf())
      * with the modified block data, then call write_block() to flush it.
-     * This is the counterpart to read_block().
-     *
-     * @param block_num  ext2 block number (0-based)
-     * @return true on success, false on I/O error
+     * This is the counterpart to read_block().  NOT SMP-safe (block_buf_); SMP
+     * paths use write_block(b, src).
      */
     bool write_block(uint32_t block_num);
+    /// SMP-safe: write @p src straight to disk (caller-provided).
+    bool write_block(uint32_t block_num, void* src);
+
+    /// Zero block_buf_ then write to @p blk.  NOT SMP-safe; SMP uses the src overload.
+    bool zero_and_write_block(uint32_t blk);
+    /// SMP-safe: zero @p src then write it.
+    bool zero_and_write_block(uint32_t blk, void* src);
+
+    /// Fill @p st from @p inode's cached on-disk fields.  Shared by Ext2FileOps
+    /// and Ext2DirOps stat(): validates inputs, zeroes the struct (so the unset
+    /// Linux-ABI fields stay 0), and copies the ext2 inode fields.
+    cinux::lib::ErrorOr<void> fill_stat(const Inode* inode, struct stat* st) const;
 
     // ============================================================
     // File / directory mutation
@@ -326,6 +345,17 @@ public:
                           uint32_t name_len, uint32_t& out_entry_ino);
 
 private:
+    /// Located inode (block + byte offset within it); filled by locate_inode_block.
+    struct InodeLoc {
+        uint32_t target_block;
+        uint32_t within_block_offset;
+    };
+
+    /// Locate @p ino's containing block + offset, read_block() it, bounds-check.
+    /// Shared by read_disk_inode / write_disk_inode (the inode-location math is
+    /// identical).  On success block_buf_ holds ino's block; @return true.
+    bool locate_inode_block(uint32_t ino, InodeLoc& out);
+
     // ============================================================
     // Metadata write-back helpers
     // ============================================================
@@ -414,6 +444,18 @@ private:
     /// Scratch block buffer for read_block()/write_block() (max ext2 block = 4096 B)
     uint8_t block_buf_[4096];
 
+    /// Snapshot buffers for unlink()'s indirect-block release.  free_block()
+    /// does its own read_block(bitmap)+write_block(bitmap), which overwrite
+    /// block_buf_; so unlink must copy each indirect pointer array out of
+    /// block_buf_ BEFORE freeing the data blocks it lists -- otherwise every
+    /// entry after the first free_block() reads bitmap bytes reinterpreted as
+    /// a block number (the "group out of range" garbage seen when a file that
+    /// spans indirect blocks is unlinked).  Two buffers because the doubly-
+    /// indirect walk is nested: the top-level array must survive while each
+    /// child's array is processed, so they cannot share one buffer.
+    uint32_t unlink_ptr_buf_[1024];
+    uint32_t unlink_child_buf_[1024];
+
     /// Whether mount() has succeeded
     bool mounted_{};
 
@@ -444,17 +486,14 @@ private:
     /// Block group descriptor table (cached after mount)
     Ext2BlockGroupDescriptor bgdt_[EXT2_MAX_GROUPS]{};
 
-    /// Inode cache: separate-chaining hash table (bucket = ino % SIZE chain
-    /// head) of heap-owned Ext2CachedInode.  An object is freed only when its
-    /// refcount has dropped to 0 AND the cache needs room (soft cap
-    /// EXT2_INODE_CACHE_MAX) or it is invalidated; a live (refcount > 0) object
-    /// is never moved or repopulated, so an Inode* from get_cached_inode() is
-    /// stable for the holder's lifetime.  See Ext2CachedInode for the full model.
+    /// Inode cache: separate-chaining hash (bucket = ino % SIZE) of heap-owned
+    /// Ext2CachedInode.  Live (refcount > 0) objects are never moved/repopulated.
     Ext2CachedInode* inode_cache_[EXT2_INODE_CACHE_SIZE]{};
 
     /// Live object count; capped at EXT2_INODE_CACHE_MAX (evict refcount==0).
     uint32_t inode_cache_count_{0};
     mutable cinux::proc::Spinlock inode_cache_lock_;  ///< SMP: serialize cache walks/evicts
+    mutable cinux::proc::Spinlock block_alloc_lock_;  ///< SMP: serialize block+inode bitmap alloc/free
 };
 
 }  // namespace cinux::fs

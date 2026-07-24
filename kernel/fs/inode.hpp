@@ -143,6 +143,13 @@ public:
     /// unchanged.
     virtual bool is_page_cacheable() const;
 
+    /// Set the file length to @p new_size (sys_open O_TRUNC / ftruncate).
+    /// Shrink-only for the O_TRUNC case (new_size 0): the backend updates the
+    /// on-disk + VFS size; freeing the now-orphaned data blocks is a follow-up
+    /// (a hobby-os leak, not a correctness issue -- reads stop at i_size).  The
+    /// default returns NotImplemented; only ext2 overrides for now.
+    virtual cinux::lib::ErrorOr<void> truncate(Inode* inode, uint64_t new_size);
+
     /// Called by FDTable::close / dup2-displace when the LAST File bound to this
     /// inode is destroyed (refcount -> 0) -- the "release" / last-close hook
     /// (Linux file_operations->release).  Used to free per-open protocol

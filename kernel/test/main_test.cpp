@@ -29,7 +29,7 @@
 #include "kernel/drivers/ahci/ahci_block_device.hpp"  // F10-M1 batch 6: ext2 mount
 #include "kernel/drivers/apic/local_apic.hpp"         // F5-M6: g_lapic (e1000 poll timer)
 #include "kernel/drivers/pci/pci.hpp"                 // F10-M1 batch 6: PCI->AHCI for ext2
-#include "kernel/fs/ext2/ext2.hpp"                    // F10-M1 batch 6: ext2 mount
+#include "libs/ext2/ext2.hpp"                    // F10-M1 batch 6: ext2 mount
 #include "kernel/fs/procfs/procfs.hpp"                // F-ECO busybox: procfs::init (/proc)
 #include "kernel/fs/vfs_mount.hpp"                    // F10-M1 batch 6: VFS mount
 #include "kernel/lib/kallsyms.hpp"

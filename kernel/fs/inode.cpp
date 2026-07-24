@@ -91,4 +91,8 @@ void InodeOps::release(Inode*) {
     // protocol state (a pipe end -> EOF, a socket -> FIN).
 }
 
+cinux::lib::ErrorOr<void> InodeOps::truncate(Inode*, uint64_t) {
+    return cinux::lib::Error::NotImplemented;
+}
+
 }  // namespace cinux::fs

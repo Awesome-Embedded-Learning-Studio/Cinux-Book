@@ -90,6 +90,13 @@ Inode* Ext2::symlink(uint32_t parent_ino, const char* name, uint32_t name_len, c
         return nullptr;
     }
 
+    KmBuf scratch(4096);
+    if (!scratch) {
+        free_block(data_blk);
+        free_inode(new_ino);
+        return nullptr;
+    }
+
     Ext2Inode new_disk;
     for (uint32_t i = 0; i < sizeof(Ext2Inode); ++i) {
         reinterpret_cast<uint8_t*>(&new_disk)[i] = 0;
@@ -110,11 +117,11 @@ Inode* Ext2::symlink(uint32_t parent_ino, const char* name, uint32_t name_len, c
 
     // Write the target bytes into the data block. readlink reads exactly
     // i_size bytes, so trailing block bytes need not be zeroed.
-    auto* dma = block_buf_;
+    auto* dma = scratch.data();
     for (uint32_t i = 0; i < target_len; ++i) {
         dma[i] = static_cast<uint8_t>(target[i]);
     }
-    if (!write_block(data_blk)) {
+    if (!write_block(data_blk, scratch.get())) {
         free_block(data_blk);
         free_inode(new_ino);
         return nullptr;

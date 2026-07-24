@@ -19,6 +19,13 @@ namespace cinux::fs {
 // ============================================================
 
 uint32_t Ext2::alloc_block() {
+    // SMP: bitmap read-modify-write (read bitmap, mark bit, write bitmap) is
+    // not atomic -- two CPUs alloc concurrently can both see a bit free, both
+    // mark+write, and return the SAME block to two files (one overwrites the
+    // other's data, e.g. cc1's indirect block clobbered by a .o write).
+    // Serialize under block_alloc_lock_.  Held across disk I/O (alloc is rare
+    // relative to data read/write; cache miss is acceptable).
+    auto g = block_alloc_lock_.guard();
     if (!mounted_) {
         return 0;
     }
@@ -33,13 +40,14 @@ uint32_t Ext2::alloc_block() {
             continue;
         }
 
-        if (!read_block(bitmap_block)) {
+        KmBuf blk_buf(4096);
+        if (!blk_buf || !read_block(bitmap_block, blk_buf.get())) {
             cinux::lib::kprintf("[EXT2] alloc_block: failed to read bitmap block %u\n",
                                 bitmap_block);
             return 0;
         }
 
-        auto* bitmap = reinterpret_cast<uint8_t*>(block_buf_);
+        auto* bitmap = blk_buf.data();
 
         uint32_t blocks_in_group = blocks_per_group_;
         uint32_t first_block     = group * blocks_per_group_ + first_data_block_;
@@ -65,7 +73,7 @@ uint32_t Ext2::alloc_block() {
                 if ((bitmap[byte_idx] & (1U << bit)) == 0) {
                     bitmap[byte_idx] |= static_cast<uint8_t>(1U << bit);
 
-                    if (!write_block(bitmap_block)) {
+                    if (!write_block(bitmap_block, blk_buf.get())) {
                         cinux::lib::kprintf("[EXT2] alloc_block: failed to write bitmap\n");
                         return 0;
                     }
@@ -94,6 +102,8 @@ uint32_t Ext2::alloc_block() {
 }
 
 bool Ext2::free_block(uint32_t block_num) {
+    // SMP: serialize bitmap read-modify-write vs alloc_block (see above).
+    auto g = block_alloc_lock_.guard();
     if (block_num == 0 || !mounted_) {
         return false;
     }
@@ -111,7 +121,8 @@ bool Ext2::free_block(uint32_t block_num) {
 
     uint32_t local_block = block_num - (group * blocks_per_group_ + first_data_block_);
 
-    if (!read_block(bitmap_block)) {
+    KmBuf blk_buf(4096);
+    if (!blk_buf || !read_block(bitmap_block, blk_buf.get())) {
         cinux::lib::kprintf("[EXT2] free_block: failed to read bitmap block %u\n", bitmap_block);
         return false;
     }
@@ -119,10 +130,10 @@ bool Ext2::free_block(uint32_t block_num) {
     uint32_t byte_idx = local_block / 8;
     uint32_t bit      = local_block % 8;
 
-    auto* bitmap = reinterpret_cast<uint8_t*>(block_buf_);
+    auto* bitmap = blk_buf.data();
     bitmap[byte_idx] &= static_cast<uint8_t>(~(1U << bit));
 
-    if (!write_block(bitmap_block)) {
+    if (!write_block(bitmap_block, blk_buf.get())) {
         cinux::lib::kprintf("[EXT2] free_block: failed to write bitmap\n");
         return false;
     }

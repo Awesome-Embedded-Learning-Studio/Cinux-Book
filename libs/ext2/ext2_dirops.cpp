@@ -1,17 +1,19 @@
 /**
  * @file kernel/fs/ext2/ext2_dirops.cpp
- * @brief Ext2DirOps implementation -- VFS InodeOps for ext2 directories
+ * @brief Ext2DirOps implementations (split from ext2_common.cpp for line limit)
  *
- * readdir/create/mkdir/unlink/stat/chmod/chown/utimensat delegate to the Ext2
- * driver. Split out of ext2_common.cpp (65d750a replay, tag080 Step3) to keep
- * each translation unit under the CI 500-line limit.
+ * VFS InodeOps wrappers that delegate to the Ext2 driver for directory
+ * readdir/create/mkdir/unlink/stat/chmod/chown/utimensat.  A directory is just
+ * an inode; the on-disk setattr path is identical to the file case, so the
+ * attribute ops delegate straight to the same Ext2 primitives.
  */
 
 #include <stddef.h>
 #include <stdint.h>
 
+
 #include "ext2.hpp"
-#include "kernel/lib/kprintf.hpp"
+#include "ext2_extent.hpp"
 #include "kernel/lib/string.hpp"
 
 namespace cinux::fs {
@@ -28,7 +30,7 @@ cinux::lib::ErrorOr<int64_t> Ext2DirOps::readdir(const Inode* inode, uint64_t in
         return cinux::lib::Error::InvalidArgument;
     }
 
-    auto*            cached = static_cast<const Ext2CachedInode*>(inode->fs_private);
+    auto*            cached = ext2_cached_inode(inode);
     const Ext2Inode& disk   = cached->disk_inode;
 
     uint32_t bs = ext2_.block_size();
@@ -61,16 +63,22 @@ cinux::lib::ErrorOr<int64_t> Ext2DirOps::readdir(const Inode* inode, uint64_t in
     }
 
     for (uint32_t b = 0; b < total_blocks; ++b) {
-        uint32_t blk = disk.i_block[b];
+        // Resolve the directory data block via the extent tree (ext4 dirs are
+        // extent-mapped too) or the classic direct pointer.
+        uint32_t blk = inode_read_block(disk, b);
         if (blk == 0) {
             continue;
         }
 
-        if (!ext2_.read_block(blk)) {
+        KmBuf buf(4096);
+        if (!buf) {
+            return cinux::lib::Error::IOError;
+        }
+        if (!ext2_.read_block(blk, buf.get())) {
             return cinux::lib::Error::IOError;
         }
 
-        auto*    block_data = reinterpret_cast<const uint8_t*>(ext2_.block_buf());
+        auto*    block_data = buf.data();
         uint32_t pos        = 0;
 
         while (pos < bs) {
@@ -157,28 +165,7 @@ cinux::lib::ErrorOr<void> Ext2DirOps::stat(const Inode* inode, struct stat* st) 
     if (inode == nullptr || inode->fs_private == nullptr || st == nullptr) {
         return cinux::lib::Error::InvalidArgument;
     }
-
-    auto*            cached = static_cast<const Ext2CachedInode*>(inode->fs_private);
-    const Ext2Inode& disk   = cached->disk_inode;
-
-    // Zero first so the Linux-ABI fields the backend does not set (__pad0,
-    // *_nsec, __unused) stay 0 -- no kernel-stack bytes leak to user space.
-    memset(st, 0, sizeof(*st));
-    st->st_dev     = 0;
-    st->st_ino     = inode->ino;
-    st->st_nlink   = disk.i_links_count;
-    st->st_mode    = disk.i_mode;
-    st->st_uid     = disk.i_uid;
-    st->st_gid     = disk.i_gid;
-    st->st_rdev    = 0;
-    st->st_size    = disk.i_size;
-    st->st_blksize = ext2_.block_size();
-    st->st_blocks  = disk.i_blocks;
-    st->st_atime   = disk.i_atime;
-    st->st_mtime   = disk.i_mtime;
-    st->st_ctime   = disk.i_ctime;
-
-    return {};
+    return ext2_.fill_stat(inode, st);
 }
 
 // F-ECO batch 2 directory attribute ops. A directory is just an inode; the

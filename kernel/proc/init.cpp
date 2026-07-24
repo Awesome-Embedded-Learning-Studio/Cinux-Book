@@ -10,7 +10,7 @@
 #include "kernel/drivers/nvme/nvme_block_device.hpp"
 #include "kernel/drivers/virtio/virtio_blk.hpp"  // F5-M2 task 3: virtio_block_device()
 #include "kernel/fs/devfs/devfs.hpp"
-#include "kernel/fs/ext2/ext2.hpp"
+#include "libs/ext2/ext2.hpp"
 #include "kernel/fs/procfs/procfs.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"

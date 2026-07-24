@@ -14,16 +14,16 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/dentry.cpp  # F6-M1 B3: directory-entry cache
     # --- ramdisk ---
     ${CMAKE_CURRENT_SOURCE_DIR}/ramdisk/ramdisk.cpp
-    # --- ext2 ---
-    ${CMAKE_CURRENT_SOURCE_DIR}/ext2/ext2_common.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/ext2/ext2_init.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/ext2/ext2_inode.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/ext2/ext2_block.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/ext2/ext2_directory.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/ext2/ext2_links.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/ext2/ext2_metadata.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/ext2/ext2_extent.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/ext2/ext2_dirops.cpp
+    # --- ext2 (libs/ext2/, #75 B0a 搬家;wholesale 用 CinuxOS v1.0.0 终态) ---
+    ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_common.cpp
+    ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_dirops.cpp
+    ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_init.cpp
+    ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_inode.cpp
+    ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_block.cpp
+    ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_directory.cpp
+    ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_links.cpp
+    ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_metadata.cpp
+    ${CMAKE_SOURCE_DIR}/libs/ext2/ext2_extent.cpp
     # --- devfs ---
     ${CMAKE_CURRENT_SOURCE_DIR}/devfs/devfs.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/devfs/devfs_init.cpp

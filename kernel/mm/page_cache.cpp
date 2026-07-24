@@ -217,4 +217,35 @@ size_t PageCache::miss_count() const {
     return misses_;
 }
 
+void PageCache::invalidate_range(cinux::fs::Inode* inode, uint64_t file_off, uint64_t count) {
+    if (inode == nullptr || inode->ops == nullptr || count == 0) {
+        return;
+    }
+    const uint64_t ps    = cinux::arch::PAGE_SIZE;
+    const uint64_t mask  = ps - 1;
+    const uint64_t start = file_off & ~mask;
+    const uint64_t last  = (file_off + count - 1) & ~mask;
+    for (uint64_t off = start;; off += ps) {
+        CachedPage* p = nullptr;
+        {
+            // Lookup under the lock; the disk re-read below runs outside it
+            // (no I/O under the cache lock -- F2-M4 GOTCHA).
+            auto g = lock_.irq_guard();
+            p      = lookup_locked(inode, off);
+        }
+        if (p != nullptr) {
+            // Refresh the page in place: same physical page, so PTEs that
+            // currently map it stay valid and just observe the new bytes.
+            // memset first so a short read (EOF tail) stays zero-padded,
+            // mirroring get_page()'s initial fill.
+            void* v = reinterpret_cast<void*>(p->virt);
+            memset(v, 0, ps);
+            static_cast<void>(inode->ops->read(inode, off, v, ps));
+        }
+        if (off == last) {
+            break;
+        }
+    }
+}
+
 }  // namespace cinux::mm

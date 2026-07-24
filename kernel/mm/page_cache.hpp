@@ -118,6 +118,14 @@ public:
     /// Decrement the reference count of @p page (floors at 0).  No eviction.
     void release(CachedPage* page);
 
+    /// Drop+refresh cached pages overlapping [file_off, file_off+count): after a
+    /// direct write bypassed the cache, re-read the affected pages so subsequent
+    /// reads see fresh bytes (otherwise stale cached pages mask the write -- the
+    /// cache "didn't notice").  Pages not currently cached are a no-op.  Safe to
+    /// call from the write() syscall path (the disk read runs outside the cache
+    /// lock).
+    void invalidate_range(cinux::fs::Inode* inode, uint64_t file_off, uint64_t count);
+
     size_t cached_pages() const;  ///< Pages currently cached
     size_t hit_count() const;     ///< get_page hits since init
     size_t miss_count() const;    ///< get_page misses since init

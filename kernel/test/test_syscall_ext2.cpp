@@ -29,7 +29,7 @@
 #include "kernel/drivers/ahci/ahci_block_device.hpp"
 #include "kernel/drivers/pci/pci.hpp"
 #include "kernel/drivers/pit/pit.hpp"
-#include "kernel/fs/ext2/ext2.hpp"
+#include "libs/ext2/ext2.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/fs/vfs_lookup.hpp"  // F-USABILITY batch 1b: vfs_lookup follow
 #include "kernel/lib/string.hpp"
