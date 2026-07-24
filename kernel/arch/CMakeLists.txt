@@ -21,3 +21,14 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/x86_64/ap_trampoline.S
     ${CMAKE_CURRENT_SOURCE_DIR}/x86_64/ap_main.cpp
 )
+
+# B3 defect C stage2: TLB drain kthread (deferred CoW shootdown+free).  §14
+# file gate: ON links tlb_drain.cpp, OFF links tlb_drain_stub.cpp (empty
+# start_tlb_drain_thread); no source #ifdef.
+if(CINUX_TLB_DRAIN)
+    target_sources(big_kernel_common PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/x86_64/tlb_drain.cpp)
+else()
+    target_sources(big_kernel_common PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/x86_64/tlb_drain_stub.cpp)
+endif()

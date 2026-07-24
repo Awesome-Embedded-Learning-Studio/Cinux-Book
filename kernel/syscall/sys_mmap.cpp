@@ -61,6 +61,22 @@ cinux::mm::VmaFlags to_vma_flags(uint64_t prot, uint64_t flags) {
     return v;
 }
 
+// Drop demand-paged phys + PTEs for [addr, addr+len). @p device_unmap skips
+// pte_count_dec_and_test (IoPhys pages aren't PMM-managed).
+void teardown_range_pages(cinux::mm::AddressSpace& as, uint64_t addr, uint64_t len,
+                          bool device_unmap) {
+    for (uint64_t v = addr; v < addr + len; v += kPageSize) {
+        const uint64_t phys = as.translate(v);
+        if (phys == 0) {
+            continue;
+        }
+        as.unmap(v);
+        if (!device_unmap) {
+            cinux::mm::g_pmm.pte_count_dec_and_test(phys);
+        }
+    }
+}
+
 }  // namespace
 
 int64_t sys_mmap(uint64_t addr, uint64_t length, uint64_t prot, uint64_t flags, uint64_t fd,
@@ -107,8 +123,11 @@ int64_t sys_mmap(uint64_t addr, uint64_t length, uint64_t prot, uint64_t flags, 
             return -kEinval;
         }
         map_addr = addr;
-        // Drop any prior VMA in this range (physical pages freed in batch 2's
-        // munmap; here we only fix the bookkeeping).
+        // E: teardown the old mapping's pages before the new map overwrites the
+        // PTEs unconditionally -- the old phys's pte_count must drop here.
+        // (Book has no IoPhys VMAs -- GUI fb-mmap arc is §8-deferred -- so the
+        // device-unmap case is always false here; CinuxOS checks old VMA flags.)
+        teardown_range_pages(*task->addr_space, map_addr, aligned_len, /*device_unmap=*/false);
         (void)task->addr_space->vmas().remove(map_addr, map_addr + aligned_len);
     } else {
         // F9 batch 8 (ASLR): jitter the first-fit hint so each process's
@@ -162,18 +181,7 @@ int64_t sys_munmap(uint64_t addr, uint64_t length, uint64_t, uint64_t, uint64_t,
     // Free any demand-paged physical pages in the range and drop their PTEs.
     // These are user pages, not the higher-half direct map, so unmapping is
     // safe (cf. GOTCHA #7 -- never unmap phys+KERNEL_VMA).
-    for (uint64_t v = addr; v < addr + aligned_len; v += kPageSize) {
-        const uint64_t phys = task->addr_space->translate(v);
-        if (phys != 0) {
-            task->addr_space->unmap(v);
-            // batch 3: drop the mapping ref; pte_count_dec_and_test frees the
-            // page internally on the last ownership ref.  A file-backed
-            // page-cache phys keeps refcount > 0 (cache own) and is NOT freed
-            // here -- the prior bug freed bfdcc000 while the lto_plugin cache
-            // page still pointed at it.
-            cinux::mm::g_pmm.pte_count_dec_and_test(phys);
-        }
-    }
+    teardown_range_pages(*task->addr_space, addr, aligned_len, /*device_unmap=*/false);
 
     // Remove the VMA range (splits a VMA when only its interior is taken).
     auto r = task->addr_space->vmas().remove(addr, addr + aligned_len);

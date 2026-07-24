@@ -189,11 +189,13 @@ void AddressSpace::free_subtree(uint64_t table_phys, int level) {
         }
 
         if (level == LEVEL_PT) {
+            // Device/IoPhys pages (framebuffer LFB) carry FLAG_PCD and are not
+            // PMM-managed -- skip or the dec writes the counter arrays OOB.
+            if (table[i].raw & cinux::arch::FLAG_PCD) {
+                table[i].raw = 0;
+                continue;
+            }
             uint64_t data_phys = table[i].phys_addr();
-            // batch 3: pte_count_dec_and_test bundles the mapping drop with a
-            // conditional ownership-ref drop; the page frees internally on the
-            // last ref, so a page-cache/shm page with refcount > 0 survives
-            // teardown even with pte_count == 0.
             g_pmm.pte_count_dec_and_test(data_phys);
             table[i].raw = 0;
             continue;

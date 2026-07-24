@@ -52,6 +52,20 @@ CachedPage* PageCache::lookup(cinux::fs::Inode* inode, uint64_t offset) {
     return lookup_locked(inode, offset);
 }
 
+bool PageCache::contains_phys(uint64_t phys) const {
+    // Lock-free: cached pages are never freed (no eviction yet), so bucket
+    // chains only grow at the head -- a scan sees a stable snapshot. Used by
+    // the always-on free check (pmm.cpp) to flag a free of a still-cached page.
+    for (size_t b = 0; b < kHashBuckets; b++) {
+        for (CachedPage* p = buckets_[b]; p != nullptr; p = p->hash_next) {
+            if (p->phys == phys) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 void PageCache::insert_locked(CachedPage* page) {
     const uint64_t b = hash_key(page->inode, page->offset);
     page->hash_prev  = nullptr;
@@ -79,8 +93,8 @@ cinux::lib::ErrorOr<CachedPage*> PageCache::get_page(cinux::fs::Inode* inode, ui
     }
 
     // 2. Miss: allocate a page WITH its cache-ownership ref and read the file
-    //    content into it.  alloc_page sets pte_count=1 -- that single ref IS
-    //    the page cache's ownership, kept alive for the lifetime of the
+    //    content into it.  alloc_page sets refcount=1 (pte_count=0) -- that
+    //    single refcount IS the page cache's ownership, kept alive for the
     //    CachedPage (dropped on evict/free).  Because the cache holds it,
     //    process teardown (free_subtree) and munmap -- which only drop the PTE
     //    refs they added -- can never reach 0 and free a page the cache still

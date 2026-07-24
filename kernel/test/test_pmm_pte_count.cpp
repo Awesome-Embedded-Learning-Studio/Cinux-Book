@@ -118,7 +118,7 @@ void test_real_copy_page_table_level_cow() {
     for (int j = 0; j < 512; j++) {
         ct[j].raw = 0;
     }
-    cinux::proc::copy_page_table_level(parent.pml4_phys(), child_pml4, 4);
+    cinux::proc::copy_page_table_level(parent.pml4_phys(), child_pml4, 4, 0, parent.vmas());
 
     // 3. The real CoW path bumped pte_count to 2 (parent install + fork share).
     TEST_ASSERT_EQ(g_pmm.pte_count_load(p), 2);
@@ -137,6 +137,68 @@ void test_real_copy_page_table_level_cow() {
     g_pmm.free_page(child_pml4);
 }
 
+// B3 defect B: device phys skips the PMM counters (bounds check, no OOB write).
+void test_pmm_primitives_skip_device_phys() {
+    uint64_t kDev = (g_pmm.total_page_count() + 0x10000) * 4096ULL;  // above managed
+    g_pmm.pte_count_inc(kDev);
+    g_pmm.pte_count_dec(kDev);
+    TEST_ASSERT_FALSE(g_pmm.pte_count_dec_and_test(kDev));
+    g_pmm.refcount_inc(kDev);
+    TEST_ASSERT_FALSE(g_pmm.refcount_dec_and_test(kDev));
+    TEST_ASSERT_EQ(g_pmm.pte_count_load(kDev), 0);
+    TEST_ASSERT_EQ(g_pmm.refcount_load(kDev), 0);
+}
+
+// B3 defect B: a FLAG_PCD PTE must be skipped by free_subtree (the click-shell
+// path: fb mmap -> fork+execve /bin/sh -> child teardown hits the device PTE).
+void test_iophys_pte_skipped_on_teardown() {
+    using namespace cinux::arch;
+    uint64_t dev = (g_pmm.total_page_count() + 0x10000) * 4096ULL;
+    cinux::mm::AddressSpace as;
+    TEST_ASSERT_TRUE(as.map(0x40000000ULL, dev, FLAG_PRESENT | FLAG_USER | FLAG_PCD));
+    // ~AddressSpace -> free_subtree skips the device leaf (pre-fix: OOB smash).
+}
+
+// B3 click-shell proxy: stress the IoPhys teardown + free-side lock together.
+void test_iophys_teardown_stress() {
+    using namespace cinux::arch;
+    uint64_t dev = (g_pmm.total_page_count() + 0x10000) * 4096ULL;
+    for (int i = 0; i < 64; i++) {
+        cinux::mm::AddressSpace as;
+        TEST_ASSERT_TRUE(as.map(0x40000000ULL, dev, FLAG_PRESENT | FLAG_USER | FLAG_PCD));
+    }
+}
+
+// B3 defect D: a MAP_SHARED writable PTE stays writable across fork (no CoW) so
+// writes hit the shared page, not a private CoW copy.
+void test_shared_writable_survives_fork() {
+    using namespace cinux::arch;
+    cinux::mm::AddressSpace parent;
+    uint64_t                p = g_pmm.alloc_page();
+    TEST_ASSERT_NE(p, 0ull);
+    constexpr uint64_t V = 0x40000000ULL;
+    TEST_ASSERT_TRUE(parent.vmas()
+                         .insert(V, V + 4096, cinux::mm::VmaFlags::Shared | cinux::mm::VmaFlags::Write)
+                         .ok());
+    TEST_ASSERT_TRUE(parent.map(V, p, FLAG_PRESENT | FLAG_WRITABLE | FLAG_USER));
+    g_pmm.pte_count_inc(p);
+
+    uint64_t child_pml4 = g_pmm.alloc_page();
+    auto*    ct = reinterpret_cast<volatile PageEntry*>(DIRECT_MAP_BASE + child_pml4);
+    for (int j = 0; j < 512; j++) ct[j].raw = 0;
+    cinux::proc::copy_page_table_level(parent.pml4_phys(), child_pml4, 4, 0, parent.vmas());
+
+    // Walk child PML4[0]->PDPT[1]->PD[0]->PT[0] (V=0x40000000); the leaf must
+    // keep FLAG_WRITABLE and take no FLAG_COW.
+    auto* pml4 = reinterpret_cast<PageEntry*>(DIRECT_MAP_BASE + child_pml4);
+    auto* pdpt = reinterpret_cast<PageEntry*>(DIRECT_MAP_BASE + pml4[0].phys_addr());
+    auto* pd   = reinterpret_cast<PageEntry*>(DIRECT_MAP_BASE + pdpt[1].phys_addr());
+    auto* pt   = reinterpret_cast<PageEntry*>(DIRECT_MAP_BASE + pd[0].phys_addr());
+    TEST_ASSERT_TRUE((pt[0].raw & FLAG_WRITABLE) != 0);
+    TEST_ASSERT_FALSE((pt[0].raw & FLAG_COW) != 0);
+    TEST_ASSERT_EQ(g_pmm.pte_count_load(p), 2);  // parent + child share
+}
+
 }  // namespace test_pmm_pte_count
 
 extern "C" void run_pmm_pte_count_tests() {
@@ -148,5 +210,9 @@ extern "C" void run_pmm_pte_count_tests() {
     RUN_TEST(test_pmm_pte_count::test_cache_page_survives_teardown);
     RUN_TEST(test_pmm_pte_count::test_simulated_fork_cow_lifecycle);
     RUN_TEST(test_pmm_pte_count::test_real_copy_page_table_level_cow);  // F-VERIFY M5-1
+    RUN_TEST(test_pmm_pte_count::test_pmm_primitives_skip_device_phys);  // B3 defect B
+    RUN_TEST(test_pmm_pte_count::test_iophys_pte_skipped_on_teardown);   // B3 defect B
+    RUN_TEST(test_pmm_pte_count::test_iophys_teardown_stress);           // B3 click-shell proxy
+    RUN_TEST(test_pmm_pte_count::test_shared_writable_survives_fork);   // B3 defect D
     TEST_SUMMARY();
 }

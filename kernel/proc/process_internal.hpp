@@ -12,6 +12,7 @@
 #include <stdint.h>
 
 #include "kernel/lib/atomic.hpp"
+#include "kernel/mm/vma.hpp"  // VMAStore (copy_page_table_level MAP_SHARED CoW decision)
 #include "kernel/proc/process.hpp"
 
 namespace cinux::proc {
@@ -69,15 +70,12 @@ inline KernelForkCalleeRegs capture_kernel_fork_callee_regs() {
     return regs;
 }
 
-/**
- * @brief Recursively copy a page-table level for Copy-On-Write fork/clone
- *
- * Defined in fork.cpp; used by fork() and clone()'s cow_clone_address_space().
- * At the PT (leaf) level shares physical pages and marks writable entries
- * read-only with FLAG_COW; at intermediate levels allocates new table pages
- * and recurses.
- */
-void copy_page_table_level(uint64_t src_phys, uint64_t dst_phys, int level);
+// Recursively copy a page-table level for CoW fork/clone (fork.cpp). @p virt_base
+// is the VA of the table's entry 0 (PML4 caller passes i<<39); @p vmas is the
+// parent's VMA list -- at the leaf, MAP_SHARED entries stay writable (no CoW)
+// so writes hit the real shared page.
+void copy_page_table_level(uint64_t src_phys, uint64_t dst_phys, int level,
+                           uint64_t virt_base, cinux::mm::IVMAStore& vmas);
 
 /**
  * @brief Set up a USER fork/clone child to resume via ret_from_fork

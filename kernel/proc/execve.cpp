@@ -119,12 +119,12 @@ void clear_user_mappings(cinux::mm::AddressSpace& space) {
                 for (uint32_t l = 0; l < cinux::arch::PT_ENTRIES; l++) {
                     if (!pt[l].is_present())
                         continue;
-
+                    // Device/IoPhys pages (FLAG_PCD) are not PMM-managed.
+                    if (pt[l].raw & cinux::arch::FLAG_PCD) {
+                        pt[l].raw = 0;
+                        continue;
+                    }
                     uint64_t data_phys = pt[l].phys_addr();
-                    // batch 3: drop the mapping ref; pte_count_dec_and_test
-                    // frees internally on the last ownership ref, so a CoW-
-                    // shared (fork) or page-cache page keeps refcount > 0 and
-                    // survives (was a two-step dec_and_test + free_page).
                     cinux::mm::g_pmm.pte_count_dec_and_test(data_phys);
                     pt[l].raw = 0;
                 }

@@ -46,7 +46,8 @@ using namespace cinux::arch;
  * new page table pages and recurses.  Shared with clone.cpp (declared in
  * process_internal.hpp).
  */
-void copy_page_table_level(uint64_t src_phys, uint64_t dst_phys, int level) {
+void copy_page_table_level(uint64_t src_phys, uint64_t dst_phys, int level,
+                           uint64_t virt_base, cinux::mm::IVMAStore& vmas) {
     auto* src_table = phys_to_virt(src_phys);
     auto* dst_table = phys_to_virt(dst_phys);
 
@@ -79,7 +80,9 @@ void copy_page_table_level(uint64_t src_phys, uint64_t dst_phys, int level) {
             }
 
             dst_table[i].raw = new_page | FLAG_PRESENT | FLAG_WRITABLE | FLAG_USER;
-            copy_page_table_level(src_table[i].phys_addr(), new_page, level - 1);
+            copy_page_table_level(src_table[i].phys_addr(), new_page, level - 1,
+                                  virt_base + (static_cast<uint64_t>(i) << (12 + 9 * (level - 1))),
+                                  vmas);
         } else {
             uint64_t entry_flags = src_table[i].raw & FLAG_MASK;
 
@@ -90,7 +93,13 @@ void copy_page_table_level(uint64_t src_phys, uint64_t dst_phys, int level) {
             // still maps it (fork+exec UAF).
             cinux::mm::g_pmm.pte_count_inc(src_table[i].phys_addr());
 
-            if (entry_flags & FLAG_WRITABLE) {
+            // MAP_SHARED stays writable: a write hits the real shared page,
+            // not a private CoW copy (defect D CoW-decap).
+            bool shared = false;
+            if (const cinux::mm::VMA* vma = vmas.find(virt_base + (static_cast<uint64_t>(i) << 12))) {
+                shared = cinux::mm::has_flag(vma->flags, cinux::mm::VmaFlags::Shared);
+            }
+            if ((entry_flags & FLAG_WRITABLE) && !shared) {
                 dst_table[i].raw &= ~FLAG_WRITABLE;
                 dst_table[i].raw |= FLAG_COW;
 
@@ -374,7 +383,9 @@ __attribute__((noinline)) int fork(PidAllocator& pid_alloc) {
             }
 
             child_pml4_table[i].raw = new_page | FLAG_PRESENT | FLAG_WRITABLE | FLAG_USER;
-            copy_page_table_level(parent_pml4_table[i].phys_addr(), new_page, 3);
+            copy_page_table_level(parent_pml4_table[i].phys_addr(), new_page, 3,
+                                  static_cast<uint64_t>(i) << 39,
+                                  parent->addr_space->vmas());
         }
 
         // F10 SMP fix: copy_page_table_level() just cleared FLAG_WRITABLE and set

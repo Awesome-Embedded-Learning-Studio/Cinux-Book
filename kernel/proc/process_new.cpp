@@ -12,6 +12,7 @@
 
 #include "kernel/arch/x86_64/memory_layout.hpp"
 #include "kernel/arch/x86_64/paging.hpp"
+#include "kernel/arch/x86_64/tlb.hpp"  // B3 defect C: enqueue_pending_shootdown
 #include "kernel/arch/x86_64/paging_config.hpp"
 #include "kernel/arch/x86_64/phys_virt.hpp"
 #include "kernel/lib/kprintf.hpp"

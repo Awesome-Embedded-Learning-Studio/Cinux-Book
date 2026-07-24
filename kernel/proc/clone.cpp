@@ -99,7 +99,9 @@ void cow_clone_address_space(Task* parent, Task* child) {
             new_table[j].raw = 0;
         }
         child_pml4_table[i].raw = new_page | FLAG_PRESENT | FLAG_WRITABLE | FLAG_USER;
-        copy_page_table_level(parent_pml4_table[i].phys_addr(), new_page, 3);
+        copy_page_table_level(parent_pml4_table[i].phys_addr(), new_page, 3,
+                              static_cast<uint64_t>(i) << 39,
+                              parent->addr_space->vmas());
     }
 
     // F10 SMP fix: copy_page_table_level() CoW-marked the PARENT's live PTEs
