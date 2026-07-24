@@ -46,6 +46,7 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_readlink.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_rename.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_symlink.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys_flock.cpp  # F6-M1 B2: flock(2)
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_umask.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_utimensat.cpp
     # F-ECO batch 3: nanosleep (sleep).

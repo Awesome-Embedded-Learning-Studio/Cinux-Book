@@ -6,6 +6,7 @@
 #include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/drivers/ahci/ahci.hpp"
 #include "kernel/drivers/ahci/ahci_block_device.hpp"
+#include "kernel/drivers/block_registry.hpp"  // F6-M1 B1b: register block devices
 #include "kernel/drivers/nvme/nvme_block_device.hpp"
 #include "kernel/drivers/virtio/virtio_blk.hpp"  // F5-M2 task 3: virtio_block_device()
 #include "kernel/fs/devfs/devfs.hpp"
@@ -81,12 +82,14 @@ void kernel_init_thread() {
     // -device nvme with rootfs on NVMe -> NVMe boot; AHCI rootfs -> AHCI boot)
     // -- runtime select, no #ifdef (§14 file-gate spirit).  Ext2(nullptr) would
     // crash in mount(), so the NVMe Ext2 is constructed only when a device exists.
-    cinux::fs::Ext2* rootfs  = nullptr;
+    cinux::fs::Ext2*              rootfs    = nullptr;
+    cinux::drivers::IBlockDevice* root_bdev = nullptr;  // F6-M1 B1b: backing dev for sys_mount
     auto*            nvme_bd = cinux::drivers::nvme::nvme_block_device();
     if (nvme_bd != nullptr) {
         static cinux::fs::Ext2 nvme_ext2(nvme_bd);
         if (nvme_ext2.mount().ok()) {
-            rootfs = &nvme_ext2;
+            rootfs    = &nvme_ext2;
+            root_bdev = nvme_bd;
             cinux::lib::kprintf("[INIT] rootfs on NVMe (perf path)\n");
         }
     }
@@ -99,7 +102,8 @@ void kernel_init_thread() {
             cinux::lib::kprintf("[INIT] ext2 mount failed: %s\n",
                                 cinux::lib::error_string(m.error()));
         }
-        rootfs = &ahci_ext2;
+        rootfs    = &ahci_ext2;
+        root_bdev = ahci_blk.ok() ? &ahci_blk.value() : nullptr;
         cinux::lib::kprintf("[INIT] rootfs on AHCI\n");
     }
 
@@ -107,6 +111,16 @@ void kernel_init_thread() {
     cinux::fs::vfs_mount_init();
     cinux::fs::vfs_mount_add("/", rootfs);
     cinux::lib::kprintf("[VFS] ext2 mounted at /\n");
+
+    // F6-M1 B1b: register block devices so sys_mount -t ext2 can resolve a
+    // source path (/dev/sda ...) to an IBlockDevice.  devfs::init below iterates
+    // the registry to publish /dev/<name> nodes.
+    if (root_bdev != nullptr) {
+        cinux::drivers::BlockRegistry::register_device("sda", root_bdev);
+    }
+    if (auto* vblk = cinux::drivers::virtio::virtio_block_device()) {
+        cinux::drivers::BlockRegistry::register_device(root_bdev ? "sdb" : "sda", vblk);
+    }
 
     // DevFS: /dev/null, /dev/zero, /dev/console (F6-M3).
     cinux::fs::devfs::init();

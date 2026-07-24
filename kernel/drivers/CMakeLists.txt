@@ -28,6 +28,8 @@ target_sources(big_kernel_common PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/nvme/nvme.cpp
     # F5-M3 batch 4c: IBlockDevice adapter over the NVMe namespace.
     ${CMAKE_CURRENT_SOURCE_DIR}/nvme/nvme_block_device.cpp
+    # F6-M1 B1b: name -> IBlockDevice registry (sys_mount -t ext2 source resolution).
+    ${CMAKE_CURRENT_SOURCE_DIR}/block_registry.cpp
 )
 
 if(CINUX_GUI)

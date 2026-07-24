@@ -138,6 +138,36 @@ private:
 };
 
 // ============================================================
+// Block device node (F6-M1 B1b) -- exposes its IBlockDevice via block_device()
+// so sys_mount can resolve a source path to the device.  read/write are not
+// supported: a block device is consumed by mounting a filesystem over it, not
+// by reading its raw bytes through this inode.
+// ============================================================
+
+class BlockDevOps : public InodeOps {
+public:
+    explicit BlockDevOps(cinux::drivers::IBlockDevice* dev) : dev_(dev) {}
+
+    cinux::lib::ErrorOr<void> stat(const Inode* inode, struct stat* st) override {
+        if (inode == nullptr || st == nullptr) {
+            return cinux::lib::Error::InvalidArgument;
+        }
+        memset(st, 0, sizeof(*st));
+        st->st_ino     = inode->ino;
+        st->st_nlink   = 1;
+        st->st_mode    = 0x6000 | 0660;  // S_IFBLK | rw-rw----
+        st->st_blksize = 512;
+        return {};
+    }
+
+    /// Expose the backing block device so sys_mount can resolve this node.
+    cinux::drivers::IBlockDevice* block_device(const Inode*) override { return dev_; }
+
+private:
+    cinux::drivers::IBlockDevice* dev_;
+};
+
+// ============================================================
 // /dev directory -- readdir over the owning DevFs's node table
 // ============================================================
 
@@ -213,6 +243,9 @@ DevFs::~DevFs() {
     delete zero_ops_;
     delete console_ops_;
     delete dir_ops_;
+    for (uint32_t i = 0; i < block_dev_count_; ++i) {
+        delete block_dev_ops_[i];
+    }
 }
 
 cinux::lib::ErrorOr<void> DevFs::mount() {
@@ -272,6 +305,15 @@ const char* DevFs::node_name(uint32_t i) const {
 }
 
 void DevFs::add_node(const char* name, InodeOps* ops) {
+    register_node(name, ops);
+}
+
+void DevFs::add_block_node(const char* name, cinux::drivers::IBlockDevice* dev) {
+    if (name == nullptr || dev == nullptr || block_dev_count_ >= MAX_BLOCK_NODES) {
+        return;
+    }
+    auto* ops = new BlockDevOps(dev);
+    block_dev_ops_[block_dev_count_++] = ops;
     register_node(name, ops);
 }
 

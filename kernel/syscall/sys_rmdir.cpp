@@ -13,7 +13,8 @@
 #include <stdint.h>
 
 #include "kernel/errno.hpp"
-#include "kernel/fs/file.hpp"  // inode_unref
+#include "kernel/fs/dentry.hpp"  // DentryCache (F6-M1 B3 invalidate on rmdir)
+#include "kernel/fs/file.hpp"    // inode_unref
 #include "kernel/fs/inode.hpp"
 #include "kernel/fs/path.hpp"
 #include "kernel/fs/vfs_mount.hpp"
@@ -98,12 +99,13 @@ int64_t do_rmdir_kernel(const char* resolved_path) {
 
     // Step 5: Call unlink() on the parent directory
     auto unlink_result = parent->ops->unlink(parent, leaf_name, name_len);
-    cinux::fs::inode_unref(parent);  // drop the parent lookup ref
     if (!unlink_result.ok()) {
+        cinux::fs::inode_unref(parent);  // drop the parent lookup ref
         kprintf("[SYS_RMDIR] Failed to rmdir '%s'\n", resolved_path);
         return -to_errno(unlink_result.error());
     }
-
+    cinux::fs::DentryCache::invalidate(parent, leaf_name, name_len);  // F6-M1 B3
+    cinux::fs::inode_unref(parent);                                   // drop the parent lookup ref
     return 0;
 }
 

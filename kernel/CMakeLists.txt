@@ -316,6 +316,8 @@ add_executable(big_kernel_test
     test/test_devfs.cpp
     test/test_pty_device.cpp
     test/test_procfs.cpp
+    test/test_dentry.cpp  # F6-M1 B3: DentryCache
+    test/test_flock.cpp  # F6-M1 B2: flock(2)
 )
 
 # F5-M5 xHCI: gate the USB test on CINUX_USB so a CINUX_USB=OFF build links

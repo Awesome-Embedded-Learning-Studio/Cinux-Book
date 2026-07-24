@@ -7,9 +7,11 @@ target_sources(big_kernel_common PRIVATE
     # --- VFS core ---
     ${CMAKE_CURRENT_SOURCE_DIR}/inode.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/file.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/file_lock.cpp  # F6-M1 B2: flock(2) advisory locks
     ${CMAKE_CURRENT_SOURCE_DIR}/vfs_mount.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/path.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/vfs_lookup.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/dentry.cpp  # F6-M1 B3: directory-entry cache
     # --- ramdisk ---
     ${CMAKE_CURRENT_SOURCE_DIR}/ramdisk/ramdisk.cpp
     # --- ext2 ---

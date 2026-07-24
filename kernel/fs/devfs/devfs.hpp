@@ -27,6 +27,10 @@
 
 #include "fs/vfs_filesystem.hpp"
 
+namespace cinux::drivers {
+class IBlockDevice;  // forward -- add_block_node wires a block-device node
+}
+
 namespace cinux::fs {
 
 /// Maximum length of a device node name, including the NUL terminator.
@@ -119,6 +123,10 @@ public:
     /// Number of registered device nodes (excludes the root directory).
     uint32_t node_count() const { return node_count_; }
 
+    /// Whether mount() has registered nodes (F6-M1: devfs::instance() exposes
+    /// the singleton only once mounted).
+    bool is_mounted() const { return node_count_ > 0; }
+
     /// Name of the i-th device node, or nullptr if @p i is out of range.
     /// Used by the directory readdir implementation.
     const char* node_name(uint32_t i) const;
@@ -127,6 +135,13 @@ public:
     /// node whose ops live outside devfs.cpp (e.g. /dev/ptmx, whose open() is a
     /// PTY clone).  No-op if the table is full.
     void add_node(const char* name, InodeOps* ops);
+
+    /// F6-M1 B1b: register a block-device node backed by @p dev.  The node's
+    /// InodeOps::block_device() override exposes @p dev so sys_mount can resolve
+    /// a source path (e.g. /dev/sda) to the IBlockDevice to mount.  The per-node
+    /// BlockDevOps instance is owned by this DevFs and freed in ~DevFs.  No-op if
+    /// @p dev is null or the block-node table is full.
+    void add_block_node(const char* name, cinux::drivers::IBlockDevice* dev);
 
     /// Dynamic per-call resolver for names not in the static table -- the
     /// /dev/pts/<N> slave inodes are allocated on demand, so they cannot live in
@@ -152,6 +167,12 @@ private:
     /// Fixed node table (each entry owns its Inode).
     DevNode  nodes_[DEVFS_MAX_NODES];
     uint32_t node_count_{0};
+
+    /// Block-device nodes added via add_block_node (F6-M1 B1b).  Each entry owns
+    /// a heap-allocated BlockDevOps freed in ~DevFs.
+    static constexpr uint32_t MAX_BLOCK_NODES = 8;
+    InodeOps* block_dev_ops_[MAX_BLOCK_NODES]{};
+    uint32_t  block_dev_count_{0};
 
     // Device ops instances, owned.  Allocated once in mount() and live for the
     // DevFs lifetime -- mirrors Ramdisk's file_ops_/dir_ops_ ownership.

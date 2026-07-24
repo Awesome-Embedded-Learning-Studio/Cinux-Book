@@ -74,6 +74,8 @@ void run_ext2_tests();
 void run_devfs_tests();
 void run_pty_device_tests();
 void run_procfs_tests();
+void run_dentry_tests();  // F6-M1 B3: DentryCache
+void run_flock_tests();   // F6-M1 B2: flock(2)
 void run_ahci_write_tests();
 void run_ahci_block_device_tests();
 void run_ext2_allocator_tests();
@@ -841,6 +843,10 @@ extern "C" void kernel_main() {
     // ProcFS tests (F6-M2): /proc root readdir, /proc/<pid> lookup + stat,
     // stat/cmdline pseudo-files.
     run_procfs_tests();
+    // DentryCache tests (F6-M1 B3): lookup hit/miss, eviction, negative entries.
+    run_dentry_tests();
+    // POSIX flock(2) tests (F6-M1 B2): shared/exclusive, blocking, upgrade.
+    run_flock_tests();
 
     // PTY device tests (F10-M3 Phase 2): alloc, master<->slave round-trip,
     // echo, termios ioctl, TIOCGPTN.

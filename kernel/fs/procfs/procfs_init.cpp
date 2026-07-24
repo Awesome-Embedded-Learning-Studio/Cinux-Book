@@ -44,5 +44,9 @@ bool init() {
     return true;
 }
 
+ProcFs* instance() {
+    return g_procfs.is_mounted() ? &g_procfs : nullptr;
+}
+
 }  // namespace procfs
 }  // namespace cinux::fs

@@ -11,7 +11,8 @@
 #include <stdint.h>
 
 #include "kernel/errno.hpp"
-#include "kernel/fs/file.hpp"  // inode_unref
+#include "kernel/fs/dentry.hpp"  // DentryCache (F6-M1 B3 invalidate on rename)
+#include "kernel/fs/file.hpp"    // inode_unref
 #include "kernel/fs/path.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/kprintf.hpp"
@@ -71,11 +72,17 @@ int64_t do_rename_kernel(const char* resolved_oldpath, const char* resolved_newp
     }
 
     auto r = old_parent->ops->rename(old_parent, old_leaf, old_len, new_parent, new_leaf, new_len);
-    cinux::fs::inode_unref(new_parent);  // drop the lookup refs (rename copied what it needed)
-    cinux::fs::inode_unref(old_parent);
     if (!r.ok()) {
+        cinux::fs::inode_unref(new_parent);  // drop the lookup refs (rename copied what it needed)
+        cinux::fs::inode_unref(old_parent);
         return -to_errno(r.error());
     }
+    // F6-M1 B3: drop the cached child under the old name, and any stale child
+    // the new path may have cached (rename overwrote the destination entry).
+    cinux::fs::DentryCache::invalidate(old_parent, old_leaf, old_len);
+    cinux::fs::DentryCache::invalidate(new_parent, new_leaf, new_len);
+    cinux::fs::inode_unref(new_parent);
+    cinux::fs::inode_unref(old_parent);
     return 0;
 }
 

@@ -69,6 +69,7 @@
 #include "kernel/syscall/sys_rename.hpp"
 #include "kernel/syscall/sys_rmdir.hpp"
 #include "kernel/syscall/sys_set_tid_address.hpp"
+#include "kernel/syscall/sys_flock.hpp"  // F6-M1 vfs finale: POSIX flock
 #include "kernel/syscall/sys_signal.hpp"
 #include "kernel/syscall/sys_stat.hpp"
 #include "kernel/syscall/sys_symlink.hpp"
@@ -199,6 +200,7 @@ void register_builtin_handlers() {
     syscall_register(SyscallNr::SYS_symlink, sys_symlink);
     syscall_register(SyscallNr::SYS_link, sys_link);
     syscall_register(SyscallNr::SYS_readlink, sys_readlink);
+    syscall_register(SyscallNr::SYS_flock, sys_flock);  // F6-M1 B2
     syscall_register(SyscallNr::SYS_chmod, sys_chmod);
     syscall_register(SyscallNr::SYS_chown, sys_chown);
     syscall_register(SyscallNr::SYS_umask, sys_umask);

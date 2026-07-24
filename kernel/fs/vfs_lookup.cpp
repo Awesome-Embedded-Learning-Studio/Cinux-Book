@@ -15,6 +15,7 @@
 
 #include "kernel/lib/string.hpp"  // kernel memcpy/strlen (not <cstring> -> __memcpy_chk fortify)
 
+#include "kernel/fs/dentry.hpp"  // DentryCache (F6-M1 B3)
 #include "kernel/fs/file.hpp"  // inode_ref / inode_unref (refcount transfer)
 #include "kernel/fs/path.hpp"
 #include "kernel/fs/vfs_filesystem.hpp"
@@ -126,12 +127,16 @@ cinux::lib::ErrorOr<LookupResult> vfs_lookup(const char* path, uint32_t flags,
                 return cinux::lib::Error::NotFound;
             }
 
-            auto child_r = fs->lookup_child(cur, p, comp_len);  // ref'd
-            if (!child_r.ok()) {
-                inode_unref(cur);
-                return child_r.error();
+            Inode* child = DentryCache::lookup(cur, p, comp_len);  // hit -> ref'd
+            if (child == nullptr) {
+                auto child_r = fs->lookup_child(cur, p, comp_len);  // ref'd
+                if (!child_r.ok()) {
+                    inode_unref(cur);
+                    return child_r.error();
+                }
+                child = child_r.value();  // child owns its own ref
+                DentryCache::add(cur, p, comp_len, child);
             }
-            Inode* child = child_r.value();  // child owns its own ref
 
             // Follow symlink unless it is the trailing component and Follow is
             // off, or NoFollow is set on the trailing component.
