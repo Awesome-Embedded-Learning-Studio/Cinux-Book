@@ -344,7 +344,7 @@ ExecveResult execve(const char* path, const char* const argv[], const char* cons
         constexpr uint64_t kSigretFlags = cinux::arch::FLAG_PRESENT | cinux::arch::FLAG_USER;
         if (!task->addr_space->map(cinux::arch::USER_SIGRETURN_PAGE, sigret_phys, kSigretFlags)) {
             cinux::lib::kprintf("[EXECVE] sigreturn page map failed\n");
-            cinux::mm::g_pmm.free_page(sigret_phys);
+            cinux::mm::g_pmm.refcount_dec_and_test(sigret_phys);  // batch 4: roll back alloc
             return ExecveResult::MapFailed;
         }
         cinux::mm::g_pmm.pte_count_inc(sigret_phys);  // batch 3: account for the installed PTE

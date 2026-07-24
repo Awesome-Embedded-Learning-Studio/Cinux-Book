@@ -99,7 +99,7 @@ ExecveResult load_elf_image(cinux::mm::AddressSpace& space, cinux::fs::Inode* in
                 if (!bread.ok() || bread.value() < static_cast<int64_t>(copy_len)) {
                     cinux::lib::kprintf("[ELF] segment read failed at offset %lu\n",
                                         static_cast<unsigned long>(phdr.p_offset + seg_offset));
-                    cinux::mm::g_pmm.free_page(phys);
+                    cinux::mm::g_pmm.refcount_dec_and_test(phys);  // batch 4: roll back alloc
                     return ExecveResult::ReadFailed;
                 }
             }
@@ -107,7 +107,7 @@ ExecveResult load_elf_image(cinux::mm::AddressSpace& space, cinux::fs::Inode* in
             if (!space.map(vaddr, phys, page_flags)) {
                 cinux::lib::kprintf("[ELF] map failed at vaddr=%p\n",
                                     reinterpret_cast<void*>(vaddr));
-                cinux::mm::g_pmm.free_page(phys);
+                cinux::mm::g_pmm.refcount_dec_and_test(phys);  // batch 4: roll back alloc
                 return ExecveResult::MapFailed;
             }
             cinux::mm::g_pmm.pte_count_inc(phys);  // batch 3: account for the installed PTE

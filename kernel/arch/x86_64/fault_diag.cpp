@@ -139,6 +139,8 @@ void dump_cow_fail_diagnostic_impl(uint64_t fault_addr) {
     debugcon_hex64(phys);
     debugcon_str(" pte_count=");
     debugcon_hex64(static_cast<uint64_t>(cinux::mm::g_pmm.pte_count_load(phys)));
+    debugcon_str(" refcount=");
+    debugcon_hex64(static_cast<uint64_t>(cinux::mm::g_pmm.refcount_load(phys)));
     debugcon_str(" <<<\n");
 }
 
