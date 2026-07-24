@@ -59,6 +59,11 @@ public:
     cinux::lib::ErrorOr<int64_t> read(const cinux::fs::Inode* inode, uint64_t offset, void* buf,
                                       uint64_t count) override;
 
+    /// DEBT-023 last-close hook.  When the final fd pointing at this read inode
+    /// closes, FDTable::close -> inode_unref -> release drops one read-end
+    /// reference on the shared Pipe; on the last one the pipe fires EOF.
+    void release(cinux::fs::Inode* inode) override;
+
 private:
     Pipe* pipe_;
     bool  nonblock_;
@@ -96,6 +101,10 @@ public:
      */
     cinux::lib::ErrorOr<int64_t> write(cinux::fs::Inode* inode, uint64_t offset, const void* buf,
                                        uint64_t count) override;
+
+    /// DEBT-023 last-close hook (see PipeReadOps::release).  Drops one write-end
+    /// reference on the shared Pipe; on the last one the pipe raises BrokenPipe.
+    void release(cinux::fs::Inode* inode) override;
 
 private:
     Pipe* pipe_;

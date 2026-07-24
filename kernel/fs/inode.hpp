@@ -135,6 +135,16 @@ public:
     /// must never be cached).  Default false keeps every legacy/mock backend
     /// unchanged.
     virtual bool is_page_cacheable() const;
+
+    /// Called by FDTable::close / dup2-displace when the LAST File bound to this
+    /// inode is destroyed (refcount -> 0) -- the "release" / last-close hook
+    /// (Linux file_operations->release).  Used to free per-open protocol
+    /// resources: a socket unbinds / sends FIN, a pipe end signals EOF to its
+    /// peer.  Default: no-op, so regular files and (un-refcounted) pipes/FIFOs
+    /// are unchanged; only fd types that need it override this.  @p inode is
+    /// non-null; the inode itself is owned by its filesystem and is NOT freed
+    /// here (release only signals "an open description went away").
+    virtual void release(Inode* inode);
 };
 
 // ============================================================
@@ -155,10 +165,18 @@ struct Inode {
     InodeOps* ops{nullptr};              ///< Operation function table (may be nullptr)
     void*     fs_private{nullptr};       ///< Opaque pointer for filesystem-specific data
 
-    uint32_t mode{0};    ///< File mode (type + permissions)
-    uint32_t uid{0};     ///< Owner user ID
-    uint32_t gid{0};     ///< Owner group ID
-    uint32_t nlink{1};   ///< Hard link count
+    uint32_t mode{0};   ///< File mode (type + permissions)
+    uint32_t uid{0};    ///< Owner user ID
+    uint32_t gid{0};    ///< Owner group ID
+    uint32_t nlink{1};  ///< Hard link count
+    /// Open-description reference count (DEBT-023). Bumped once per File that
+    /// points at this inode (alloc / dup / dup2 / fork-copy), dropped when such
+    /// a File is destroyed. Reaching 0 = last close -> InodeOps::release fires.
+    /// Accessed via __atomic_* because File objects in different FDTables (after
+    /// fork) on different CPUs share one inode. This is what lets a pipe/FIFO
+    /// end emit POLLHUP/EOF only when the LAST referring fd closes -- a dup no
+    /// longer trips an early EOF (the bug that broke `ls|grep` pipelines).
+    uint32_t refcount{0};
     uint64_t atime{0};   ///< Time of last access
     uint64_t ctime{0};   ///< Time of last status change
     uint64_t mtime{0};   ///< Time of last modification

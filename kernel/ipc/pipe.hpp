@@ -120,6 +120,19 @@ public:
      */
     void close_writer();
 
+    // -- Open-description refcount (DEBT-023) -----------------------------
+    // Each PipeReadOps / PipeWriteOps inode -- one per pipe() end, or per FIFO
+    // open() direction (FIFO clones a fresh end inode) -- holds one ref on the
+    // matching end.  Reaching 0 = the LAST referring fd closed -> emit EOF /
+    // BrokenPipe to the peer.  Without this a dup (or a 2nd FIFO open) trips an
+    // early EOF on its first close, breaking `ls|grep`.  Bumped in the ops ctor,
+    // dropped from InodeOps::release (the File's last close).  close_reader /
+    // close_writer above remain for direct (non-fd) users (GUI terminal, tests).
+    void add_read_ref();
+    void add_write_ref();
+    void release_read_ref();
+    void release_write_ref();
+
     /** @brief True if the reader end has not been closed. */
     bool reader_alive() const;
 
@@ -159,6 +172,10 @@ private:
     // -- Endpoint state ----------------------------------------------------
     bool reader_open_;
     bool writer_open_;
+
+    // Open-description refcounts per end (DEBT-023). Guarded by lock_.
+    uint32_t read_refs_{0};
+    uint32_t write_refs_{0};
 
     // -- Synchronisation ---------------------------------------------------
     /// Protects buf_, the open flags, and the wait queues; irq_guard closes the

@@ -244,6 +244,58 @@ void Pipe::close_writer() {
 }
 
 // ============================================================
+// Open-description refcount per end (DEBT-023)
+// ============================================================
+
+void Pipe::add_read_ref() {
+    auto g = lock_.irq_guard();
+    if (read_refs_ == 0) {
+        reader_open_ = true;  // re-open epoch: revive after a prior last-close
+    }
+    ++read_refs_;
+}
+
+void Pipe::add_write_ref() {
+    auto g = lock_.irq_guard();
+    if (write_refs_ == 0) {
+        writer_open_ = true;
+    }
+    ++write_refs_;
+}
+
+void Pipe::release_read_ref() {
+    // Inline the close (reader_open_ = false + wake writers) rather than call
+    // close_reader(): we already hold lock_ via irq_guard, and close_reader()
+    // would re-acquire it.  Reaching 0 means the LAST fd referring to a read
+    // end closed -> writers must observe BrokenPipe.
+    auto g = lock_.irq_guard();
+    if (read_refs_ == 0) {
+        return;  // underflow guard (unbalanced release vs add)
+    }
+    --read_refs_;
+    if (read_refs_ == 0) {
+        reader_open_ = false;
+#ifndef CINUX_HOST_TEST
+        wake_all(write_waiters_);
+#endif
+    }
+}
+
+void Pipe::release_write_ref() {
+    auto g = lock_.irq_guard();
+    if (write_refs_ == 0) {
+        return;
+    }
+    --write_refs_;
+    if (write_refs_ == 0) {
+        writer_open_ = false;
+#ifndef CINUX_HOST_TEST
+        wake_all(read_waiters_);  // readers retry -> EOF
+#endif
+    }
+}
+
+// ============================================================
 // State queries (lock-free -- diagnostics / fast-path checks)
 // ============================================================
 

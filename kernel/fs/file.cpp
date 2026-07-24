@@ -13,6 +13,28 @@
 namespace cinux::fs {
 
 // ============================================================
+// Inode refcount helpers (DEBT-023: last-close release)
+// ============================================================
+
+void inode_ref(Inode* inode) {
+    if (inode != nullptr) {
+        __atomic_add_fetch(&inode->refcount, 1, __ATOMIC_ACQ_REL);
+    }
+}
+
+void inode_unref(Inode* inode) {
+    // Drop one open-description reference; on the last (refcount -> 0) invoke
+    // InodeOps::release so the fd type can propagate the close (pipe end ->
+    // EOF/POLLHUP, socket -> FIN).  Atomic: File objects in different FDTables
+    // (post-fork) on different CPUs share one inode.  File itself never touches
+    // inode on destruction, so callers/tests may free an inode before its File.
+    if (inode != nullptr && inode->ops != nullptr &&
+        __atomic_sub_fetch(&inode->refcount, 1, __ATOMIC_ACQ_REL) == 0) {
+        inode->ops->release(inode);
+    }
+}
+
+// ============================================================
 // Construction
 // ============================================================
 
@@ -78,6 +100,7 @@ int FDTable::alloc(Inode* inode, OpenFlags flags) {
     for (uint32_t i = FD_FIRST; i < FD_TABLE_SIZE; ++i) {
         if (fds_[i] == nullptr) {
             fds_[i] = new File(inode, 0, flags);
+            inode_ref(inode);  // DEBT-023: this fd holds one inode reference
             return static_cast<int>(i);
         }
     }
@@ -89,17 +112,29 @@ int FDTable::alloc(Inode* inode, OpenFlags flags) {
 // ============================================================
 
 int FDTable::close(int fd) {
-    auto g = lock_.guard();
-    (void)g;
+    File*  file  = nullptr;
+    Inode* inode = nullptr;
+    {
+        auto g = lock_.guard();
+        (void)g;
 
-    if (fd < 0 || fd >= static_cast<int>(FD_TABLE_SIZE)) {
-        return -1;
+        if (fd < 0 || fd >= static_cast<int>(FD_TABLE_SIZE)) {
+            return -1;
+        }
+        if (fds_[fd] == nullptr) {
+            return -1;
+        }
+        // Detach under the lock; destroy + unref OUTSIDE so InodeOps::release
+        // (a socket FIN, a pipe close_writer waking blocked peers) cannot block
+        // the fd table.  File is a plain struct (no inode touch on destroy), so
+        // deleting it is always safe; inode_unref does the refcount + last-close
+        // release (DEBT-023).
+        file     = fds_[fd];
+        inode    = file->inode;
+        fds_[fd] = nullptr;
     }
-    if (fds_[fd] == nullptr) {
-        return -1;
-    }
-    delete fds_[fd];
-    fds_[fd] = nullptr;
+    delete file;         // plain struct: no inode touch
+    inode_unref(inode);  // --refcount; on last close -> InodeOps::release
     return 0;
 }
 
@@ -128,7 +163,12 @@ bool FDTable::set(int fd, File* file) {
     if (fd < 0 || fd >= static_cast<int>(FD_TABLE_SIZE)) {
         return false;
     }
+    // The caller owns any previous occupant (header doc); the incoming file
+    // gains an inode reference here (DEBT-023), paired with close()'s unref.
     fds_[fd] = file;
+    if (file != nullptr) {
+        inode_ref(file->inode);
+    }
     return true;
 }
 
@@ -151,6 +191,7 @@ int FDTable::dup(int oldfd, int min_fd) {
         if (fds_[i] == nullptr) {
             File* src = fds_[oldfd];
             fds_[i]   = new File(src->inode, src->offset, src->flags, src->cloexec);
+            inode_ref(src->inode);  // DEBT-023: the duplicate holds its own ref
             return i;
         }
     }
@@ -158,24 +199,34 @@ int FDTable::dup(int oldfd, int min_fd) {
 }
 
 int FDTable::dup2(int oldfd, int newfd) {
-    auto g = lock_.guard();
-    (void)g;
+    File*  displaced  = nullptr;
+    Inode* disp_inode = nullptr;
+    {
+        auto g = lock_.guard();
+        (void)g;
 
-    if (oldfd < 0 || oldfd >= static_cast<int>(FD_TABLE_SIZE) || fds_[oldfd] == nullptr) {
-        return FD_NONE;
+        if (oldfd < 0 || oldfd >= static_cast<int>(FD_TABLE_SIZE) || fds_[oldfd] == nullptr) {
+            return FD_NONE;
+        }
+        if (newfd < 0 || newfd >= static_cast<int>(FD_TABLE_SIZE)) {
+            return FD_NONE;
+        }
+        if (oldfd == newfd) {
+            return newfd;  // Linux: valid + same -> no-op, return newfd
+        }
+        if (fds_[newfd] != nullptr) {
+            // Detach the old occupant; finalize outside the lock so its
+            // InodeOps::release cannot block the fd table (DEBT-023).
+            displaced   = fds_[newfd];
+            disp_inode  = displaced->inode;
+            fds_[newfd] = nullptr;
+        }
+        File* src   = fds_[oldfd];
+        fds_[newfd] = new File(src->inode, src->offset, src->flags, src->cloexec);
+        inode_ref(src->inode);  // DEBT-023: the duplicate holds its own ref
     }
-    if (newfd < 0 || newfd >= static_cast<int>(FD_TABLE_SIZE)) {
-        return FD_NONE;
-    }
-    if (oldfd == newfd) {
-        return newfd;  // Linux: valid + same -> no-op, return newfd
-    }
-    if (fds_[newfd] != nullptr) {
-        delete fds_[newfd];  // close the old occupant of the target slot
-        fds_[newfd] = nullptr;
-    }
-    File* src   = fds_[oldfd];
-    fds_[newfd] = new File(src->inode, src->offset, src->flags, src->cloexec);
+    delete displaced;         // plain struct: no inode touch (no-op if null)
+    inode_unref(disp_inode);  // old occupant's reference, last-close release (null-safe)
     return newfd;
 }
 

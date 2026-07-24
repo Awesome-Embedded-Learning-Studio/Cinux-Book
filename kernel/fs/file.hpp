@@ -69,6 +69,20 @@ struct File {
     mutable cinux::proc::Spinlock offset_lock_;
 };
 
+/// Bump an inode's open-description refcount (DEBT-023). Called when a File
+/// enters an FDTable (alloc / set / dup / dup2 -- fork/clone-copy go through
+/// set()).  Paired with inode_unref, which on the last close invokes
+/// InodeOps::release.  File itself stays a plain struct -- it does NOT touch
+/// inode on construction or destruction, so test fixtures may free an inode
+/// before its File without use-after-free.
+void inode_ref(Inode* inode);
+
+/// Drop one open-description refcount; on the last (refcount -> 0) invoke
+/// InodeOps::release (pipe end -> EOF/POLLHUP, socket -> FIN).  Called from
+/// FDTable::close / dup2-displace OUTSIDE the fd-table lock (release may do
+/// driver work).  Null-safe.
+void inode_unref(Inode* inode);
+
 // ============================================================
 // File Descriptor Table
 // ============================================================

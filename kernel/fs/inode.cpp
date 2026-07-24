@@ -86,4 +86,9 @@ bool InodeOps::is_page_cacheable() const {
     return false;
 }
 
+void InodeOps::release(Inode*) {
+    // Default: nothing to clean up.  Overridden by fd types with per-open
+    // protocol state (a pipe end -> EOF, a socket -> FIN).
+}
+
 }  // namespace cinux::fs

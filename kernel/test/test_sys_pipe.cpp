@@ -193,6 +193,55 @@ void test_sys_pipe_write_after_close_reader() {
 }
 
 // ============================================================
+// 4b. DEBT-023: dup'd read fd -- first close does NOT EOF, last close does
+// ============================================================
+
+void test_sys_pipe_dup_last_close_eof() {
+    FDTable table;
+
+    Pipe* pipe      = new Pipe();
+    auto* read_ops  = new PipeReadOps(pipe);
+    auto* write_ops = new PipeWriteOps(pipe);
+
+    Inode* read_inode = new Inode();
+    read_inode->ops   = read_ops;
+    read_inode->type  = InodeType::Regular;
+
+    Inode* write_inode = new Inode();
+    write_inode->ops   = write_ops;
+    write_inode->type  = InodeType::Regular;
+
+    table.set(0, new File(read_inode, 0, OpenFlags::RDONLY));
+    table.set(1, new File(write_inode, 0, OpenFlags::WRONLY));
+
+    // Duplicate the read fd: read_inode refcount = 2 (two fds share one inode).
+    int dup_fd = table.dup(0, 3);
+    TEST_ASSERT_TRUE(dup_fd > 0);
+
+    // Close the ORIGINAL read fd. With DEBT-023 this only drops refcount 2->1
+    // (NOT the last), so the reader end stays alive -- write must still succeed.
+    // Without end-refcounting this would already have fired EOF/BrokenPipe.
+    TEST_ASSERT_EQ(table.close(0), 0);
+    int64_t w1 = write_or_neg1(write_inode, 0, "a", 1);
+    TEST_ASSERT_EQ(w1, 1);  // reader alive via the dup -> no early EOF
+
+    // Close the DUP -- now refcount 1->0, the LAST fd referring to a read end,
+    // so release() fires close_reader() and the writer sees the reader gone.
+    TEST_ASSERT_EQ(table.close(dup_fd), 0);
+    int64_t w2 = write_or_neg1(write_inode, 0, "b", 1);
+    TEST_ASSERT_EQ(w2, -1);  // last read close -> BrokenPipe
+
+    // Cleanup: close() already freed the Files; free the pipe resources. The
+    // write fd close drops the write-end refcount to 0 -> close_writer().
+    table.close(1);
+    delete write_inode;
+    delete read_inode;
+    delete write_ops;
+    delete read_ops;
+    delete pipe;
+}
+
+// ============================================================
 // 5. Close write end, then read returns 0 (EOF)
 // ============================================================
 
@@ -489,6 +538,7 @@ extern "C" void run_sys_pipe_tests() {
     RUN_TEST(test_sys_pipe_fdtable_set_at_table_size);
     RUN_TEST(test_sys_pipe_write_read_roundtrip);
     RUN_TEST(test_sys_pipe_write_after_close_reader);
+    RUN_TEST(test_sys_pipe_dup_last_close_eof);
     RUN_TEST(test_sys_pipe_read_eof_after_close_writer);
     RUN_TEST(test_sys_pipe_drain_then_eof);
     RUN_TEST(test_sys_pipe_multiple_cycles);
