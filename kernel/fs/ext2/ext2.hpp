@@ -24,6 +24,7 @@
 #include "fs/ext2/ext2_types.hpp"
 #include "fs/vfs_filesystem.hpp"
 #include "kernel/drivers/block_device.hpp"
+#include "kernel/proc/sync.hpp"  // Spinlock (inode_cache_lock_)
 
 namespace cinux::fs {
 
@@ -453,6 +454,7 @@ private:
 
     /// Live object count; capped at EXT2_INODE_CACHE_MAX (evict refcount==0).
     uint32_t inode_cache_count_{0};
+    mutable cinux::proc::Spinlock inode_cache_lock_;  ///< SMP: serialize cache walks/evicts
 };
 
 }  // namespace cinux::fs

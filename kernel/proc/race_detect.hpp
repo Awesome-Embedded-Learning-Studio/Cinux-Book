@@ -71,7 +71,7 @@ void race_check_access(RaceWatchpoint& w);
         do {                                                                 \
             if (!cinux::proc::lockdep_is_held((lock))) {                     \
                 cinux::lib::kpanic("lockdep: assert_held failed %p",         \
-                                   (void*)(lock));                           \
+                                   static_cast<const void*>(lock));          \
             }                                                                \
         } while (0)
 #else
