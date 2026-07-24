@@ -444,7 +444,7 @@ void handle_pf(InterruptFrame* frame) {
         if (cinux::proc::handle_cow_fault(fault_addr)) {
             return;
         }
-        // F-VERIFY M6-2: CoW resolution failed -- dump phys + mapcount to debugcon
+        // F-VERIFY M6-2: CoW resolution failed -- dump phys + pte_count to debugcon
         // (lock-free PTE walk; see dump_cow_fail_diagnostic).  Rare path, no noise
         // on the normal CoW-resolved path.
         dump_cow_fail_diagnostic(fault_addr);

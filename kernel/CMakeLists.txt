@@ -284,7 +284,7 @@ add_executable(big_kernel_test
     test/test_kprintf_format.cpp
     test/test_concurrent_ring_buffer.cpp
     test/test_user_ptr.cpp
-    test/test_pmm_mapcount.cpp
+    test/test_pmm_pte_count.cpp
     test/test_klog.cpp
     test/test_sys_dmesg.cpp
     test/test_dma_buffer.cpp

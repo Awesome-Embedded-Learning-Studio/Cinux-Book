@@ -102,15 +102,15 @@ void PMM::init(const BootInfo& info) {
     bitmap_storage_       = reinterpret_cast<uint8_t*>(bs_virt);
     uint64_t bm_bytes     = BuddyAllocator::bitmap_bytes(total_pages_);
 
-    // Step 4b (F-QA Q4b-1 / DEBT-003): place the per-page mapcount array
+    // Step 4b (F-QA Q4b-1 / DEBT-003): place the per-page pte_count array
     // (2 bytes/page) right after the free bitmaps, page-aligned. Tracks how
     // many PTEs reference each physical page so a CoW-shared page is not freed
     // while still mapped elsewhere (fork+exec UAF).
     uintptr_t mc_virt = (bs_virt + bm_bytes + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-    mapcount_storage_ = reinterpret_cast<int16_t*>(mc_virt);
+    pte_count_storage_ = reinterpret_cast<int16_t*>(mc_virt);
     uint64_t mc_bytes = total_pages_ * sizeof(int16_t);
     for (uint64_t i = 0; i < total_pages_; ++i) {
-        mapcount_storage_[i] = 0;
+        pte_count_storage_[i] = 0;
     }
 
     // Step 5: Initialise the buddy over page indices [0, total_pages).
@@ -128,7 +128,7 @@ void PMM::init(const BootInfo& info) {
     uint64_t mc_phys    = mc_virt - KERNEL_VMA;
     uint64_t mc_pages   = (mc_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
     uint64_t used_start = info.kernel_phys_base;
-    uint64_t used_end   = mc_phys + mc_pages * PAGE_SIZE;  // covers order+bitmap+mapcount
+    uint64_t used_end   = mc_phys + mc_pages * PAGE_SIZE;  // covers order+bitmap+pte_count
 
     for (uint32_t i = 0; i < region_count; i++) {
         uint64_t seg_start = regions[i].base;
@@ -158,7 +158,7 @@ uint64_t PMM::alloc_page_locked() {
     uint64_t page = buddy_.alloc_order(0);
     if (page == BuddyAllocator::kInvalidPage)
         return 0;
-    __atomic_store_n(&mapcount_storage_[page], 1, __ATOMIC_RELAXED);  // Q4b-1: first ref
+    __atomic_store_n(&pte_count_storage_[page], 1, __ATOMIC_RELAXED);  // Q4b-1: first ref
     return page * PAGE_SIZE;
 }
 
@@ -210,7 +210,7 @@ uint64_t PMM::alloc_pages(uint64_t count) {
     // Q4b-1: each page in the block gets its first reference.
     uint64_t n_pages = static_cast<uint64_t>(1) << order;
     for (uint64_t i = 0; i < n_pages; ++i) {
-        __atomic_store_n(&mapcount_storage_[page + i], 1, __ATOMIC_RELAXED);
+        __atomic_store_n(&pte_count_storage_[page + i], 1, __ATOMIC_RELAXED);
     }
     return page * PAGE_SIZE;
 }
@@ -223,30 +223,30 @@ void PMM::free_pages(uint64_t phys, uint64_t count) {
 }
 
 // ============================================================
-// PMM::mapcount_* (F-QA Q4b-1 / DEBT-003 CoW page reference counting)
+// PMM::pte_count_* (F-QA Q4b-1 / DEBT-003 CoW page reference counting)
 // ============================================================
 
-void PMM::mapcount_inc(uint64_t phys) {
+void PMM::pte_count_inc(uint64_t phys) {
     if (phys == 0) {
         return;
     }
     // ACQ_REL: fork (parent CPU), clear_user_mappings (child CPU), and CoW
-    // fault (faulting CPU) all read/write the same mapcount cross-CPU.
-    __atomic_add_fetch(&mapcount_storage_[phys / PAGE_SIZE], 1, __ATOMIC_ACQ_REL);
+    // fault (faulting CPU) all read/write the same pte_count cross-CPU.
+    __atomic_add_fetch(&pte_count_storage_[phys / PAGE_SIZE], 1, __ATOMIC_ACQ_REL);
 }
 
-bool PMM::mapcount_dec_and_test(uint64_t phys) {
+bool PMM::pte_count_dec_and_test(uint64_t phys) {
     if (phys == 0) {
         return false;
     }
-    return __atomic_sub_fetch(&mapcount_storage_[phys / PAGE_SIZE], 1, __ATOMIC_ACQ_REL) == 0;
+    return __atomic_sub_fetch(&pte_count_storage_[phys / PAGE_SIZE], 1, __ATOMIC_ACQ_REL) == 0;
 }
 
-int16_t PMM::mapcount_load(uint64_t phys) const {
+int16_t PMM::pte_count_load(uint64_t phys) const {
     if (phys == 0) {
         return 0;
     }
-    return __atomic_load_n(&mapcount_storage_[phys / PAGE_SIZE], __ATOMIC_RELAXED);
+    return __atomic_load_n(&pte_count_storage_[phys / PAGE_SIZE], __ATOMIC_RELAXED);
 }
 
 // ============================================================

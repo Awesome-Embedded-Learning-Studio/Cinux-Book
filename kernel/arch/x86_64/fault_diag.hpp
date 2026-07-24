@@ -30,5 +30,5 @@ void capture_first_gp(const cinux::arch::InterruptFrame* frame);
 void capture_first_pf(const cinux::arch::InterruptFrame* frame, uint64_t cr2);
 
 // F-VERIFY M6-2: lock-free PTE walk that prints the CoW-fault backing phys + its
-// mapcount to debugcon.  Called only on the CoW-resolution-FAIL path (rare).
+// pte_count to debugcon.  Called only on the CoW-resolution-FAIL path (rare).
 void dump_cow_fail_diagnostic(uint64_t fault_addr);

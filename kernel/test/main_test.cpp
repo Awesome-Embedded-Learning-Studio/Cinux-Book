@@ -124,7 +124,7 @@ void run_kallsyms_tests();
 void run_backtrace_tests();
 void run_memory_stats_tests();
 void run_user_ptr_tests();
-void run_pmm_mapcount_tests();
+void run_pmm_pte_count_tests();
 #ifdef CINUX_USB
 void run_xhci_tests();
 #endif
@@ -750,7 +750,7 @@ extern "C" void kernel_main() {
     run_klog_tests();
     run_sys_dmesg_tests();
     run_user_ptr_tests();
-    run_pmm_mapcount_tests();
+    run_pmm_pte_count_tests();
 
     // DMA tests (M3): DmaBuffer value type (M3-1) + DmaPool allocator (M3-2)
     run_dma_buffer_tests();

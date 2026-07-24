@@ -171,7 +171,7 @@ int64_t sys_munmap(uint64_t addr, uint64_t length, uint64_t, uint64_t, uint64_t,
             // NOT be freed here -- the page cache still owns it, and freeing
             // it (the prior bug) let the PMM hand bfdcc000 to another writer
             // while the lto_plugin cache page still pointed at it.
-            if (cinux::mm::g_pmm.mapcount_dec_and_test(phys)) {
+            if (cinux::mm::g_pmm.pte_count_dec_and_test(phys)) {
                 cinux::mm::g_pmm.free_page(phys);
             }
         }

@@ -73,13 +73,13 @@ public:
     /** Total number of pages managed. */
     uint64_t total_page_count() const;
 
-    // F-QA Q4b-1 (DEBT-003): per-page mapcount = how many PTEs map this physical
+    // F-QA Q4b-1 (DEBT-003): per-page pte_count = how many PTEs map this physical
     // page. fork CoW sharing calls inc; execve clear + CoW fault call
     // dec_and_test (free only when it reaches 0). Independent of the free pool:
     // alloc sets 1, free does not touch it -- callers drive dec_and_test.
-    void    mapcount_inc(uint64_t phys);
-    bool    mapcount_dec_and_test(uint64_t phys);  ///< true => reached 0, caller frees
-    int16_t mapcount_load(uint64_t phys) const;
+    void    pte_count_inc(uint64_t phys);
+    bool    pte_count_dec_and_test(uint64_t phys);  ///< true => reached 0, caller frees
+    int16_t pte_count_load(uint64_t phys) const;
 
     /**
      * @brief Lock-free page allocation (caller must guarantee exclusion)
@@ -98,7 +98,7 @@ private:
     BuddyAllocator        buddy_;
     uint8_t*              order_storage_{};     ///< 1 byte/page, @ __kernel_stack_top
     uint8_t*              bitmap_storage_{};    ///< per-order free bitmaps, after order_storage
-    int16_t*              mapcount_storage_{};  ///< Q4b-1: 2 bytes/page, after bitmap_storage
+    int16_t*              pte_count_storage_{};  ///< Q4b-1: 2 bytes/page, after bitmap_storage
     uint64_t              total_pages_{};
     uint64_t              highest_page_{};
 };

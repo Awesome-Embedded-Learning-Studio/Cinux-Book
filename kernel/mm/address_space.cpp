@@ -190,7 +190,7 @@ void AddressSpace::free_subtree(uint64_t table_phys, int level) {
 
         if (level == LEVEL_PT) {
             uint64_t data_phys = table[i].phys_addr();
-            if (g_pmm.mapcount_dec_and_test(data_phys)) {
+            if (g_pmm.pte_count_dec_and_test(data_phys)) {
                 g_pmm.free_page(data_phys);
             }
             table[i].raw = 0;
