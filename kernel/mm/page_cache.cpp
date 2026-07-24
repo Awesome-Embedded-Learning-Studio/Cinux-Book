@@ -84,6 +84,15 @@ cinux::lib::ErrorOr<CachedPage*> PageCache::get_page(cinux::fs::Inode* inode, ui
     if (phys == 0) {
         return cinux::lib::Error::OutOfMemory;
     }
+    // Cache-ownership ref (B fix): distinct from the user-mapping refs that
+    // file_fault / fork / CoW add and teardown/munmap drop.  Holding this +1
+    // means process teardown (free_subtree) and munmap can NEVER drop the
+    // mapcount to 0 and free a page the page cache still points at -- the
+    // lto_plugin corruption root cause (cache page phys was reclaimed and
+    // reused while CachedPage still referenced it).  Dropped only if/when a
+    // future cache-eviction path releases the page (none today; the cache is
+    // grow-only, deliberately).
+    cinux::mm::g_pmm.mapcount_inc(phys);
     const uint64_t virt = phys + cinux::arch::DIRECT_MAP_BASE;
 
     // Start from a clean zero page so any short read (file tail) is zero-filled.

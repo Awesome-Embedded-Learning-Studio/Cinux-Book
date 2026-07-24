@@ -166,7 +166,14 @@ int64_t sys_munmap(uint64_t addr, uint64_t length, uint64_t, uint64_t, uint64_t,
         const uint64_t phys = task->addr_space->translate(v);
         if (phys != 0) {
             task->addr_space->unmap(v);
-            cinux::mm::g_pmm.free_page(phys);
+            // Drop ONE mapping ref; only free if it was the last (e.g. an
+            // un-shared anonymous page).  A file-backed page-cache phys must
+            // NOT be freed here -- the page cache still owns it, and freeing
+            // it (the prior bug) let the PMM hand bfdcc000 to another writer
+            // while the lto_plugin cache page still pointed at it.
+            if (cinux::mm::g_pmm.mapcount_dec_and_test(phys)) {
+                cinux::mm::g_pmm.free_page(phys);
+            }
         }
     }
 
