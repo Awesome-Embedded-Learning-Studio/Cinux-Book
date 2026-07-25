@@ -44,7 +44,7 @@ dentry cache 就是存这个映射的:`(parent Inode*, name) → child Inode*`�
 
 ### 三个操作 + 一个不变式
 
-[dentry.hpp](kernel/fs/dentry.hpp) 的全部接口就三个:
+[dentry.hpp](../../../kernel/fs/dentry.hpp) 的全部接口就三个:
 
 ```cpp
 // 命中 -> 返回一个新引用过的 child inode(调用方负责 unref);未命中 -> nullptr
@@ -96,7 +96,7 @@ flock(2) 给的是**建议锁(advisory lock)**:内核只记录「这个 inode �
 
 ### 两种模式 + 非阻塞
 
-[file_lock.hpp](kernel/fs/file_lock.hpp) 定义的 operation 位:
+[file_lock.hpp](../../../kernel/fs/file_lock.hpp) 定义的 operation 位:
 
 ```cpp
 kLockSh = 1;  // LOCK_SH 共享:多个任务能同时持有(适合「我要读,不希望别人写」)

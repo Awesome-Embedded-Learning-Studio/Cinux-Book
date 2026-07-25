@@ -48,7 +48,7 @@ title: 044 · 物理页的两本账:映射计数与所有权引用
 
 ### 两本账各自的语义
 
-[pmm.hpp](kernel/mm/pmm.hpp) 给每页维持**两个**独立计数:
+[pmm.hpp](../../../kernel/mm/pmm.hpp) 给每页维持**两个**独立计数:
 
 ```cpp
 // 映射维度:几个 PTE 映射这页。纯计数,绝不自己决定释放。
@@ -96,7 +96,7 @@ refcount_inc(phys);   // 缓存拥有
 
 「这页归谁所有」可以有好几种:页缓存拥有(`CachePhysRef`)、匿名页拥有(`AnonPhysRef`)、页表拥有(`PageTablePhysRef`)。如果都用裸 `refcount_inc`/`dec`,「这是谁的 ref」只靠注释和记忆,容易把一个 `CachePhysRef` 的 ref 当成匿名页的 ref 减错。
 
-`PhysRef<Tag>` 用模板参数 `Tag` 在**编译期**标记「这页归谁」:[phys_ref.hpp](kernel/mm/phys_ref.hpp)
+`PhysRef<Tag>` 用模板参数 `Tag` 在**编译期**标记「这页归谁」:[phys_ref.hpp](../../../kernel/mm/phys_ref.hpp)
 
 ```cpp
 // 每种拥有者一个 tag 类型;PhysRef<Tag> 析构时减 refcount

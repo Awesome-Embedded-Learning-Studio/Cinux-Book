@@ -44,7 +44,7 @@ lockdep 和 race-detect 是两把互补的钳子,分工很明确。`lockdep` 看
 #endif
 ```
 
-（[race_detect.hpp](kernel/proc/race_detect.hpp#L69-L87)。`lockdep_assert_held` 真实宏体是一个带 `kpanic` 的 `do/while(0)`——它是断言不是空操作;宏门控的好处下面讲。）注意「设计了锁但某条路径忘了拿」和「根本没设计锁」是两种不同的病——前者有锁可以 assert,后者连 assert 的对象都没有。
+（[race_detect.hpp](../../../kernel/proc/race_detect.hpp#L69-L87)。`lockdep_assert_held` 真实宏体是一个带 `kpanic` 的 `do/while(0)`——它是断言不是空操作;宏门控的好处下面讲。）注意「设计了锁但某条路径忘了拿」和「根本没设计锁」是两种不同的病——前者有锁可以 assert,后者连 assert 的对象都没有。
 
 ### 机制:一次原子 exchange 拿到「上一个是谁」
 
@@ -57,7 +57,7 @@ struct RaceWatchpoint {
 };
 ```
 
-（[race_detect.hpp](kernel/proc/race_detect.hpp#L46-L49)。初值 `kRaceCpuNone = 0xFFFFFFFF`,意思是「还没人碰过」。）访问点用 `RACE_TOUCH(w)` 宏,内核做的是一次 `__ATOMIC_ACQ_REL` 的 `atomic_exchange_n`——把本核的 cpu id 写进 `last_cpu`,同时拿到「上一个是谁」:
+（[race_detect.hpp](../../../kernel/proc/race_detect.hpp#L46-L49)。初值 `kRaceCpuNone = 0xFFFFFFFF`,意思是「还没人碰过」。）访问点用 `RACE_TOUCH(w)` 宏,内核做的是一次 `__ATOMIC_ACQ_REL` 的 `atomic_exchange_n`——把本核的 cpu id 写进 `last_cpu`,同时拿到「上一个是谁」:
 
 ```cpp
 bool race_check_access_probe(RaceWatchpoint& w) {
@@ -67,7 +67,7 @@ bool race_check_access_probe(RaceWatchpoint& w) {
 }
 ```
 
-（[race_detect.cpp](kernel/proc/race_detect.cpp#L17-L21)。）如果 `prev` 既不是 `kRaceCpuNone`(还没人碰过),也不是本核自己,那就说明在上一次访问和这次之间,**另一个 CPU 碰过它且中间没有锁**——这就是跨核交错。`race_check_access` 在此基础上 `backtrace()` + `kpanic("[SMP-RACE] xxx: cpuN touched after cpuM without lock")`,backtrace 从 `RACE_TOUCH` 调用点往上走,正好指到竞态现场([race_detect.cpp](kernel/proc/race_detect.cpp#L23-L34))。
+（[race_detect.cpp](../../../kernel/proc/race_detect.cpp#L17-L21)。）如果 `prev` 既不是 `kRaceCpuNone`(还没人碰过),也不是本核自己,那就说明在上一次访问和这次之间,**另一个 CPU 碰过它且中间没有锁**——这就是跨核交错。`race_check_access` 在此基础上 `backtrace()` + `kpanic("[SMP-RACE] xxx: cpuN touched after cpuM without lock")`,backtrace 从 `RACE_TOUCH` 调用点往上走,正好指到竞态现场([race_detect.cpp](../../../kernel/proc/race_detect.cpp#L23-L34))。
 
 为什么要强调「无锁」?因为看门点报的是**任何**跨 CPU 交错,哪怕两次访问在时间上是串行的。这是刻意的——hobby 内核里每个共享可变状态都**应当**带锁,「两核无锁碰同一状态」本身就是设计缺陷,逼你加锁,而不是靠时序侥幸。加锁之后这个看门点就该拆掉(下面主线三讲)。
 
@@ -96,7 +96,7 @@ bool race_check_access_probe(RaceWatchpoint& /*w*/) { return false; }
 void race_check_access(RaceWatchpoint& /*w*/)       {}
 ```
 
-（[race_detect_stub.cpp](kernel/proc/race_detect_stub.cpp#L14-L22)。）这套设计的关键是**「生产关、测试开」零侵入**——`RACE_TOUCH` 和 `lockdep_assert_held` 都是宏,编译宏没定义时直接 `((void)0)`,访问点处一行 `#ifdef` 都不用写。
+（[race_detect_stub.cpp](../../../kernel/proc/race_detect_stub.cpp#L14-L22)。）这套设计的关键是**「生产关、测试开」零侵入**——`RACE_TOUCH` 和 `lockdep_assert_held` 都是宏,编译宏没定义时直接 `((void)0)`,访问点处一行 `#ifdef` 都不用写。
 
 ## 主线二 · 拿 inode_cache 当靶子:验证报警器真能抓
 
@@ -124,7 +124,7 @@ static cinux::proc::RaceWatchpoint g_race_test_wp =
 #endif
 ```
 
-（[main_test.cpp](kernel/test/main_test.cpp#L910-L917)。机制测试的 watchpoint。）测试的意图是:AP 先碰一次这个 watchpoint,BSP 再 probe,probe 拿到的 `prev` 是 AP 的 cpu id、不等于 BSP 自己,返 `true` = 检测到跨核交错,打出那一行专属的 PASS,FAIL 则把整个 suite 拖红:
+（[main_test.cpp](../../../kernel/test/main_test.cpp#L910-L917)。机制测试的 watchpoint。）测试的意图是:AP 先碰一次这个 watchpoint,BSP 再 probe,probe 拿到的 `prev` 是 AP 的 cpu id、不等于 BSP 自己,返 `true` = 检测到跨核交错,打出那一行专属的 PASS,FAIL 则把整个 suite 拖红:
 
 ```cpp
 #ifdef CINUX_RACE_DETECT
@@ -139,9 +139,9 @@ static cinux::proc::RaceWatchpoint g_race_test_wp =
 #endif
 ```
 
-（[main_test.cpp](kernel/test/main_test.cpp#L1048-L1064)。用 probe 不用 `RACE_TOUCH`——机制测试不能挂内核;末尾 `if (!race) { ok = false; }` 让 FAIL 真的拖红整个 suite,这正是这一行测试「没被哑火」的硬证据。)
+（[main_test.cpp](../../../kernel/test/main_test.cpp#L1048-L1064)。用 probe 不用 `RACE_TOUCH`——机制测试不能挂内核;末尾 `if (!race) { ok = false; }` 让 FAIL 真的拖红整个 suite,这正是这一行测试「没被哑火」的硬证据。)
 
-⚠️ **这里有个细节值得说清楚**:`main_test.cpp` 注释写着「AP touches it in `ap_test_selfcheck` before writing magic」,翻 `ap_test_selfcheck` 函数体([main_test.cpp](kernel/test/main_test.cpp#L927-L960))确实如此——L940 一行 `#ifdef CINUX_RACE_DETECT race_check_access_probe(g_race_test_wp); #endif` 把 AP 侧的 touch 补上了。BSP 的 probe 拿到的 `prev` 是 AP 的 cpu id、不等于自己,返 `true` = 检测到跨核交错,打出 PASS。也就是说:只要三件套(option + 编译宏 + §14 文件门)齐了,这条机制自测端到端通、能真报 PASS。lab 会带你亲手补全三件套并验证这行 PASS 真的会亮。
+⚠️ **这里有个细节值得说清楚**:`main_test.cpp` 注释写着「AP touches it in `ap_test_selfcheck` before writing magic」,翻 `ap_test_selfcheck` 函数体([main_test.cpp](../../../kernel/test/main_test.cpp#L927-L960))确实如此——L940 一行 `#ifdef CINUX_RACE_DETECT race_check_access_probe(g_race_test_wp); #endif` 把 AP 侧的 touch 补上了。BSP 的 probe 拿到的 `prev` 是 AP 的 cpu id、不等于自己,返 `true` = 检测到跨核交错,打出 PASS。也就是说:只要三件套(option + 编译宏 + §14 文件门)齐了,这条机制自测端到端通、能真报 PASS。lab 会带你亲手补全三件套并验证这行 PASS 真的会亮。
 
 至于 `ext2` 路径本身——CinuxOS 上游(提交 `bf2d2d7`)确实在 `get_cached_inode` 入口放过 `RACE_TOUCH(g_inode_cache_wp)`,GUI `-smp 2` 跑 gcc 立刻抓到凶手栈 `get_cached_inode ← execve /bin/sh`,证明检测器对真实代码路径有效。但 Book 回迁时**只落地了「锁 + `lockdep_assert_held` + old-style cast 修复」三样**,那个 `RACE_TOUCH` 靶子没回迁(Book 树 `grep kernel/fs/` 零命中)。所以教程里讲「race-detect 作为工具能抓」,用机制自测当例子;`ext2` 路径讲 `lockdep_assert_held` 当回归护栏——两个工具互补,A 抓「有锁忘持」、B 抓「根本没锁」。
 
@@ -236,7 +236,7 @@ ErrorOr<uint16_t> NvmeController::io_submit(const NvmeCmd& cmd) {
 }
 ```
 
-（[nvme_io.cpp](kernel/drivers/nvme/nvme_io.cpp#L20-L103)。`io_submit` 在 SMP 重构时拆出独立文件,锁用手动 `acquire()`/`release()` 包整段而非 RAII guard——因为循环中途有 yield 重入点。注释写明 race 表现:合法 LBA 读到 `status=0x4080`。）对照一下:`admin_submit` 无锁——它在 init 期单线程跑,不存在并发。
+（[nvme_io.cpp](../../../kernel/drivers/nvme/nvme_io.cpp#L20-L103)。`io_submit` 在 SMP 重构时拆出独立文件,锁用手动 `acquire()`/`release()` 包整段而非 RAII guard——因为循环中途有 yield 重入点。注释写明 race 表现:合法 LBA 读到 `status=0x4080`。）对照一下:`admin_submit` 无锁——它在 init 期单线程跑,不存在并发。
 
 #### Rider ② ELF 加载校验 —— 已落地
 
@@ -255,14 +255,14 @@ if (seg_vaddr >= kUserVaTop || seg_memsz_end > kUserVaTop) {
 }
 ```
 
-（[elf_load.cpp](kernel/proc/elf_load.cpp#L41-L59)。GCC 没有 unsigned overflow 的 sanitize,只能靠 `__builtin_*_overflow`。）配套给 `e_phnum` 加上限,挡住损坏 ELF 逼内核 alloc + read ~3.6MB phdr 表:
+（[elf_load.cpp](../../../kernel/proc/elf_load.cpp#L41-L59)。GCC 没有 unsigned overflow 的 sanitize,只能靠 `__builtin_*_overflow`。）配套给 `e_phnum` 加上限,挡住损坏 ELF 逼内核 alloc + read ~3.6MB phdr 表:
 
 ```cpp
 constexpr uint16_t kMaxPhnum = 256;   // real ELFs <30,256 是工程经验值不是规范值
 if (ehdr->e_phnum > kMaxPhnum) { return ElfValidateResult::BadPhnum; }
 ```
 
-（[elf_types.cpp](kernel/proc/elf_types.cpp#L63-L72)。）
+（[elf_types.cpp](../../../kernel/proc/elf_types.cpp#L63-L72)。）
 
 #### Rider ③ VFS offset_lock —— 已落地(分流锁)
 
@@ -287,9 +287,9 @@ int64_t do_read_kernel(int fd, void* kbuf, uint64_t count) {
 }
 ```
 
-（[sys_read.cpp](kernel/syscall/sys_read.cpp#L48-L57)。`sys_write.cpp:53` 同样已分流。）这条修法对应 CinuxOS 上游(提交 `f40bed1`),已回迁到 Book 工作树。
+（[sys_read.cpp](../../../kernel/syscall/sys_read.cpp#L48-L57)。`sys_write.cpp:53` 同样已分流。）这条修法对应 CinuxOS 上游(提交 `f40bed1`),已回迁到 Book 工作树。
 
-配套对比点很值得记住——`sys_lseek` 持 `offset_lock_` 改 offset 是对的([sys_lseek.cpp](kernel/syscall/sys_lseek.cpp#L34-L35)):它做的是纯算术、不阻塞,不触发 schedule-while-held;NVMe `io_lock_` 跨 busy-wait poll 也是安全的(poll 不让出 CPU)——错的是「持着它去 `schedule_blocked`」,而分流锁正是把这一刀切干净。
+配套对比点很值得记住——`sys_lseek` 持 `offset_lock_` 改 offset 是对的([sys_lseek.cpp](../../../kernel/syscall/sys_lseek.cpp#L34-L35)):它做的是纯算术、不阻塞,不触发 schedule-while-held;NVMe `io_lock_` 跨 busy-wait poll 也是安全的(poll 不让出 CPU)——错的是「持着它去 `schedule_blocked`」,而分流锁正是把这一刀切干净。
 
 ## 主线四 · 纵深期:IPI shootdown 与 deferred CoW 范式
 
@@ -303,7 +303,7 @@ SMP 时代不一样了:本核刷了没用——**别的核的 TLB 里那条旧�
 
 ### IPI shootdown 基建:广播 + ack 计数
 
-机制本身很直白,是一次「广播 + ack 计数」的同步握手。发送方([tlb.cpp](kernel/arch/x86_64/tlb.cpp#L34-L58)):
+机制本身很直白,是一次「广播 + ack 计数」的同步握手。发送方([tlb.cpp](../../../kernel/arch/x86_64/tlb.cpp#L34-L58)):
 
 ```cpp
 void tlb_shootdown_page(uint64_t vaddr) {
@@ -319,9 +319,9 @@ void tlb_shootdown_page(uint64_t vaddr) {
 }
 ```
 
-IPI 向量挑了 `0xE1`,紧挨 reschedule `0xE0`,刻意避开 PIC IRQ 段(`0x20-0x2F`)、spurious(`0xFF`)、sigreturn(`0x80`)([smp.hpp](kernel/arch/x86_64/smp.hpp#L15-L22))。发送用 Local APIC ICR 的「all-excluding-self」简写(`bits[19:18]=11`),一口气发给所有其他核。
+IPI 向量挑了 `0xE1`,紧挨 reschedule `0xE0`,刻意避开 PIC IRQ 段(`0x20-0x2F`)、spurious(`0xFF`)、sigreturn(`0x80`)([smp.hpp](../../../kernel/arch/x86_64/smp.hpp#L15-L22))。发送用 Local APIC ICR 的「all-excluding-self」简写(`bits[19:18]=11`),一口气发给所有其他核。
 
-接收端([tlb.cpp](kernel/arch/x86_64/tlb.cpp#L60-L67)):
+接收端([tlb.cpp](../../../kernel/arch/x86_64/tlb.cpp#L60-L67)):
 
 ```cpp
 extern "C" void shootdown_ipi_handler(InterruptFrame* /*frame*/) {
@@ -362,9 +362,9 @@ bool PMM::refcount_dec_and_test_no_free(uint64_t phys) {
 }
 ```
 
-（[pmm.cpp](kernel/mm/pmm.cpp#L279-L289) 和 [pmm.cpp](kernel/mm/pmm.cpp#L327-L350)。这就是 044 章那两本账的 `no_free` 变体——所有权账面归零,实物留着等 drain 兑现。）
+（[pmm.cpp](../../../kernel/mm/pmm.cpp#L279-L289) 和 [pmm.cpp](../../../kernel/mm/pmm.cpp#L327-L350)。这就是 044 章那两本账的 `no_free` 变体——所有权账面归零,实物留着等 drain 兑现。）
 
-2. 把 `{old_phys, vaddr}` 塞进一条 pending 链表 + 给信号量 `post` 一下([tlb.cpp](kernel/arch/x86_64/tlb.cpp#L85-L113)):
+2. 把 `{old_phys, vaddr}` 塞进一条 pending 链表 + 给信号量 `post` 一下([tlb.cpp](../../../kernel/arch/x86_64/tlb.cpp#L85-L113)):
 
 ```cpp
 void enqueue_pending_shootdown(uint64_t phys, uint64_t vaddr) {
@@ -392,7 +392,7 @@ void tlb_drain_entry() {
 }
 ```
 
-（[tlb_drain.cpp](kernel/arch/x86_64/tlb_drain.cpp#L36-L47)。deferred 的兑现端。)
+（[tlb_drain.cpp](../../../kernel/arch/x86_64/tlb_drain.cpp#L36-L47)。deferred 的兑现端。)
 
 #### 死锁解除的两条论证
 
@@ -432,13 +432,13 @@ void tlb_drain_entry() {
 
 整条 deferred-CoW 修复在当前 Book 工作树已端到端接通,逐条交代:
 
-- **`handle_cow_fault` 走 deferred 路径** —— `process_new.cpp` 的 `handle_cow_fault` 已调 `pte_count_dec_and_test_no_free(old_phys)`,命中(计数归零)后再 `enqueue_pending_shootdown(old_phys, fault_vaddr)`,**不再立即 free**([process_new.cpp](kernel/proc/process_new.cpp#L114-L126),注释 L119 自承「B3 defect C: defer the free」);
+- **`handle_cow_fault` 走 deferred 路径** —— `process_new.cpp` 的 `handle_cow_fault` 已调 `pte_count_dec_and_test_no_free(old_phys)`,命中(计数归零)后再 `enqueue_pending_shootdown(old_phys, fault_vaddr)`,**不再立即 free**([process_new.cpp](../../../kernel/proc/process_new.cpp#L114-L126),注释 L119 自承「B3 defect C: defer the free」);
 - **`enqueue_pending_shootdown` 已有调用方** —— 上一条就是它的调用点;
 - **`CINUX_TLB_DRAIN` 这个 CMake option 已声明** —— `cmake/options.cmake` `option(CINUX_TLB_DRAIN "Spawn the TLB shootdown drain kthread (deferred CoW free)" ON)`,默认 ON;`kernel/arch/CMakeLists.txt` 的 `if(CINUX_TLB_DRAIN)` 据此决定链 `tlb_drain.cpp` 真实现还是 `tlb_drain_stub.cpp` 空实现;
 - **`start_tlb_drain_thread()` 已有调用方** —— `proc/init.cpp` 在初始化阶段调用它起 drain kthread(init.cpp L19 include、L165 调用);
-- **`shootdown_ipi_stub`(0xE1)已注册进 IDT** —— `irq_init()` 在 reschedule 0xE0 之后 `set_handler(kShootdownIpiVector, shootdown_ipi_stub, ...)` 注册 0xE1([irq_handlers.cpp](kernel/arch/x86_64/irq_handlers.cpp#L172-L177)),`shootdown_ipi_stub` 声明在 [irq_handlers.cpp:67](kernel/arch/x86_64/irq_handlers.cpp#L67),`interrupts.S` 的 `ISR_IRQ shootdown_ipi_stub, shootdown_ipi_handler, 0` 定义在 [interrupts.S:455](kernel/arch/x86_64/interrupts.S#L455)。
+- **`shootdown_ipi_stub`(0xE1)已注册进 IDT** —— `irq_init()` 在 reschedule 0xE0 之后 `set_handler(kShootdownIpiVector, shootdown_ipi_stub, ...)` 注册 0xE1([irq_handlers.cpp](../../../kernel/arch/x86_64/irq_handlers.cpp#L172-L177)),`shootdown_ipi_stub` 声明在 [irq_handlers.cpp:67](../../../kernel/arch/x86_64/irq_handlers.cpp#L67),`interrupts.S` 的 `ISR_IRQ shootdown_ipi_stub, shootdown_ipi_handler, 0` 定义在 [interrupts.S:455](../../../kernel/arch/x86_64/interrupts.S#L455)。
 
-连带机制测试也端到端跑通:机制测试里的 `tlb_shootdown_page(0xDEADB000)`([main_test.cpp](kernel/test/main_test.cpp#L1044-L1048))在 `-smp 2` 下会真发 0xE1 IPI 给 AP、AP ack 回来、BSP 的 spin 等到 acks==0 退出,打出 `[F-VERIFY] shootdown IPI test: PASS (all APs acked)`——0xE1 收发通路在当前工作树已可验证。
+连带机制测试也端到端跑通:机制测试里的 `tlb_shootdown_page(0xDEADB000)`([main_test.cpp](../../../kernel/test/main_test.cpp#L1044-L1048))在 `-smp 2` 下会真发 0xE1 IPI 给 AP、AP ack 回来、BSP 的 spin 等到 acks==0 退出,打出 `[F-VERIFY] shootdown IPI test: PASS (all APs acked)`——0xE1 收发通路在当前工作树已可验证。
 
 ### race-detect 门控链在本机工作树的状态
 

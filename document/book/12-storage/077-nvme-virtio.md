@@ -22,7 +22,7 @@ title: 077 · NVMe 与 VirtIO:两种 PCI 设备抽象并存
 
 三个驱动一开始都走同一条 PCI 路,咱们先把共性拎出来。
 
-**枚举靠 class 或 vendor/device 匹配**。[pci.hpp](kernel/drivers/pci/pci.hpp) 里给每种设备一个识别谓词:
+**枚举靠 class 或 vendor/device 匹配**。[pci.hpp](../../../kernel/drivers/pci/pci.hpp) 里给每种设备一个识别谓词:
 
 ```cpp
 constexpr bool is_nvme_device(uint8_t cls, uint8_t sub) {
@@ -57,7 +57,7 @@ write_upper_bar(bar, 0);                       // 64-bit BAR 的 upper 写 0(< 4
 
 > 教训记一笔:**PCI BAR 不能假定 BIOS 分配好了**。读到 poison(全 `0xcafebabe` 之类)或全 0,第一反应该是"BAR 没分对",不是"设备坏了"。两个驱动都吃了这个亏,所以把 self-assign 抽成共用动作。
 
-**多实例 MSI-X**。三个设备各要自己的 MSI-X 中断,而 MSI-X Table/PBA 得映射到不撞的虚拟地址槽。061 章给 [msix_controller.cpp](kernel/drivers/pci/msix_controller.cpp) 的 `init` 加了覆盖参数:
+**多实例 MSI-X**。三个设备各要自己的 MSI-X 中断,而 MSI-X Table/PBA 得映射到不撞的虚拟地址槽。061 章给 [msix_controller.cpp](../../../kernel/drivers/pci/msix_controller.cpp) 的 `init` 加了覆盖参数:
 
 ```cpp
 const uint64_t table_v = (table_virt != 0) ? table_virt : kMsixTableVirt;
@@ -72,7 +72,7 @@ NVMe 把"提交命令、拿结果"这件事做成了**队列对**:你维护一�
 
 ### enable():CC.EN ↔ CSTS.RDY 握手
 
-NVMe 控制器启用是个状态机([nvme.cpp](kernel/drivers/nvme/nvme.cpp) 的 `enable()`):先 disable(写 `CC.EN=0` → 轮询等 `CSTS.RDY=0`),配好 Admin SQ/CQ 的物理地址和大小(写 AQA/ASQ/ACQ 寄存器),再 `CC.EN=1` → 轮询等 `CSTS.RDY=1`。握手成了才算是"控制器就绪":
+NVMe 控制器启用是个状态机([nvme.cpp](../../../kernel/drivers/nvme/nvme.cpp) 的 `enable()`):先 disable(写 `CC.EN=0` → 轮询等 `CSTS.RDY=0`),配好 Admin SQ/CQ 的物理地址和大小(写 AQA/ASQ/ACQ 寄存器),再 `CC.EN=1` → 轮询等 `CSTS.RDY=1`。握手成了才算是"控制器就绪":
 
 ```
 [NVMe] enabled (admin queue=64 RDY=1 doorbell stride=4)
@@ -85,7 +85,7 @@ Admin SQ/CQ 用 `DmaPool` 分配(64 项 × 64 B 的 SQ + 64 项 × 16 B 的 CQ,4
 发一条 Identify Controller 命令的流程,把 NVMe 的交互模型整个走一遍:
 
 1. 构造命令(op 0x06 / CNS=0x01 / PRP1 指向一个 4 KiB DMA 缓冲)塞进 `Admin SQ[tail]`,`tail++`(回绕)。
-2. **写 SQ tail doorbell**——告诉设备"tail 到这了,有新命令"。每个队列占**两个** stride 槽(SQ tail 在偶数槽、CQ head 紧跟在奇数槽),所以 SQ tail doorbell 的偏移 = `0x1000 + 2 × queue_id × stride`,CQ head doorbell 紧跟在 `0x1000 + (2 × queue_id + 1) × stride`,stride = `4 << DSTRD`(见 [nvme.hpp](kernel/drivers/nvme/nvme.hpp) 的注释:`0x1000 + queue_id * (2 * stride)`)。
+2. **写 SQ tail doorbell**——告诉设备"tail 到这了,有新命令"。每个队列占**两个** stride 槽(SQ tail 在偶数槽、CQ head 紧跟在奇数槽),所以 SQ tail doorbell 的偏移 = `0x1000 + 2 × queue_id × stride`,CQ head doorbell 紧跟在 `0x1000 + (2 × queue_id + 1) × stride`,stride = `4 << DSTRD`(见 [nvme.hpp](../../../kernel/drivers/nvme/nvme.hpp) 的注释:`0x1000 + queue_id * (2 * stride)`)。
 3. 轮询 `CQ[head]` 的 phase 位。NVMe 规定 CQ 完成项的 status 最低位是 phase,初值 1;每回绕一圈(head 归零)`cq_phase_ ^= 1`。`CQE.status bit0 == cq_phase_` 就说明这是一条新完成。
 4. `status >> 1 == 0` → 成功,4 KiB 缓冲里就是 controller data(VID/SN/MN)。
 
@@ -105,7 +105,7 @@ Admin SQ/CQ 用 `DmaPool` 分配(64 项 × 64 B 的 SQ + 64 项 × 16 B 的 CQ,4
 
 Admin 队列只能发管理命令(Identify、Create IO Queue)。真读写要走 **IO Submission/Completion Queue**:`create_io_queues()` 建一对 IO 队列,数据读写命令进 IO SQ。数据地址用 **PRP**(Physical Region Page)——PRP1 指向一个物理页(这一章只做单页 R/W,PRP2 链留 follow-up)。
 
-最后用 [nvme_block_device.cpp](kernel/drivers/nvme/nvme_block_device.cpp) 把"发一条 NVMe 读写命令、轮询 IO CQ 拿结果"包成 `IBlockDevice`——Ext2 见到的就是一个能 read/write 块的设备,跟 AHCI 那个一模一样。`init.cpp` 启动时 prefer NVMe(性能路径),挂不上就退 AHCI:
+最后用 [nvme_block_device.cpp](../../../kernel/drivers/nvme/nvme_block_device.cpp) 把"发一条 NVMe 读写命令、轮询 IO CQ 拿结果"包成 `IBlockDevice`——Ext2 见到的就是一个能 read/write 块的设备,跟 AHCI 那个一模一样。`init.cpp` 启动时 prefer NVMe(性能路径),挂不上就退 AHCI:
 
 ```
 [INIT] rootfs on NVMe (perf path)    // 或 [INIT] rootfs on AHCI
@@ -117,7 +117,7 @@ VirtIO 是虚拟化环境(KVM/QEMU)里的标准设备协议。它的思路跟 NV
 
 ### modern transport:cap 遍历 + 特性谈判
 
-VirtIO PCI modern 设备把寄存器藏在 PCI capability list 里([virtio.cpp](kernel/drivers/virtio/virtio.cpp))。遍历 cap list 找四种 cfg:`common`(`cfg_type=1`)、`notify`(2)、`isr`(3)、`device_cfg`(4),各映射到 modern BAR 窗口的一个 4 KiB 区(common+0x0 / isr+0x1000 / device+0x2000 / notify+0x3000)。
+VirtIO PCI modern 设备把寄存器藏在 PCI capability list 里([virtio.cpp](../../../kernel/drivers/virtio/virtio.cpp))。遍历 cap list 找四种 cfg:`common`(`cfg_type=1`)、`notify`(2)、`isr`(3)、`device_cfg`(4),各映射到 modern BAR 窗口的一个 4 KiB 区(common+0x0 / isr+0x1000 / device+0x2000 / notify+0x3000)。
 
 然后走 **status 机**跟设备谈判:
 
@@ -135,7 +135,7 @@ feature 是 64-bit(两个 32-bit word,先读 device 的,跟咱们支持的 AND �
 
 ### split virtqueue:desc / avail / used 三个环
 
-VirtQueue 是 **split virtqueue**——三块 DMA 内存([virtqueue.cpp](kernel/drivers/virtio/virtqueue.cpp)):
+VirtQueue 是 **split virtqueue**——三块 DMA 内存([virtqueue.cpp](../../../kernel/drivers/virtio/virtqueue.cpp)):
 
 - **desc[]**:描述符数组,每个描述符说"这段物理地址、这么长、可写/可读"。
 - **avail[]**:驱动写给设备的——"我放了这些 desc 给你,head 索引在 avail[idx]"。
@@ -149,8 +149,8 @@ VirtQueue 是 **split virtqueue**——三块 DMA 内存([virtqueue.cpp](kernel/
 
 传输层(VirtIODevice + VirtQueue)是共用的,上面挂两种设备:
 
-- **virtio-blk**([virtio_blk.cpp](kernel/drivers/virtio/virtio_blk.cpp)):每个请求 3-desc 链(请求头 / 数据缓冲 / 状态字节),read/write 方向在请求头里。同样包成 `IBlockDevice` 挂 Ext2。
-- **virtio-net**([virtio_net.cpp](kernel/drivers/virtio/virtio_net.cpp)):RX/TX 各一个 virtqueue(设备上报 `num_queues=3`,含一个 ctrl 队列,但驱动这一章只建 RX+TX 两个)。包成 `NetDevice` 接网络栈,`net_init.cpp` 里它跟 e1000 并存,`dev_for()` 优先用它(`ping 10.0.2.2` 走 virtio RX/TX 验证)。
+- **virtio-blk**([virtio_blk.cpp](../../../kernel/drivers/virtio/virtio_blk.cpp)):每个请求 3-desc 链(请求头 / 数据缓冲 / 状态字节),read/write 方向在请求头里。同样包成 `IBlockDevice` 挂 Ext2。
+- **virtio-net**([virtio_net.cpp](../../../kernel/drivers/virtio/virtio_net.cpp)):RX/TX 各一个 virtqueue(设备上报 `num_queues=3`,含一个 ctrl 队列,但驱动这一章只建 RX+TX 两个)。包成 `NetDevice` 接网络栈,`net_init.cpp` 里它跟 e1000 并存,`dev_for()` 优先用它(`ping 10.0.2.2` 走 virtio RX/TX 验证)。
 
 ## 落点:都接回既有抽象
 

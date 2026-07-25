@@ -25,9 +25,9 @@ title: 031 · 原生终端应用:Widget 树 + PaintList 保留模式
 
 这条链路背后,点亮了四样 030 里还不存在的东西。
 
-**第一样是 Widget 基类**。030 的窗口是个普通类,窗口管理器存着一串窗口指针。可这一章要让"窗口里能放不同的内容"——终端是一种内容,以后还会有按钮、文本框、滑块。如果每种内容都得窗口管理器亲自认识,那每加一种控件就要回来改管理器,耦合死。正解是让所有能画、能命中、能收事件的东西共享一个虚接口 [`Widget`](third_party/Cinux-GUI/core/widget.hpp#L41-L136):它持一个矩形、一串子控件、三个虚 hook——`paint_to_list`(画自己)、`hit_test`(点中谁)、`on_pointer`/`on_key`(收事件)。窗口管理器只跟 `Widget*` 打交道,具体是什么控件由虚派发决定。
+**第一样是 Widget 基类**。030 的窗口是个普通类,窗口管理器存着一串窗口指针。可这一章要让"窗口里能放不同的内容"——终端是一种内容,以后还会有按钮、文本框、滑块。如果每种内容都得窗口管理器亲自认识,那每加一种控件就要回来改管理器,耦合死。正解是让所有能画、能命中、能收事件的东西共享一个虚接口 [`Widget`](../../../third_party/Cinux-GUI/core/widget.hpp#L41-L136):它持一个矩形、一串子控件、三个虚 hook——`paint_to_list`(画自己)、`hit_test`(点中谁)、`on_pointer`/`on_key`(收事件)。窗口管理器只跟 `Widget*` 打交道,具体是什么控件由虚派发决定。
 
-**第二样是 PaintList 保留模式**。029 的 `Canvas` 是即时模式:你调一次 `draw_rect`,它当下就把像素写进帧缓冲。这一章换成保留模式:控件不直接画像素,而是把"我想画一个 8×16 的红色矩形""我想在 (x,y) 画一个字符 'A'"这类**绘制指令**塞进一张 [`PaintList`](third_party/Cinux-GUI/core/paint_list.hpp#L109-L138);一帧结束时,合成器 [`Compositor::render`](third_party/Cinux-GUI/core/compositor.hpp#L40-L78) 遍历这张清单、逐条落屏。这听像是多此一举,可它带来三个即时模式给不了的东西:**脏区重绘**(只重画变化了的矩形)、**批量合成**(一帧的指令一次性走完,可以裁剪/排序)、**跨进程共享**(这张清单是纯数据,可以序列化丢给另一个进程的合成器——这是 087 把 GUI host 搬到用户态的地基)。
+**第二样是 PaintList 保留模式**。029 的 `Canvas` 是即时模式:你调一次 `draw_rect`,它当下就把像素写进帧缓冲。这一章换成保留模式:控件不直接画像素,而是把"我想画一个 8×16 的红色矩形""我想在 (x,y) 画一个字符 'A'"这类**绘制指令**塞进一张 [`PaintList`](../../../third_party/Cinux-GUI/core/paint_list.hpp#L109-L138);一帧结束时,合成器 [`Compositor::render`](../../../third_party/Cinux-GUI/core/compositor.hpp#L40-L78) 遍历这张清单、逐条落屏。这听像是多此一举,可它带来三个即时模式给不了的东西:**脏区重绘**(只重画变化了的矩形)、**批量合成**(一帧的指令一次性走完,可以裁剪/排序)、**跨进程共享**(这张清单是纯数据,可以序列化丢给另一个进程的合成器——这是 087 把 GUI host 搬到用户态的地基)。
 
 **第三样是 TerminalWidget**。这是第一个"跑在窗口里的应用"。它继承 `Widget`,自带一张 `cols × rows` 的字符网格、光标、ANSI 转义状态机、一套 256 色调色板。它的 `paint_to_list` 不画像素,而是往清单里塞 `fill_rect`(铺底色 / 非 default 的 cell 背景)+ `text_glyph`(每个非空 cell 的字符)。键盘不进 `on_key`——host 直接把字节写进 PTY,shell 的回显经 PTY 绕回来再 `write` 进控件。这条"输入不经控件、输出才进控件"的分工,是终端和普通输入控件最本质的区别。
 
@@ -95,13 +95,13 @@ title: 031 · 原生终端应用:Widget 树 + PaintList 保留模式
    满行: newline_() → 触底 scroll_up_() 把整屏上移一行,顶行丢弃
 ```
 
-先维护语义层(字符 + 颜色索引),只在 `paint_to_list` 那一步翻译成绘制指令,这样换行、退格、清屏、滚动全都只是在廉价的字符数组上挪数据,代价极低。颜色用的是 ANSI 调色板索引(0..15 标准 16 色、16..231 的 6×6×6 立方、232..255 灰阶),`paint_to_list` 时再查 [`palette_color`](third_party/Cinux-GUI/core/widget/terminal.cpp#L19-L33) 翻成 XRGB8888 像素值。`cols_`/`rows_` 默认 80×25,但 cells_ 的 stride 固定是 `kMaxCols=120`——这样 `set_cols_rows` 把网格变小时不用重布局,只是少用几列。
+先维护语义层(字符 + 颜色索引),只在 `paint_to_list` 那一步翻译成绘制指令,这样换行、退格、清屏、滚动全都只是在廉价的字符数组上挪数据,代价极低。颜色用的是 ANSI 调色板索引(0..15 标准 16 色、16..231 的 6×6×6 立方、232..255 灰阶),`paint_to_list` 时再查 [`palette_color`](../../../third_party/Cinux-GUI/core/widget/terminal.cpp#L19-L33) 翻成 XRGB8888 像素值。`cols_`/`rows_` 默认 80×25,但 cells_ 的 stride 固定是 `kMaxCols=120`——这样 `set_cols_rows` 把网格变小时不用重布局,只是少用几列。
 
 ## 代码路线
 
 ### Widget 基类:三个虚 hook + 套娃树
 
-要做"窗口里能放不同内容",所有能画、能命中、能收事件的东西得共享一个虚接口。这就是 [`core/widget.hpp`](third_party/Cinux-GUI/core/widget.hpp#L41-L136) 的 `Widget`。它的核心是三个虚 hook:
+要做"窗口里能放不同内容",所有能画、能命中、能收事件的东西得共享一个虚接口。这就是 [`core/widget.hpp`](../../../third_party/Cinux-GUI/core/widget.hpp#L41-L136) 的 `Widget`。它的核心是三个虚 hook:
 
 ```cpp
 class Widget {
@@ -149,7 +149,7 @@ protected:
 
 这里有几个设计决定值得点破。
 
-**`flatten` 是非虚的框架入口,`paint_to_list` 才是子类填的虚 hook。** 这样 clip push/pop 和递归子控件由框架统一管,子类只管"画我自己",不用操心"我的祖先矩形是啥""我的孩子要不要递归"。看 [`core/widget.cpp`](third_party/Cinux-GUI/core/widget.cpp#L33-L43) 的实现就一目了然:
+**`flatten` 是非虚的框架入口,`paint_to_list` 才是子类填的虚 hook。** 这样 clip push/pop 和递归子控件由框架统一管,子类只管"画我自己",不用操心"我的祖先矩形是啥""我的孩子要不要递归"。看 [`core/widget.cpp`](../../../third_party/Cinux-GUI/core/widget.cpp#L33-L43) 的实现就一目了然:
 
 ```cpp
 void Widget::flatten(PaintList& list) const {
@@ -167,9 +167,9 @@ void Widget::flatten(PaintList& list) const {
 
 `clip_push` 把自己的矩形推进合成器的裁剪栈,`clip_pop` 弹出——合成器执行 cmd 时,每条 `fill_rect`/`text_glyph` 都会跟栈顶矩形求交,超出部分直接跳过。这就是"控件画不出祖先矩形外"的双层防御之一(另一层是 `collect_dirty` 只收自己的脏区)。
 
-**`hit_test` 默认按"子控件后画的在上、先命中"递归。** 看 [`widget.cpp`](third_party/Cinux-GUI/core/widget.cpp#L45-L56):children 从后往前(last-to-first)递归,因为后 add 的 child 画在上面、应该先被点中;都不命中才轮到自己。子类可以 override 成非矩形的命中形状(比如圆角按钮),或者像 Window 那样自定义命中逻辑(标题栏、关闭键、内容区各走各的)。
+**`hit_test` 默认按"子控件后画的在上、先命中"递归。** 看 [`widget.cpp`](../../../third_party/Cinux-GUI/core/widget.cpp#L45-L56):children 从后往前(last-to-first)递归,因为后 add 的 child 画在上面、应该先被点中;都不命中才轮到自己。子类可以 override 成非矩形的命中形状(比如圆角按钮),或者像 Window 那样自定义命中逻辑(标题栏、关闭键、内容区各走各的)。
 
-**`on_pointer`/`on_key` 默认 noop。** 老的、不需要响应输入的控件照样能跑;新控件 override 掉就自动接管了对应事件。注意键盘事件 `on_key` 收的是 [`KeycodePayload`](third_party/Cinux-GUI/core/event_payload.hpp#L41-L45)(ascii + scancode + modifiers 三字节),不是 030 那种 `KeyEvent`——这是因为事件要跨进程传输(087 的 `/dev/event0` 走的就是这套 wire layout),payload 必须 packed、定长。
+**`on_pointer`/`on_key` 默认 noop。** 老的、不需要响应输入的控件照样能跑;新控件 override 掉就自动接管了对应事件。注意键盘事件 `on_key` 收的是 [`KeycodePayload`](../../../third_party/Cinux-GUI/core/event_payload.hpp#L41-L45)(ascii + scancode + modifiers 三字节),不是 030 那种 `KeyEvent`——这是因为事件要跨进程传输(087 的 `/dev/event0` 走的就是这套 wire layout),payload 必须 packed、定长。
 
 **`invalidate` 是保留模式的"标脏"入口。** 控件改了状态(写了字、按了按钮、拖了窗口),不主动画,只调 `invalidate(Rect)` 把那块矩形 union 进自己的 `dirty_rect_`。真正的画在帧边界由根统一做。`dirty_self_` 初值是 `true`——控件构造时还没画过,首帧必画;之后 `clear_dirty` 把它清掉,空闲时就不再重画(idle → 0 flush)。
 
@@ -177,7 +177,7 @@ void Widget::flatten(PaintList& list) const {
 
 ### PaintList:绘制指令的有序清单
 
-控件不直接画像素了,那它产出的"我想画什么"住哪儿?就是 [`core/paint_list.hpp`](third_party/Cinux-GUI/core/paint_list.hpp#L109-L138) 的 `PaintList`——一张定长的绘制指令数组:
+控件不直接画像素了,那它产出的"我想画什么"住哪儿?就是 [`core/paint_list.hpp`](../../../third_party/Cinux-GUI/core/paint_list.hpp#L109-L138) 的 `PaintList`——一张定长的绘制指令数组:
 
 ```cpp
 class PaintList {
@@ -212,7 +212,7 @@ private:
 
 ### Compositor:遍历清单、批量落屏
 
-有了清单,谁来执行?就是 [`core/compositor.hpp`](third_party/Cinux-GUI/core/compositor.hpp#L40-L78) 的 `Compositor`。它的 `render` 遍历 `PaintList`、逐条 cmd 调对应的处理函数:
+有了清单,谁来执行?就是 [`core/compositor.hpp`](../../../third_party/Cinux-GUI/core/compositor.hpp#L40-L78) 的 `Compositor`。它的 `render` 遍历 `PaintList`、逐条 cmd 调对应的处理函数:
 
 ```cpp
 void Compositor::render(Surface& staging, const PaintList& list, const PsfFont& font,
@@ -249,7 +249,7 @@ void h_text_glyph(Surface& s, const PaintCmd& c, const PsfFont& font, const Clip
 
 ### TerminalWidget:字符网格 + ANSI + 脏行跟踪
 
-回到这一章的主角——[`core/widget/terminal.hpp`](third_party/Cinux-GUI/core/widget/terminal.hpp#L32-L97) 的 `TerminalWidget`。它继承 `Widget`,override 了三个 protected hook:`paint_to_list`(画)、`collect_dirty`(报告脏区)、`clear_dirty`(清脏)。它的全部"内存"就是几张并行数组加一个光标:
+回到这一章的主角——[`core/widget/terminal.hpp`](../../../third_party/Cinux-GUI/core/widget/terminal.hpp#L32-L97) 的 `TerminalWidget`。它继承 `Widget`,override 了三个 protected hook:`paint_to_list`(画)、`collect_dirty`(报告脏区)、`clear_dirty`(清脏)。它的全部"内存"就是几张并行数组加一个光标:
 
 ```cpp
 class TerminalWidget : public Widget {
@@ -306,7 +306,7 @@ private:
 
 **stride 固定是 `kMaxCols=120`,跟 `cols_` 解耦。** 默认 80 列,可窗口拉宽到 100 列就 `set_cols_rows(100, 25)`——`cols_` 变了,但 cells_ 的内存布局不变(还是 120 一行),只是末尾 20 列不用。这避免了 resize 时重布局的开销,代价是末尾未用的格子占一点内存:每个 cell 位置在三张并行数组里各 1 字节(`char` + `uint8_t fg` + `uint8_t bg` = 3 字节)× 50 行 × 20 列 ≈ 3 KB,无所谓。
 
-**`fg_colors_`/`bg_colors_` 存的是 ANSI 调色板**索引(0..255),不是 XRGB8888 像素值。索引到像素的翻译在 `paint_to_list` 才做——查 [`palette_color`](third_party/Cinux-GUI/core/widget/terminal.cpp#L19-L33):0..15 是 [`colors::kAnsiPalette`](third_party/Cinux-GUI/core/colors.hpp#L10) 的标准 16 色(黑红绿黄蓝品青白 + bright),16..231 是 6×6×6 立方(每通道取 `0` 或 `55+40*v`),232..255 是灰阶(`8+(idx-232)*10`)。这覆盖了 xterm-256color 的全套色,`ls --color`、彩色 prompt、vim/less 的高亮都能出来。**全程纯整数,无浮点**——这是 GUI 核心的一条铁律(swraster 用 Q8.8 定点也是同源)。
+**`fg_colors_`/`bg_colors_` 存的是 ANSI 调色板**索引(0..255),不是 XRGB8888 像素值。索引到像素的翻译在 `paint_to_list` 才做——查 [`palette_color`](../../../third_party/Cinux-GUI/core/widget/terminal.cpp#L19-L33):0..15 是 [`colors::kAnsiPalette`](../../../third_party/Cinux-GUI/core/colors.hpp#L10) 的标准 16 色(黑红绿黄蓝品青白 + bright),16..231 是 6×6×6 立方(每通道取 `0` 或 `55+40*v`),232..255 是灰阶(`8+(idx-232)*10`)。这覆盖了 xterm-256color 的全套色,`ls --color`、彩色 prompt、vim/less 的高亮都能出来。**全程纯整数,无浮点**——这是 GUI 核心的一条铁律(swraster 用 Q8.8 定点也是同源)。
 
 ### write / put_char_:字节如何落屏
 
@@ -376,7 +376,7 @@ void TerminalWidget::put_char_(char ch) {
 
 `dispatch_csi_` 支持的 final byte 是一个克制过的子集:`m`(SGR 设颜色)、`H`/`f`(光标定位)、`J`(擦屏)、`A`/`B`/`C`/`D`(光标上下左右一格)。为什么不做全?因为 shell 实际需要的就是这几样——`ls --color` 用 SGR、`clear` 用 `ESC[2J` + `ESC[H`、行编辑用光标移动。其他 CSI(擦行 `K`、滚屏 `S`/`T`、多参数定位)都是过度设计,明确不做。解析失败或不认识的序列,`dispatch_csi_` 走 `default: break`,`csi_len_` 已经被推进到序列末尾,不会把转义字节当普通字符画成乱码。
 
-SGR(`m`)是最复杂的一个,因为它支持多 code 序列(`38;5;N` 256 色、`1;31` 加粗红)。看 [`apply_sgr_`](third_party/Cinux-GUI/core/widget/terminal.cpp#L104-L148) 的实现:它先把 `csi_param_` 按 `;` 切成一个 `codes[16]` 数组,**然后遍历**,这样可以前瞻——`38;5;N` 需要看后面两个 code 才能定颜色,遍历到 `38` 就 `i+=2` 跳过 `5;N`。支持的 code 也是子集:`0`/`39` 同时重置 fg 到默认白(7)和 bg 到默认黑(0)、`49` 单独重置 bg、`30-37`/`90-97` 设 fg、`40-47`/`100-107` 设 bg、`38;5;N`/`48;5;N` 设 256 色。bold(1)、italic、truecolor(38;2;r;g;b)忽略——不是没用,是优先级低,真彩色需要 24-bit per cell,内存翻倍,先不做。
+SGR(`m`)是最复杂的一个,因为它支持多 code 序列(`38;5;N` 256 色、`1;31` 加粗红)。看 [`apply_sgr_`](../../../third_party/Cinux-GUI/core/widget/terminal.cpp#L104-L148) 的实现:它先把 `csi_param_` 按 `;` 切成一个 `codes[16]` 数组,**然后遍历**,这样可以前瞻——`38;5;N` 需要看后面两个 code 才能定颜色,遍历到 `38` 就 `i+=2` 跳过 `5;N`。支持的 code 也是子集:`0`/`39` 同时重置 fg 到默认白(7)和 bg 到默认黑(0)、`49` 单独重置 bg、`30-37`/`90-97` 设 fg、`40-47`/`100-107` 设 bg、`38;5;N`/`48;5;N` 设 256 色。bold(1)、italic、truecolor(38;2;r;g;b)忽略——不是没用,是优先级低,真彩色需要 24-bit per cell,内存翻倍,先不做。
 
 换行和触底滚动收口在 `newline_`:
 
@@ -395,7 +395,7 @@ void TerminalWidget::newline_() {
 
 ### paint_to_list:把字符网格翻译成绘制指令
 
-字符缓冲是语义层,真正产出绘制指令靠 [`paint_to_list`](third_party/Cinux-GUI/core/widget/terminal.cpp#L390-L418):
+字符缓冲是语义层,真正产出绘制指令靠 [`paint_to_list`](../../../third_party/Cinux-GUI/core/widget/terminal.cpp#L390-L418):
 
 ```cpp
 void TerminalWidget::paint_to_list(PaintList& list) const {
@@ -438,7 +438,7 @@ void TerminalWidget::paint_to_list(PaintList& list) const {
 
 ### collect_dirty / clear_dirty:只刷真正变化的行
 
-保留模式的核心红利就是脏区重绘。TerminalWidget override 了 [`collect_dirty`](third_party/Cinux-GUI/core/widget/terminal.cpp#L349-L379),只报告真正变化的矩形:
+保留模式的核心红利就是脏区重绘。TerminalWidget override 了 [`collect_dirty`](../../../third_party/Cinux-GUI/core/widget/terminal.cpp#L349-L379),只报告真正变化的矩形:
 
 ```cpp
 void TerminalWidget::collect_dirty(Region& sink) const {
@@ -487,7 +487,7 @@ void TerminalWidget::clear_dirty() {
 
 ### Window:复合控件,自画标题栏 + 持一个 content
 
-Window 也是 Widget,但它是个**复合控件**——自己画标题栏 + body,还持一个 content 子控件(终端就挂这儿)。看 [`core/widget/window.hpp`](third_party/Cinux-GUI/core/widget/window.hpp#L43-L123):
+Window 也是 Widget,但它是个**复合控件**——自己画标题栏 + body,还持一个 content 子控件(终端就挂这儿)。看 [`core/widget/window.hpp`](../../../third_party/Cinux-GUI/core/widget/window.hpp#L43-L123):
 
 ```cpp
 class Window : public Widget {
@@ -547,7 +547,7 @@ void Window::layout() {
 
 `paint_to_list` 自画标题栏:先一个圆角 body(`fill_round_rect`)、再一个标题色带(`fill_round_rect_corners` 只圆顶角)、标题文本(`text`)、右上角关闭键 "x"。这部分跟 030 的窗口骨架是一脉相承的,差别只在用的是 PaintList 指令而不是 Canvas 的 `draw_*`。
 
-`hit_test` 是自定义的,因为 Window 有好几个命中区:关闭键、resize grip、标题栏(可拖)、content 区。看 [`window.cpp`](third_party/Cinux-GUI/core/widget/window.cpp#L77-L96)——关闭键和 resize grip 命中返 `this`(Window 自己处理);标题栏命中也返 `this`(开始拖);content 区命中则递归 `content_->hit_test`(让子控件接住);空 content 区回退到 `this`。这就是复合控件的命中语义:父控件可以选择"这事我自己来"或者"让我的 content 处理"。
+`hit_test` 是自定义的,因为 Window 有好几个命中区:关闭键、resize grip、标题栏(可拖)、content 区。看 [`window.cpp`](../../../third_party/Cinux-GUI/core/widget/window.cpp#L77-L96)——关闭键和 resize grip 命中返 `this`(Window 自己处理);标题栏命中也返 `this`(开始拖);content 区命中则递归 `content_->hit_test`(让子控件接住);空 content 区回退到 `this`。这就是复合控件的命中语义:父控件可以选择"这事我自己来"或者"让我的 content 处理"。
 
 `on_pointer` 处理拖拽:down 在标题栏记 drag 起点、move 算 delta 调 `move_to_`(改 rect + relayout + 标脏 old + new)、up 清状态。这里有个保留模式特有的细节——**移动窗口要标 old footprint 脏**:
 
@@ -567,7 +567,7 @@ void Window::move_to_(int32_t x, int32_t y) {
 
 ### WindowManager:桌面根,自管 windows_ 数组
 
-WindowManager 也是 Widget,作桌面根。但它**不用 Widget 框架的 `children_`**——它自己管一个 `windows_[]` 数组。原因在 [`window_manager.hpp`](third_party/Cinux-GUI/core/widget/window_manager.hpp#L11-L20) 的头注释里说得很直白:框架的 `flatten` 是 self→children 顺序,无法表达"光标画在所有窗口之上"(`paint_to_list` 在 children 之前跑)。所以 WM 自管数组、在 `paint_to_list` 里手动按正确顺序画:
+WindowManager 也是 Widget,作桌面根。但它**不用 Widget 框架的 `children_`**——它自己管一个 `windows_[]` 数组。原因在 [`window_manager.hpp`](../../../third_party/Cinux-GUI/core/widget/window_manager.hpp#L11-L20) 的头注释里说得很直白:框架的 `flatten` 是 self→children 顺序,无法表达"光标画在所有窗口之上"(`paint_to_list` 在 children 之前跑)。所以 WM 自管数组、在 `paint_to_list` 里手动按正确顺序画:
 
 ```cpp
 void WindowManager::paint_to_list(PaintList& list) const {
@@ -585,9 +585,9 @@ void WindowManager::paint_to_list(PaintList& list) const {
 }
 ```
 
-顺序是 bg → 图标 → 窗口(底到顶),保证后加的窗口画在前面、图标可以被窗口遮住。**鼠标指针不在这张清单里**——它由 [`Compositor::render`](third_party/Cinux-GUI/core/compositor.cpp#L116-L186) 在跑完整张 cmd 清单**之后**补画:一张硬编码的 16×16 单色箭头位图(legacy CinuxOS 的指针资源),每个亮像素画成 1px 灰体 + 1px 白描边,坐标从 `set_cursor(cx, cy, has_cursor)` 拿(`Desktop::render` 调 `root->cursor_pos` 问 WM 鼠标在哪)。这样光标永远画在所有窗口之上、不用塞进 paint_to_list;连带一个副作用——光标的 footprint 必须由 WM 自己 union 进脏区(`process_pointer` 里 `invalidate(old cursor footprint) + invalidate(new)`,见上节"光标拖影"那条判据),否则它不在脏区里、`render` 的 outer clip 会把它跳过。
+顺序是 bg → 图标 → 窗口(底到顶),保证后加的窗口画在前面、图标可以被窗口遮住。**鼠标指针不在这张清单里**——它由 [`Compositor::render`](../../../third_party/Cinux-GUI/core/compositor.cpp#L116-L186) 在跑完整张 cmd 清单**之后**补画:一张硬编码的 16×16 单色箭头位图(legacy CinuxOS 的指针资源),每个亮像素画成 1px 灰体 + 1px 白描边,坐标从 `set_cursor(cx, cy, has_cursor)` 拿(`Desktop::render` 调 `root->cursor_pos` 问 WM 鼠标在哪)。这样光标永远画在所有窗口之上、不用塞进 paint_to_list;连带一个副作用——光标的 footprint 必须由 WM 自己 union 进脏区(`process_pointer` 里 `invalidate(old cursor footprint) + invalidate(new)`,见上节"光标拖影"那条判据),否则它不在脏区里、`render` 的 outer clip 会把它跳过。
 
-这个"自管数组、不用 children_"的决定带来一个连带义务:**`collect_dirty` 和 `clear_dirty` 都要 override,显式递归 `windows_[]`**。框架默认的 `Widget::collect_dirty` 只递归 `children_`,而 WM 的 `children_` 是空的——不 override 的话,Window 和它的 content TerminalWidget 的脏区永远到不了 root,屏幕就不更新。看 [`window_manager.cpp`](third_party/Cinux-GUI/core/widget/window_manager.cpp#L159-L191):
+这个"自管数组、不用 children_"的决定带来一个连带义务:**`collect_dirty` 和 `clear_dirty` 都要 override,显式递归 `windows_[]`**。框架默认的 `Widget::collect_dirty` 只递归 `children_`,而 WM 的 `children_` 是空的——不 override 的话,Window 和它的 content TerminalWidget 的脏区永远到不了 root,屏幕就不更新。看 [`window_manager.cpp`](../../../third_party/Cinux-GUI/core/widget/window_manager.cpp#L159-L191):
 
 ```cpp
 void WindowManager::collect_dirty(Region& sink) const {
@@ -618,7 +618,7 @@ void WindowManager::clear_dirty() {
 
 ### Desktop:把树驱动起来
 
-最后是把这一切串起来的 [`Desktop`](third_party/Cinux-GUI/core/widget.hpp#L147-L172)。它持根指针、一个 Compositor、一张 PaintList,驱动 `dispatch_pointer` / `dispatch_key` / `render`:
+最后是把这一切串起来的 [`Desktop`](../../../third_party/Cinux-GUI/core/widget.hpp#L147-L172)。它持根指针、一个 Compositor、一张 PaintList,驱动 `dispatch_pointer` / `dispatch_key` / `render`:
 
 ```cpp
 void Desktop::render(Surface& staging, const PsfFont& font, Region* dirty) {
@@ -662,7 +662,7 @@ void Desktop::render(Surface& staging, const PsfFont& font, Region* dirty) {
 
 ### terminal-host:把真 shell 接上
 
-理论讲完了,看实际怎么把 shell 接到这套 Widget 树上。就是 [`host/terminal_host_main.cpp`](third_party/Cinux-GUI/host/terminal_host_main.cpp)——一个 SDL2 主程序,搭一棵 `WindowManager → Window → TerminalWidget`,spawn `/bin/sh` 在 PTY 里跑,主循环把键盘喂进 PTY、把 PTY 输出喂给 TerminalWidget。看组装部分:
+理论讲完了,看实际怎么把 shell 接到这套 Widget 树上。就是 [`host/terminal_host_main.cpp`](../../../third_party/Cinux-GUI/host/terminal_host_main.cpp)——一个 SDL2 主程序,搭一棵 `WindowManager → Window → TerminalWidget`,spawn `/bin/sh` 在 PTY 里跑,主循环把键盘喂进 PTY、把 PTY 输出喂给 TerminalWidget。看组装部分:
 
 ```cpp
 WindowManager wm;
@@ -703,7 +703,7 @@ const int pid    = linux_spawn(nullptr, "/bin/sh", argv, &in_fd, &out_fd);
 fcntl(out_fd, F_SETFL, O_NONBLOCK);           // 非阻塞 drain
 ```
 
-`linux_spawn` 的实现在 [`host/posix_spawn.cpp`](third_party/Cinux-GUI/host/posix_spawn.cpp#L16-L40),用的是 `forkpty`——它 fork 出一个子进程、把子的 stdio 挂到一个 PTY 对上、父进程拿到 **master fd**(双向:write 进 shell stdin、read 出 shell stdout)。`*stdin_fd = *stdout_fd = master`——签名跟 pipe 一样(两个 fd),内部其实是 PTY。为什么用 PTY 而不是裸 pipe?因为 PTY 给 shell 一个**控制终端**,行编辑(左箭头、Home、历史)和 curses 程序(vim/less)才能用。裸 pipe 够 ls/echo,但 curses 会烂。`setenv("TERM", "xterm-256color")` 是配套——shell 判断"要不要发彩色"不只看是不是 tty,还看 `$TERM` 是不是色采的;设成 `xterm-256color` 让 `ls --color` 发 256 色 SGR。
+`linux_spawn` 的实现在 [`host/posix_spawn.cpp`](../../../third_party/Cinux-GUI/host/posix_spawn.cpp#L16-L40),用的是 `forkpty`——它 fork 出一个子进程、把子的 stdio 挂到一个 PTY 对上、父进程拿到 **master fd**(双向:write 进 shell stdin、read 出 shell stdout)。`*stdin_fd = *stdout_fd = master`——签名跟 pipe 一样(两个 fd),内部其实是 PTY。为什么用 PTY 而不是裸 pipe?因为 PTY 给 shell 一个**控制终端**,行编辑(左箭头、Home、历史)和 curses 程序(vim/less)才能用。裸 pipe 够 ls/echo,但 curses 会烂。`setenv("TERM", "xterm-256color")` 是配套——shell 判断"要不要发彩色"不只看是不是 tty,还看 `$TERM` 是不是色采的;设成 `xterm-256color` 让 `ls --color` 发 256 色 SGR。
 
 主循环把键盘和 PTY 接通:
 
@@ -776,7 +776,7 @@ shell 的输出才进 Widget 树——host 每帧 `read(out_fd)` 抽一段、`te
 
 **根因。** ANSI 的 BS(`\b` 0x08)语义只移光标、不擦字符;真正删字是 DEL(0x7f)。可早期版本的 TerminalWidget 把 BS 当退格擦字用——`put_char_` 见到 `\b` 就 `--cur_col_` **并擦掉那一格的 cell`**。shell 行编辑发左箭头是 `\x1b[D`(光标左移,纯移不删),可有些 shell 把 Backspace 映射成 `\b`——一旦 BS 被实现成"移 + 擦",每收到一个 `\b` 就吃一个字。
 
-**解法**。源码现在的实现严格分开:BS 只 `--cur_col_`,DEL 才 `--cur_col_` + 清 cell。注释里写得很清楚:`ANSI BS only moves the cursor; ash line-edit shifts the cursor with \b, so erasing here wiped every glyph it passed`。源码见 [`terminal.cpp`](third_party/Cinux-GUI/core/widget/terminal.cpp#L286-L304)。这个判据要带走:**控制字符的语义不能靠猜,得查 ANSI/VT100 规范——BS 移、DEL 擦,是两件事**。
+**解法**。源码现在的实现严格分开:BS 只 `--cur_col_`,DEL 才 `--cur_col_` + 清 cell。注释里写得很清楚:`ANSI BS only moves the cursor; ash line-edit shifts the cursor with \b, so erasing here wiped every glyph it passed`。源码见 [`terminal.cpp`](../../../third_party/Cinux-GUI/core/widget/terminal.cpp#L286-L304)。这个判据要带走:**控制字符的语义不能靠猜,得查 ANSI/VT100 规范——BS 移、DEL 擦,是两件事**。
 
 ### 光标移动留拖影:dirty 没覆盖旧光标行
 
@@ -797,7 +797,7 @@ for (uint32_t i = 0u; i < 2u; ++i) {
 }
 ```
 
-`clear_dirty` 里把 `prev_cursor_row_` 更新成这一帧的 `cur_row_`,下一帧 `collect` 就能找到"光标刚离开的那一行"。源码见 [`terminal.cpp`](third_party/Cinux-GUI/core/widget/terminal.cpp#L366-L379)。这个判据也通用:**任何"位置会移动的可视元素"都要把旧位置 + 新位置都标脏,否则旧位置必然留残影**——光标如此、拖动窗口如此(`move_to_` 标 old + new)、鼠标指针也如此(`process_pointer` 里 `invalidate` old footprint + new footprint)。
+`clear_dirty` 里把 `prev_cursor_row_` 更新成这一帧的 `cur_row_`,下一帧 `collect` 就能找到"光标刚离开的那一行"。源码见 [`terminal.cpp`](../../../third_party/Cinux-GUI/core/widget/terminal.cpp#L366-L379)。这个判据也通用:**任何"位置会移动的可视元素"都要把旧位置 + 新位置都标脏,否则旧位置必然留残影**——光标如此、拖动窗口如此(`move_to_` 标 old + new)、鼠标指针也如此(`process_pointer` 里 `invalidate` old footprint + new footprint)。
 
 ### 关窗留残影:remove_window 漏标 stale footprint
 
@@ -823,7 +823,7 @@ void WindowManager::remove_window(Window* w) {
 }
 ```
 
-源码见 [`window_manager.cpp`](third_party/Cinux-GUI/core/widget/window_manager.cpp#L39-L62)。这跟 Window 的 `move_to_` 标 old footprint 是同一类问题:**保留模式下,"一个会消失/会移动的东西让出来的那块"必须有人显式标脏**——即时模式全屏重画自动解决、保留模式必须显式。这判据在本章里已经是第三次出现了(光标拖影、窗口移动、窗口关闭),值得记死。
+源码见 [`window_manager.cpp`](../../../third_party/Cinux-GUI/core/widget/window_manager.cpp#L39-L62)。这跟 Window 的 `move_to_` 标 old footprint 是同一类问题:**保留模式下,"一个会消失/会移动的东西让出来的那块"必须有人显式标脏**——即时模式全屏重画自动解决、保留模式必须显式。这判据在本章里已经是第三次出现了(光标拖影、窗口移动、窗口关闭),值得记死。
 
 ## 保留模式 vs 即时模式:为什么换
 
@@ -917,6 +917,6 @@ cmake --build build -- terminal-host
 ## 参考
 
 - ECMA-48 — Control Functions for Coded Character Sets,5th edition(1991 年 6 月)。CSI 序列:`ESC[m` SGR 设色、`ESC[H` CUP 光标定位、`ESC[J` ED 擦屏、`ESC[A/B/C/D` 光标移动。38;5;N / 48;5;N 的 256 色扩展见 xterm 的 `ctlseqs`:https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
-- xterm 256 色 palette(0-15 标准 16 色、16-231 的 6×6×6 立方、232-255 灰阶),支撑 [`palette_color`](third_party/Cinux-GUI/core/widget/terminal.cpp#L19-L33) 的颜色翻译算式:https://github.com/termstandard/colors
+- xterm 256 色 palette(0-15 标准 16 色、16-231 的 6×6×6 立方、232-255 灰阶),支撑 [`palette_color`](../../../third_party/Cinux-GUI/core/widget/terminal.cpp#L19-L33) 的颜色翻译算式:https://github.com/termstandard/colors
 - Retained-mode vs immediate-mode GUI(保留模式 vs 即时模式的概念框架,支撑本章 PaintList 保留模式 vs 029 Canvas 即时模式的对比):https://en.wikipedia.org/wiki/Graphical_user_interface#Modes
-- Linux `forkpty(3)` / PTY(控制终端、行编辑、curses,支撑 [`linux_spawn`](third_party/Cinux-GUI/host/posix_spawn.cpp#L16-L40) 用 PTY 而非裸 pipe 的选择):https://man7.org/linux/man-pages/man3/forkpty.3.html
+- Linux `forkpty(3)` / PTY(控制终端、行编辑、curses,支撑 [`linux_spawn`](../../../third_party/Cinux-GUI/host/posix_spawn.cpp#L16-L40) 用 PTY 而非裸 pipe 的选择):https://man7.org/linux/man-pages/man3/forkpty.3.html
