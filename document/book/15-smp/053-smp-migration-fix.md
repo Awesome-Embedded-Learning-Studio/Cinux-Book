@@ -66,7 +66,7 @@ movl $-1, 96(%rdi)    # from->on_cpu = -1 (ctx save complete)
 __atomic_store_n(&next->on_cpu, static_cast<int>(percpu()->cpu_id), __ATOMIC_RELEASE);
 ```
 
-（`scheduler.cpp:281`。)认领之后才开始恢复它的 ctx。
+（`scheduler.cpp:467`,在 `schedule()` 主路径里。)认领之后才开始恢复它的 ctx。
 
 **挑的时候跳过「正在被别核存的」。** `pick_next` 扫队列时,跳过那些 `on_cpu != -1` 且不是本核的任务——它们正被别的核存上下文,现在取会撞车:
 
@@ -75,7 +75,7 @@ __atomic_store_n(&next->on_cpu, static_cast<int>(percpu()->cpu_id), __ATOMIC_REL
 // ctx save is still in flight on the other CPU.
 ```
 
-（`roundrobin.cpp:92`。)但有个细节:本核的任务**不跳过**。这是为了保住单核的语义——单核 `yield` 时 `next == prev`,如果不小心跳过了自己,就空转了。所以判据是「`on_cpu != -1 && on_cpu != 本核`」。
+（`roundrobin.cpp:113`。)但有个细节:本核的任务**不跳过**。这是为了保住单核的语义——单核 `yield` 时 `next == prev`,如果不小心跳过了自己,就空转了。所以判据是「`on_cpu != -1 && on_cpu != 本核`」。
 
 为了不让汇编去猜字段偏移,`process.hpp` 用 `static_assert` 把 `on_cpu` 钉死在 `sizeof(CpuContext)` 那个偏移上:
 
@@ -83,7 +83,7 @@ __atomic_store_n(&next->on_cpu, static_cast<int>(percpu()->cpu_id), __ATOMIC_REL
 static_assert(offsetof(Task, on_cpu) == sizeof(CpuContext), "on_cpu offset for context_switch.S");
 ```
 
-（`process.hpp:300`。)布局一变编译期就炸,汇编里那条 `96(%rdi)` 才永远对得上。
+（`process.hpp:326`。)布局一变编译期就炸,汇编里那条 `96(%rdi)` 才永远对得上。
 
 ## 为什么是「跳过」而不是「死等」
 

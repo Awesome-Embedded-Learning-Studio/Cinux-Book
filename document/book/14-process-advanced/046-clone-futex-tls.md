@@ -50,7 +50,7 @@ int64_t sys_futex(uint64_t uaddr, uint64_t op, uint64_t val, ...);
 
 ```cpp
 if (stack != 0)
-    *(uint64_t*)(child->kernel_stack_top - 96) = stack;   // 帧在栈顶固定位置
+    *(uint64_t*)(child->kernel_stack_top - kSyscallFrameSize) = stack;   // 帧在栈顶固定位置,kSyscallFrameSize=128,见 process_internal.hpp:49
 ```
 
 子线程经返回路径回到用户态时,`user_rsp` 就成了调用者给的栈、`user_rip` 是父的(共享代码)、`rax=0`(线程组里子线程 clone 返 0)。**帧在栈顶固定位置,直接按 `kernel_stack_top` 定位,不用从当前栈指针算偏移。**
@@ -59,7 +59,7 @@ if (stack != 0)
 
 ```bash
 grep -rn 'sys_clone\|sys_futex' kernel/syscall/
-grep -rn 'fs_base\|task_exit_cleartid\|CLONE_SETTLS\|CLONE_CHILD_CLEARTID\|CLONE_VM' kernel/proc/process.hpp kernel/proc/fork.cpp
+grep -rn 'fs_base\|task_exit_cleartid\|CLONE_SETTLS\|CLONE_CHILD_CLEARTID\|CLONE_VM' kernel/proc/process.hpp kernel/proc/fork.cpp kernel/proc/clone.cpp
 ```
 
 构建:

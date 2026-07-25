@@ -39,13 +39,13 @@ extern PageCache g_page_cache;
 
 数据结构是个哈希表,键是 `(Inode*, 页偏移)`,每条 `CachedPage` 持一对物理/虚拟地址。两个设计点:
 
-**复用 direct-map。** 缓存页的虚拟地址直接取 `phys + KERNEL_VMA`,和 037 的 `DmaPool` 同款——物理地址唯一决定虚拟地址,免单独分配。那条"direct-map 的页表项绝不 unmap"的纪律这里也适用。
+**复用 direct-map。** 缓存页的虚拟地址直接取 `phys + DIRECT_MAP_BASE`,和 037 的 `DmaPool` 同款——物理地址唯一决定虚拟地址,免单独分配。那条"direct-map 的页表项绝不 unmap"的纪律这里也适用。
 
 **`get_page` 锁外读、锁内插。** 命中的话,拿锁查到、bump 引用计数、返;**没命中**的话,**放锁**,分配一页 + 调 `inode->ops->read` 从盘读内容,再**重新拿锁**插进缓存。这一步是为了**杜绝持锁读盘的重入死锁**——拿着缓存锁去读盘,读盘路径要是再碰缓存就死锁了。
 
 ## page fault 变成文件感知
 
-Page Cache 落地后,fault handler(`kernel/arch/x86_64/exception_handlers.cpp`)多了一条文件分支:
+Page Cache 落地后,fault handler(`kernel/arch/x86_64/page_fault.cpp`)多了一条文件分支(`page_fault.cpp:284`):
 
 ```cpp
 } else if (vma->backing != nullptr && !anonymous) {
@@ -57,16 +57,18 @@ Page Cache 落地后,fault handler(`kernel/arch/x86_64/exception_handlers.cpp`)�
 
 匿名 VMA / 没 VMA 的路径**一字不改**——还是原来的零页/宽松映射。只有文件 VMA 走新的缓存路径。这种"加一条分支、不动老路径"的改法,把回归风险压到最低。
 
-## 一个埋着的雷:NX 位(留到安全弧)
+## 文件页给 NX 位:W^X 的延续
 
-文件 fault 路径本来想给"不可执行"的页设 NX 位(页表里的不可执行标志)——但**此刻 NXE(不可执行使能)还没开**(安全弧才做)。NXE 没开时,页表里的 NX 位是个**保留位**,设了它触发保留位异常,无限循环。所以文件路径**暂时不设 NX**,等安全弧开了 NXE 再补。**启用一项硬件特性之前,所有依赖它的代码都得先留着别上,否则保留位异常比普通 bug 难诊断。**
+文件 fault 路径给"不可执行"的页设了 NX 位(页表里的不可执行标志,bit 63)——这是 **W^X**(可写就不可执行、可执行就不可写)纪律的延续。但设 NX 有个**前置依赖**:`EFER.NXE`(不可执行使能)位必须先开。
+
+为什么是依赖而不是直接设?**NXE 没开时,页表里的 NX 位是个保留位**——设了它触发保留位异常,无限循环(`page_fault.cpp:431` 的保留位分支会把它判成 SIGSEGV,但在 EFER.NXE 开启之前这个位根本不该出现)。所以这条路径只在 **F9 安全弧把 NXE 打开之后**才生效(`page_fault.cpp:297` 注释:`F9 batch 2: NXE is on -- non-exec file pages are NX (bit 63 is valid now; was reserved-bit #PF before EFER.NXE)`)。**启用一项硬件特性之前,所有依赖它的代码都得先确认特性已开,否则保留位异常比普通 bug 难诊断。**
 
 ## 验证
 
 ```bash
 grep -n 'int64_t sys_brk\|brk_current\|brk_initial' kernel/syscall/sys_brk.hpp kernel/proc/process.hpp
 grep -rn 'class PageCache\|get_page\|g_page_cache\|hit_count' kernel/mm/page_cache.hpp
-grep -n 'backing != nullptr\|g_page_cache.get_page' kernel/arch/x86_64/exception_handlers.cpp
+grep -n 'backing != nullptr\|g_page_cache.get_page' kernel/arch/x86_64/page_fault.cpp
 ```
 
 构建:

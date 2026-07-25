@@ -37,8 +37,8 @@ title: 035 · 通电:让 fork/exec 真的能跑
   fork:子进程不返回 0      ──►  ① fork_child_trampoline(xor rax,rax;ret)
   CoW:handle_cow_fault 没接 #PF ──► ② handle_pf 调 handle_cow_fault
                                           + FLAG_USER 过滤(别复制内核大页)
-  fork:RBP 在 -O2 下不是帧指针 ──► ③ __attribute__((optimize("no-omit-frame-pointer")))
-  syscall:调度器不存 GS MSR  ──► ④ CpuContext +gs_base/kgs_base,context_switch rdmsr/wrmsr
+  fork:RBP 在 -O2 下不是帧指针 ──► ③ __attribute__((noinline)) + 全局 -fno-omit-frame-pointer
+  syscall:调度器不存 GS MSR  ──► ④ CpuContext +gs_base/kgs_base(035 当时),后改 fs_base per-task
   execve:页内偏移当段内偏移用 ──► ⑤ 分离 in_page_off / seg_offset(.rodata 全零)
   内核栈:溢出无检测         ──► ⑥ guard page(linker 区+检测+split_2mb_page;IST/运行时 unmap 未落地)
 ```
@@ -73,16 +73,22 @@ fork() 在造好子进程 TCB 后,把 `child->ctx.rip` 指向这个 trampoline�
 
 ### CoW 接进 #PF,以及为什么不能照抄父进程的内核映射
 
-034 的 `handle_cow_fault` 写好了但没人调。035 把它接进 [exception_handlers.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/exception_handlers.cpp) 的 `handle_pf`——当错误码表明「页在用 + 是写 + 来自用户态」(`(err&0x01)&&(err&0x02)&&(err&0x04)`),也就是「用户写了一张被 CoW 写保护的页」,就交给 `handle_cow_fault` 处理,成功则直接返回、不算致命错误:
+034 的 `handle_cow_fault` 写好了但没人调。035 把它接进 [page_fault.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/page_fault.cpp) 的 `handle_pf`(`handle_pf` 原本写在 `exception_handlers.cpp`,后来拆分独立成 `kernel/arch/x86_64/page_fault.cpp`)——当错误码表明「页在用 + 是写」(`(err&0x01)&&(err&0x02)`),就交给 `handle_cow_fault` 处理,成功则直接返回、不算致命错误:
 
 ```cpp
-// CoW fault: page is present but write-protected (fork marks shared pages CoW)
-if ((err & 0x01) && (err & 0x02) && (err & 0x04)) {
+// CoW fault: page is present but write-protected (fork marks shared pages
+// CoW).  Resolve for ANY writer (user OR kernel): Cinux syscalls directly
+// dereference user pointers (no copy_to_user yet), so the kernel legitimately
+// writes CoW user pages -- e.g. waitpid storing *status into the parent's
+// fork-CoW'd stack.
+if ((err & 0x01) && (err & 0x02)) {
     if (cinux::proc::handle_cow_fault(fault_addr)) {
         return;
     }
 }
 ```
+
+注意这里**不再**检查 `(err & 0x04)`(user 位):Cinux 的 syscall 目前直接解引用用户指针(还没有 `copy_to_user`),`waitpid` 把 `*status` 写进父进程 fork-CoW 出来的栈是合法的内核写,所以 CoW 必须为任意写者解析——条件只看 present+write,`handle_cow_fault` 内部再用 `FLAG_COW` 区分真 CoW 页和只读页。
 
 但通电时马上撞到一堵墙:034 的 `copy_page_table_level` 会把父进程 PML4[0..255] **整个**复制,包括不该复制的内核映射——1GB 的 MMIO 大页、2MB 的 RAM 大页。子进程拿到这些内核映射后,一旦写用户页触发 CoW,递归下去会去碰这些大页,行为全乱。修法是按 `FLAG_USER` **过滤**:只复制带用户位的条目,内核映射(无 `FLAG_USER`)直接跳过;遇到带 `FLAG_USER` 的 huge page,直接共享、永不 CoW(大页做 CoW 要拆页,这阶段不碰)。
 
@@ -105,16 +111,16 @@ void copy_page_table_level(uint64_t src_phys, uint64_t dst_phys, int level) {
 
 fork 要让子进程从「fork() 的返回点」恢复,就得知道 fork() 的返回地址在栈上的位置。035 的 fork 用 RBP(帧指针)来定位:`[RBP+8]` 是返回地址、`[RBP]` 是调用者的 RBP。问题是:项目用 `-DCMAKE_BUILD_TYPE=Release`,编译器开 `-O2`,**默认 `-fomit-frame-pointer`**——RBP 不再是帧指针,而是被当成通用寄存器,`[RBP+8]` 根本不是返回地址。
 
-于是 fork 读到的 `ctx.rsp` 成了垃圾值,子进程被调度进去后在一个用户空间地址上「运行」,一触发异常就 Double Fault。修法是把 fork 标记成「保留帧指针 + 不内联」:
+于是 fork 读到的 `ctx.rsp` 成了垃圾值,子进程被调度进去后在一个用户空间地址上「运行」,一触发异常就 Double Fault。修法是把 fork 标记成「不内联」,并保留帧指针:
 
 ```cpp
-__attribute__((optimize("no-omit-frame-pointer"), noinline))
+__attribute__((noinline))
 int fork(PidAllocator& pid_alloc) {
     ...
 }
 ```
 
-`optimize("no-omit-frame-pointer")` 让这一个函数保留帧指针、RBP 回归传统角色;`noinline` 防止它被内联(内联后函数边界消失,帧指针语义也跟着乱)。这是个很典型的「优化与底层假设冲突」的坑——内联汇编读到的寄存器,在优化模式下含义会变。
+`noinline` 防止它被内联(内联后函数边界消失,帧指针语义也跟着乱)。035 当时还在函数上单独写了 `optimize("no-omit-frame-pointer")` 来强制保留帧指针;后来项目改成**全局** `-fno-omit-frame-pointer` 编译(见 `fork.cpp` 里那条注释「globally with -fno-omit-frame-pointer, so the SysV layout」),逐函数的 `optimize` 属性就不再需要,只留 `noinline`。这是个很典型的「优化与底层假设冲突」的坑——内联汇编读到的寄存器,在优化模式下含义会变。
 
 ### GS MSR 跨切换:swapgs 的配对必须跨调度保持
 
@@ -122,29 +128,28 @@ int fork(PidAllocator& pid_alloc) {
 
 SYSCALL 入口用 `swapgs` 切换 GS,再 `movq %gs:0, %rsp` 从 per-CPU 数据页加载内核栈。`swapgs` 是成对操作:用户态时 `MSR_GS_BASE=0`、`MSR_KERNEL_GS_BASE=per-CPU 页`;syscall 进内核后两者交换。可 **MSR 是 CPU 全局寄存器,不随任务切换自动保存**。034 的 `context_switch` 只存 callee-saved,不存 GS MSR。于是:一个 shell 在 syscall 里阻塞(已经 swapgs 过)、调度器切到别的任务、再切回来——GS MSR 状态早被搅乱,子进程再 syscall 时 `gs:0` 读到 0,RSP 变 0,崩。
 
-修法是把两个 GS MSR 纳入上下文。`CpuContext` 从 64 字节扩到 80 字节,加 `gs_base`(offset 64)和 `kgs_base`(offset 72):
+修法是把 GS MSR 的状态纳入上下文。035 当时的做法是把两个 GS MSR(`MSR_GS_BASE` / `MSR_KERNEL_GS_BASE`)塞进 `CpuContext`,在 `context_switch` 里 `rdmsr`/`wrmsr` 存取。这个方向**后来被推翻了**(见本节末的演进说明),但 035 当时确实靠它让 syscall 跨切换正常。当前 `CpuContext` 的结构(`kernel/proc/cpu_context.hpp`)是:
 
 ```cpp
 struct alignas(16) CpuContext {
     uint64_t r15, r14, r13, r12, rbp, rbx, rsp, rip;   // 0..56(034 就有)
-    uint64_t gs_base;     // offset 64 — MSR_GS_BASE        ← 035 新增
-    uint64_t kgs_base;    // offset 72 — MSR_KERNEL_GS_BASE  ← 035 新增
+    uint64_t gs_base;     // offset 64 — MSR_GS_BASE          (RESERVED)
+    uint64_t kgs_base;    // offset 72 — MSR_KERNEL_GS_BASE   (RESERVED)
+    uint64_t fs_base;     // offset 80 — MSR_FS_BASE          per-thread TLS
 };
-static_assert(sizeof(CpuContext) == 80, "CpuContext must be 80 bytes");
+static_assert(sizeof(CpuContext) == 96, "CpuContext must be 96 bytes");
 ```
 
-[context_switch.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/context_switch.S) 在保存/恢复 callee-saved 之外,用 `rdmsr`/`wrmsr` 读写这两个 MSR(0xC0000101 / 0xC0000102):
+[context_switch.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/context_switch.S) 在保存/恢复 callee-saved 之外,用 `rdmsr`/`wrmsr` 读写 **`MSR_FS_BASE`(0xC0000100)**:
 
 ```asm
-/* Save GS MSRs */
-movq $0xC0000101, %rcx   ; rdmsr ; movl %eax,64(%rdi) ; movl %edx,68(%rdi)
-movq $0xC0000102, %rcx   ; rdmsr ; movl %eax,72(%rdi) ; movl %edx,76(%rdi)
-/* Restore GS MSRs */
-movl 64(%rsi),%eax ; movl 68(%rsi),%edx ; movq $0xC0000101,%rcx ; wrmsr
-movl 72(%rsi),%eax ; movl 76(%rsi),%edx ; movq $0xC0000102,%rcx ; wrmsr
+/* Save FS base (per-thread TLS pointer, MSR_FS_BASE) */
+movq $0xC0000100, %rcx   ; rdmsr ; movl %eax,80(%rdi) ; movl %edx,84(%rdi)
+/* Restore FS base */
+movl 80(%rsi),%eax ; movl 84(%rsi),%edx ; movq $0xC0000100,%rcx ; wrmsr
 ```
 
-fork 和 TaskBuilder::build 还得给新任务初始化「未交换」的 GS 状态:`gs_base=0`、`kgs_base=g_per_cpu.gs_page_vaddr`。这样子进程首次被切进来时,`wrmsr` 把 GS 设成正确的「内核态默认值」。`g_per_cpu.update_syscall_stack()` 在每次切换时刷新 `gs:0` 指向的内核栈顶。
+> **演进说明(重要)**:035 当时把 `gs_base`/`kgs_base` 当成 per-task 字段、在切换时 `rdmsr`/`wrmsr` 存取两个 GS MSR(0xC0000101 / 0xC0000102)。后来的 **F4-M3 P1-2** 重构把 GS 改成 **per-CPU**:`swapgs` 规约保证内核态全程 `MSR_GS_BASE` == 本 CPU 的 PerCpu 块,**不再**跨上下文切换存取 GS MSR。于是 `gs_base`/`kgs_base` 两个字段在结构体里保留(offset 64/72 仍占位),但被标注为 `RESERVED`、切换代码不再碰它们;真正跨任务保存的 MSR 只剩 `fs_base`(offset 80,per-thread TLS,F3-M2 起加的)。子进程也不再像 035 那样在 fork/TaskBuilder 里初始化 `kgs_base=g_per_cpu.gs_page_vaddr`(那个字段名后来也随 per-CPU 重构消失了)。所以读者**不要**照 035 的老办法把 GS 当 per-task 存——那是当时有效、后来被纠正的修法;现在的真理是「GS per-CPU、FS per-task」。`g_per_cpu.update_syscall_stack()` 在每次切换时刷新 `gs:0` 指向的内核栈顶。
 
 ### execve 页内偏移:为什么 .rodata 全是零
 
@@ -172,7 +177,7 @@ inode->ops->read(inode, phdr.p_offset + seg_offset,
 
 ### 栈溢出 guard page:#PF 要 IST,2MB huge page 是隐形杀手
 
-最后一堵墙最阴险:多终端测试在 QEMU 里**直接卡死、无任何串口输出**。换成堆分配就正常——典型的栈溢出。算一下对象大小:一个 `Terminal` 的 `screen_[25][80]` 缓冲约 24KB,加上几个 4KB 的 `Pipe` 缓冲,栈上轻松 ~64KB,而内核栈只有 16KB(`STACK_PAGES=4`)——溢出 4 倍。
+最后一堵墙最阴险:多终端测试在 QEMU 里**直接卡死、无任何串口输出**。换成堆分配就正常——典型的栈溢出。算一下对象大小:一个 `Terminal` 的 `screen_[25][80]` 缓冲约 24KB,加上几个 4KB 的 `Pipe` 缓冲,栈上轻松 ~64KB,而内核栈只有 8KB(`STACK_PAGES=2`)——溢出 8 倍。(注:`Terminal::screen_[25][80]` 是 tag-035 当时调试笔记里的对象名;后来 GUI 重写、Terminal 改走用户态 host,这名字已不在源码树,但栈溢出的定量结论不变——内核栈就是装不下几个 KB 级的栈上对象。)
 
 更糟的是:guard page 检测代码**早就写在 `handle_pf` 里,却从来没触发过**。`document/notes/035/stack_guard_page_debug.md` 把原因扒得很细:① 注释说「guard 区已 unmap」,但 `main_test` 里**根本没有 unmap 代码**(注释撒谎);② `#PF` 在 IDT 里 `ist=0`(无独立栈),栈溢出触发 #PF 时,CPU 往已溢出的栈 push 中断帧 → 再 #PF → Double Fault → Triple Fault → QEMU 静默重启;③ boot 栈用 **2MB huge page** 映射,`VMM::unmap` 是 4KB 粒度,unmap 不了 huge page 里的单页。笔记还给出了完整修法:linker 留 64KB guard 区、GDT 加 IST2 栈、IDT 让 `#PF` 用 `IST=2`、VMM 加 `split_2mb_page`、运行时 split+unmap。
 
@@ -200,7 +205,7 @@ inode->ops->read(inode, phdr.p_offset + seg_offset,
 
 ### 墙五:多终端测试静默卡死(stack_guard_page_debug)
 
-`test_multi_term_two_terminals_independent_pipes` 在 QEMU 里卡死、无串口输出,换堆分配就过——栈溢出(`Terminal` 的 `screen_` 缓冲 ~24KB + 几个 `Pipe` 缓冲,栈上 ~64KB,超 16KB 内核栈 4 倍)。但 guard page 检测代码早写了却不触发:注释说「已 unmap」其实没 unmap;`#PF` 没配 IST,溢出时 handler 用溢出栈二次崩;boot 栈是 2MB huge page,4KB 的 `unmap` 拆不动。笔记给出的完整修法(IST + split_2mb_page + 运行时 unmap)**在 tag 035 只落地了一半**:guard 区和检测代码进去了,但 `#PF` 仍是 IST=0、`split_2mb_page` 在 035 没有调用点——所以这条墙在 035 严格说还没彻底推倒,是「半通电」的一处。教训照样扎实:**注释说「已 unmap」不代表真 unmap;#PF 必须配 IST;2MB huge page 是隐形的 guard page 杀手**。
+`test_multi_term_two_terminals_independent_pipes` 在 QEMU 里卡死、无串口输出,换堆分配就过——栈溢出(`Terminal` 的 `screen_` 缓冲 ~24KB + 几个 `Pipe` 缓冲,栈上 ~64KB,超 8KB 内核栈 8 倍)。但 guard page 检测代码早写了却不触发:注释说「已 unmap」其实没 unmap;`#PF` 没配 IST,溢出时 handler 用溢出栈二次崩;boot 栈是 2MB huge page,4KB 的 `unmap` 拆不动。笔记给出的完整修法(IST + split_2mb_page + 运行时 unmap)**在 tag 035 只落地了一半**:guard 区和检测代码进去了,但 `#PF` 仍是 IST=0、`split_2mb_page` 在 035 没有调用点——所以这条墙在 035 严格说还没彻底推倒,是「半通电」的一处。教训照样扎实:**注释说「已 unmap」不代表真 unmap;#PF 必须配 IST;2MB huge page 是隐形的 guard page 杀手**。
 
 > 这五堵墙串起来,正好是「把 034 的 fork/exec 通电」的全部代价。034 那章我们说它是「搭好骨架、尚未通电」的半成品;035 这五条排错记录,就是「通电」两个字背后真实的血泪。每一条都不是编的,都在 `document/notes/035/` 里。
 
@@ -220,7 +225,7 @@ cmake --build build --target run-big-kernel-test
 
 覆盖 `run_fork_exec_tests`、`run_multi_terminal_tests` 等。这一层对 035 尤其重要——CoW 是否真在 #PF 里工作、子进程是否真返回 0、GS MSR 是否跨切换保持,都得在真 CPU + 真 syscall 上验。
 
-**第三层:端到端。** 035 不只是内核基础设施——同一个 tag 里,GUI 侧已经把它用起来了:[gui_init.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/gui/gui_init.cpp) 的 `create_shell_terminal()` 会在点 shell 图标时 `fork` + `execve("/bin/sh")`,把一个独立 shell 跑进用户态:
+**第三层:端到端。** 035 不只是内核基础设施——同一个 tag 里,GUI 侧已经把它用起来了:点 shell 图标时 `fork` + `execve("/bin/sh")`,把一个独立 shell 跑进用户态。tag-035 当时这套逻辑在内核侧的 `kernel/gui/gui_init.cpp`;后来 GUI 整体外置到用户态 host,对应代码现在在 [user/cinux_gui_host/main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/user/cinux_gui_host/main.cpp)(点 Shell 图标 → `fork` + `execve("/bin/sh")`,见其中的 `launch_shell`/shell spawn 路径)。
 
 ```bash
 cmake --build build --target run
@@ -230,7 +235,7 @@ cmake --build build --target run
 
 ## 下一站
 
-到 035,内核侧的 fork/exec 彻底通了:子进程会返回 0、CoW 在写时真的复制、syscall 跨切换正常、ELF 每页填对。地基夯实了——而且同一个 tag 里,这套能力就已经被 GUI 侧的 `create_shell_terminal` 用了起来(fork+execve 出独立 shell)。
+到 035,内核侧的 fork/exec 彻底通了:子进程会返回 0、CoW 在写时真的复制、syscall 跨切换正常、ELF 每页填对。地基夯实了——而且同一个 tag 里,这套能力就已经被 GUI 侧用了起来(fork+execve 出独立 shell;tag-035 在内核 GUI,后迁用户态 host)。
 
 下一章(035b),我们专门看 GUI 那半:怎么把「点图标 → fork+execve → 独立 shell」做成**多终端**——每个终端一对私有管道、一张私有 fd 表,多个 shell 进程互不串扰。那是整条 GUI/多任务弧的高潮。
 

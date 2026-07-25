@@ -133,7 +133,7 @@ ext2 的 inode 缓存以前是个**固定值数组** `Ext2CachedInode inode_cach
 
 ### 结构性修法:堆分配 + 引用计数驱动的回收
 
-[c6abfff / ext2_inode.cpp](kernel/fs/ext2/ext2_inode.cpp) 的 `get_cached_inode` 重写成:**条目是堆分配的对象,对象的地址是它的身份;只要有人引用(refcount > 0),它就绝不被移动、绝不被重填。**
+[c6abfff / ext2_inode.cpp](../../libs/ext2/ext2_inode.cpp) 的 `get_cached_inode` 重写成:**条目是堆分配的对象,对象的地址是它的身份;只要有人引用(refcount > 0),它就绝不被移动、绝不被重填。**
 
 ```cpp
 struct Ext2CachedInode {

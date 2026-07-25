@@ -90,9 +90,9 @@ public:
 
 ([ext2_common.hpp:24-41](libs/ext2/ext2_common.hpp#L24))
 
-在 `#PF` 里再撑一个 4KB 的栈数组就贴着栈底跑了;就算不在 `#PF` 里,文件读写的调用链也会深递归进 demand-page 路径,把 16KB 任务栈(`TaskBuilder::STACK_PAGES = 4`、AP 内核栈 `kStackPages = 4`,都见 `task_builder.hpp` / `ap_main.cpp`)也吃紧。所以选堆。
+在 `#PF` 里再撑一个 4KB 的栈数组就贴着栈底跑了;就算不在 `#PF` 里,文件读写的调用链也会深递归进 demand-page 路径,把 8KB 任务栈(`TaskBuilder::STACK_PAGES = 2`、AP 内核栈 `kStackPages = 4`,都见 `task_builder.hpp` / `ap_main.cpp`)也吃紧。所以选堆。
 
-> **关于那条源码注释里的一处不准**:注释里写的是「`#PF runs on IST2 which is only 4 KB (IRQ_STACK_PAGES=1)`」。这条常量在本仓里其实对不上——`kernel/arch/x86_64/idt.cpp` 的 IDT 路由表里 `#PF`(vector 14)的 `ist = 0`,只有 `#DF`(Double Fault)走 IST1(`gdt.hpp` 里 `DF_STACK_PAGES = 1`),内核里既没有 IST2、也没有 `IRQ_STACK_PAGES` 这个符号。换句话说,注释把 `#PF` 错归到 IST2、还编了个不存在的常量名。但**结论本身成立**——`#PF` 跑在主任务栈上,栈深受限、调用链还深,4KB buffer 不该再压栈。咱们这里把注释当动机引用,不为注释里那两个常量名背书;选堆的真正理由是上面那段「调用链深 + 栈余量宝贵」,而不是字面上那 4KB 的 IST。
+> **关于那条源码注释的常量名**:注释里写的是「`#PF runs on IST2 which is only 4 KB (IRQ_STACK_PAGES=1)`」。这个写法在「`#PF` 走不走 IST」上要分清——`kernel/arch/x86_64/idt.cpp` 的 IDT 路由表里 `#PF`(`ExceptionVector::PF`)的 `ist = 0`,即 `#PF` 不走 IST、跑在主任务栈上;而 IST2 那 4KB(`IRQ_STACK_PAGES = 1`,见 `gdt.hpp:115-119`)是给**硬件 IRQ**用的,不是给 `#PF`。所以注释把 `#PF` 跟 IST2 混着说,措辞不准。但**结论本身成立**——`#PF` 跑在主任务栈上(`ist = 0`),栈深受限、调用链还深,4KB buffer 不该再压栈。咱们这里把注释当动机引用,选堆的真正理由是上面那段「调用链深 + 栈余量宝贵」,而不是字面上那 4KB 的 IST。
 
 `KmBuf` 刻意做小,就这四个方法:
 
@@ -166,7 +166,7 @@ memcpy(&sb_, block_buf_, sizeof(Ext2Superblock));
     auto* src = block_buf_;
 ```
 
-([ext2_init.cpp:165-179](libs/ext2/ext2_init.cpp#L165))
+([ext2_init.cpp:165-181](libs/ext2/ext2_init.cpp#L165))
 
 把这些 init 期的单线程用法也强改成 `KmBuf` 不是不行,但徒增改动面和回归风险——它们本来就是安全的。留它、并在头文件注释里**明确标注**「`NOT SMP-safe`; SMP uses the dst/src overload」(三个单参版的文档分别在 [ext2.hpp:120](libs/ext2/ext2.hpp#L120) / [ext2.hpp:129](libs/ext2/ext2.hpp#L129) / [ext2.hpp:141](libs/ext2/ext2.hpp#L141)),比删干净更诚实:把「这块代码只能单线程用」明明白白写进注释,而不是删掉信号、留一个看起来人畜无害实则只能在特定时序下用的接口。
 
@@ -214,7 +214,7 @@ child_ptrs[idx2] = data_blk;
 if (!write_block(child_blk, child_buf.get())) { ... }
 ```
 
-([ext2_inode.cpp:446-453](libs/ext2/ext2_inode.cpp#L446))。源码注释把这点写得很直白([ext2_inode.cpp:376-381](libs/ext2/ext2_inode.cpp#L376)):「the old shared-block_buf_ code had to re-read the parent each time because zeroing the child clobbered the only buffer」。迁完之后 double-indirect 的两层 walk 各自一块 `KmBuf`(`di_buf` / `child_buf`),互不踩。
+([ext2_inode.cpp:449-455](libs/ext2/ext2_inode.cpp#L449))。源码注释把这点写得很直白([ext2_inode.cpp:378-384](libs/ext2/ext2_inode.cpp#L378)):「the old shared-block_buf_ code had to re-read the parent each time because zeroing the child clobbered the only buffer」。迁完之后 double-indirect 的两层 walk 各自一块 `KmBuf`(`di_buf` / `child_buf`),互不踩。
 
 **`read_disk_inode` / `write_disk_inode`——各自 `KmBuf`,顺手把 `locate_inode_block` 改成「只算术不读」**。这俩是 RMW 风格(读 inode 所在块、patch inode 槽、写回),原来共用 `block_buf_`,现在各自一块:
 
@@ -298,7 +298,7 @@ if (read_block(indirect_blk, unlink_ptr_buf_)) {
 }
 ```
 
-([ext2_directory.cpp:402-420](libs/ext2/ext2_directory.cpp#L402))
+([ext2_directory.cpp:402-424](libs/ext2/ext2_directory.cpp#L402))
 
 double-indirect 是嵌套 walk:外层数组得在「处理每个 child 数组」的整个过程中存活,所以**两个快照缓冲**——`unlink_ptr_buf_` 装顶层、`unlink_child_buf_` 装每个 child:
 
@@ -322,7 +322,7 @@ if (read_block(di_blk, unlink_ptr_buf_)) {
 }
 ```
 
-([ext2_directory.cpp:434-453](libs/ext2/ext2_directory.cpp#L434))
+([ext2_directory.cpp:429-457](libs/ext2/ext2_directory.cpp#L429))
 
 这里要诚实说一个**还没收尾的口子**。`unlink_ptr_buf_` / `unlink_child_buf_` 这两块快照是**实例级共享**的——它和 `block_buf_` 同病。快照治的是「同一次 unlink 内部,free 数据块的过程会 clobber 正在遍历的 indirect 数组」这一层 clobber(这是本章关心的、已经治住的那一类);但它**不治**「两个 CPU 同时对同一 ext2 实例上不同路径的文件并发 unlink」这一层——核对 `sys_unlink.cpp`,从 `parent->ops->unlink(...)` 进来到 `Ext2::unlink` 遍历 indirect,全程没有 per-inode / per-fs 的锁把 unlink 串行化;`Ext2::unlink` 自身在遍历这两块快照时也不持 `inode_cache_lock_` 或 `block_alloc_lock_`(`block_alloc_lock_` 只在 `free_block` 内部保护 bitmap RMW,覆盖不到快照缓冲)。也就是说:跨 inode 的并发 unlink 会让两个 CPU 同时读写这两块实例级快照,留下一个真实的残留 race。
 
@@ -382,7 +382,7 @@ ext2 搬独立库、治成 SMP-safe 的过程中,带出了两个 ext2 依赖、�
 virtual cinux::lib::ErrorOr<void> truncate(Inode* inode, uint64_t new_size);
 ```
 
-([inode.hpp:146-151](kernel/fs/inode.hpp#L146))。默认是 `NotImplemented`([inode.cpp:94](kernel/fs/inode.cpp#L94)),ext2 override 它来实现 `O_TRUNC` / `ftruncate` 的截断语义:
+([inode.hpp:92-97](kernel/fs/inode.hpp#L92))。默认是 `NotImplemented`([inode.cpp:30](kernel/fs/inode.cpp#L30)),ext2 override 它来实现 `O_TRUNC` / `ftruncate` 的截断语义:
 
 ```cpp
 cinux::lib::ErrorOr<void> Ext2FileOps::truncate(Inode* inode, uint64_t new_size) {
@@ -444,7 +444,7 @@ void PageCache::invalidate_range(cinux::fs::Inode* inode, uint64_t file_off, uin
 }
 ```
 
-([page_cache.hpp:127](kernel/mm/page_cache.hpp#L127) 声明,[page_cache.cpp:220-249](kernel/mm/page_cache.cpp#L220) 实现)
+([page_cache.hpp:129](kernel/mm/page_cache.hpp#L129) 声明,[page_cache.cpp:162-191](kernel/mm/page_cache.cpp#L162) 实现)
 
 这两个为什么是 ext2 的依赖而非独立 feature?因为新 ext2 的行为(`O_TRUNC` 走 `truncate`、write 直写盘)需要它们做前提,不补 ext2 就跑不对。补到 parity 是搬家的连带账,不是另外的功能扩展。
 

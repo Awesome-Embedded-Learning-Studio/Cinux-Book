@@ -95,6 +95,10 @@ title: 034 · fork / execve / waitpid:让进程能生、能换、能收尸
   ⚠ 但 034 里这条 #PF → handle_cow_fault 的路径【还没接上】:handle_pf 只做
      demand-paging(present=0 补页),写保护故障(present=1)直接 fatal_halt。
      handle_cow_fault 写好了却没人调用——真写一张 CoW 页会停机,要等后面接进 #PF。
+
+  〔后续注〕这条 CoW 路径此后已接通:当前源码 page_fault.cpp 的 handle_pf 里
+     已加入 if (cinux::proc::handle_cow_fault(fault_addr)) 短路返回。本节其余
+     描述以 034 tag 当时状态为准。
 ```
 
 execve 的流程是一条「拆旧建新」的流水线:
@@ -153,6 +157,8 @@ public:
 private:
     bool in_use_[PID_MAX + 1];           // 下标 0..256,0 不用
     int  next_hint_;                     // 下次从这儿开始找
+    mutable Spinlock lock_;              // 注:034 时无此字段;wholesale 后为
+                                         // SMP-safe 加锁(F-QA Q4d / DEBT-005)
 };
 ```
 
@@ -189,7 +195,7 @@ void PidAllocator::free(int pid) {
 
 ### fork:复制一切,除了该另起的那些
 
-`fork()` 在 [process.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/process.cpp),逻辑很直白——**先把父进程整个 TCB 抄过去,再把「不该继承的」逐个改掉**:
+`fork()` 在 [fork.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/fork.cpp),逻辑很直白——**先把父进程整个 TCB 抄过去,再把「不该继承的」逐个改掉**:
 
 ```cpp
 int fork(PidAllocator& pid_alloc) {
@@ -248,6 +254,8 @@ fork 如果老老实实把父进程的每一页用户内存都抄一份,代价�
 
 ```cpp
 void copy_page_table_level(uint64_t src_phys, uint64_t dst_phys, int level) {
+    // 注:034 时为三参签名;wholesale 后扩为五参,加了 virt_base 与
+    // cinux::mm::IVMAStore& vmas(见 fork.cpp / process_internal.hpp)。
     auto* src_table = phys_to_virt(src_phys);
     auto* dst_table = phys_to_virt(dst_phys);
     for (uint32_t i = 0; i < PT_ENTRIES; i++) {
@@ -306,7 +314,7 @@ bool handle_cow_fault(uint64_t fault_vaddr) {
 
 这里有两个**必须看清楚的边界**,都说明 034 的 CoW 是「搭好骨架、还没通电」。
 
-第一,**`handle_cow_fault` 没接进 `#PF` handler**。034 的 [exception_handlers.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/exception_handlers.cpp) 里 `handle_pf` 只做 demand-paging——错误码的 present 位为 0(页不存在)时补一页,其余(包括 CoW 的写保护故障,present=1)一律 `dump_registers` + 打一行 `[FATAL] Page Fault` + `fatal_halt`。也就是说,真去写一张被 fork 标成只读 + COW 的页,在 034 会**直接停机**,而不是走 `handle_cow_fault`。这个函数写好了、却没有任何调用方——典型的「为下一步备好、本步未启用」的死代码。把它真正接进 `#PF`、让它端到端跑起来,是接下来的活。
+第一,**`handle_cow_fault` 没接进 `#PF` handler**。034 的 [page_fault.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/page_fault.cpp) 里 `handle_pf` 只做 demand-paging——错误码的 present 位为 0(页不存在)时补一页,其余(包括 CoW 的写保护故障,present=1)一律 `dump_registers` + 打一行 `[FATAL] Page Fault` + `fatal_halt`。也就是说,真去写一张被 fork 标成只读 + COW 的页,在 034 会**直接停机**,而不是走 `handle_cow_fault`。这个函数写好了、却没有任何调用方——典型的「为下一步备好、本步未启用」的死代码。把它真正接进 `#PF`、让它端到端跑起来,是接下来的活。
 
 第二,**CoW 没有引用计数**。`copy_page_table_level` 只是把双方改成共享 + 只读 + COW,并不记「这张物理页现在被几方共享」;`handle_cow_fault` 每次都无条件分配新页 + 复制,也不更新「另一方」的 PTE。就算把上一条接上,这套也只够「一次 fork、父子各写各的」用——多方共享(fork 之 fork)和原始页回收都不保证。
 
@@ -314,7 +322,7 @@ bool handle_cow_fault(uint64_t fault_vaddr) {
 
 ### execve:换掉整个进程映像,只留下 PID
 
-`execve` 是「换」。它读一个 ELF 程序,把当前进程的用户空间**整个换掉**,但 PID、父进程、调度关系**原封不动**。核心是 [process.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/process.cpp) 里那条流水线,前面设计图已经画了,这里看最精华的两段:清旧映像、铺新段。
+`execve` 是「换」。它读一个 ELF 程序,把当前进程的用户空间**整个换掉**,但 PID、父进程、调度关系**原封不动**。核心是 [execve.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/execve.cpp) 里那条流水线,前面设计图已经画了,这里看最精华的两段:清旧映像、铺新段。
 
 清旧映像靠 `clear_user_mappings`,**手工**把用户半区(PML4[0..255])的四级页表走一遍,把数据页和页表页逐层释放:
 
@@ -374,7 +382,7 @@ for (uint16_t i = 0; i < phnum; i++) {
 task->ctx.rip = ehdr->e_entry;
 ```
 
-注意 execve 在 034 **只**设了入口地址,**没有**搭用户栈、也**没有**把 `argv`/`envp` 铺进去(参数在 `sys_execve` 里被 `(void)` 掉了)。真正跳进新程序的用户态(`jump_to_usermode`)是调用方的活,这一章把映像铺好、入口备好就交差。把 argv/envp 和用户栈补上是后续的事——这也是为什么 [process.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/process.hpp) 的注释会说「caller is responsible for jumping to the new entry point」。
+注意 execve 在 034 **只**设了入口地址,**没有**搭用户栈、也**没有**把 `argv`/`envp` 铺进去(参数在 `sys_execve` 里被 `(void)` 掉了)。真正跳进新程序的用户态(`jump_to_usermode`)是调用方的活,这一章把映像铺好、入口备好就交差。把 argv/envp 和用户栈补上是后续的事——这也是为什么 [execve.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/execve.hpp) 的注释会说「caller is responsible for jumping to the new entry point」。
 
 > ELF 校验本身在 [elf_types.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/elf_types.cpp) 的 `validate_elf_header` 里:魔数 `0x7F 'E' 'L' 'F'`、类别 64 位、小端、机型 x86-64、类型 `ET_EXEC`、program header 偏移/尺寸合法、至少一个 program header。任一不过就返回对应的 `ElfValidateResult`,再映射成 `ExecveResult::BadElf*`(统一归到 `-ENOEXEC`,即 -8)。`Elf64_Ehdr` 恰好 64 字节、`Elf64_Phdr` 恰好 56 字节,都用 `static_assert` 钉死——packed 结构体的尺寸绝不能错,host 单测也专门验这两个数。
 
@@ -465,6 +473,9 @@ syscall_register(SyscallNr::SYS_waitpid, sys_waitpid);
 struct alignas(16) CpuContext {
     uint64_t r15, r14, r13, r12, rbp, rbx;   // 只存 callee-saved
     uint64_t rsp, rip;
+    // 注:034 时就是上面 8 个字段(64 字节);wholesale 后又加了
+    // gs_base / kgs_base / fs_base 三个 TLS 基址字段(sizeof 扩到 96)。
+    // 但无论哪版,都没有 rax 字段——下面的论证不变。
 };
 ```
 

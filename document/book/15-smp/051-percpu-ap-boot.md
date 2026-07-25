@@ -43,9 +43,9 @@ title: 051 · per-CPU 架构与 LAPIC IPI
 
 本章只落协议的 **BSP 发令侧**——三个 IPI 接口(`local_apic.hpp`):
 
-- `send_init(dest)`(L90):ICR low = `kIcrModeInit | kIcrLevelAssert`,通知 AP "准备启动";
-- `send_sipi(dest, vector)`(L93):ICR low = `vector | kIcrModeSipi | kIcrLevelAssert`,vector=0x08 → AP 从物理 0x8000 起跑;
-- `send_ipi(dest, vector)`(L88):普通固定向量 IPI(多核调度的 reschedule 用它,052)。
+- `send_init(dest)`(L110):ICR low = `kIcrModeInit | kIcrLevelAssert`,通知 AP "准备启动";
+- `send_sipi(dest, vector)`(L113):ICR low = `vector | kIcrModeSipi | kIcrLevelAssert`,vector=0x08 → AP 从物理 0x8000 起跑;
+- `send_ipi(dest, vector)`(L104):普通固定向量 IPI(多核调度的 reschedule 用它,052)。
 
 ICR 是 64 位、分两个 32 位寄存器:high(L45,`kRegIcrHigh=0x310`)放目的 APIC ID(bits 24-31),low(L44,`kRegIcrLow=0x300`)放向量 + 投递模式 + flags。写 low 触发发送。
 

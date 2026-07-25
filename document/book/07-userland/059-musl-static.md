@@ -27,7 +27,7 @@ SYS_brk   = 12,   // set program break / heap end (F2-M3)
 SYS_chdir = 80,   // change working directory (was wrongly 12, collided with brk)
 ```
 
-（`syscall_nums.hpp:33`/`:51`。）注册的时候 `chdir` 在前、`brk` 在后,`brk` 把 slot 12 **覆盖**了——`chdir` 实际不可达,shell 的 `cd` 发 syscall 12,命中的是 `sys_brk`(坏的)。Linux 里 chdir 是 80、brk 是 12,改成 `SYS_chdir = 80` 就对了。这是个潜伏的真 bug:`cd` 一直是坏的,只是没人盯着它「为什么 cd 不生效」深究。
+（`syscall_nums.hpp:35`/`:68`。）注册的时候 `chdir` 在前、`brk` 在后,`brk` 把 slot 12 **覆盖**了——`chdir` 实际不可达,shell 的 `cd` 发 syscall 12,命中的是 `sys_brk`(坏的)。Linux 里 chdir 是 80、brk 是 12,改成 `SYS_chdir = 80` 就对了。这是个潜伏的真 bug:`cd` 一直是坏的,只是没人盯着它「为什么 cd 不生效」深究。
 
 > **号表的单一事实源。** 用户侧那个 `user/libc/syscall.cpp` 不硬编码号,而是 `#include "kernel/syscall/syscall_nums.hpp"` 直接用 `SyscallNr::SYS_chdir`。改 enum 一处,内核和用户壳自动同步(只要全量重编)。这样不会再出现「内核改了号、用户壳没跟上」的漂移。
 

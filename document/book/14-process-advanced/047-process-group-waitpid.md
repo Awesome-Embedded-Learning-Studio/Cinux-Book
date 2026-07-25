@@ -27,13 +27,13 @@ title: 047 · 进程组与 waitpid 阻塞
 
 这条链远超"给 waitpid 加个阻塞"——所以这一章**拆成两步降风险**:先把"僵尸契约"(exit 留僵尸 + 调度器跳僵尸)做对,再上 waitpid 阻塞 + 唤醒。**改默认阻塞之前,必须 grep 全部 waitpid 调用点,确认它们都能处理"子进程还没退出"的情况**(否则会实打实地挂死在那里)。
 
-> 一个调度器的坑:`Scheduler::current()` 读的是一个**静态变量**,不是 per-CPU 的那个。测试里如果要设当前任务,必须用 `Scheduler::set_current`(两个都设),不能只设 per-CPU 的——否则经过 `current()` 的路径(waitpid、killpg 都用)会读到旧值。
+> 一个调度器的坑(自 M4-1 起 SMP 化):每个 CPU 各有独立的 `current`,`Scheduler::current()` 和 `Scheduler::set_current()` 读写的是**本 CPU 的同一个 per-CPU 槽** `percpu()->current`——并没有一个全局静态 `current`。所以测试里要设当前任务,用 `set_current` 就行(它直接写 `percpu()->current`);别假设存在一个跨 CPU 共享的静态 `current`,否则经过 `current()` 的路径(waitpid、killpg 都用)在别的 CPU 上会读到另一份旧值。
 
 ## 验证
 
 ```bash
 grep -rn 'killpg\|setpgid\|setsid\|pgid\|session_leader' kernel/proc/signal.hpp kernel/proc/process_group.cpp kernel/proc/process.hpp
-grep -rn 'Zombie\|waiting_for_child\|WNOHANG' kernel/proc/ | grep -v test | head
+grep -rn 'Zombie\|wait_next\|wait_queue_head\|WNOHANG' kernel/proc/ | grep -v test | head
 ```
 
 构建:

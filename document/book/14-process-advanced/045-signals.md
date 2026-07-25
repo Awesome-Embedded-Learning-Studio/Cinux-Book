@@ -40,18 +40,21 @@ handler 的返回地址指向**栈上**写的一段 `int $0x80`(加 nop 填满 8
 
 信号框架立好,把它接到三个会产生信号的点:
 
-- **缺页 → SIGSEGV**:042 那里,用户态访问没 VMA 的区域原来是 `exit_current` 直接杀;现在改成 `signal_send(SIGSEGV)` + 返回。中断路径的信号检查会投递它——于是它能被自定义 handler 接住,或按默认动作(终止)。**042 的"直接杀"升级成了"投个能被接住的信号"。**
+- **缺页 → SIGSEGV**:042 那里,用户态访问没 VMA 的区域原来是 `exit_current` 直接杀;现在改成 `signal_force_send(kSigsegv)` + 返回(同步 fault 用 force 版,绕过屏蔽位——否则进程把自己屏蔽卡死,陷入死循环)。中断路径的信号检查会投递它——于是它能被自定义 handler 接住,或按默认动作(终止)。**042 的"直接杀"升级成了"投个能被接住的信号"。**
 - **子进程退出 → SIGCHLD**:子进程 `exit` 之前,给父进程投 SIGCHLD(默认动作是忽略,不杀父)。父进程因此能知道"自己的子进程死了"。
 - **管道断裂 → SIGPIPE**:`write` 一个读端已关的管道失败时,给自己投 SIGPIPE。
 
 ## 验证
 
 ```bash
-# 投递三件套 + syscall
-grep -rn 'signal_send\|signal_pick_deliverable\|signal_check_and_deliver\|signal_setup_frame' kernel/proc/signal.cpp
+# 投递三件套(send/pick/deliver 在 signal.cpp;setup_frame 单独在 signal_frame.cpp)
+grep -rn 'signal_send\|signal_pick_deliverable\|signal_check_and_deliver' kernel/proc/signal.cpp
+grep -rn 'signal_setup_frame' kernel/proc/signal_frame.cpp
 grep -rn 'sys_kill\|sys_rt_sigaction\|sys_rt_sigprocmask' kernel/syscall/sys_signal.hpp
 # 缺页改投 SIGSEGV(对照 042 的 exit_current)
-grep -n 'SIGSEGV\|signal_send' kernel/arch/x86_64/exception_handlers.cpp
+# 注意:缺页 handler(handle_pf)已从 exception_handlers.cpp 拆出 page_fault.cpp,
+# 真正的投递点在那里的 signal_force_send(同步 fault 用 force 版,绕过屏蔽位)
+grep -n 'SIGSEGV\|signal_force_send' kernel/arch/x86_64/page_fault.cpp
 ```
 
 构建:

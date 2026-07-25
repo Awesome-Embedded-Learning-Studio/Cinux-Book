@@ -51,7 +51,7 @@ struct TaskSnapshot {
 
 加一个 accessor `signal_snapshot_task(pid, TaskSnapshot& out)`(`signal.hpp:211`):在 `g_registry_lock` 下找到 task、把字段**拷进 snapshot**(name 逐字节拷、截断到 `kTaskNameMax-1`,对齐 Linux `TASK_COMM_LEN`),返回 bool(找到)。锁一释放,snapshot 是个自包含的 POD,跟原 task 的死活彻底脱钩。
 
-ProcFS 的 read 改走 snapshot:`ProcStatFileOps::read` / `ProcCmdlineFileOps::read` 不再 `find_by_pid` 拿裸指针,改 `TaskSnapshot snap; signal_snapshot_task(pid, snap)`;`format_proc_stat` / `format_proc_cmdline` 的签名从 `const Task*` 改成 `const TaskSnapshot&`(`procfs_content.hpp:40`)。
+ProcFS 的 read 改走 snapshot:`ProcStatFileOps::read` / `ProcCmdlineFileOps::read` 不再 `find_by_pid` 拿裸指针,改 `TaskSnapshot snap; signal_snapshot_task(pid, snap)`;`format_proc_stat` / `format_proc_cmdline` 的签名从 `const Task*` 改成 `const TaskSnapshot&`(`procfs_content.hpp:59,65`)。
 
 > name 为什么按**字节**拷,而不是拷那个 `const char*` 指针?现在 `Task::name` 是「static storage, not owned」(全字面量),指针其实不悬。但这次修复的教训恰恰是「别信赖过时的不释放契约」——今天 name 是 static,明天可能改堆存(动态建 task 名),到时候拷指针就悬了。多花 16 字节栈按字节拷,把这个未来风险也堵了。代价极小,防御明确。
 

@@ -53,7 +53,7 @@ if (g_ap_test_selfcheck_fn != nullptr) {
 
 ## 统一入口:别让人忘了跑 -smp 那条腿
 
-戳穿空转之后,还得防「人忘了跑」。原来单核 `run-kernel-test` 和 `run-kernel-test-smp` 是两个目标,很容易只跑前者、把后者忘了(空转的 smp 腿跑了也白跑,但至少得跑)。这一步加了个**统一入口** `run-kernel-test-all`(`qemu.cmake:355`):一条命令先跑单核腿、再跑 `-smp 2` 腿(后者真 boot AP + 回读)。CI 和默认验证都切到这个统一入口,「忘了跑 SMP 变体」这个人为漏洞就堵上了。
+戳穿空转之后,还得防「人忘了跑」。原来单核 `run-kernel-test` 和 `run-kernel-test-smp` 是两个目标,很容易只跑前者、把后者忘了(空转的 smp 腿跑了也白跑,但至少得跑)。这一步加了个**统一入口** `run-kernel-test-all`(`qemu.cmake:583`):一条命令先跑单核腿、再跑 `-smp 2` 腿(后者真 boot AP + 回读)。CI 和默认验证都切到这个统一入口,「忘了跑 SMP 变体」这个人为漏洞就堵上了。
 
 ## 首故障捕获:崩了也得留个全尸
 
@@ -67,10 +67,10 @@ void handle_gp(InterruptFrame* frame) {
     capture_first_gp(frame);   // 先把首 #GP 的 rip/rsp 送 debugcon,再干别的
     ...
 }
-// handle_pf 同理(capture_first_pf,解码 err 的 P/W/U/RSV/I 位)
+// page_fault.cpp:handle_pf 同理(:108 调 capture_first_pf,解码 err 的 P/W/U/RSV/I 位)
 ```
 
-（`exception_handlers.cpp:179`/`:197`,实现在 `fault_diag.cpp`,`>>> FIRST #GP rip=...` 在 `:59`。）debugcon 是一条「不经内存、不经调度器、不经任何可能崩的东西」的纯 IO 通道——`out %al, $0xE9` 就把一个字节送出去,它永远活着。所以哪怕后续 `kprintf` 自己 #PF、哪怕 `%gs` 损坏连环 #GP,**第一个 fault 的 rip/rsp/错误码已经稳稳落在 debug.log 里了**,不会被覆盖。`capture_first_gp/pf` 还带「只捕获一次」的逻辑(后续递归的 frame 直接跳过),保证你看到的就是首故障。
+（`exception_handlers.cpp:232`/`:235`,`handle_gp` 进来第一件事就是 `capture_first_gp(frame)`;实现在 `fault_diag.cpp`,`>>> FIRST #GP rip=...` 在 `:59`。）debugcon 是一条「不经内存、不经调度器、不经任何可能崩的东西」的纯 IO 通道——`out %al, $0xE9` 就把一个字节送出去,它永远活着。所以哪怕后续 `kprintf` 自己 #PF、哪怕 `%gs` 损坏连环 #GP,**第一个 fault 的 rip/rsp/错误码已经稳稳落在 debug.log 里了**,不会被覆盖。`capture_first_gp/pf` 还带「只捕获一次」的逻辑(后续递归的 frame 直接跳过),保证你看到的就是首故障。
 
 > **这条和上一章的 #DF 串得上。** 上一章(059)那个 `jump_to_usermode` #DF,之所以能定位,靠的就是这类「在递归崩之前留住首故障」的诊断——#DF 是「#PF 推栈失败」的产物,首 #PF 的现场最容易丢。把首故障 dump 到一个崩不掉的通道,是调试这类连环崩的通用招。
 

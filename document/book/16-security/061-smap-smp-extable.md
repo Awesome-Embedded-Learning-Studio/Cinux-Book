@@ -30,7 +30,7 @@ swapgs
 stac                # set AC: handler may touch user memory
 ```
 
-(`syscall.S:57`。)二是中断入口,三个 ISR 宏各挂一对,而且只在「这个中断是从用户态进来的」分支里 `stac`(跟 `swapgs` 同条件),内核态中断继承当前 AC——这点上一章解释过,是为了不破坏嵌套里正在进行的 `copy_from_user`。
+(`syscall.S:66`。`stac` 原挂在该 `swapgs` 下一行,现已注释,见 :67。)二是中断入口,三个 ISR 宏各挂一对,而且只在「这个中断是从用户态进来的」分支里 `stac`(跟 `swapgs` 同条件),内核态中断继承当前 AC——这点上一章解释过,是为了不破坏嵌套里正在进行的 `copy_from_user`。
 
 单核下这套为什么没毛病?因为只有一个 CPU。AC 在那个核上 `stac` 设上了,就一直在,直到某个出口 `clac`。任务切来切去都在同一个核,RFLAGS 是同一份。
 
@@ -111,7 +111,7 @@ accessor 就位,就能把上一章那个「入口级全局 stac」撤了。改�
 # stac  (P3: global STAC removed -- SMAP real; user mem only via accessor stac)
 ```
 
-(`syscall.S:61`、`interrupts.S:75`、`interrupts.S:173`。)出口的 `clac` 留着(无害,AC 本来就关着)。撤完之后,内核默认 AC=0,任何裸解引用用户指针都是 bug、都会被 SMAP 拦(真机/TCG 下)。合法的访问全部走 accessor 的 `stac` 小窗。这就是「SMAP 真生效」——不是「入口放行一大片」,是「除了 accessor 那扇小窗,哪都不放行」。
+(`syscall.S:67`、`interrupts.S:75`、`interrupts.S:191`、`interrupts.S:307`——三个 ISR 宏各挂一对,共三处。)出口的 `clac` 留着(无害,AC 本来就关着)。撤完之后,内核默认 AC=0,任何裸解引用用户指针都是 bug、都会被 SMAP 拦(真机/TCG 下)。合法的访问全部走 accessor 的 `stac` 小窗。这就是「SMAP 真生效」——不是「入口放行一大片」,是「除了 accessor 那扇小窗,哪都不放行」。
 
 ## 修法一的载体:syscall 切两层
 
@@ -228,7 +228,9 @@ void handle_pf(InterruptFrame* frame) {
 }
 ```
 
-(`exception_handlers.cpp:198`。)读 CR2 之后、demand-page 之前,先判两件事:**是不是内核态 fault**(`cs & 3 == 0`)、**故障 RIP 命不命中表**。都满足,就把 `frame->rip` 改成 fixup,直接 return。`iretq` 一弹,执行就从 fixup 接着跑——fixup 干的是 `clac`(fault 时 AC 还是 1,得关窗,不然 AC 泄漏成 SMAP 旁路)+ 清 ok,accessor 返回 false,syscall 拿到 false 返回 `-EFAULT`。
+(`page_fault.cpp:74`。)`handle_pf` 已从 `exception_handlers.cpp` 拆出,独立成 `page_fault.cpp`,这是该 tag 当时结构的实情。读 CR2 之后、demand-page 之前,先判两件事:**是不是内核态 fault**(`cs & 3 == 0`)、**故障 RIP 命不命中表**。都满足,把 `frame->rip` 改成 fixup,直接 return。`iretq` 一弹,执行就从 fixup 接着跑——fixup 干的是 `clac`(fault 时 AC 还是 1,得关窗,不然 AC 泄漏成 SMAP 旁路)+ 清 ok,accessor 返回 false,syscall 拿到 false 返回 `-EFAULT`。
+
+> 上面这段代码为讲解已简化。真实实现还多一层 `should_demand_page` 先查:若 fault 落在合法用户 VMA 且 `error_code` 指示是 not-present(`!P`),先 demand-page 那一页再 resume `rep movsb`,而不是直接 fixup 返回 `-EFAULT`——否则大 buffer(如 `read`/`write`)跨过一页还没摸到的 malloc/mmap 页,会被误判成坏指针返回 `-EFAULT`。只有「真不在合法 VMA」(或 P 位已置的硬 fault)才走 fixup。这是 Linux uaccess 的同款做法。真实实现见 `page_fault.cpp:74` 起的 `F-EXTABLE` 注释段。
 
 > 这里有两个边界要划清,都是故意的设计。
 >
@@ -255,7 +257,7 @@ void test_copy_from_unmapped_returns_false() {
 }
 ```
 
-(`test_user_ptr.cpp:151`。)`copy_from_user` 一执行,`rep movsb` 第一字节就 #PF,handle_pf 查表命中,改 `frame->rip` 到 fixup,accessor 返回 false。测试看到 false,PASS。要是没有 exception table,这一下就 panic 了,测试根本跑不到断言。这个测试走的是**内核态 accessor 指令的 fault**,由 exception table 拦,跟 SMAP 开没开无关——所以本机能验。
+(`test_user_ptr.cpp:153`。)`copy_from_user` 一执行,`rep movsb` 第一字节就 #PF,handle_pf 查表命中,改 `frame->rip` 到 fixup,accessor 返回 false。测试看到 false,PASS。要是没有 exception table,这一下就 panic 了,测试根本跑不到断言。这个测试走的是**内核态 accessor 指令的 fault**,由 exception table 拦,跟 SMAP 开没开无关——所以本机能验。
 
 > 这个负测试有个坑值得记一笔:地址不能乱挑。头一版用 `0x40000000`(1 GB 用户址),结果返回 true——因为测试内核的 identity/direct-map 把物理 RAM 映射到了 1 GB 往上,这个地址碰巧有映射,`rep movsb` 成功读完不 fault,exception table 没机会拦。教训:accessor fault 的负测试地址,得确认它**没被任何内核映射覆盖**(identity map / direct-map / mmap / brk / 栈),用高位用户地址(481 GB 那种)避开。
 

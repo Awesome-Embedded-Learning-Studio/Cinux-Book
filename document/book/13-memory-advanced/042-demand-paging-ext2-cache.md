@@ -13,11 +13,11 @@ page fault 时,如果命不中任何 VMA,该怎么处理?Linux 的答案是:**�
 关键在**区分谁触发的 fault**——靠错误码里的一位 `err & 0x04`(用户态触发):
 
 ```cpp
-// kernel/arch/x86_64/exception_handlers.cpp
+// kernel/arch/x86_64/page_fault.cpp
 const bool user_fault = (err & 0x04) != 0;
 if (vma == nullptr && user_fault) {
     klog_error("segfault ...");
-    Scheduler::exit_current();   // 终止进程,不返回
+    signal_force_send(task, Signal::kSigsegv);   // 排进 SIGSEGV,ISR 返回时投递
 }
 ```
 
@@ -37,11 +37,11 @@ VMA 的底(顶 - 1MB)以下没有 VMA → segfault,这就是隐式的栈溢出 g
 
 ### segfault 怎么"杀"
 
-用的是 `Scheduler::exit_current()`——上下文切到下一个任务,**不返回** fault handler 的栈帧,被杀进程的中断帧整体抛弃。比"标记 Dead + 延迟退出"简单(后者要伪造中断帧,否则返回会重执行出错的指令 → fault 死循环)。真正的 SIGSEGV **信号**外壳是后面进程弧的事;现在只是"杀"(等价 SIGKILL),先把地址合法性门控做对。
+用的是 `signal_force_send(task, kSigsegv)`——把 SIGSEGV 排进目标任务,ISR stub 在 `handle_pf` 返回后调 `signal_check_deliver_isr` 投递:**有自定义 handler 走 handler,否则默认 Terminate**(终止进程)。所以终止机制本身就是信号外壳,不再"裸杀"。比"标记 Dead + 延迟退出"简单(后者要伪造中断帧,否则返回会重执行出错的指令 → fault 死循环)。
 
 ## read() 也走 Page Cache
 
-041 的 Page Cache 只服务文件映射的按需分页。而 `read()` 读普通文件,直走 `Ext2FileOps::read`——每次按 ext2 块读盘,**没缓存**。于是同一份文件,"mmap 读"和"read() 读"各走各的,read() 重复读反复 I/O。这一章让 read() 也接进 Page Cache:
+041 的 Page Cache 只服务文件映射的按需分页。而 `read()` 读普通文件,直走 `Ext2FileOps::read`(wholesale 后位于 `libs/ext2/ext2_common.cpp`,080 章 ext2 独立成库那步挪过去的)——每次按 ext2 块读盘,**没缓存**。于是同一份文件,"mmap 读"和"read() 读"各走各的,read() 重复读反复 I/O。这一章让 read() 也接进 Page Cache:
 
 ```cpp
 // kernel/mm/page_cache.hpp —— 给 read() 用的按字节读,内部按页切片复用 get_page
@@ -75,8 +75,8 @@ inode->ops->is_page_cacheable()
 ## 验证
 
 ```bash
-# PF 硬门控(err&0x04 + exit_current)+ 栈 1MB
-grep -nE 'err & 0x04|exit_current' kernel/arch/x86_64/exception_handlers.cpp
+# PF 硬门控(err&0x04 + signal_force_send 投 SIGSEGV)+ 栈 1MB
+grep -nE 'err & 0x04|signal_force_send|kSigsegv' kernel/arch/x86_64/page_fault.cpp
 grep -n 'USER_STACK_GROWTH' kernel/arch/x86_64/usermode.hpp
 # read() 走 PageCache
 grep -rn 'read_bytes\|is_page_cacheable' kernel/mm/page_cache.hpp kernel/fs/inode.hpp kernel/syscall/sys_read.cpp

@@ -185,7 +185,9 @@ struct Event {
 
 这里有个值得说清楚的点:头文件注释把 `EventQueue` 称作「single-producer / single-consumer」。严格说它有**两个**生产站点(IRQ1 的键盘、IRQ12 的鼠标),所以并不是教科书意义上的单生产者。它之所以能安全工作,是因为生产(输入 IRQ)和消费(PIT 滴答)都发生在中断上下文里,靠中断处理的串行化来保证队列不被同时踩踏,而不是靠什么无锁原子操作。这是一个「靠上下文串行化换来的简化」,在这个阶段够用——但别把它当成可以随便放宽的硬并发保证。
 
-为了把键盘也接进这条统一管线,[keyboard.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/drivers/keyboard/keyboard.cpp) 的 `irq1_handler` 做了**双路分发**:事件照旧进键盘自己的队列,GUI 构建下再额外拷一份进 `Mouse::event_queue()`:
+为了把键盘也接进这条统一管线,[keyboard.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/030_gui_wm_basic/kernel/drivers/keyboard/keyboard.cpp) 的 `irq1_handler` 做了**双路分发**:事件照旧进键盘自己的队列,GUI 构建下再额外拷一份进 `Mouse::event_queue()`:
+
+> **tag-bound 说明**:这段内联在 `irq1_handler` 里的 `#ifdef CINUX_GUI` 块是 030 当时的写法。F-GUI 解耦后(CODING-TASTE §14:驱动不持 GUI 依赖),键盘不再 `#include` 任何 GUI 头、也不再直接往 `Mouse::event_queue()` enqueue;改为通过 `Keyboard::register_key_listener`(keyboard.cpp:288)注册回调,GUI 侧在 `gui_init.cpp` 的 `on_key_event` 监听器里消费——双路分发的实质保留,只是接线点从驱动内挪到了驱动外。本章贴的 `#ifdef` 代码块按 tag 030 当时的原文叙述。
 
 ```cpp
 #ifdef CINUX_GUI
@@ -202,7 +204,9 @@ struct Event {
 
 ### Window:为什么要先画到离屏画布上
 
-[window.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/gui/window.hpp) 定义的 `Window`,核心思路是**双缓冲**:每个窗口自己拥有一块离屏 `Canvas`(就是前面那个不挂 framebuffer 的版本),标题栏和内容都先画在这块离屏画布上,合成时再 `blit_to` 到屏幕:
+[window.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/030_gui_wm_basic/kernel/gui/window.hpp) 定义的 `Window`,核心思路是**双缓冲**:每个窗口自己拥有一块离屏 `Canvas`(就是前面那个不挂 framebuffer 的版本),标题栏和内容都先画在这块离屏画布上,合成时再 `blit_to` 到屏幕:
+
+> **tag-bound 说明**:这一章讲的 `Window`(`x_/y_/w_/h_` + `title_[64]` + `canvas_` + 静态 `TITLE_BAR_HEIGHT=20` / `CLOSE_BUTTON_SIZE=14` + `next_id_`)是 030 当时**内核内**的简版。后续 F13 visor 解耦(wholesale,c786acc)把整个 GUI 外置到 `third_party/Cinux-GUI/`,在那里 `window.hpp` 被重写成基于 `Widget` 的复合控件(字段变成 `kTitleBarHeight` / `kCloseButtonSize=20` / `theme_` / `content_` / `on_close_` / `drag_px_` 等,和这一章的简版不再是一回事)。本章一律按 tag 030 当时的内核源码叙述,链接也指向该 tag 的 blob。
 
 ```cpp
 class Window {
@@ -223,7 +227,9 @@ class Window {
 
 ### WindowManager:Z 序、全量合成、从顶向下的命中
 
-[window_manager.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/gui/window_manager.cpp) 是这一章的重头戏。先看它怎么存窗口:
+[window_manager.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/030_gui_wm_basic/kernel/gui/window_manager.cpp) 是这一章的重头戏。先看它怎么存窗口:
+
+> 同样是 tag-bound:030 当时这个 `WindowManager` 有 `MAX_WINDOWS=64` 的 `windows_[]` 数组、`composite()` / `hit_test(int32_t,int32_t)` / `handle_mouse()` / `draw_cursor()` / `instance()` 单例等成员。F13 visor 解耦后外置到 `third_party/Cinux-GUI/core/widget/window_manager.cpp`,新版自己继承 `Widget`,API 改成 `add_window` / `remove_window` / `raise` / `window_at` / `topmost` / `on_pointer` / `paint_to_list`,这些标签下的成员全都不复存在。本章一律按 tag 030 当时的实现叙述。
 
 ```cpp
 static constexpr uint32_t MAX_WINDOWS = 64;
@@ -308,10 +314,12 @@ for (uint32_t row = 0; row < CURSOR_SIZE; row++) {
 
 ### gui_init / gui_start:谁在哪儿点火
 
-GUI 的初始化分两个时机,封装在 [gui_init.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/gui/gui_init.cpp),刻意让 `kernel_main` 和 `kernel_init_thread` 都不直接碰 GUI 细节:
+GUI 的初始化分两个时机,封装在 [gui_init.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/030_gui_wm_basic/kernel/gui/gui_init.cpp),刻意让 `kernel_main` 和 `kernel_init_thread` 都不直接碰 GUI 细节:
 
-- `gui_init(Canvas&, PSFFont&)`:在 [main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/main.cpp) 的早期(console 之后、开中断之前)调用。它初始化窗口管理器、把 029 的那个 demo 画出来(暗色背景 + 随机矩形 + `Cinux GUI`),存好 screen/font 指针。
-- `gui_start()`:在 [init.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/init.cpp) 的 `kernel_init_thread` 里、挂载完 ext2 之后调用。它打印里程碑、初始化鼠标、设置屏幕边界、建三个测试窗口,最后**把 `gui_tick_callback` 注册到 PIT**。
+- `gui_init(Canvas&, PSFFont&)`:在 [main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/030_gui_wm_basic/kernel/main.cpp) 的早期(console 之后、开中断之前)调用。它初始化窗口管理器、把 029 的那个 demo 画出来(暗色背景 + 随机矩形 + `Cinux GUI`),存好 screen/font 指针。
+- `gui_start()`:在 [init.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/030_gui_wm_basic/kernel/proc/init.cpp) 的 `kernel_init_thread` 里、挂载完 ext2 之后调用。它打印里程碑、初始化鼠标、设置屏幕边界、建三个测试窗口,最后**把 `gui_tick_callback` 注册到 PIT**。
+
+> **tag-bound 说明**:这两段式初始化是 030 当时的接线。F-GUI-USERSPACE(visor 解耦)后,`gui_init(Canvas&, PSFFont&)` 已删,`gui_init.hpp` 只剩 `void gui_start()`(注册 PS/2 鼠标 + 键盘 listener,把事件双写到 `/dev/event0`);`main.cpp` 改调 `cinux::proc::handoff_framebuffer_to_gui(fb, font, console)` 把 framebuffer 让给 userspace GUI host;`gui_tick_callback`(PIT 滴答排空队列)也随之移除,事件改由 `/dev/event0` push、userspace host 自己 poll。本章一律按 tag 030 当时的实现叙述,链接指向该 tag 的 blob。
 
 为什么要分两步?因为鼠标初始化会去碰 PS/2 控制器(发 `0xA8` 等命令),而键盘当时已经在用同一个控制器了——这件事必须在开中断之后、且和键盘的初始化顺序协调好才安全。`gui_start` 放在 init 线程里,正好避开 `kernel_main` 那段密集的早期硬件初始化。
 
@@ -371,7 +379,7 @@ call handler 压入返回地址:                                   8 字节
 
 **为什么之前从来没炸?** 因为这个 bug 一直在那,只是以前的 IRQ handler 都没让编译器生成 `movaps`。直到这一章给键盘 handler 塞了双路分发、触发了 SSE 优化,才把这个潜伏的对齐问题顶出水面。这也是栈对齐 bug 最阴险的地方:它**静默**——简单 handler 不触发,只有编译器恰好用了对齐敏感的指令才暴露,排查难度高。教训很直接:**ISR stub 必须保证 handler 入口 `RSP ≡ 8 (mod 16)`,这是 ABI 的硬性要求,不是可选项**。
 
-> 顺带一提:修完 #GP 后,链接器还会因为另一个符号报错——`__dso_handle` 未定义。这是因为 `WindowManager::instance()` 里那个 `static WindowManager wm;` 单例**带析构函数**,编译器要把它通过 `__cxa_atexit(func, arg, __dso_handle)` 注册成程序退出时调用的析构。我们的 freestanding 内核没有动态链接,得自己提供这个符号。在 [crt_stub.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/crt_stub.cpp) 里补一个 `void* __dso_handle = nullptr;` 就够了(内核没有 DSO,空指针足矣)。一个对齐 bug 引出一个链接符号,这是「从零搭 GUI」这类大改动典型的连带效应。
+> 顺带一提:修完 #GP 后,链接器还会因为另一个符号报错——`__dso_handle` 未定义。这是因为 030 当时的 `WindowManager::instance()` 里那个 `static WindowManager wm;` 单例**带析构函数**,编译器要把它通过 `__cxa_atexit(func, arg, __dso_handle)` 注册成程序退出时调用的析构。我们的 freestanding 内核没有动态链接,得自己提供这个符号。在 [crt_stub.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/crt_stub.cpp) 里补一个 `void* __dso_handle = nullptr;` 就够了(内核没有 DSO,空指针足矣)。一个对齐 bug 引出一个链接符号,这是「从零搭 GUI」这类大改动典型的连带效应。注:这个 `instance()` 单例是 tag 030 当时的实现,F13 visor 解耦后该单例已随 `WindowManager` 整体外置移除;`crt_stub.cpp` 里的 `__dso_handle = nullptr`(line 115)本身至今仍在。
 
 ### 双光标偏移:这不是 bug,是 PS/2 的宿命
 
@@ -413,6 +421,8 @@ cmake --build build --target run-big-kernel-test
 ```
 
 它会跑 `run_mouse_event_tests`(鼠标事件流:PS/2 包 → EventQueue → MouseEvent)、`run_window_tests`、`run_window_manager_tests`(create/destroy/raise/拖拽的端到端)、`run_gui_integration_tests`(`gui_init` 接线、键盘双路分发、PIT 滴答回调、鼠标事件经 EventQueue 流到窗口管理器)。这是把前面「镜像测」验证过的逻辑,放到真实的内核 + QEMU + PS/2 模拟器里再验一遍整条管线。
+
+> **tag-bound 说明**:`main_test.cpp` 注册这四个套是 030 当时的机内测布局。F13 visor 解耦后,`Window` / `WindowManager` / GUI 集成测试随整个 GUI 外置到 `third_party/Cinux-GUI/test/`,改用 standalone ctest 跑(`test_window.cpp` + `test_window_manager.cpp` 等,不再是 kernel 内 `main_test` 注册的套);`main_test.cpp` 里现存的 GUI 套只剩 `run_mouse_event_tests`(main_test.cpp:105/1198)。本章的机内测叙述按 tag 030 当时布局。
 
 **第三层:视觉效果。** 想亲眼看到三个窗口、亲手拖一下:
 

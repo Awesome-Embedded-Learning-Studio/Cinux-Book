@@ -20,13 +20,15 @@ endif()
 打开时,每个自旋锁的获取/释放维护一个全局"持锁深度",`schedule()` 入口断言它是 0:
 
 ```cpp
-// kernel/proc/scheduler.cpp
+// kernel/proc/scheduler.cpp:402(lockdep 块)
 #ifdef CINUX_LOCKDEP
-    if (g_lockdep_held_depth > 0) {
+    if (uint32_t d = lockdep_held_depth(); d > 0) {
         // 持着锁跨 schedule —— 死锁/竞态根源,直接 panic 暴露
     }
 #endif
 ```
+
+> 注意这里的深度查询是**函数** `lockdep_held_depth()`(per-CPU),不是 Part1 的全局变量 `g_lockdep_held_depth`。Part1 的全局计数器是 SMP-unsafe 的,本章这版换成了 per-CPU 版本——旧名现在只活在 `lockdep.hpp` 的一句历史注释里("Replaces the Part1 global g_lockdep_held_depth")。
 
 为什么**默认关**?因为它有运行时开销,而且是**开发期检查**——开发、CI 打开它跑测试,持锁调度的代码当场炸;生产构建关掉,零开销。这和 Linux 的 `CONFIG_LOCKDEP` 一个路子。它是多核并发的"保险":把"偶发的 Heisenbug"变成"开发期必炸",省下无数难复现的调试时间。
 
@@ -36,10 +38,12 @@ endif()
 
 ```cpp
 // kernel/proc/scheduler.cpp
-void Scheduler::add_task(lib::NotNull<Task*> task);
+void Scheduler::add_task(lib::NotNull<Task*> task, bool wake_ap = true);
 void Scheduler::remove_task(lib::NotNull<Task*> task);
 void Scheduler::run_first(lib::NotNull<Task*> boot_task);
 ```
+
+(`add_task` 还有个默认参数 `wake_ap = true`,决定加进来时是否给目标 CPU 发 IPI 唤醒——和本章主题无关,这里点一句省得对不上源码。)
 
 意义:把"`add_task` 的参数不能传空"这条**注释契约**写进**类型**——传空编不过,不用靠运行时检查或文档。这和 036 的 ErrorOr(用类型表达错误)一脉相承——能用类型挡住的 bug,就别留给运行时。
 
@@ -55,7 +59,7 @@ void Scheduler::run_first(lib::NotNull<Task*> boot_task);
 ## 验证
 
 ```bash
-grep -n 'CINUX_LOCKDEP\|g_lockdep_held_depth' kernel/CMakeLists.txt kernel/proc/scheduler.cpp
+grep -n 'CINUX_LOCKDEP\|lockdep_held_depth' kernel/CMakeLists.txt kernel/proc/scheduler.cpp
 grep -rn 'NotNull' kernel/proc/scheduler.hpp kernel/proc/scheduler.cpp | head
 # 打开 lockdep 构建跑测试(开发期检查)
 cmake -B build -S . -DCINUX_LOCKDEP=ON && cmake --build build -j$(nproc) > /tmp/bl.log 2>&1; echo "build=$?"

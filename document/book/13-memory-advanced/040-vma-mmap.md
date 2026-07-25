@@ -21,13 +21,13 @@ title: 040 · VMA 与 mmap
 
 ```cpp
 // kernel/mm/vma.hpp —— 区域属性(位标志)
-enum class VmaFlags : uint64_t { Read, Write, Exec, Anonymous, Shared, Stack, Heap, ... };
+enum class VmaFlags : uint64_t { None, Read, Write, Exec, Shared, Anonymous, Stack, Heap, ... };
 // kernel/mm/address_space.hpp —— 账本是 AddressSpace 的直接成员
 LinkedListVMAStore vma_store_;
 IVMAStore& vmas() { return vma_store_; }   // 访问账本
 ```
 
-哪些地方往账本里记账?execve 加载 ELF 时,每个段记一条(按可写/可执行转 `VmaFlags`);建用户栈时,记一条带 `Stack` 标志的(`kernel/proc/init.cpp`)——栈标志是给后面按需分页用的,栈可以向下长。
+哪些地方往账本里记账?execve 加载 ELF 时,每个段记一条(按可写/可执行转 `VmaFlags`);建用户栈时,记一条带 `Stack` 标志的(`kernel/proc/user_launch.cpp`)——栈标志是给后面按需分页用的,栈可以向下长。
 
 ## mmap:只记账,先不给物理页
 
@@ -65,7 +65,8 @@ grep -n 'vma_store_\|vmas()' kernel/mm/address_space.hpp
 # 三个 mmap syscall
 grep -rn 'int64_t sys_mmap\|int64_t sys_munmap\|int64_t sys_mprotect' kernel/syscall/
 # 栈 VMA 注册(带 Stack 标志)
-grep -n 'VmaFlags::Stack\|vmas().insert' kernel/proc/init.cpp
+grep -n 'VmaFlags::Stack\|vmas().insert' kernel/proc/user_launch.cpp
+grep -n 'kStackVma' kernel/proc/user_launch.cpp
 ```
 
 构建:

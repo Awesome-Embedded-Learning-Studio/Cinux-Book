@@ -73,7 +73,7 @@ InputResult TTY::input_char(char c) {
 }
 ```
 
-(`tty.cpp:97`。)几条规则读着自然,但每条都有讲究:`^C` 在 ISIG 开时**根本不进 `line_buf_`**,直接产信号(不然你打断程序的那下 `^C` 会混进输入);`^D` 在空行才是 EOF,在非空行是「提交已缓冲内容但不带尾随换行」(这是 `^D` 提交的语义,跟回车不同);退格走 ECHOE 三连显 `\b` `空格` `\b`(退一格、用空格抹掉原字符、再退一格),光标才正确回到原位。非 ICANON(raw)模式则每字节直通,不做任何加工。
+(`tty.cpp:80`。)几条规则读着自然,但每条都有讲究:`^C` 在 ISIG 开时**根本不进 `line_buf_`**,直接产信号(不然你打断程序的那下 `^C` 会混进输入);`^D` 在空行才是 EOF,在非空行是「提交已缓冲内容但不带尾随换行」(这是 `^D` 提交的语义,跟回车不同);退格走 ECHOE 三连显 `\b` `空格` `\b`(退一格、用空格抹掉原字符、再退一格),光标才正确回到原位。非 ICANON(raw)模式则每字节直通,不做任何加工。
 
 ## 接上键盘和回显
 
@@ -87,7 +87,7 @@ InputResult TTY::input_char(char c) {
 
 > 这种「UAPI 默认值 vs 实际硬件字节」的错配,不主动接缝就踩。默认值是标准定的,硬件发什么是驱动定的,两边没人为对方负责,接缝处(初始化时)得有人显式对齐。这种坑不会报错,只会「按了没反应」,debug 起来特别费劲——记住这个模式:设备接进来时,主动核对它发的字节跟 UAPI 默认值吻不吻合。
 
-键盘那边,`dispatch_key` 在「按键按下 + ascii 非零」时喂一个字节给行规范(`keyboard.cpp:346`),回车 `\r` 转成 `\n`。这一步行规范还没接阻塞读——`sys_read` 对 `fd==0` 还是先留着忙等兜底,一步一步接,先把「键盘 → 行规范 → 回显」这条链跑通。
+键盘那边,`dispatch_key` 在「按键按下 + ascii 非零」时喂一个字节给行规范(`kernel/drivers/keyboard/keyboard.cpp:328`),回车 `\r` 转成 `\n`(`keyboard.cpp:327`)。这一步行规范还没接阻塞读——`sys_read` 对 `fd==0` 还是先留着忙等兜底,一步一步接,先把「键盘 → 行规范 → 回显」这条链跑通。
 
 ## 阻塞读:CPU 不再空转,EOF 是状态不是事件
 
@@ -114,7 +114,7 @@ size_t ConsoleTty::read(char* buf, size_t len) {
 }
 ```
 
-(`console_tty.cpp:39`。)`sys_read` 对 `fd==0` 改调它(`sys_read.cpp:63`),忙等删掉,CPU 不再空转。
+(`console_tty.cpp:41`。)`do_read_kernel`(kernel-to-kernel 那一层)对 `fd==0` 调它(`sys_read.cpp:91`),忙等删掉,CPU 不再空转。P0b SMAP 分层后,`fd==0` 的阻塞读在 `do_read_kernel` 里写 kernel staging buffer,`sys_read` 只负责把字节 `copy_to_user`——阻塞不跨 `stac` 窗口。
 
 > 这里那个 `InterruptGuard` + `prepare_to_wait` 的顺序是 F3 立的防丢失唤醒铁律。「检查有没有行、登记自己是读者、标记 Blocked」这三步必须在**关中断下原子完成**。不然有个要命的窗口:检查时没行 → 还没登记自己 → 键盘正好来了行 → feeder 找不到读者(还没登记)→ 我登记完了睡下 → 唤醒永远不来。关中断把这三步缝死,feeder 要么在我检查之前来(我看到行),要么在我睡下之后来(它叫得醒我),没有中间态。这套 `prepare_to_wait`/`schedule_blocked` 是 CinuxOS 已验证的标准缝,pipe、waitpid 都用它。
 >
@@ -124,24 +124,25 @@ size_t ConsoleTty::read(char* buf, size_t len) {
 
 行规范通了,可 `ioctl` 还是那个返 `-ENOTTY` 的桩。问题在:musl/glibc 一写 stdout 就拿它探 `TIOCGWINSZ`(终端多大),探失败退回全缓冲,`printf` 攒够一桶才 flush。`TCGETS`/`TCSETS`(读写 termios)也是 raw 模式、信号字符配置的前置。第四步把这些接成真命令。
 
-`sys_ioctl` 改成一个 `switch(request)` 分派(`sys_ioctl.cpp:69`):
+per-request 逻辑住在一个共享的 `console_tty_ioctl`(`console_tty.cpp:148`,一个 `switch(request)` 分派);`sys_ioctl` 本身只做 fd-table 分派——先查已安装的 File 走它的 inode->ops->ioctl(这样 GUI shell 的 PTY slave fds 才不会误走 console),没 fd-table 项的 legacy 0/1/2 才 fallback 到 `console_tty_ioctl`:
 
-- **TCGETS / TCSETS**:读写 console TTY 的 termios(`console_tty().termios()` / `set_termios()`)。
+- **TCGETS / TCSETS**:读写 console TTY 的 termios(`ct.tty().termios()` / `set_termios()`)。
 - **TIOCGWINSZ**:返窗口尺寸,固定 80×25。
 - 只有 `fd` 0/1/2(stdin/stdout/stderr,都背靠 console TTY)才答;别的 fd 返 `-ENOTTY`;未知 cmd 也 `-ENOTTY`。
 
-每一命令的 用户缓冲访问都走 061 那套 `copy_to_user`/`copy_from_user`(带 exception table 的 accessor):
+每一命令的用户缓冲访问都走 061 那套 `copy_to_user`/`copy_from_user`(带 exception table 的 accessor):
 
 ```cpp
 case kTcgets: {
-    Termios tm;
-    console_tty().tty().fill_termios(tm);
-    if (!copy_to_user(uptr, &tm, sizeof(Termios))) return -kEfault;  // 坏指针 → -EFAULT 不 panic
+    const Termios& tm = ct.tty().termios();                 // 直接取 const&,不是 fill 进传入的 tm
+    if (!copy_to_user(uptr, &tm, sizeof(Termios))) return cinux::lib::Error::Fault;  // 坏指针 → EFAULT 不 panic
     return 0;
 }
 ```
 
-(`sys_ioctl.cpp:69`。)这里正好用上 061 的成果——用户传个未映射的地址进来,accessor 的 `rep movsb` fault,exception table 拦下,返 `-EFAULT`,而不是把内核炸了。测试里专门有一条拿 `0x7000000000`(那个落用户半区但谁都没映射过的地址)探 TCGETS,期望就是 `-EFAULT`。
+> 这里把返回值压成 `Error::Fault` 为可读性——`console_tty_ioctl` 本身返回 `ErrorOr<int64_t>`,坏用户指针写的就是 `cinux::lib::Error::Fault`(`console_tty.cpp:152`);到了 `sys_ioctl` 的 fallback adapter 才 `to_errno` 成 `-EFAULT`。
+
+(`console_tty.cpp:148`。)这里正好用上 061 的成果——用户传个未映射的地址进来,accessor 的 `rep movsb` fault,exception table 拦下,返 `-EFAULT`,而不是把内核炸了。测试里专门有一条拿 `0x7000000000`(那个落用户半区但谁都没映射过的地址)探 TCGETS,期望就是 `-EFAULT`。
 
 > 为什么 winsize 固定 80×25 不取真几何?因为 Console 现在是 `main.cpp` 里的局部变量,syscall 层够不着它,拿不到 framebuffer 的真实尺寸。这是个待解的结(全局化 Console,或者等 DevFS 给 fd 一个真设备身份),暂时固定 80×25 够用——musl 要的只是「探成功了、别退全缓冲」,尺寸是多少不那么要紧。
 
@@ -149,7 +150,7 @@ case kTcgets: {
 
 最后一步把 `^C`/`^\`/`^Z` 接成真信号投递。之前 `console_tty_input` 只在 `kLineReady`/`kEof` 时唤醒读者,**不处理 `kSignal`**——所以行规范已经认出了 `^C`(记了 `pending_signal_`),却没人来取,按 Ctrl+C 没反应。第五步补上这条线。
 
-`ConsoleTty::input` 拿到 `kSignal` 后(`console_tty.cpp:66`):先 `take_signal()` 消费掉(对齐 `take_eof`,一次性),映射成 POSIX 信号(interrupt→SIGINT / quit→SIGQUIT / suspend→SIGTSTP),再 `killpg(foreground_pgid, sig)` 投给前台进程组。前台组没设(`==0`)就回退到阻塞读者的组(shell)。
+`ConsoleTty::input` 拿到 `kSignal` 后(`console_tty.cpp:93`):先 `take_signal()` 消费掉(对齐 `take_eof`,一次性),映射成 POSIX 信号(interrupt→SIGINT / quit→SIGQUIT / suspend→SIGTSTP),再 `killpg(foreground_pgid, sig)` 投给前台进程组。前台组没设(`==0`)就回退到阻塞读者的组(shell)。
 
 ```cpp
 if (r == InputResult::kSignal) {
@@ -162,7 +163,7 @@ if (r == InputResult::kSignal) {
 }
 ```
 
-(`console_tty.cpp:66`。)`killpg` 内部的注册表锁用 `irq_guard`(IRQ-safe),所以从键盘 IRQ 上下文调它安全——嵌套 `cli` 无害。配套的 `TIOCGPGRP`/`TIOCSPGRP` 也在 `sys_ioctl` 里读写 `foreground_pgid`,让 shell 能设前台组(完整 job control 的一环)。
+(`console_tty.cpp:90`。)`killpg` 内部的注册表锁用 `irq_guard`(IRQ-safe),所以从键盘 IRQ 上下文调它安全——嵌套 `cli` 无害。配套的 `TIOCGPGRP`/`TIOCSPGRP` 也在 `console_tty_ioctl` 里读写 `foreground_pgid`,让 shell 能设前台组(完整 job control 的一环)。
 
 > 这一步还顺带把 `console_tty` 从 C 风格收进了 `ConsoleTty` 类。之前它是全局 `static` 变量 + 一堆自由函数;行规范那几批还能凑合,到加 `foreground_pgid` 这种「跨方法共享的可变状态」时,全局 static 就开始别扭了。判断信号很简单:全局 static 里有**超过一个可变字段、且跨多个自由函数共享**,就该类化。(对比键盘/鼠标驱动,它们是无状态/单值工具,全 static 合理。)收进类之后,`reader_`/`foreground_pgid_`/`tty_` 都成了成员,caller 从自由函数调用改成方法调用。
 

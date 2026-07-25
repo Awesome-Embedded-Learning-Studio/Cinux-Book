@@ -85,7 +85,7 @@ Admin SQ/CQ 用 `DmaPool` 分配(64 项 × 64 B 的 SQ + 64 项 × 16 B 的 CQ,4
 发一条 Identify Controller 命令的流程,把 NVMe 的交互模型整个走一遍:
 
 1. 构造命令(op 0x06 / CNS=0x01 / PRP1 指向一个 4 KiB DMA 缓冲)塞进 `Admin SQ[tail]`,`tail++`(回绕)。
-2. **写 SQ tail doorbell**——告诉设备"tail 到这了,有新命令"。doorbell 的偏移 = `0x1000 + queue_id × stride`,stride = `4 << DSTRD`。
+2. **写 SQ tail doorbell**——告诉设备"tail 到这了,有新命令"。每个队列占**两个** stride 槽(SQ tail 在偶数槽、CQ head 紧跟在奇数槽),所以 SQ tail doorbell 的偏移 = `0x1000 + 2 × queue_id × stride`,CQ head doorbell 紧跟在 `0x1000 + (2 × queue_id + 1) × stride`,stride = `4 << DSTRD`(见 [nvme.hpp](kernel/drivers/nvme/nvme.hpp) 的注释:`0x1000 + queue_id * (2 * stride)`)。
 3. 轮询 `CQ[head]` 的 phase 位。NVMe 规定 CQ 完成项的 status 最低位是 phase,初值 1;每回绕一圈(head 归零)`cq_phase_ ^= 1`。`CQE.status bit0 == cq_phase_` 就说明这是一条新完成。
 4. `status >> 1 == 0` → 成功,4 KiB 缓冲里就是 controller data(VID/SN/MN)。
 
@@ -93,7 +93,7 @@ Admin SQ/CQ 用 `DmaPool` 分配(64 项 × 64 B 的 SQ + 64 项 × 16 B 的 CQ,4
 
 这一步有个值钱的坑。CAP 寄存器的 doorbell stride 字段 DSTRD 在 CAP 高 32 位的 `bits[31:28]`。早期代码写的是 `(cap_lo >> 24) & 0xF`——把 `bits[27:24]`(其实是 TO 字段的高位)当成了 DSTRD,解出 15。
 
-错成 15 会怎样?stride = `4 << 15` = 128 KiB。doorbell 偏移 = `0x1000 + queue_id × 128KiB`,第二个队列的门铃就敲到 BAR0 那 16 KiB 窗口外面去了——访问越界。正解是 `(cap_lo >> 28) & 0xF` = 0,stride = 4(标准值):
+错成 15 会怎样?stride = `4 << 15` = 128 KiB。SQ tail doorbell 偏移 = `0x1000 + 2 × queue_id × 128KiB`,第二个队列(qid=1)的门铃就敲到 BAR0 那 16 KiB 窗口外面去了——访问越界。正解是 `(cap_lo >> 28) & 0xF` = 0,stride = 4(标准值):
 
 ```
 [NVMe] enabled (admin queue=64 RDY=1 doorbell stride=4)
@@ -150,7 +150,7 @@ VirtQueue 是 **split virtqueue**——三块 DMA 内存([virtqueue.cpp](kernel/
 传输层(VirtIODevice + VirtQueue)是共用的,上面挂两种设备:
 
 - **virtio-blk**([virtio_blk.cpp](kernel/drivers/virtio/virtio_blk.cpp)):每个请求 3-desc 链(请求头 / 数据缓冲 / 状态字节),read/write 方向在请求头里。同样包成 `IBlockDevice` 挂 Ext2。
-- **virtio-net**([virtio_net.cpp](kernel/drivers/virtio/virtio_net.cpp)):RX/TX 各一个 virtqueue(加一个 ctrl 队列,`num_queues=3`)。包成 `NetDevice` 接网络栈,`net_init.cpp` 里它跟 e1000 并存,`dev_for()` 优先用它(`ping 10.0.2.2` 走 virtio RX/TX 验证)。
+- **virtio-net**([virtio_net.cpp](kernel/drivers/virtio/virtio_net.cpp)):RX/TX 各一个 virtqueue(设备上报 `num_queues=3`,含一个 ctrl 队列,但驱动这一章只建 RX+TX 两个)。包成 `NetDevice` 接网络栈,`net_init.cpp` 里它跟 e1000 并存,`dev_for()` 优先用它(`ping 10.0.2.2` 走 virtio RX/TX 验证)。
 
 ## 落点:都接回既有抽象
 

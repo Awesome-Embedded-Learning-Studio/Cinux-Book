@@ -43,17 +43,21 @@ title: 073 · busybox 跑起来 + socket API:用户态生态的试金石
 - `close()` 走现成 FDTable::close;SocketOps 析构拆连接(TCP 发 FIN)。
 - SocketOps 是单一共享无状态实例;per-fd 的 `Socket*` 存 `inode->fs_private`(PTY 范式)。
 
-**协议层保持纯**:`TcpModule` / `UdpModule`(069/063 立的)一行不动。per-socket 的 RX 环 + 阻塞 + accept 队列放进 **Socket 适配器**(`udp_socket` / `tcp_socket`),挂在协议层的 listener 缝上:`UdpListener::on_udp` / `TcpListener::on_accept/on_data/on_close`。
+**协议层保持纯**:`TcpModule` / `UdpModule`(069/063 立的)一行不动。per-socket 的 RX 环 + 阻塞 + accept 队列放进 **Socket 适配器**(文件 `udp_socket.hpp` / `tcp_socket.hpp` 里的 `UdpSocket` / `TcpSocket` 类),挂在协议层的 listener 缝上:`UdpListener::on_udp` / `TcpListener::on_accept/on_data/on_close`。
 
 > 回调里有个必须的细节:**拷贝借来的帧**。`on_udp` / `on_data` 收到的 `FrameView` 是借自设备 buffer 的,设备 dispatch 一返回就回收;所以回调里要**把帧 copy 进 per-socket 环**(udp.hpp/tcp.hpp 注释明示),不能存指针。UDP 用定长 Datagram 环(每包 {src, port, len, data}),TCP 是字节流用 `RingBuffer<uint8_t>`(像 pipe,on_data push_batch,recv pop_batch)。
 >
-> 阻塞(recv 等数据、accept 等连接)用 `prepare_to_wait` / `schedule_blocked` / `unblock`(F8 pipe 那套),从 `net_poll` kthread 上下文的 listener 回调唤醒。**绝不 sti/hlt**(在 syscall 上下文 sti → #DF,跟 059/071 同根,memory `sys-ping-df-sti-in-syscall`)。
+> 阻塞(recv 等数据、accept 等连接)用 `prepare_to_wait` / `schedule_blocked` / `unblock`(F8 pipe 那套),从 `net_poll` kthread 上下文的 listener 回调唤醒。**绝不 sti/hlt**(在 syscall 上下文 sti → #DF,跟 059 sys_ping / 071 pipe 阻塞同根——详见 071《pipe & FIFO》对 syscall 里 sti 把时钟中断放进陷阱帧窗口 → sysretq 弹花 → #DF 的剖析)。
 
-socket syscall 用 Linux x86_64 标准号(`socket`=41 / `connect`=42 / `accept`=43 / `sendto`=44 / `recvfrom`=45 / `bind`=49 / `listen`=50,syscall_nums.hpp 40-55 全空无撞号),`sockaddr_in` 的 port 是网络序(musl 大端铺,syscall handler `byte_swap16` 转)。loopback 上 UDP echo(client→server→client)+ TCP echo(connect→握手→accept→双向 echo)都干通。
+socket syscall 用 Linux x86_64 标准号(`socket`=41 / `connect`=42 / `accept`=43 / `sendto`=44 / `recvfrom`=45 / `bind`=49 / `listen`=50,syscall_nums.hpp 41-50 范围内除 socket 这批外仍空),`sockaddr_in` 的 port 是网络序(musl 大端铺,syscall handler `byte_swap16` 转)。loopback 上 UDP echo(client→server→client)+ TCP echo(connect→握手→accept→双向 echo)都干通。
+
+> **tag-bound 提醒**:073 当时 40-55 全空无撞号;后续 socketpair/setsockopt/getsockopt 又填了 53/54/55(`SYS_accept4`=288 也补了)。读者按 073 tag 读源码即可。
 
 ## 顺带:kernel/fs 分子目录
 
 29 个文件平铺在 `kernel/fs/` 太乱。这一章按性质分了子目录:核心 VFS(inode/file/vfs_mount/vfs_filesystem/stat/path)留 `kernel/fs/` 根,4 个后端各进子目录——`ext2/`(8 文件)、`procfs/`(5)、`devfs/`(3)、`ramdisk/`(3)。纯结构整理(git mv + include 路径批量改),零功能变。
+
+> **tag-bound 提醒**:073 当时 ext2 还在 `kernel/fs/ext2/`(8 文件);后来 080 章 wholesale 把 ext2 整个搬出 `kernel/fs/`,独立成库 `libs/ext2/`(13 个文件,加了 ext2_links/ext2_metadata/ext2_extent 等)。本节描述的是 073 tag 当时的整理动作,读者按 tag 读源码即可,别去 `kernel/fs/ext2/` 扑空。procfs/devfs/ramdisk 三个仍在 `kernel/fs/` 下没挪。
 
 ## 验证
 
@@ -69,7 +73,7 @@ socket syscall 用 Linux x86_64 标准号(`socket`=41 / `connect`=42 / `accept`=
 
 - **TCP 可靠性**:socket 接通了,但 TCP 仍是最小可用(无重传/RTO/窗口/拥塞,069 的范围)。loopback 零丢包所以 echo 稳;SLIRP 真网可能丢。要内核 timer(HPET 周期中断,F5-M4 follow-up)。
 - **musl socket demo**:这一章的 socket 验证靠内核测试接口 + loopback echo;真 musl 程序用 socket ABI 的 demo 显式留 follow-up(要建 musl sysroot + 给 test kernel 加 gated net_poll 启动)。
-- **socket close 资源释放**:无 `InodeOps::release` 钩子(close 不彻底拆 Socket,同 pipe/FIFO 的 hobby 限制),留 F10-M4。
+- **socket close 资源释放**:073 当时无 `InodeOps::release` 钩子(close 不彻底拆 Socket);后续 InodeOps 加了 `release` 虚槽(`kernel/fs/inode.hpp:228`,`virtual void release(Inode* inode)`,注释明示「a socket unbinds / sends FIN」),socket close 的资源释放已落地。诚实边界:pipe/FIFO 自己的 close-propagation 还没做(需 end-refcounting,是单独的 DEBT,inode.hpp 注释里写着「FIFOs (whose close-propagation needs end-refcounting -- a separate DEBT)」)。
 - **一堆 socket 精化**:`setsockopt`(stub)、`getsockname`/`getpeername`/`accept4` 精化、IPv6、AF_UNIX(F8)、sendmsg cmsg、epoll(F8)——都留 follow-up。
 
 ## 小结
@@ -78,4 +82,4 @@ socket syscall 用 Linux x86_64 标准号(`socket`=41 / `connect`=42 / `accept`=
 - 补了 busybox 要的一整批 syscall(getdents64/chmod/chown/link/rename/utimensat/dup/fcntl/nanosleep/sysinfo/getrusage)+ /proc/meminfo 环境件。
 - 教训:**机制测绿 ≠ 真二进制能跑**。每批 syscall 机制测都绿,可 busybox 真跑才发现缺环境件(/proc/meminfo、/etc/passwd)。真二进制验收(fork+execve 看输出)不可替代。
 - **Socket = InodeOps 子类**(对齐 PTY/pipe):socket fd 就是 pipe fd,sys_read/write/close 零改动;协议层(UDP/TCP)保持纯,per-socket RX 环 + 阻塞 + accept 队列放 Socket 适配器挂 listener 缝,回调拷贝帧进环。阻塞用 wait queue(不 sti/hlt)。loopback UDP+TCP echo 干通。
-- kernel/fs 分子目录(ext2//procfs//devfs//ramdisk/)。诚实边界:TCP 仍最小可用(重传留 HPET)、musl socket demo 留 follow-up、socket close 无 release 钩子。
+- kernel/fs 分子目录(ext2//procfs//devfs//ramdisk/)。诚实边界:TCP 仍最小可用(重传留 HPET)、musl socket demo 留 follow-up(socket close 资源释放后续已由 InodeOps::release 虚槽落地)。

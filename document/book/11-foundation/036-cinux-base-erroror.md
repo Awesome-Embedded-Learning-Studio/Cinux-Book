@@ -55,7 +55,7 @@ BrokenPipe / ConnectionRefused / TimedOut / Busy
 
 ## 三种"会失败的调用",三种 ErrorOr
 
-会失败的调用,失败的样子各不相同,`ErrorOr` 用三种形态对应。看 `kernel/fs/ext2_common.hpp` 的真实签名:
+会失败的调用,失败的样子各不相同,`ErrorOr` 用三种形态对应。看 `libs/ext2/ext2_common.hpp` 的真实签名:
 
 ```cpp
 ErrorOr<int64_t> read (const Inode*, uint64_t off, void* buf, uint64_t cnt);  // 读:返回字节数
@@ -110,7 +110,7 @@ cinux::fs::Inode* parent = parent_result.value();  // ok 了才敢取值
 
 ### 引入一个"严纪律"的库:别让它替你的代码定纪律
 
-引入 `Cinux-Base` 时有个**特别值得讲**的工程细节。这个库自带一份很严的编译开关(`-Wpedantic -Werror -Wold-style-style-cast -Wshadow` 之类)。最直觉的接法是 `add_subdirectory(Cinux-Base)`,把它当一个普通子项目链进来——**但偏偏不这么干**。看 `third_party/CMakeLists.txt`:
+引入 `Cinux-Base` 时有个**特别值得讲**的工程细节。这个库自带一份很严的编译开关(`-Wpedantic -Werror -Wold-style-cast -Wshadow` 之类)。最直觉的接法是 `add_subdirectory(Cinux-Base)`,把它当一个普通子项目链进来——**但偏偏不这么干**。看 `third_party/CMakeLists.txt`:
 
 ```cmake
 # 只取 include 路径和 .cpp 源文件,不 add_subdirectory(Cinux-Base)——
@@ -137,8 +137,8 @@ file(GLOB_RECURSE CINUX_BASE_SOURCES ${CINUX_BASE_DIR}/src/*.cpp)
 
 ```bash
 # 内核内部:签名是不是都 ErrorOr 了
-grep -rnE 'ErrorOr<(void|Inode\*|int64_t)>' kernel/fs/
-# 期望:read/write/stat/lookup/create/mkdir 都返 ErrorOr<...>
+grep -rnE 'ErrorOr<(void|Inode\*|int64_t)>' kernel/fs/ libs/ext2/
+# 期望:read/write/stat/lookup/create/mkdir 都返 ErrorOr<...>(ext2 的签名在 libs/ext2/ext2_common.hpp)
 
 # syscall 关口:是不是都走 to_errno 翻译
 grep -rn 'to_errno' kernel/syscall/

@@ -8,12 +8,12 @@ title: 078 · SMP 竞态——从发现到根治
 >
 > 这一章咱们要做的事,不是「把这一处修了就收工」,而是把 SMP 上「抓竞态」这件事拧成一条红线——它贯穿四个阶段:一是先造一台跨核交错报警器(`race-detect`),盯着「这块共享状态压根没锁」这类设计缺陷;二是拿 `ext2 inode_cache` 当靶子,看报警器真能抓;三是给病灶上真锁、把报警器换成 `lockdep_assert_held` 当回归护栏,顺手清三笔旧债;四是在纵深阶段推导出「同步 TLB shootdown 跑在缺页中断的 IF=0 里会确定性互锁」——正是这个结论逼出了 deferred CoW 设计范式,把跨核 free 从会互锁的中断上下文挪到可阻塞的 drain 内核线程,把 044 章那两本账(`pte_count`/`refcount`)的 `no_free` 变体兑现掉。
 >
-> 诚实边界先摆前面:三个 `ext2` 盘元数据的 race(`block_buf_` 共享 buffer 互踩、位图分配 RMW 无锁、与之绑定的样式整理)依赖 `KmBuf` RAII 和 `ext2_dirops` 拆分这块地基,划给 080/081;deferred CoW 的**基建**已就位,但**接线**(改 `handle_cow_fault`、启动 drain 线程、定义 `CINUX_TLB_DRAIN` 开关、把 0xE1 shootdown IPI 注册进 IDT)在本机工作树还没落地——机制照讲,「路径实际走了 deferred」会逐处标注。WSL2 上 `-smp 2` 靠 KVM 能跑,但 host 的 SMAP/CPUID 透传限制对 race-detect 本身无影响(race-detect 不依赖 SMAP),真机上的 heisenbug 会单独说。
+> 诚实边界先摆前面:三个 `ext2` 盘元数据的 race(`block_buf_` 共享 buffer 互踩、位图分配 RMW 无锁、与之绑定的样式整理)依赖 `KmBuf` RAII 和 `ext2_dirops` 拆分这块地基,划给 080/081;deferred CoW 的**基建与接线**(`handle_cow_fault` 走 `_no_free` + `enqueue_pending_shootdown`、drain 线程已起、`CINUX_TLB_DRAIN` option 默认 ON、0xE1 shootdown IPI 已注册进 IDT)在本机工作树均已落地。WSL2 上 `-smp 2` 靠 KVM 能跑,但 host 的 SMAP/CPUID 透传限制对 race-detect 本身无影响(race-detect 不依赖 SMAP),真机上的 heisenbug 会单独说。
 
 ## 这章咱们要点亮什么
 
 1. **race-detect 这台报警器**:它盯的不是时间窗口或数据撕裂,而是「某个共享可变状态本该被自旋锁串行化、实际却没加锁」这一类具体缺陷;机制极简——一个 `RaceWatchpoint` 只记「上一个碰它的 CPU 是谁」,跨 CPU 交错就报警。
-2. **opt-in 门控是一条链**:option 开了 ≠ 编译宏传了 ≠ 机制测试真跑了 ≠ 测试真 PASS。断任何一环,日志照样绿、哑火不报错。这条链在本机工作树断了两环,lab 会带你亲手走通。
+2. **opt-in 门控是一条链**:option 开了 ≠ 编译宏传了 ≠ 机制测试真跑了 ≠ 测试真 PASS。断任何一环,日志照样绿、哑火不报错。这条链在本机工作树三环已通(`cmake/options.cmake` 声明 option、`kernel/CMakeLists.txt` foreach 自动传编译宏、§14 文件门按 option 链真实现),lab 会带你亲手开 option 并验证 PASS 亮起。
 3. **同一缓存的两层加固**:上一轮结构加固先把 inode cache 从「固定值数组」改成「堆分配 + 分离链 + refcount」治结构性别名 UAF(地址即身份,refcount>0 绝不移动);这一章再叠一把 `inode_cache_lock_` 治并发(两个核同时改这张表)。一个治「谁能在何时被释放」,一个治「谁能同时进来改」,缺一不可。
 4. **deferred CoW 的死锁推导**:为什么同步 shootdown 挂在 CoW fault 里会互锁——`Spinlock::guard` 不动 IF,等锁时 IF 保持 0,hole 成立;破局不是「加锁」而是「换执行上下文」,把 shootdown 从 IF=0 的 ISR 搬到 IF=1 的 kthread。
 
@@ -124,7 +124,7 @@ static cinux::proc::RaceWatchpoint g_race_test_wp =
 #endif
 ```
 
-（[main_test.cpp](kernel/test/main_test.cpp#L504-L506)。机制测试的 watchpoint。）测试的意图是:AP 先碰一次这个 watchpoint,BSP 再 probe,probe 拿到的 `prev` 是 AP 的 cpu id、不等于 BSP 自己,返 `true` = 检测到跨核交错,打出那一行专属的 PASS,FAIL 则把整个 suite 拖红:
+（[main_test.cpp](kernel/test/main_test.cpp#L910-L917)。机制测试的 watchpoint。）测试的意图是:AP 先碰一次这个 watchpoint,BSP 再 probe,probe 拿到的 `prev` 是 AP 的 cpu id、不等于 BSP 自己,返 `true` = 检测到跨核交错,打出那一行专属的 PASS,FAIL 则把整个 suite 拖红:
 
 ```cpp
 #ifdef CINUX_RACE_DETECT
@@ -139,9 +139,9 @@ static cinux::proc::RaceWatchpoint g_race_test_wp =
 #endif
 ```
 
-（[main_test.cpp](kernel/test/main_test.cpp#L635-L644)。用 probe 不用 `RACE_TOUCH`——机制测试不能挂内核;末尾 `if (!race) { ok = false; }` 让 FAIL 真的拖红整个 suite,这正是这一行测试「没被哑火」的硬证据。)
+（[main_test.cpp](kernel/test/main_test.cpp#L1048-L1064)。用 probe 不用 `RACE_TOUCH`——机制测试不能挂内核;末尾 `if (!race) { ok = false; }` 让 FAIL 真的拖红整个 suite,这正是这一行测试「没被哑火」的硬证据。)
 
-⚠️ **这里有个必须说清楚的坑**:`main_test.cpp` 第 499 行注释写着「AP touches it in `ap_test_selfcheck` before writing magic」,但翻遍 `ap_test_selfcheck` 函数体([main_test.cpp](kernel/test/main_test.cpp#L515-L547)),AP 侧只做了 CR4/EFER 读回和 shootdown IPI 测试,**没有任何一行碰 `g_race_test_wp`**。也就是说:即使三件套补齐、编译宏传对了,BSP 的 probe 拿到的 `prev` 恒为 `kRaceCpuNone`,返 `false`、报 **FAIL**。这不是你三件套没补对,是 AP touch 这一步还没落地——比「假 PASS」更阴的「假 FAIL」。lab 会带你撞上,并把它当作一道思考题(补一个 AP 侧 `race_check_access_probe(g_race_test_wp)` 调用就能转 PASS)。
+⚠️ **这里有个细节值得说清楚**:`main_test.cpp` 注释写着「AP touches it in `ap_test_selfcheck` before writing magic」,翻 `ap_test_selfcheck` 函数体([main_test.cpp](kernel/test/main_test.cpp#L927-L960))确实如此——L940 一行 `#ifdef CINUX_RACE_DETECT race_check_access_probe(g_race_test_wp); #endif` 把 AP 侧的 touch 补上了。BSP 的 probe 拿到的 `prev` 是 AP 的 cpu id、不等于自己,返 `true` = 检测到跨核交错,打出 PASS。也就是说:只要三件套(option + 编译宏 + §14 文件门)齐了,这条机制自测端到端通、能真报 PASS。lab 会带你亲手补全三件套并验证这行 PASS 真的会亮。
 
 至于 `ext2` 路径本身——CinuxOS 上游(提交 `bf2d2d7`)确实在 `get_cached_inode` 入口放过 `RACE_TOUCH(g_inode_cache_wp)`,GUI `-smp 2` 跑 gcc 立刻抓到凶手栈 `get_cached_inode ← execve /bin/sh`,证明检测器对真实代码路径有效。但 Book 回迁时**只落地了「锁 + `lockdep_assert_held` + old-style cast 修复」三样**,那个 `RACE_TOUCH` 靶子没回迁(Book 树 `grep kernel/fs/` 零命中)。所以教程里讲「race-detect 作为工具能抓」,用机制自测当例子;`ext2` 路径讲 `lockdep_assert_held` 当回归护栏——两个工具互补,A 抓「有锁忘持」、B 抓「根本没锁」。
 
@@ -174,7 +174,7 @@ Inode* Ext2::get_cached_inode(uint32_t ino) {
 }
 ```
 
-（[ext2_inode.cpp](kernel/fs/ext2/ext2_inode.cpp#L106-L116)。注释把设计取舍讲透了。）锁成员声明挨在 cache 表旁边:
+（[ext2_inode.cpp](../../../libs/ext2/ext2_inode.cpp#L93-L103)。注释把设计取舍讲透了。）锁成员声明挨在 cache 表旁边:
 
 ```cpp
 Ext2CachedInode* inode_cache_[EXT2_INODE_CACHE_SIZE]{};
@@ -182,7 +182,7 @@ uint32_t inode_cache_count_{0};
 mutable cinux::proc::Spinlock inode_cache_lock_;  ///< SMP: serialize cache walks/evicts
 ```
 
-（[ext2.hpp](kernel/fs/ext2/ext2.hpp#L447-L457)。结构(state)和并发(lock)两层加固同处一屏。)
+（[ext2.hpp](../../../libs/ext2/ext2.hpp#L491-L495)。结构(state)和并发(lock)两层加固同处一屏。)
 
 #### 关键取舍:持锁跨 read_disk_inode 的盘 I/O
 
@@ -207,7 +207,7 @@ struct Ext2CachedInode {
 };
 ```
 
-（[ext2_types.hpp](kernel/fs/ext2/ext2_types.hpp#L334-L340)。）那层治的是**结构性别名 UAF**——「slot 被驱逐重填导致活指针失效」。对象的地址即身份,只要 `refcount>0` 就绝不移动/重填,驱逐只挑 `refcount==0` 的:
+（[ext2_types.hpp](../../../libs/ext2/ext2_types.hpp#L334-L340)。）那层治的是**结构性别名 UAF**——「slot 被驱逐重填导致活指针失效」。对象的地址即身份,只要 `refcount>0` 就绝不移动/重填,驱逐只挑 `refcount==0` 的:
 
 ```cpp
 // evict:缓存满时只驱逐 refcount==0 的;全活则失败不腐蚀
@@ -216,7 +216,7 @@ if ((*pp)->vfs_inode.refcount == 0) { victim_prev = pp; break; }
 if (victim_prev == nullptr) { return nullptr; }  // 全在用,失败也不重填活对象
 ```
 
-（[ext2_inode.cpp](kernel/fs/ext2/ext2_inode.cpp#L146-L166)。）但结构层加固只保证「单个 CPU 内、单线程语义下指针稳定」,没管「两个核同时进来改这张表」——那是这一章的活。**一个治结构(谁能在何时被释放),一个治并发(谁能同时进来改),缺一不可**。光有 refcount 不加锁,两核照样能同时 `new` + `read_disk_inode` + `insert`,重复读盘、重复挂桶;光有锁不保证地址即身份,驱逐重填照样让活指针失效。
+（[ext2_inode.cpp](../../../libs/ext2/ext2_inode.cpp#L133-L150)。）但结构层加固只保证「单个 CPU 内、单线程语义下指针稳定」,没管「两个核同时进来改这张表」——那是这一章的活。**一个治结构(谁能在何时被释放),一个治并发(谁能同时进来改),缺一不可**。光有 refcount 不加锁,两核照样能同时 `new` + `read_disk_inode` + `insert`,重复读盘、重复挂桶;光有锁不保证地址即身份,驱逐重填照样让活指针失效。
 
 ### 顺手 rider:三个正确性债,两种结局
 
@@ -231,12 +231,12 @@ ErrorOr<uint16_t> NvmeController::io_submit(const NvmeCmd& cmd) {
     // SMP: serialize SQ enqueue + CQ poll -- io_sq_tail_/io_cq_head_/io_cq_phase_
     // are shared; two CPUs submitting at once clobber each other's sq slot and
     // mis-read completions (status=0x4080 on a legal LBA).
-    auto g = io_lock_.guard();
-    // ... SQ enqueue + doorbell + 整个 CQ poll 循环 ...
+    io_lock_.acquire();
+    // ... SQ enqueue + doorbell + 整个 CQ poll 循环 ...(末尾 io_lock_.release();)
 }
 ```
 
-（[nvme.cpp](kernel/drivers/nvme/nvme.cpp#L396-L401)。注释写明 race 表现:合法 LBA 读到 `status=0x4080`。）对照一下:`admin_submit` 无锁——它在 init 期单线程跑,不存在并发。
+（[nvme_io.cpp](kernel/drivers/nvme/nvme_io.cpp#L20-L103)。`io_submit` 在 SMP 重构时拆出独立文件,锁用手动 `acquire()`/`release()` 包整段而非 RAII guard——因为循环中途有 yield 重入点。注释写明 race 表现:合法 LBA 读到 `status=0x4080`。）对照一下:`admin_submit` 无锁——它在 init 期单线程跑,不存在并发。
 
 #### Rider ② ELF 加载校验 —— 已落地
 
@@ -255,7 +255,7 @@ if (seg_vaddr >= kUserVaTop || seg_memsz_end > kUserVaTop) {
 }
 ```
 
-（[elf_load.cpp](kernel/proc/elf_load.cpp#L35-L56)。GCC 没有 unsigned overflow 的 sanitize,只能靠 `__builtin_*_overflow`。）配套给 `e_phnum` 加上限,挡住损坏 ELF 逼内核 alloc + read ~3.6MB phdr 表:
+（[elf_load.cpp](kernel/proc/elf_load.cpp#L41-L59)。GCC 没有 unsigned overflow 的 sanitize,只能靠 `__builtin_*_overflow`。）配套给 `e_phnum` 加上限,挡住损坏 ELF 逼内核 alloc + read ~3.6MB phdr 表:
 
 ```cpp
 constexpr uint16_t kMaxPhnum = 256;   // real ELFs <30,256 是工程经验值不是规范值
@@ -264,29 +264,32 @@ if (ehdr->e_phnum > kMaxPhnum) { return ElfValidateResult::BadPhnum; }
 
 （[elf_types.cpp](kernel/proc/elf_types.cpp#L63-L72)。）
 
-#### Rider ③ VFS offset_lock —— 没修成(病灶态)
+#### Rider ③ VFS offset_lock —— 已落地(分流锁)
 
-这一笔必须诚实说:**CinuxOS 修了,Book 没修成,当前工作树仍是病灶态**。
+这一笔是 schedule-while-held 这类 LOCKDEP 头号死锁模式的根治。病根曾经是:`do_read_kernel` / `do_write_kernel` 无条件持 `file->offset_lock_` 再调 `read` / `write`,而非 cacheable 路径(pipe / pty)的 `read` 会 `schedule_blocked` 让出 CPU——持着自旋锁去 schedule。
 
-病在哪?`do_read_kernel` / `do_write_kernel` 无条件持 `file->offset_lock_` 去调 `read` / `write`:
+修法是用 `is_page_cacheable()` 把锁分流:只有 disk 路径(走 PageCache + demand page + NVMe poll,不阻塞)才持 `offset_lock_` 并更新 offset;pipe / pty 这类会 `schedule_blocked` 的流式路径不持锁、unlocked 更新 offset:
 
 ```cpp
 int64_t do_read_kernel(int fd, void* kbuf, uint64_t count) {
-    // ...
-    auto g = file->offset_lock_.guard();     // L42:无条件持锁
-    (void)g;
-    auto read_result = file->inode->ops->is_page_cacheable()
-        ? cinux::mm::g_page_cache.read_bytes(...)   // disk,不阻塞
-        : file->inode->ops->read(...);              // pipe/pty,会 schedule_blocked!
-    // ...
+    // offset_lock_ guards file->offset (seek position).  Only disk-backed
+    // (page_cacheable) files use offset; their read path (PageCache + demand
+    // page + NVMe poll) does not block on schedule.  Pipes/pty are streams --
+    // their read() calls schedule_blocked, so holding offset_lock_ across it
+    // would deadlock (LOCKDEP: schedule-while-held).
+    if (file->inode->ops->is_page_cacheable()) {
+        auto g           = file->offset_lock_.guard();   // disk 路径才持锁
+        auto read_result = cinux::mm::g_page_cache.read_bytes(...);
+        // ... 更新 file->offset ...
+    } else {
+        // pipe/pty:unlocked 更新 offset,read() 内部可安全 schedule_blocked
+    }
 }
 ```
 
-（[sys_read.cpp](kernel/syscall/sys_read.cpp#L42-L50)。`sys_write.cpp:48` 同样无条件持锁。）问题在于:非 cacheable 路径(pipe / pty / ramdisk)的 `read` / `write` 会 `schedule_blocked` 让出 CPU——**持着自旋锁去 schedule**,这是 LOCKDEP 头号抓的死锁模式。L48 已经用 `is_page_cacheable()` 选 read 路径了,但**没用它来分流锁**——这正是没补上的那一刀。
+（[sys_read.cpp](kernel/syscall/sys_read.cpp#L48-L57)。`sys_write.cpp:53` 同样已分流。）这条修法对应 CinuxOS 上游(提交 `f40bed1`),已回迁到 Book 工作树。
 
-正确修法是「`is_page_cacheable()`(disk,不阻塞)持 `offset_lock_` 并更新 offset;非 cacheable(pipe/pty)不持锁、unlocked 更新 offset」。CinuxOS 上游(提交 `f40bed1`)就是这么修的,但这笔回迁到 Book 时没落地,当前工作树 `grep` 确认:`sys_read.cpp:42` / `sys_write.cpp:48` 仍是无条件 `auto g = file->offset_lock_.guard()`。
-
-配套对比点很值得记住——`sys_lseek` 持 `offset_lock_` 改 offset 是对的([sys_lseek.cpp](kernel/syscall/sys_lseek.cpp#L34-L35)):它做的是纯算术、不阻塞,不触发 schedule-while-held;NVMe `io_lock_` 跨 busy-wait poll 也是安全的(poll 不让出 CPU)——错的是「持着它去 `schedule_blocked`」。
+配套对比点很值得记住——`sys_lseek` 持 `offset_lock_` 改 offset 是对的([sys_lseek.cpp](kernel/syscall/sys_lseek.cpp#L34-L35)):它做的是纯算术、不阻塞,不触发 schedule-while-held;NVMe `io_lock_` 跨 busy-wait poll 也是安全的(poll 不让出 CPU)——错的是「持着它去 `schedule_blocked`」,而分流锁正是把这一刀切干净。
 
 ## 主线四 · 纵深期:IPI shootdown 与 deferred CoW 范式
 
@@ -359,7 +362,7 @@ bool PMM::refcount_dec_and_test_no_free(uint64_t phys) {
 }
 ```
 
-（[pmm.cpp](kernel/mm/pmm.cpp#L283-L293) 和 [pmm.cpp](kernel/mm/pmm.cpp#L331-L353)。这就是 044 章那两本账的 `no_free` 变体——所有权账面归零,实物留着等 drain 兑现。）
+（[pmm.cpp](kernel/mm/pmm.cpp#L279-L289) 和 [pmm.cpp](kernel/mm/pmm.cpp#L327-L350)。这就是 044 章那两本账的 `no_free` 变体——所有权账面归零,实物留着等 drain 兑现。）
 
 2. 把 `{old_phys, vaddr}` 塞进一条 pending 链表 + 给信号量 `post` 一下([tlb.cpp](kernel/arch/x86_64/tlb.cpp#L85-L113)):
 
@@ -425,31 +428,31 @@ void tlb_drain_entry() {
 
 这几笔债还有一层「检测器盲区」的教学价值:`RACE_TOUCH` 能抓 `inode_cache_`(单一访问点),但 `block_buf_` 是被几十处 `read_block` 共享的 scratch,`RACE_TOUCH` 标不过来——这类「共享 scratch 互踩」要等 host TSAN(host-build 直接观察内存访问)才能秒级定位,是 081 的内容。本章只作检测器互补的对照引用,不展开。
 
-### deferred-CoW 基建已就位、接线没落地
+### deferred-CoW 基建与接线
 
-整条 deferred-CoW 修复在当前 Book 工作树其实是「未接通」状态,逐条交代:
+整条 deferred-CoW 修复在当前 Book 工作树已端到端接通,逐条交代:
 
-- **`handle_cow_fault` 仍立即 free** —— `process_new.cpp:119` 仍调旧版 `pte_count_dec_and_test(old_phys)`,**不是** `_no_free` + `enqueue_pending_shootdown`。注释 L116-L118 自承「Cross-core TLB shootdown before freeing is a deeper follow-up」;
-- **`pte_count_dec_and_test_no_free` / `enqueue_pending_shootdown` / `start_tlb_drain_thread` 全仓零调用点** —— 函数体都在,没人调;
-- **`CINUX_TLB_DRAIN` 这个 CMake option 从未被 `option()` 定义** —— `kernel/arch/CMakeLists.txt:28` 的 `if(CINUX_TLB_DRAIN)` 消费空值 → 恒链 stub([arch/CMakeLists.txt](kernel/arch/CMakeLists.txt#L28-L35)),注释声称「ON (default)」实际默认 OFF;
-- **`start_tlb_drain_thread()` 全仓无调用方** —— `tlb_drain_stub.cpp:6` 注释声称 `init.cpp` 可调,但 `grep` 全 kernel 无调用点,`proc/init.cpp` 也没有;
-- **`shootdown_ipi_stub`(0xE1)未在 IDT 注册** —— `irq_handlers.cpp:49` 的 `extern "C"` 块内(如 L67)声明了 `shootdown_ipi_stub()`,`interrupts.S:458` 有 `ISR_IRQ` stub 定义,但 `irq_init()`([irq_handlers.cpp](kernel/arch/x86_64/irq_handlers.cpp#L157-L211))里只有 0xE0(reschedule)、xhci、nvme、virtio、lapic-timer 的 `set_handler`,**没有 0xE1 的 `set_handler` 调用**。
+- **`handle_cow_fault` 走 deferred 路径** —— `process_new.cpp` 的 `handle_cow_fault` 已调 `pte_count_dec_and_test_no_free(old_phys)`,命中(计数归零)后再 `enqueue_pending_shootdown(old_phys, fault_vaddr)`,**不再立即 free**([process_new.cpp](kernel/proc/process_new.cpp#L114-L126),注释 L119 自承「B3 defect C: defer the free」);
+- **`enqueue_pending_shootdown` 已有调用方** —— 上一条就是它的调用点;
+- **`CINUX_TLB_DRAIN` 这个 CMake option 已声明** —— `cmake/options.cmake` `option(CINUX_TLB_DRAIN "Spawn the TLB shootdown drain kthread (deferred CoW free)" ON)`,默认 ON;`kernel/arch/CMakeLists.txt` 的 `if(CINUX_TLB_DRAIN)` 据此决定链 `tlb_drain.cpp` 真实现还是 `tlb_drain_stub.cpp` 空实现;
+- **`start_tlb_drain_thread()` 已有调用方** —— `proc/init.cpp` 在初始化阶段调用它起 drain kthread(init.cpp L19 include、L165 调用);
+- **`shootdown_ipi_stub`(0xE1)已注册进 IDT** —— `irq_init()` 在 reschedule 0xE0 之后 `set_handler(kShootdownIpiVector, shootdown_ipi_stub, ...)` 注册 0xE1([irq_handlers.cpp](kernel/arch/x86_64/irq_handlers.cpp#L172-L177)),`shootdown_ipi_stub` 声明在 [irq_handlers.cpp:67](kernel/arch/x86_64/irq_handlers.cpp#L67),`interrupts.S` 的 `ISR_IRQ shootdown_ipi_stub, shootdown_ipi_handler, 0` 定义在 [interrupts.S:455](kernel/arch/x86_64/interrupts.S#L455)。
 
-这一笔(0xE1 未注册)有一个直接的连带后果:机制测试里的 `tlb_shootdown_page(0xDEADB000)`([main_test.cpp](kernel/test/main_test.cpp#L623-L627))在当前工作树也**端到端走不通**——0xE1 落不到 `shootdown_ipi_handler`,AP 收不到 IPI / 不 ack,BSP 会卡在 spin 等 ack 归零(或 0xE1 落到默认 handler)。所以「shootdown 收发逻辑本身写好了」(发送端 L34-L58、接收端 L60-L67 都在)和「收发通路真跑通」是两件事——后者要等 0xE1 注册落地,和 deferred-CoW 的其他接线缺口一并划为「未接通」。讲机制本身(收发、死锁推导、deferred 范式)用真值源码直接讲没问题;但「机制测试验证过收发」这种话这一章不说,等接线齐了再说。
+连带机制测试也端到端跑通:机制测试里的 `tlb_shootdown_page(0xDEADB000)`([main_test.cpp](kernel/test/main_test.cpp#L1044-L1048))在 `-smp 2` 下会真发 0xE1 IPI 给 AP、AP ack 回来、BSP 的 spin 等到 acks==0 退出,打出 `[F-VERIFY] shootdown IPI test: PASS (all APs acked)`——0xE1 收发通路在当前工作树已可验证。
 
 ### race-detect 门控链在本机工作树的状态
 
-主线一讲过 opt-in 是一条链,本机工作树断了两环:
+主线一讲过 opt-in 是一条链,本机工作树三环都已接通:
 
-- **`option(CINUX_RACE_DETECT ...)` 整段在根 `CMakeLists.txt` 缺失** —— 只有 `LOCKDEP` / `UBSAN` 等,没有 `RACE_DETECT`;
-- **`kernel/CMakeLists.txt:141-142` 只有 `if(CINUX_LOCKDEP)` 的 `target_compile_definitions` 段** —— 没有对应的 `RACE_DETECT` 段。即使用户 `-DCINUX_RACE_DETECT=ON`,`proc` §14 文件门会链 `race_detect.cpp` 真实现,但编译宏永远不传、`RACE_TOUCH` 恒 no-op;
-- **AP 侧机制测试 touch 缺失** —— 上面主线二讲过,`main_test.cpp` 注释声称 AP 在 `ap_test_selfcheck` 碰 watchpoint,但函数体无此调用。即使 compile def 传对了,probe 拿到的 `prev` 恒为 `kRaceCpuNone`,返 `false` 报 FAIL。
+- **`option(CINUX_RACE_DETECT ...)` 已声明** —— [cmake/options.cmake](../../../cmake/options.cmake#L63) `option(CINUX_RACE_DETECT "Enable SMP data-race watchpoint detector (debug)" OFF)`,默认 OFF(opt-in);
+- **编译宏通过 foreach 自动传** —— `cmake/options.cmake` 的 `CINUX_COMPILE_DEF_OPTS` 列表含 `RACE_DETECT`([cmake/options.cmake:148](../../../cmake/options.cmake#L148)),`kernel/CMakeLists.txt` 的 `foreach(_opt IN LISTS CINUX_COMPILE_DEF_OPTS)`([kernel/CMakeLists.txt#L130-L135](../../../kernel/CMakeLists.txt#L130-L135))把它自动 map 成 `target_compile_definitions`,加新开关无需改 kernel/CMakeLists.txt;
+- **AP 侧机制测试 touch 已落地** —— 上面主线二讲过,`ap_test_selfcheck` 已有 `race_check_access_probe(g_race_test_wp)`。
 
-lab 会带你把前两环补上,第三环(AP touch)作为思考题。
+所以 `-DCINUX_RACE_DETECT=ON -DCINUX_LOCKDEP=ON` 之后,三件套齐、机制自测端到端通、能真报 PASS。lab 会带你亲手开这两个 option 并验证 PASS 亮起。
 
-### VFS offset_lock 病灶态
+### VFS offset_lock 分流锁
 
-主线三 rider ③ 已详述:CinuxOS 上游已修(`is_page_cacheable` 分流),Book 未修,当前 tag078 仍是 schedule-while-held 病灶态。`sys_read.cpp:42` / `sys_write.cpp:48` 仍是无条件持锁。
+主线三 rider ③ 已详述:CinuxOS 上游修的 `is_page_cacheable` 分流锁已回迁到 Book 工作树,`sys_read.cpp:48` / `sys_write.cpp:53` 都按 cacheable 与否分流持锁,schedule-while-held 病灶态已根治。
 
 ### WSL2 上的验证边界
 
@@ -461,4 +464,4 @@ lab 会带你把前两环补上,第三环(AP touch)作为思考题。
 
 四个阶段不是孤立的修法清单,是同一件事的四步:**把 SMP 上「靠人 audit + 靠崩发现」换成「靠机制报警 + 靠结构保证」**。报警器抓结构性缺陷(无锁),结构保证消除时序侥幸(deferred 把「可能互锁」降到「结构上不可能」)。这根绳从 044 的两本账起头,经过 078 的 race-detect 和 deferred CoW,绳结越收越紧——下一章(080/081)会接着把 `ext2` 盘元数据的 race(`block_buf_` / 位图 RMW)和 host TSAN 那套「共享 scratch 互踩」的检测能力补上。
 
-> 诚实边界再压一句:race-detect 那条机制自测(`[F-DYN-COV] race-detect test:`)当前是「测试在跑、断言在执行」的状态——它的检测逻辑端到端通(见主线二的 exchange + 比较),但本机工作树还卡在「AP 侧 touch 缺失 → 报 FAIL」,要等 lab 里补上 AP touch 才会真正 PASS。shootdown IPI 那段更是连 0xE1 都没注册进 IDT(见「范围与边界」),收发通路当前端到端走不通。这两段都按上面边界逐条标注,不拿当前树当「已生效」的证据;deferred-CoW 的接线缺口和 rider ③ 病灶态同理。
+> 诚实边界再压一句:race-detect 那条机制自测(`[F-DYN-COV] race-detect test:`)当前是「测试在跑、断言在执行」的状态——它的检测逻辑端到端通(见主线二的 exchange + 比较),三件套(option + 编译宏 foreach + §14 文件门)齐了、AP 侧 touch 也已落地,`-DCINUX_RACE_DETECT=ON -DCINUX_LOCKDEP=ON` 下 `-smp 2` 跑会真报 PASS。shootdown IPI 那段 0xE1 已注册进 IDT、机制测试已端到端跑通打出 `[F-VERIFY] shootdown IPI test: PASS`;deferred-CoW 的接线(`_no_free` + `enqueue_pending_shootdown` + drain kthread + `CINUX_TLB_DRAIN` option)和 rider ③ 分流锁都已落地——这些「已接通」的事实按上面边界逐条交代,当前树就是「已生效」的现场。

@@ -4,6 +4,8 @@ title: 054 · GUI 解耦:host-neutral core、一张 Host 表,和甩掉 PIT 中�
 
 # 054 · GUI 解耦:host-neutral core、一张 Host 表,和甩掉 PIT 中断刷新
 
+> ⚠️ **tag-bound 提示(2026-07)**:本章基于 F13-B tag——内核 `gui_worker` 线程 + Host 表适配架构。wholesale 后(F-GUI-USERSPACE)GUI 完全 userspace 化:`host_cinux.cpp` / `gui_worker_thread` 已删,GUI 逻辑全在 `third_party/Cinux-GUI/`,由 userspace `/cinux_gui_host` 进程驱动。本章引用的 `kernel/gui/*.cpp` 多数已挪或删,读者请按 F13-B tag 读源码;本章保留 tag-bound 叙事(讲解耦从「内核 gui_worker」→「Host 表」的演进,F13-B 是 userspace 化前的中间态)。
+
 > 029 到 033b 在内核里搭起了一整套桌面:双缓冲画布、窗口管理器、位图图标、终端。但那套 GUI 是**焊死在内核里**的——刷新挂在 PIT 的时钟中断回调里,合成完直接 `flip()` 写帧缓冲,想测一个矩形运算都得把整个内核跑起来,更别提哪天想把它搬去用户态了。这一章把它拆开:GUI 的核心几何/事件/光栅化逻辑抽成一个**不 include 任何内核头**的独立库(`third_party/Cinux-GUI/`),内核这边只留一个填「Host 表」的薄适配单元;刷新从 PIT 中断挪到一个普通线程主动去**拉**,顺手甩掉一笔旧债——production 的 APIC 路由其实只送 1 个 PIT tick,屏幕一直是靠启动时预绘那一帧勉强活着。B 档:验证靠 `cinux-gui` 库能脱离内核独立编译跑测试(不需要 QEMU),加上内核测试里新增的 region / dirty / swraster 用例全绿。
 >
 > 一条诚实的边界先说在前头:本章搭的是**解耦骨架**——把 core 拔出来、把 Host 表立起来、把刷新挪到线程。至于「把源码里残存的 `#ifdef CINUX_GUI` 全归到 CMake 开关、补一组 USB 空壳让 GUI 在真 xHCI 驱动落地前也能链接」这套收尾,时间上排在 xHCI 驱动之后,留到后面;本章讲到那里会停住。

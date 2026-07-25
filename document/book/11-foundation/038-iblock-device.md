@@ -53,7 +53,7 @@ public:
 接口有了,ext2 这边的改动就清爽了:
 
 ```cpp
-// kernel/fs/ext2.hpp
+// libs/ext2/ext2.hpp
 explicit Ext2(IBlockDevice* dev);   // 构造函数只认接口,不认 AHCI
 // ...
 IBlockDevice* dev_;
@@ -84,8 +84,8 @@ static Ext2 ext2(blk_dev.ok() ? &blk_dev.value() : nullptr);
 grep -n 'class IBlockDevice' kernel/drivers/block_device.hpp
 grep -rn 'class RAMBlockDevice\|class AHCIBlockDevice' kernel/drivers/
 # ext2 解耦:构造函数吃接口、block_buf_ 在、自带 DMA 没了
-grep -n 'explicit Ext2(IBlockDevice' kernel/fs/ext2.hpp
-grep -n 'block_buf_\[' kernel/fs/ext2.hpp
+grep -n 'explicit Ext2(IBlockDevice' libs/ext2/ext2.hpp
+grep -n 'block_buf_\[' libs/ext2/ext2.hpp
 ```
 
 构建:

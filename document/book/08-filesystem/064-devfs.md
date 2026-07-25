@@ -25,7 +25,7 @@ title: 064 · DevFS:用一个虚拟文件系统把设备挂进 /dev
 
 ## device inode:给 InodeOps 写子类
 
-DevFS 核心是 `DevFs : FileSystem`(`devfs.hpp:80`)——一个内存设备表(`DevNode{name, Inode}` × 16),`mount()` 建标准节点,`lookup()` 按名查。真正有意思的是设备行为怎么写:在 `devfs.cpp` 的匿名 namespace 里,给 `InodeOps` 写四个子类,每种设备一个:
+DevFS 核心是 `DevFs : FileSystem`(`devfs.hpp:110`)——一个内存设备表(`DevNode{name, Inode}` × 16),`mount()` 建标准节点,`lookup()` 按名查。真正有意思的是设备行为怎么写:在 `devfs.cpp` 的匿名 namespace 里,给 `InodeOps` 写四个子类,每种设备一个:
 
 ```cpp
 class NullDevOps : public InodeOps {    // /dev/null:写丢弃,读给 EOF
@@ -38,7 +38,8 @@ class ZeroDevOps : public InodeOps {     // /dev/zero:读给零,写丢弃
     ...
 };
 class ConsoleDevOps : public InodeOps {  // /dev/console:写打到串口
-    explicit ConsoleDevOps(CharSink* sink) : sink_(sink) {}
+    explicit ConsoleDevOps(CharSink* sink, ConsoleInput* input)
+        : sink_(sink), input_(input) {}
     ssize_t write(...) override { return sink_->write(buf, count); }
     ...
 };
@@ -47,7 +48,7 @@ class DevDirOps : public InodeOps {      // /dev 目录本身:readdir 遍历节�
 };
 ```
 
-(`devfs.cpp:47` 起。)几个细节。其一,设备的 `stat` 要填 `st_rdev`(设备号,`devfs_makedev(major, minor) = (major<<8)|minor`,比如 null 是 1:3、zero 是 1:5)和 `st_mode`(`kSIfChr|0666`,字符设备 + 读写权限)——这两个字段是 `stat()` 的 override 里填的,**不往 `Inode` 结构体里加字段**。其二,`DevDirOps` 是 `/dev` 这个目录自己的行为——`readdir` 遍历 DevFs 的节点表,列出 null/zero/console。
+(`devfs.cpp:48` 起;匿名 namespace 整体从 L23 起。)几个细节。其一,设备的 `stat` 要填 `st_rdev`(设备号,`devfs_makedev(major, minor) = (major<<8)|minor`,比如 null 是 1:3、zero 是 1:5)和 `st_mode`(`kSIfChr|0666`,字符设备 + 读写权限)——这两个字段是 `stat()` 的 override 里填的,**不往 `Inode` 结构体里加字段**。其二,`DevDirOps` 是 `/dev` 这个目录自己的行为——`readdir` 遍历 DevFs 的节点表,列出 null/zero/console。
 
 > 这一步的关键纪律:**`InodeOps` 基类的虚函数签名一行不动,只加子类**。这不是洁癖,是能并行的前提——device inode 子类、ext2 的子类、还有别的改动,全都给 `InodeOps` 加子类,只要不动基类接口,各加各的,merge 时不撞。要是改了基类签名(比如给 `Inode` 加个 `st_rdev` 字段),所有子类都得跟着改,并行就炸了。把「设备号」收进 ops 子类的 `stat()` override、而不是 `Inode` 字段,就是为这个。「加新东西靠子类、不动基类」是这一卷反复出现的套路(上一卷加 UDP 靠 L4 表,一个道理)。
 
@@ -55,17 +56,17 @@ class DevDirOps : public InodeOps {      // /dev 目录本身:readdir 遍历节�
 
 `ConsoleDevOps` 的 write 要打到串口,可 `Serial` 是内核硬件的东西,host 单测链不了。要是 devfs.cpp 直接 `#include "Serial.h"` 调串口,host 一链就 undefined。
 
-解法是抽一个接缝——`CharSink`(`devfs.hpp:57`):
+解法是抽一个接缝——`CharSink`(`devfs.hpp:61`):
 
 ```cpp
 class CharSink {
 public:
     virtual ~CharSink() = default;
-    virtual ErrorOr<int64_t> write(const uint8_t* buf, size_t count) = 0;
+    virtual ErrorOr<int64_t> write(const void* buf, uint64_t count) = 0;
 };
 ```
 
-`ConsoleDevOps` 只持一个 `CharSink*`,write 时调 `sink_->write`——它根本不知道 sink 背后是串口还是别的。于是:内核里注入一个**真** sink(`SerialConsoleSink`,write 转成 COM1 逐字节 `putc`,见 `devfs_init.cpp:34`);host 单测注入一个 **mock** sink(把写下来的字节收进一个 buffer 好断言)。同一份 `ConsoleDevOps` 派发逻辑,内核和 host 都能跑。
+`ConsoleDevOps` 只持一个 `CharSink*`,write 时调 `sink_->write`——它根本不知道 sink 背后是串口还是别的。于是:内核里注入一个**真** sink(`SerialConsoleSink`,write 转成 COM1 逐字节 `putc`,见 `devfs_init.cpp:42`);host 单测注入一个 **mock** sink(把写下来的字节收进一个 buffer 好断言)。同一份 `ConsoleDevOps` 派发逻辑,内核和 host 都能跑。
 
 > 这跟上一卷 TTY 的「回显走注入 callback」、net 的「NetDevice 接缝」是一个模子:**核心逻辑只认抽象接缝,具体后端靠注入**。好处是核心逻辑(host 能链的那份)可单测,后端(硬件相关的)单独放、不污染可测的部分。代价是多一层胶水,但比起「host 里 mock 掉一整个 Serial」干净太多。
 >
@@ -73,7 +74,7 @@ public:
 
 ## boot:挂上 /dev
 
-核心和设备 ops 就位,最后把 DevFS 接进 boot。`devfs_init.cpp` 里一个 boot 钩子 `devfs::init()`:构造 DevFs(注入 `SerialConsoleSink`)、`mount()` 建标准节点、`vfs_mount_add("/dev", ...)` 注册到 VFS 的 mount 表。`init.cpp` 在 ext2 挂了根 `/` 之后调它(`init.cpp:49`)——boot 装配就多一行。
+核心和设备 ops 就位,最后把 DevFS 接进 boot。`devfs_init.cpp` 里一个 boot 钩子 `devfs::init()`:构造 DevFs(注入 `SerialConsoleSink`)、`mount()` 建标准节点、`vfs_mount_add("/dev", ...)` 注册到 VFS 的 mount 表。`init.cpp` 在 ext2 挂了根 `/` 之后调它(`init.cpp:137`)——boot 装配就多一行。
 
 `make run` 起 QEMU,boot 序列会打:`[VFS] ext2 mounted at /` → `[DEVFS] mounted at /dev (3 nodes)`。从这一刻起,`/dev` 是个真实的挂载点,`ls /dev` 见到 null/zero/console。
 

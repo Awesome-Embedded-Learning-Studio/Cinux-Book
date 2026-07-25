@@ -70,8 +70,8 @@ shell 里加了 `mkfifo` 命令(建 FIFO)和 `fifotest` 命令(端到端验:mkfi
 ## 这章没做的
 
 - **open 级两端就绪阻塞**:数据级阻塞(读空/写满)做了;「读写端都 open 了才接通」的 open 级阻塞推迟(本里程碑只做数据级保正确)。
-- **close 不销毁 pipe**:close 一个端不拆掉共享 Pipe 开新 epoch(没有 `InodeOps::release` 钩子);per-open ops/inode 在 close 时泄漏(同匿名 pipe 的 hobby-OS 限制)。
-- **FIFO flat 命名空间**:都落 `/dev` flat,不在任意路径。任意路径 mkfifo + 用户态 shell 真闭环要 `do_openat` 也调 open cloning,留后续。
+- **close 不销毁 pipe**:close 一个端不拆掉共享 Pipe 开新 epoch——`InodeOps::release` 虚槽已经有了(`inode.hpp:228`),匿名 pipe 两端 ops 的 `release` 也实现了(`pipe_ops.cpp:73/126` 做 DEBT-023 引用计数,见 `pipe.hpp:124-135`);但 **FIFO cloning 出的 per-open end inode 没人 free**——`FifoOps` 没覆写 `release`,所以 open cloning 时 `new` 出来的 per-open inode + 它的 PipeReadOps/PipeWriteOps 在 close 时仍泄漏(`fifo.cpp:156` 注释仍写「intentional leak on close」)。同匿名 pipe 的 hobby-OS 限制。
+- **FIFO flat 命名空间**:都落 `/dev` flat,不在任意路径。任意路径 mkfifo + 用户态 shell 真闭环要 `do_openat_kernel` 也调 open cloning,留后续。
 - **ConditionVariable 抽象**:这一章复用现成 wait queue,没抽独立的 ConditionVariable(留 sync 里程碑)。
 
 ## 小结

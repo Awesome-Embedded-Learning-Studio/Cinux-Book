@@ -4,6 +4,14 @@ title: 033 · 桌面图标层:让空白桌面长出可点击的东西
 
 # 033 · 桌面图标层:让空白桌面长出可点击的东西
 
+::: tip tag-bound(本章源码见 tag 033_gui_desktop / e96fff2)
+本章描述的是 **wholesale 前的内核内 GUI** —— 那时 `desktop_icon.hpp` / `window_manager.hpp` / `window_manager.cpp` / `gui_init.cpp` 都还在 `kernel/gui/` 下,`DesktopIcon` 是带 `IconAction` 枚举的 POD,Window Manager 用"意图槽 `pending_icon_action_` + tick 消费"的两段式点击模型。
+
+主线在 F13(visor 解耦)的 wholesale 后,GUI 整体外置到用户态 `third_party/Cinux-GUI/` 重写为 Widget 版:`DesktopIcon` 变成 `cinux::gui::DesktopIcon` Widget(`set_bitmap` / `set_label` / `set_on_activate`),点击改用 down+up press capture + `on_activate` 回调,不再有"槽 + 消费"语义;`draw_desktop_icons` / `composite` / `flip` 改成 `WindowManager::paint_to_list(PaintList&)` 三层(PaintList)由 Compositor flush。
+
+读这一章请按 **tag `033_gui_desktop`** 的快照读源码,而不是当前主线 `main`。下面所有源码链接(`kernel/gui/...`)指向的是该 tag 的历史路径。
+:::
+
 > 到 032 为止,我们已经攒齐了画一个图标的全部零件:`Canvas::draw_bitmap` 会把一块 32×32 的像素数组原样贴到画布上,透明像素自动跳过;`desktop_icon.hpp` 里有了 `DesktopIcon` 这个结构体,把"位置、位图、标签、动作"打成一个包,还自带 `contains(mx, my)` 这个左闭右开的命中框。可问题在于——这些零件全躺在仓库里,桌面压根没用它们。开机进 GUI,你看到的还是 030 那张光秃秃的暗青桌面,一个终端窗口漂在背景上,仅此而已。这一章,我们让 Window Manager 长出一个"桌面层":开机时往桌上摆两个图标,合成时把它们画到屏幕上,鼠标点上去能命中,并把"你点了什么"记下来。读完这一章你会看到:桌面有了图标,点 Shell 图标真的会弹出一个跑 shell 的终端窗口,而点 Calculator 图标则什么都不会发生——它的动作还没有消费者。
 
 ## 这一章我们要点亮什么

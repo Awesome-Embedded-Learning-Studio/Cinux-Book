@@ -27,7 +27,7 @@ title: 065 · ELF 动态链接:内核只装 interp,重定位交给 ldso
 
 **第一件:抽出 `load_elf_image`。** 059 那版的 `execve`,把 PT_LOAD 段的映射(alloc 页、清零、从 inode 读、map、记 VMA)inline 写在函数里。现在主程序要映射、interp 也要映射(它也是个 ELF,只是 `ET_DYN`),逻辑一模一样,只差一个 base。于是把这段映射抽成一个函数 `load_elf_image(space, inode, ehdr, phdrs, phnum, base, out)`(`elf_load.hpp:64`),返回一个 `LoadedImage{entry, phdr_va, max_seg_end, has_load}`(`elf_load.hpp:38`)。主程序调它 `base=0`(非 PIE,`p_vaddr` 就是绝对地址);interp 调它 `base=USER_INTERP_BASE`(`ET_DYN` 是 base 相对寻址,要加上 base)。
 
-**第二件:扫 PT_INTERP 读 interp 路径。** 主程序映完,扫一遍程序头找 `PT_INTERP`(`execve.cpp:256`):
+**第二件:扫 PT_INTERP 读 interp 路径。** 主程序映完,扫一遍程序头找 `PT_INTERP`(`execve.cpp:278`):
 
 ```cpp
 char interp_path[256];
@@ -45,7 +45,7 @@ for (uint16_t i = 0; i < phnum; i++) {
 
 `PT_INTERP` 段的内容就是那个路径字符串,读出来。静态 ELF 没这个段,`has_interp` 保持 false,走原路。
 
-**第三件:加载 interp + 改入口 + 喂 auxv。** 有 interp 的话,调 `load_interpreter(space, interp_path, &interp_base, &interp_entry)`(`elf_load.hpp:73`)——它 resolve + lookup interp 的 inode、读它的 ELF 头(validate 收 `ET_DYN`)、`load_elf_image` at `USER_INTERP_BASE`、`interp_entry = USER_INTERP_BASE + e_entry`(`ET_DYN` 的 entry 是 base 相对)。然后把**入口从主程序的 entry 改成 interp 的 entry**——因为要先跑 ldso,让它把主程序重定位好再跳过去。auxv 里喂三张关键的:主程序的 `AT_PHDR`(ldso 靠它定位主程序)、主程序的 `AT_ENTRY`(ldso 重定位完 `CRTJUMP` 跳过去)、interp 的 `AT_BASE`(ldso 靠 `__ehdr_start` 自定位,但 base 还是要喂)。
+**第三件:加载 interp + 改入口 + 喂 auxv。** 有 interp 的话,调 `load_interpreter(space, interp_path, &interp_base, &interp_entry)`(`elf_load.hpp:82`)——它 resolve + lookup interp 的 inode、读它的 ELF 头(validate 收 `ET_DYN`)、`load_elf_image` at `USER_INTERP_BASE`、`interp_entry = USER_INTERP_BASE + e_entry`(`ET_DYN` 的 entry 是 base 相对)。然后把**入口从主程序的 entry 改成 interp 的 entry**——因为要先跑 ldso,让它把主程序重定位好再跳过去。auxv 里喂三张关键的:主程序的 `AT_PHDR`(ldso 靠它定位主程序)、主程序的 `AT_ENTRY`(ldso 重定位完 `CRTJUMP` 跳过去)、interp 的 `AT_BASE`(ldso 靠 `__ehdr_start` 自定位,但 base 还是要喂)。
 
 > 为什么 `USER_INTERP_BASE` 选 `0x10000000`(256 MB)?它得落在没人占的地方:heap 上限(64 MB)以下不行、mmap 区(4 GB 起)以上也不行,就卡在中间这片空隙,跟两边零碰撞。ldso 是 `ET_DYN`,理论上任意 base 都能跑(它靠自身的 `__ehdr_start` 定位自己),所以 base 取个固定值就行;真要 ASLR 化(每次随机 base),留 follow-up。
 
@@ -105,7 +105,7 @@ Hello from musl on CinuxOS!
 ## 小结
 
 - 动态链接的程序带一个 `PT_INTERP` 指向 ldso,运行时由 ldso 把 `libc.so` 拼进来 + 重定位。内核不自建 loader——对齐 Linux 的分工。
-- 内核只做三件事:扫 `PT_INTERP` 读 interp 路径(`execve.cpp:256`)、把 ldso 当 `ET_DYN` 映到 `USER_INTERP_BASE`(`load_interpreter`)、改入口成 interp 入口 + 喂 auxv(`AT_BASE`/`AT_ENTRY`/`AT_PHDR`)。重定位/GOT/PLT 全是 ldso 用户态的事。
+- 内核只做三件事:扫 `PT_INTERP` 读 interp 路径(`execve.cpp:278`)、把 ldso 当 `ET_DYN` 映到 `USER_INTERP_BASE`(`load_interpreter`)、改入口成 interp 入口 + 喂 auxv(`AT_BASE`/`AT_ENTRY`/`AT_PHDR`)。重定位/GOT/PLT 全是 ldso 用户态的事。
 - 抽出 `load_elf_image`(`elf_load.hpp:64`)让主程序(base=0)和 interp(base=`USER_INTERP_BASE`)共用一条 PT_LOAD 映射路径。
 - musl 的 `libc.so` 就是 interp(ldso + 共享 libc 二合一);`build-hello-dyn.sh` 产非 PIE 动态 hello;ext2 装 interp 到 `PT_INTERP` 指定的精确路径。
 - 最大的坑是 ext2 双重间接缺失:interp 822 KB 超过单间接极限(274 KB)读不到,用 4096 块(单间接到 4 MB)绕过;真正的修留 ext2 间接块那卷。

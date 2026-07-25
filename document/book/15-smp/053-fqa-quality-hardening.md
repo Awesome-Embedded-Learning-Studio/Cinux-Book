@@ -46,11 +46,16 @@ title: 053 · F-QA 质量加固:SMP 真跑后清算并发债
 
 ## CoW 页的引用计数:fork/exec 的写时复制防 UAF
 
-fork 写时复制(CoW):父子进程先共享同一批物理页,谁写谁再复制。这就要求每个物理页知道"自己被几个地址空间共享"——**per-page 引用计数**(mapcount)。共享时 `mapcount_inc`,复制或取消映射时 `mapcount_dec_and_test`(减到 0 才真释放)。
+fork 写时复制(CoW):父子进程先共享同一批物理页,谁写谁再复制。这就要求每个物理页知道"自己被几个地址空间共享"——**per-page 引用计数**。Batch3 PMM 拆分后这个计数被拆成两个维度(见 `kernel/mm/phys_ref.hpp` 顶部注释,镜像 Linux 的 `page->_refcount` + `_mapcount` 切分):
 
-没这个计数会怎样?fork 后父子共享一页,子进程 exit 取消映射,内核以为没人用了就把物理页还回 PMM——可父进程还指着它,**use-after-free**。或者 exec 换页表时把共享页误释放。`mapcount` 让"该不该真释放"这个判断有据可依:计数归零才是最后一个人。
+- **`pte_count`**(用户 PTE 映射数):共享时 `pte_count_inc`,复制或取消映射时 `pte_count_dec`/`pte_count_dec_and_test`。它**只记账、永不直接释放**(`pte_count_dec` 注释明说 "never frees")。
+- **`refcount`**(所有权):真正决定"该不该真释放"。`refcount_dec_and_test` 减到 0 才把页还回 buddy(`kernel/mm/pmm.hpp:106-108`)。页缓存(`CachePhysRef`)或活 shmem 段持有的页,即使 `pte_count` 归零,`refcount` 仍 > 0,页不释放。
 
-`handle_cow_fault`(写时复制缺页处理)是收口点:旧共享页 `mapcount_dec`,新复制页 `mapcount` 初始化。共享地址空间(`AddressSpace`)本身也挂一个 `RefCount`,`clone(CLONE_VM)` 时 `acquire()`,线程退出 `release()`,最后一个释放整个地址空间。
+旧的统一 `mapcount_dec_and_test`(记账 + 释放合在一起)已被这个两段式取代;`pte_count_dec_and_test` 还保留这个名字只是为了让 7 个 teardown 调用点机械改写(它在 `pte_count` 归零时顺带 `refcount_dec_and_test`,把释放决策交给 refcount 维度)。
+
+没这个计数会怎样?fork 后父子共享一页,子进程 exit 取消映射,内核以为没人用了就把物理页还回 PMM——可父进程还指着它,**use-after-free**。或者 exec 换页表时把共享页误释放。`pte_count` + `refcount` 分工让"该不该真释放"这个判断有据可依:两个计数都归零才是最后一个人。
+
+`handle_cow_fault`(写时复制缺页处理)是收口点:旧共享页 `pte_count_dec`,新复制页 `pte_count` 初始化。共享地址空间(`AddressSpace`)本身也挂一个 `RefCount`,`clone(CLONE_VM)` 时 `acquire()`,线程退出 `release()`,最后一个释放整个地址空间。
 
 ## 退出路径:reap + deferred-free
 
@@ -86,12 +91,12 @@ cmake -B build -S . -DCINUX_BUILD_TESTS=ON && cmake --build build --target big_k
 cmake --build build --target run-kernel-test
 ```
 
-B 档:`big_kernel_test` 构建零错误 + 零警告(门禁生效),`run-kernel-test` 全绿(含本章新增的 `test_refcount`/`test_user_ptr`/`test_pmm_mapcount` 内核测试,它们就是为验证饱和引用计数、用户指针标记、CoW mapcount 而写的)。
+B 档:`big_kernel_test` 构建零错误 + 零警告(门禁生效),`run-kernel-test` 全绿(含本章相关的内核测试 `test_user_ptr`(用户指针标记)、`test_pmm_pte_count`(覆盖 refcount + pte_count 拆分后的 CoW 计数契约)——后者取代了拆分前的 `test_pmm_mapcount`)。饱和引用计数(`RefCount` 类型本身)则在 host 单测 `test/unit/test_refcount.cpp` 里验证,不是内核测试。
 
 ## 已知局限
 
 - **`UserPtr` 暂无消费者**:类型标记铺好了,但要等 `access_ok` + `copy_to/from_user`(后续)用它,才真正隔离用户/内核指针。现在它是脚手架。
-- **`-Wframe-larger-than` 暂缓**:9 个 syscall handler 在 16 KB 栈上放大缓冲,现在开会破坏零警告;得先把那些缓冲挪出栈。
+- **`-Wframe-larger-than` 暂缓**:几个 syscall handler 在 16 KB 栈上放 `char[PATH_MAX]` 大缓冲(集中的路径工具在 `kernel/syscall/path_util.cpp`),现在开会破坏零警告;得先把那些缓冲挪出栈。
 - **host 测试的既有债**:某个 host 单测(`test_ext2_inode_ops`)的 mock 还停在旧接口(返回 `int64_t`,滞后于内核 `InodeOps` 的 `ErrorOr`),host 测试整体编不过。这是 Book 既有的测试维护债(不属本弧),内核测试不受影响、全绿。
 
 ## 小结与下一站

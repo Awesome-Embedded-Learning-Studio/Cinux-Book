@@ -237,7 +237,7 @@ FdRef resolve_fd(int fd) {
 
 ## 统一 park:关中断 + register_all + schedule_blocked
 
-Pass 1 全没就绪、且没超时,就进统一 park 块(`poll_core.cpp:180`)。这是防 lost-wakeup 的核心。块全文如下(`:180` 起,到 `:215` 的 `return -cinux::kEintr;` 结束):
+Pass 1 全没就绪、且没超时,就进统一 park 块(`poll_core.cpp:180`)。这是防 lost-wakeup 的核心。块全文如下(`:180` 起,到 `:214` 的 `return -cinux::kEintr;` 结束):
 
 ```cpp
 // kernel/syscall/poll_core.cpp:180 (park 块全文)
@@ -377,7 +377,7 @@ void detach_all(kpollfd* pfds, uint64_t nfds, cinux::proc::Task* waiter) {
 
 - 就绪返回(`became_ready` 分支):`detach_all` → `continue` 回 for 顶 Pass 1 报。
 - 超时/无唤醒源返 0:这条是「sleep 之前就发现没东西能叫醒」直接返 0(`will_sleep=false`),不会进 schedule_blocked,detach 也就不需要(还没真挂出去)。
-- EINTR 返 `-kEintr`:`detach_all` 在 `schedule_blocked`(`:205`)之后调过,再检查信号(`:213-214`)。
+- EINTR 返 `-kEintr`:`detach_all`(`:205`)在 `schedule_blocked`(`:204`)之后调过,再检查信号(`:213-214`)。
 
 **后果三:双唤醒源必须幂等。** 有限 timeout 的 poller 同时挂在「N 个 fd 队列」+「timer queue」上。任一 fd 来数据、或 timer 到点,都会调 `Scheduler::unblock`。如果 unblock 不是幂等的(把已 Ready 的 task 再次 enqueue),就会 double-add 进运行队列——同一个 task 在运行队列里出现两次,调度器抽到两次,栈就乱了。
 

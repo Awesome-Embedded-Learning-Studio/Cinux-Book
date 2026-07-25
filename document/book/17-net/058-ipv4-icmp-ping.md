@@ -45,7 +45,7 @@ public:
 
 第二道是**协议接缝** `ProtocolHandler`(L3)——按 ethertype 注册:0x0806 是 ARP、0x0800 是 IPv4。帧进来,NetStack 按 ethertype 派发给对应的 handler。
 
-把这两道缝捏到一起的是 `NetStack`(`net_stack.hpp`)——唯一的前端,持一张设备表(从第一天就支持两块网卡共存,`kMaxDevs=2`,ARP reply 从同一块网卡出,栈里没有 singleton)和一张 ethertype→handler 派发表。它的 `poll()` 是预算制抽干:从每块设备各取一帧、解析 L2、按 ethertype 派发、用 scope_guard 回收 buffer,跑固定预算轮(`kPollBudget`)防 runaway。
+把这两道缝捏到一起的是 `NetStack`(`net_stack.hpp`)——唯一的前端,持一张设备表(从第一天就支持多块网卡共存,`kMaxDevs=3`,ARP reply 从同一块网卡出,栈里没有 singleton)和一张 ethertype→handler 派发表。它的 `poll()` 是预算制抽干:从每块设备各取一帧、解析 L2、按 ethertype 派发、用 scope_guard 回收 buffer,跑固定预算轮(`kPollBudget`)防 runaway。
 
 > **解耦是硬规矩,有脚本盯着。** `kernel/net/` 里**一行驱动头都不许 include**(不能 `#include "e1000*.hpp"`、不能 `dma_buffer.hpp`、不能 `irq.hpp`)。这不是写在注释里的口头约束,是 `scripts/check_net_decoupling.sh` 这个脚本用 grep 机器执行的门禁:`grep -rnE '#include.*(e1000|dma_buffer|irq)' kernel/net/` 一旦命中就 FAIL。它还负测过——临时往 `kernel/net/` 注入一个 `#include "kernel/arch/x86_64/irq.hpp"`,门禁立刻报 `DECOUPLING VIOLATED`;删掉复绿。真能抓人。这道门禁保证「栈是纯协议库」——能在 host 上单测链接、零内核依赖、加新网卡不动栈。
 
@@ -67,7 +67,7 @@ public:
 
 > **`LoopbackDevice` 有 ~12KB(8×1518 存储),内核 16KB 栈放不下**——测试里用 `static` 分配,不放栈上。这是踩过才记的:大对象别想当然往栈上塞。
 
-loopback 上 ping 127.0.0.1,实测一轮 poll 就端到端通了:`icmp.send_echo_request(lo, 127.0.0.1, id=0xABCD, seq=1)` → poll 抽干 → `reply_count()==1, last_id()==0xABCD, last_seq()==1`。**没有 sti/hlt、没有 LAPIC、没有 SLIRP**——栈对就过。这就是「底子」被证明对的那一刻。
+loopback 上 ping 127.0.0.1,实测一轮 poll 就端到端通了:`icmp.send_echo_request(lo, 127.0.0.1, id=0xABCD, seq=1)` → poll 抽干 → `reply_count()==1, last_reply_id()==0xABCD, last_reply_seq()==1`。**没有 sti/hlt、没有 LAPIC、没有 SLIRP**——栈对就过。这就是「底子」被证明对的那一刻。
 
 ## 接 e1000:ping 10.0.2.2 一次过
 
