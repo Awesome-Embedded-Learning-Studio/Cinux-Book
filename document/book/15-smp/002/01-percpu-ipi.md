@@ -4,7 +4,7 @@ title: 01 · per-CPU 架构与 LAPIC IPI:给第二个核备好发令枪
 
 # per-CPU 架构与 LAPIC IPI:给第二个核备好发令枪
 
-> 这是 SMP 弧的关键一步,但**不是**"让第二个核跑起来"那一步。本章做两件事:一是把 per-CPU 数据/结构从静态全局迁到 GS-based per-CPU 控制块(单核重构,行为不变,为多核铺地基)——这部分源码在上一章 050 打底,本章把它讲透;二是把 LAPIC 的 IPI(核间中断)接口立起来,这是 BSP 唤醒 AP 的**发令枪**(INIT-SIPI-SIPI 协议的 BSP 侧)。至于把 AP 从实模式拉到长模式、真跑起来的 trampoline,是下一章 052 的事——它和多核调度紧耦合(trampoline 把 AP 拉起后,AP 入口要立刻对接 per-CPU 调度器),单独拎出来编译不过。B 档:`test_apic` 验证 IPI 的 ICR 写入(`send_init`/`send_sipi`/`send_ipi`)。
+> 这是 SMP 弧的关键一步,但**不是**"让第二个核跑起来"那一步。本章做两件事:一是把 per-CPU 数据/结构从静态全局迁到 GS-based per-CPU 控制块(单核重构,行为不变,为多核铺地基)——这部分源码在上一章 050 打底,本章把它讲透;二是把 LAPIC 的 IPI(核间中断)接口立起来,这是 BSP 唤醒 AP 的**发令枪**(INIT-SIPI-SIPI 协议的 BSP 侧)。至于把 AP 从实模式拉到长模式、真跑起来的 trampoline,是下一章 052 的事——它和多核调度紧耦合(trampoline 把 AP 拉起后,AP 入口要立刻对接 per-CPU 调度器),单独拎出来编译不过。验证:`test_apic` 验证 IPI 的 ICR 写入(`send_init`/`send_sipi`/`send_ipi`)。
 
 ## 这章咱们要点亮什么
 
@@ -71,7 +71,7 @@ cmake --build build -j$(nproc) > /tmp/b.log 2>&1; echo "build=$?"
 cmake --build build --target run-kernel-test   # test_apic 里 IPI 三测(send_init/send_sipi/send_ipi)全绿
 ```
 
-B 档端到端:`test_apic` 用 MockMmio 假装 LAPIC 寄存器,验证 `send_init`/`send_sipi`/`send_ipi` 写出的 ICR 值(high=dest<<24,low=vector|mode|assert)正确。**真"-smp 2 双核 online"要等 052 trampoline 落地**——本章结束时 AP 还没被唤醒。
+端到端:`test_apic` 用 MockMmio 假装 LAPIC 寄存器,验证 `send_init`/`send_sipi`/`send_ipi` 写出的 ICR 值(high=dest<<24,low=vector|mode|assert)正确。**真"-smp 2 双核 online"要等 052 trampoline 落地**——本章结束时 AP 还没被唤醒。
 
 ## 小结与下一站
 

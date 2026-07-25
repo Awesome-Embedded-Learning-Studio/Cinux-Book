@@ -47,4 +47,4 @@ RST 是「强制拆连接」。两种:SYN 到一个没人监听的端口,回 RST
 
 **第三层:回归。** `check_net_decoupling`(网络层解耦不变量)绿。
 
-**第四层:全量。** `run-kernel-test-all` 两腿各 999 passed / 0 failed(997 基线 + 2 TCP 内核测),AP 回读 PASS。
+**第四层:全量。** `run-kernel-test-all` 跑下来全绿(基线 + TCP 内核测),AP 回读 PASS。

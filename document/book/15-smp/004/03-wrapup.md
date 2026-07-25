@@ -19,7 +19,7 @@ cmake -B build -S . -DCINUX_BUILD_TESTS=ON && cmake --build build --target big_k
 cmake --build build --target run-kernel-test
 ```
 
-B 档:`big_kernel_test` 构建零错误 + 零警告(门禁生效),`run-kernel-test` 全绿(含本章相关的内核测试 `test_user_ptr`(用户指针标记)、`test_pmm_pte_count`(覆盖 refcount + pte_count 拆分后的 CoW 计数契约)——后者取代了拆分前的 `test_pmm_mapcount`)。饱和引用计数(`RefCount` 类型本身)则在 host 单测 `test/unit/test_refcount.cpp` 里验证,不是内核测试。
+验证:`big_kernel_test` 构建零错误 + 零警告(门禁生效),`run-kernel-test` 全绿(含本章相关的内核测试 `test_user_ptr`(用户指针标记)、`test_pmm_pte_count`(覆盖 refcount + pte_count 拆分后的 CoW 计数契约)——后者取代了拆分前的 `test_pmm_mapcount`)。饱和引用计数(`RefCount` 类型本身)则在 host 单测 `test/unit/test_refcount.cpp` 里验证,不是内核测试。
 
 ## 已知局限
 

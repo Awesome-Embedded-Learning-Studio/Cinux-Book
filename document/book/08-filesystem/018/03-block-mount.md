@@ -6,7 +6,7 @@ title: 03 · 块设备挂载链:从 /dev/sda 到 Ext2 实例
 
 ## 块设备挂载链:从 /dev/sda 到 Ext2 实例
 
-这一节是本章的**独特核心**——015 VFS 收尾章明确 deferred 的「`sys_mount` 怎么挂一块真盘」,就在这 30 行里。完整贴出来:
+这一节是本章的**独特核心**——015 VFS 收尾章明确留下没讲的「`sys_mount` 怎么挂一块真盘」,就在这 30 行里。完整贴出来:
 
 ```cpp
 // ---- ext2 / ext4: source is a block-device path (e.g. /dev/sda).  Resolve

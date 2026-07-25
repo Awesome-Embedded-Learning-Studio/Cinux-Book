@@ -84,6 +84,6 @@ void handle_pf(InterruptFrame* frame) {
 
 > 这里有两个边界要划清,都是故意的设计。
 >
-> **其一,只拦内核态 accessor RIP。** 用户态 fault(`cs & 3 != 0`)直接跳过这张表,走原来的 demand-page 不变。用户的栈页、heap 页第一次访问时缺页,是 F2 lazy-allocation 的正常范式,该 demand-page 就 demand-page,exception table 不掺和。它是专门给「内核代用户访问,用户却传了坏地址」这种内核态 fault 准备的精准拦截。
+> **其一,只拦内核态 accessor RIP。** 用户态 fault(`cs & 3 != 0`)直接跳过这张表,走原来的 demand-page 不变。用户的栈页、heap 页第一次访问时缺页,是 lazy-allocation 的正常范式,该 demand-page 就 demand-page,exception table 不掺和。它是专门给「内核代用户访问,用户却传了坏地址」这种内核态 fault 准备的精准拦截。
 >
 > **其二,demand-page / CoW / 栈守卫 / NULL-deref 这些正常内核 fault,它们的 RIP 不是 accessor 指令,查表 miss,原逻辑一个字不改。** exception table 只对被 `_ASM_EXTABLE` 注解过的那几条 `rep movsb` 生效。所以它接进来是「纯增益」:没注解的 fault 行为完全不变,注解了的 fault 从 panic 变成 `-EFAULT`。

@@ -26,7 +26,7 @@ if (self != nullptr) {
 
 三行,把当前内核线程从"匿名 kthread(pid=0)"扶正成"PID 1、自成一组、自己是 group leader"。这就是 init。
 
-> 笔者得在这里插一句:这一段推翻了一个早先的误判。旧交接说"重排 `start_poll_driver` 的顺序,让 init 拿到 PID 1"。实测证伪——`start_poll_driver` 里的 `net_poll` 也是一个 kthread,它也只拿 tid、pid 留 0,**重排它对 PID 分配毫无影响**。根因是"kthread 不碰分配器",不是"谁先启动"。正解只能是 init 线程入口主动 `alloc()`。这个坑值得记一笔:**读交接文档时,见到"调换某段顺序就能拿到 pid"这种说法,先去查分配器到底在哪发号**——别信顺序,信机制。
+> 笔者得在这里插一句:这一段推翻了一个早先的误判。乍看很容易猜"重排 `start_poll_driver` 的顺序,让 init 拿到 PID 1"。实测证伪——`start_poll_driver` 里的 `net_poll` 也是一个 kthread,它也只拿 tid、pid 留 0,**重排它对 PID 分配毫无影响**。根因是"kthread 不碰分配器",不是"谁先启动"。正解只能是 init 线程入口主动 `alloc()`。这个坑值得记一笔:**见到"调换某段顺序就能拿到 pid"这种直觉,先去查分配器到底在哪发号**——别信顺序,信机制。
 
 ## 主线二:`execve` 保 pid——init 线程直接 exec /sbin/init
 

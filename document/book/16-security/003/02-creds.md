@@ -57,4 +57,4 @@ int64_t sys_setuid(uint64_t uid_arg, ...) {
 
 **`setuid` 的规则是简化版。** 只有「root 全能 + 非 root 退回 real」两条,没有 saved-set uid(那个能让你在 real 和 effective 之间反复横跳)。对教学内核够用,真要对齐 POSIX 得补 saved-set。
 
-验证该看到什么,见配套 lab。到这儿,F9 安全这一卷的三块(NX/SMEP/SMAP、ASLR、凭证)就齐了——硬件隔离、布局随机化、身份记录。下一卷该换条线了。
+验证该看到什么,见配套 lab。到这儿,安全这一卷的三块(NX/SMEP/SMAP、ASLR、凭证)就齐了——硬件隔离、布局随机化、身份记录。下一卷该换条线了。

@@ -54,7 +54,7 @@ virtual void on_udp(const Ipv4Header& ip, uint16_t src_port, FrameView payload) 
 
 四层验证,绕开「SLIRP 不回 UDP」这个限制。
 
-**第一层:host 单测,协议核心。** `test/unit/test_net_udp.cpp` 九个 case:UDP 头 round-trip、TX 线序(proto=17 + 端口 + 长度对)、send→IPv4 表→handle→listener 完整 round-trip(用 no-L2 mock 把 send 捕获的 IP 包直接喂回,无 QEMU/SLIRP)、校验和损坏丢弃、`checksum=0` 接受、无 listener 丢弃、双端口 demux、unbind、重复 bind 拒。`./build/test/test_net_udp` 报 9 passed。
+**第一层:host 单测,协议核心。** `test/unit/test_net_udp.cpp` 九个 case:UDP 头 round-trip、TX 线序(proto=17 + 端口 + 长度对)、send→IPv4 表→handle→listener 完整 round-trip(用 no-L2 mock 把 send 捕获的 IP 包直接喂回,无 QEMU/SLIRP)、校验和损坏丢弃、`checksum=0` 接受、无 listener 丢弃、双端口 demux、unbind、重复 bind 拒。`./build/test/test_net_udp` 跑下来全绿。
 
 **第二层:内核 loopback round-trip。** `test_udp_loopback`,上面讲过,两腿都打 `[net] loopback UDP: 6 bytes ... (round-trip in one poll)`。
 
@@ -62,4 +62,4 @@ virtual void on_udp(const Ipv4Header& ip, uint16_t src_port, FrameView payload) 
 
 **第四层:e1000 UDP TX。** `test_udp_e1000_tx`,真 e1000 上 UDP 包发出去(SLIRP 不回,只验 TX)。
 
-`run-kernel-test-all` 两腿各 **969 passed / 0 failed**(单核 + `-smp 2`)。
+`run-kernel-test-all` 跑下来全绿(单核 + `-smp 2` 两腿)。

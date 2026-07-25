@@ -8,7 +8,7 @@ title: 01 · 导引:全局 stac 在 SMP 下会丢
 >
 > 这一章把那颗炸弹拆了,顺手还掉上一章末尾埋的债。两件事:其一,**撤掉入口级的全局 stac**,改成局部 `stac`/`clac` 的 user accessor——只在真正拷贝用户内存的那一小段窗口里放行 AC,拷完立刻关;所有「内核直接解引用用户指针」的路径迁到 accessor 上,syscall 按Linux 的样子切成 `do_*_kernel`(纯内核逻辑,可以 block)/ `sys_*`(薄边界,只管跨用户)两层。其二,**给 accessor 配上 exception table**——拷贝中途真 fault 了(用户传了个不可映射的地址),靠一张 RIP-based 的 `__ex_table` 把执行改到 fixup,accessor 返回 false,syscall 返回 `-EFAULT`,而不是 panic。这正是 056 章最后那句伏笔:「完整的 `copy_from_user`/`copy_to_user`(带 exception table 的容错访问)是后面的事」。
 >
-> C 档:验证不靠「用户可见的新能力」,靠两件可观测的事——accessor fault 的负测试(解引用未映射地址,返回 false 而不是把内核炸了)、exception table 纯函数的 host 单测,加上全量测试在单核和 `-smp 2` 下都不回归(各 962/0)。
+> 验证不靠「用户可见的新能力」,靠两件可观测的事——accessor fault 的负测试(解引用未映射地址,返回 false 而不是把内核炸了)、exception table 纯函数的 host 单测,加上全量测试在单核和 `-smp 2` 下都不回归。
 >
 > 一条诚实的边界先说在前头:**本机是 WSL2,不透传 SMAP**,所以「SMAP 真拦了一次内核访问用户页」在本机看不到。但这一章要验证的两件事都不依赖 SMAP 真生效——accessor fault 的负测试走的是内核态 accessor 指令的 fault(由 exception table 拦,跟 SMAP 开没开无关),分层和窗口纪律更是纯代码正确性。SMAP 真生效要换真机或 TCG;accessor 做对,跟环境无关。
 

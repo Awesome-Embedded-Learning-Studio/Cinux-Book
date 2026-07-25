@@ -17,6 +17,6 @@ dentry cache 和 flock 解决的是 VFS 的两个不同维度:
 
 - **dentry cache 无淘汰**:条目只增不减(除 `invalidate`),没有 LRU 上限。玩具 OS 够用,有界缓存是后续。
 - **flock 是建议锁、按 task 粗粒度**:不强制拦读写;`close` 释放该任务在该 inode 上全部锁,不区分 `dup` 共享一个 open-file-description 的 Linux 精确语义。
-- **`sys_mount` 的块设备链没进来**:flock 和 dentry 都落地了,但 `mount -t` 接块设备(用 block_registry 注册的盘)这部分依赖另一条还没回迁的弧(GCC 自举弧里的 `sys_mount`),本轮 reduced 掉了——dentry/flock 不依赖它,能独立讲、独立验。
+- **`sys_mount` 的块设备链没进来**:flock 和 dentry 都落地了,但 `mount -t` 接块设备(用 block_registry 注册的盘)这部分依赖还没接进来的 `sys_mount`,本章先不碰——dentry/flock 不依赖它,能独立讲、独立验。
 
 > 这一章的两条机制都有专门的机制测(dentry 的命中/失效、flock 的共享/排他/非阻塞),`run-kernel-test` 里跑过、绿。但它们都是「单核、单线程测试 harness」下验的——真正的并发竞态(dentry 在 SMP 下的增删查、flock 在多核同时 lock 的唤醒)需要 SMP + 动态竞争检测的压力测试才能暴露,那套基建(IPI TLB shootdown、race-detect)在隔壁的正确性弧里,不在这章。

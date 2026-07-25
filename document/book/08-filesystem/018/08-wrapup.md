@@ -44,7 +44,7 @@ RUN_TEST(test_mount::test_mount_ext2_from_block_device);   // /dev/sda → Ext2 
 
 进 shell 后用 busybox 做一组 mount/umount 冒烟(具体命令在 lab 里):`mount -t tmpfs none /mnt/tmp` 真挂一个、`touch` 文件、`umount /mnt/tmp`、再 `mount` 同路径确认文件没了(owned 真回收)。这是用户态可见的端到端证据。
 
-> **测试数字怎么填。** `run-kernel-test-all` 两腿(单核 + `-smp 2`)的通过数,得在 Book 工作树真跑后填,**不照抄源仓库 dev note 的数**——那是源仓库的,Book 侧须独立验证。`scripts/check_test_count.sh` 就是干这个的,基线 `CINUX_TEST_BASELINE` 默认 875,mount 这 8 例都进 `big_kernel_test`,真跑后 passed 数应 ≥ 基线 + 这些例。用户态真能用 mount/umount 靠 boot 冒烟日志(`[VFS] ext2 mounted at /` 等) + busybox smoke 两腿绿间接证明,不是 `big_kernel_test` 的直接断言——三层证据合力,任一单独都不够。
+> **怎么算真能用 mount/umount。** boot 冒烟日志(`[VFS] ext2 mounted at /` 等) + busybox smoke 两腿绿只是间接证明,不是 `big_kernel_test` 机制测的直接断言——三层证据合力,任一单独都不够。`run-kernel-test-all` 两腿(单核 + `-smp 2`)绿是机制层,boot + busybox 是用户态层。
 >
 > **ring0 测直驱 `do_mount_kernel` 而非 `sys_mount`。** 注意 `test_mount.cpp` 全程调 `do_mount_kernel`/`do_umount2_kernel`,不调 `sys_mount`/`sys_umount2`——为什么?`sys_` 包装层(`sys_mount.cpp:131-157` / `sys_umount2.cpp:34-40`)第一件事就是 SMAP user-ptr 读取(`resolve_user_path`/`read_user_path`),内部经 `is_user_vaddr` 判定只接受**用户态地址**。`run-kernel-test` 机制测跑在 ring0 内核栈,传内核地址 `is_user_vaddr` 直接拒 → `-kEfault`。所以测必须绕过 user-ptr 层直驱 `do_` 内核变体——它们才是真正的工厂逻辑入口。这是「syscall handler 的 user/kernel 边界 vs 核心逻辑」分层的好例子:`do_` 是纯内核 API(可测可复用),`sys_` 只是 `do_` 外面套一层 user-ptr 安全读取。
 

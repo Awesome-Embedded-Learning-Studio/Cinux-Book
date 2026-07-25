@@ -6,13 +6,13 @@ title: 01 · ext2 间接块:double-indirect 真做
 
 > 还记得 065(ELF 动态链接)那个藏得很深的坑吗?加载 822 KB 的 musl ldso 时,ext2 读到 offset 274432 处失败——`274432 = 268 × 1024`,正好是 ext2(1024 字节块)下 direct(12 块)+ single-indirect(256 块)的总和的**下一块**,也就是 **double-indirect 的起点**。当时 CinuxOS 的 ext2 驱动只处理 direct + single-indirect,double-indirect 那个分支直接 `break` 截断;065 为了不动 ext2,把盘改成 4096 字节块(single-indirect 上限推到 4 MB)绕过去了,把真修留作 follow-up。这一章兑现那笔债:**把 double-indirect(`i_block[13]`)的读和写都真做了,然后把盘改回 1024 字节块(ext2 默认)**,让 double-indirect 真正有人走。
 >
-> A 档:punchline 是 822 KB 的文件(那个 ldso)真能在 1024 字节块的 ext2 上完整读回来——822 KB 远超 single-indirect 的 268 KB 上限,必定走 double-indirect。这一章真正要讲的是 ext2 的**三级块映射**(direct / single-indirect / double-indirect)怎么用一层套一层的指针索引大文件,以及写路径里「新块零填写盘别擦掉父层指针」的陷阱怎么躲。
+> punchline 是 822 KB 的文件(那个 ldso)真能在 1024 字节块的 ext2 上完整读回来——822 KB 远超 single-indirect 的 268 KB 上限,必定走 double-indirect。这一章真正要讲的是 ext2 的**三级块映射**(direct / single-indirect / double-indirect)怎么用一层套一层的指针索引大文件,以及写路径里「新块零填写盘别擦掉父层指针」的陷阱怎么躲。
 
 ## 这章咱们要点亮什么
 
 1. **ext2 的三级块映射**:direct(`i_block[0-11]`,直接指数据块)、single-indirect(`i_block[12]`,指一个「装满数据块指针」的块)、double-indirect(`i_block[13]`,指一个「装满 single-indirect 指针」的块)。一级套一级,换更大的寻址范围。
 2. **double-indirect 的三层算术**:文件块号落进 double-indirect 区间后,用 `offset / ptrs_per_block` 和 `offset % ptrs_per_block` 两层除余,定位到那个数据块。
-3. **写路径的头号坑:别让零填盘覆盖父层指针**:旧实现整 个驱动只有一个共享 `block_buf_`,新块零填写盘会擦掉父层指针;wholesale(`libs/ext2/`)后给每个新分配块各自独立 `KmBuf zbuf` 零填写盘,父层指针待在它自己的 `di_buf`/`child_buf` 里不被覆盖,免去二次 read-modify-write。
+3. **写路径的头号坑:别让零填盘覆盖父层指针**:旧实现整 个驱动只有一个共享 `block_buf_`,新块零填写盘会擦掉父层指针;搬到 `libs/ext2/` 后给每个新分配块各自独立 `KmBuf zbuf` 零填写盘,父层指针待在它自己的 `di_buf`/`child_buf` 里不被覆盖,免去二次 read-modify-write。
 4. **撤 workaround**:真修做完,把盘从 4096 块改回 1024 块(ext2 默认),让 double-indirect 真正有文件走它。
 5. **算法门 + 真内核门双覆盖**:host 单测守三层算术(镜像 kernel 算法的纯 sim),dyn smoke 在真 QEMU 内核里让 822 KB ldso 真走 `i_block[13]`。
 
@@ -53,7 +53,7 @@ const uint32_t idx2     = offset % ptrs_per_block;
 
 危险在哪?新分配的块在落盘前要全零填。如果这个「零填 buffer」就是装着父层指针数组的那个 buffer,零填的瞬间父层指针就被擦成 0 了——改的是被覆盖的垃圾。旧实现里整 个驱动只有一个共享 `block_buf_`,每写一块都覆盖它,所以旧写法是**二次 read-modify-write**:分配并写下层块后,**重新 `read_block()` 读回上层块**,在重新读到的 buffer 里改指针再写回。
 
-wholesale(`libs/ext2/ext2_inode.cpp`)后的写法绕开了这个 dance:给**每个新分配的块各自一个独立的 `KmBuf zbuf`** 去零填写盘,父层数组则待在它自己的 `di_buf` / `child_buf` 里——`zero_and_write_block` 零填的是调用方的 zbuf,不是父层 buffer,所以写完下层后**父层指针槽还完整**,直接在原 buffer 里 patch 槽位再 `write_block` 即可,不需要重新读。源码注释把这一点说得很白(`libs/ext2/ext2_inode.cpp:376-381`):
+搬到 `libs/ext2/` 后的写法绕开了这个 dance:给**每个新分配的块各自一个独立的 `KmBuf zbuf`** 去零填写盘,父层数组则待在它自己的 `di_buf` / `child_buf` 里——`zero_and_write_block` 零填的是调用方的 zbuf,不是父层 buffer,所以写完下层后**父层指针槽还完整**,直接在原 buffer 里 patch 槽位再 `write_block` 即可,不需要重新读。源码注释把这一点说得很白(`libs/ext2/ext2_inode.cpp:376-381`):
 
 ```cpp
 // Two independent KmBufs (di_buf for the double-indirect array, child_buf
@@ -78,7 +78,7 @@ wholesale(`libs/ext2/ext2_inode.cpp`)后的写法绕开了这个 dance:给**每�
 
 这一章的验证有个特别的地方:**没有 in-kernel 测试锻炼 indirect**。测试用的 shell 才 17 KB、motd/hello.txt 都几 KB,全走 direct,碰不到 indirect;CI 也不跑 musl dyn smoke。所以光靠 run-kernel-test 守不住这一层。得两道门一起上。
 
-**第一道:host 单测守三层算法。** `test/unit/test_ext2_ops.cpp` 镜像 kernel 的三层算术,抽了个 `host_resolve_data_block(disk, inode, file_block, alloc)` 共用 resolver(跟 kernel 的解析逻辑同构,只是直访 `data_blocks[]` 没有 scratch-dance),加了 single + double 的 write→read round-trip 用例:在一个 4 group = 512 块的 sim 盘上写 276 块(268 直/单 + 8 落 double),读回来逐层 spot-read direct/single/double,断言 `i_block[12]`/`i_block[13]` 头指针都置了。`./build/test/test_ext2_ops` 报 **30 passed**(含那条 double-indirect round-trip)。host sim 没有 scratch-dance,但**三层算术和盘上布局跟 kernel 完全一致**——这正是它能守算法不变量的价值。
+**第一道:host 单测守三层算法。** `test/unit/test_ext2_ops.cpp` 镜像 kernel 的三层算术,抽了个 `host_resolve_data_block(disk, inode, file_block, alloc)` 共用 resolver(跟 kernel 的解析逻辑同构,只是直访 `data_blocks[]` 没有 scratch-dance),加了 single + double 的 write→read round-trip 用例:在一个 4 group = 512 块的 sim 盘上写 276 块(268 直/单 + 8 落 double),读回来逐层 spot-read direct/single/double,断言 `i_block[12]`/`i_block[13]` 头指针都置了(其中含那条 double-indirect round-trip)。host sim 没有 scratch-dance,但**三层算术和盘上布局跟 kernel 完全一致**——这正是它能守算法不变量的价值。
 
 **第二道:dyn smoke 在真内核走 double-indirect。** 这是关键的一步——host 守的是算法,真内核里 scratch-dance 对不对得真跑。建 musl sysroot + `build-hello-dyn.sh`,把 822 KB 的 ldso 装进 1024 块的 ext2(803 块,远超 single-indirect 268 上限),开 `CINUX_MUSL_DYN_SMOKE` 跑 `execve("/hello-dyn")`:内核读 ldso 的 PT_LOAD 段,offset 274432 起**全部走新写的 `i_block[13]` double-indirect**。串口 5× `Hello from musl on CinuxOS!` + `hello-dyn 5/5 PASS`,而且**没有** `[ELF] segment read failed at offset 274432`(那是 double-indirect 坏时的现象)。这是 double-indirect 在 QEMU 真内核被走到且工作正常的铁证,不再只靠 host 单测。
 
@@ -93,6 +93,6 @@ wholesale(`libs/ext2/ext2_inode.cpp`)后的写法绕开了这个 dance:给**每�
 
 - ext2 用三级指针索引文件:direct(`i_block[0-11]`)、single-indirect(`i_block[12]`,管 `ptrs_per_block` 块)、double-indirect(`i_block[13]`,管 `ptrs_per_block²` 块)。065 撞的就是 double-indirect 缺失。
 - double-indirect 三层算术:`offset = file_block - (direct + ptrs)`,`idx1 = offset/ptrs`(double 块里哪个 single 指针)、`idx2 = offset%ptrs`(那个 single 块里哪个数据指针)。读路径(`resolve_disk_block_`,hole 落零填)和写路径(`get_or_alloc_block`,hole 走 lazy-alloc)各自实现这套算术。
-- 写路径头号坑:旧实现只有一个共享 `block_buf_`,新块零填写盘会擦掉父层指针(旧解法是二次 read-modify-write);wholesale(`libs/ext2/`)后给每个新分配块各自独立 `KmBuf zbuf` 零填写盘,父层指针待在自己的 `di_buf`/`child_buf` 里不被覆盖,免去重读。顺带放开 write 的 file_block 上限(原来只让写 direct)。
+- 写路径头号坑:旧实现只有一个共享 `block_buf_`,新块零填写盘会擦掉父层指针(旧解法是二次 read-modify-write);搬到 `libs/ext2/` 后给每个新分配块各自独立 `KmBuf zbuf` 零填写盘,父层指针待在自己的 `di_buf`/`child_buf` 里不被覆盖,免去重读。顺带放开 write 的 file_block 上限(原来只让写 direct)。
 - 撤 065 的 4096 块 workaround,改回 1024(ext2 默认),让 double-indirect 真有文件走(822 KB ldso)。
-- 双覆盖验证:host 单测守三层算法(30/0,镜像 kernel resolver)+ dyn smoke 真内核让 822 KB ldso 走 `i_block[13]`(5/5 PASS);run-kernel-test 两腿零回归。triple-indirect 不做。
+- 双覆盖验证:host 单测守三层算法(镜像 kernel resolver)+ dyn smoke 真内核让 822 KB ldso 走 `i_block[13]`;run-kernel-test 两腿零回归。triple-indirect 不做。

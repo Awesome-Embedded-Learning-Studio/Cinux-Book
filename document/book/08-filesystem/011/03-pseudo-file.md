@@ -19,7 +19,7 @@ uint32_t format_proc_stat(const cinux::proc::TaskSnapshot& s, char* buf, uint32_
 }
 ```
 
-(`procfs_content.cpp:45` 是 stat,`:55` 是 cmdline;声明在 `procfs_content.hpp:59/65`。)`cmdline` 是 task 名字 + NUL(CinuxOS 的 Task 不存 argv,这是 best-effort 暴露 comm;真 argv 跟踪留 follow-up)。read 时 `signal_snapshot_task` 把字段快照到栈上的 `TaskSnapshot`、再 `format_proc_stat` 拼内容到栈 buffer、按 offset 拷贝(支持 pread 和 EOF)。**注意是 `TaskSnapshot&` 不是 `Task*`**——之所以走快照而不直接取裸指针,是为了避开 TOCTOU:registry 锁内拷字段、锁外只 format(见下一节的 DEBT-022)。
+(`procfs_content.cpp:45` 是 stat,`:55` 是 cmdline;声明在 `procfs_content.hpp:59/65`。)`cmdline` 是 task 名字 + NUL(CinuxOS 的 Task 不存 argv,这是 best-effort 暴露 comm;真 argv 跟踪留 follow-up)。read 时 `signal_snapshot_task` 把字段快照到栈上的 `TaskSnapshot`、再 `format_proc_stat` 拼内容到栈 buffer、按 offset 拷贝(支持 pread 和 EOF)。**注意是 `TaskSnapshot&` 不是 `Task*`**——之所以走快照而不直接取裸指针,是为了避开 TOCTOU:registry 锁内拷字段、锁外只 format(见下一节的 TOCTOU 修复)。
 
 ## 静态伪文件节点:procfs_pseudo
 

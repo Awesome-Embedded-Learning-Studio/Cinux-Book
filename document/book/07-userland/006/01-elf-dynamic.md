@@ -6,7 +6,7 @@ title: 01 · ELF 动态链接:内核只装 interp,重定位交给 ldso
 
 > 上一章卷(059)让内核跑起了 musl 编译的静态程序——`libc.a` 整个链进可执行文件,扔到内核上就跑。那一章末尾留了句诚实话:「这一步是静态链接的,动态链接是后面的事」。这一章兑现。动态链接的程序不把 libc 链死在可执行文件里,而是带一个 `PT_INTERP`(指向动态链接器,ldso),运行时由 ldso 把程序和共享库(`libc.so`)拼到一起、做重定位。可这一章真正要讲的不是「ldso 怎么重定位」——那全是用户态的事,**内核压根不掺和**。内核在动态链接里只做三件小事:认出 `PT_INTERP`、把 ldso 装载进地址空间、喂对几张辅助向量(auxv)。剩下的(GOT/PLT/`DT_NEEDED`/符号解析/重定位)全交给 musl 的 ldso 在用户态干。这是对齐 Linux 的分工:**内核不自建 loader**。
 >
-> A 档:punchline 是动态链接的 musl `hello`(`hello-dyn`)真跑起来——`fork` + `execve("/hello-dyn")` → 内核加载 interp → musl ldso 重定位主程序 → 跳到 `AT_ENTRY` → `write` 经 `libc.so` 输出 `Hello from musl on CinuxOS!`。一条诚实的边界先说在前头:这个端到端 smoke 要先在宿主机上编出 musl 动态工具链(`build-musl.sh` 出 `libc.so`、`build-hello-dyn.sh` 出动态 hello、把 interp 装进 ext2 镜像),本机没编的话 smoke 跳过;内核侧的改动(PT_INTERP 识别、interp 加载、auxv)靠测试验,跟 059 那个静态 smoke 同样的分层。
+> 验证口径:punchline 是动态链接的 musl `hello`(`hello-dyn`)真跑起来——`fork` + `execve("/hello-dyn")` → 内核加载 interp → musl ldso 重定位主程序 → 跳到 `AT_ENTRY` → `write` 经 `libc.so` 输出 `Hello from musl on CinuxOS!`。一条诚实的边界先说在前头:这个端到端 smoke 要先在宿主机上编出 musl 动态工具链(`build-musl.sh` 出 `libc.so`、`build-hello-dyn.sh` 出动态 hello、把 interp 装进 ext2 镜像),本机没编的话 smoke 跳过;内核侧的改动(PT_INTERP 识别、interp 加载、auxv)靠测试验,跟 059 那个静态 smoke 同样的分层。
 
 ## 这章咱们要点亮什么
 
@@ -88,9 +88,9 @@ Hello from musl on CinuxOS!
 
 三层验证,跟 059 的静态 smoke 同样的分层。
 
-**第一层:host 单测,ELF validate。** `test_fork_exec` 里加了 `test_valid_et_dyn`:interp 是 `ET_DYN`,validate 得收它(以前只收 `ET_EXEC`)。这一层顺带给 PIE 主程序铺了路(主程序要是 PIE 也是 `ET_DYN`)。host `test_fork_exec` 90 passed。
+**第一层:host 单测,ELF validate。** `test_fork_exec` 里加了 `test_valid_et_dyn`:interp 是 `ET_DYN`,validate 得收它(以前只收 `ET_EXEC`)。这一层顺带给 PIE 主程序铺了路(主程序要是 PIE 也是 `ET_DYN`)。
 
-**第二层:内核测试,静态路径不回归。** 动态加载是在静态基础上加的分支(有 PT_INTERP 走动态、没有走静态原路)。`run-kernel-test-all` 两腿各 **977 passed / 0 failed**(+1 = `test_valid_et_dyn`,静态路径零回归)。AP1 机制回读 PASS。
+**第二层:内核测试,静态路径不回归。** 动态加载是在静态基础上加的分支(有 PT_INTERP 走动态、没有走静态原路)。`run-kernel-test-all` 单核和 `-smp 2` 两条腿都过(`+1 = test_valid_et_dyn`,静态路径零回归)。AP1 机制回读 PASS。
 
 **第三层:端到端动态 smoke。** `CINUX_MUSL_DYN_SMOKE=ON` 时,ring-3 跑 `/hello-dyn`,看那 5× `Hello from musl` + `hello-dyn 5/5 PASS`。这层要本机先编 musl 动态工具链,没编就跳过(默认 OFF,CI 安全)。
 

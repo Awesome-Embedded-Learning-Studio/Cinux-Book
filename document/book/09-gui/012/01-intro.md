@@ -8,7 +8,7 @@ title: 01 · 导引 + 设计图
 >
 > 这一章真正讲的不是「设备节点本身」——那个 064 已经立过了(`InodeOps` 子类 + `add_node` 投影到 `/dev`)。这一章讲的是把**两类已经存在的设备能力**暴露给 ring3 的两条不同形态:`/dev/event0` 是「事件流」,靠 `read/poll` 把内核 input event 排到用户态;`/dev/fb0` 是「内存窗口」,靠 `mmap` 把 VBE 物理显存绑进用户进程。两个设备都只是 `InodeOps` 基类的两套不同 override 子集——064 立的节点机制一行没动,本章给它补两个真设备 inode 子类。
 >
-> A 档的边界先说在前头:`/dev/event0` 是 flat 节点(不是 Linux 的 `/dev/input/event0`,DevFS 不为 input 子树投影层级——PTY 走的是 `dynamic_lookup` 投 `/dev/pts/<N>`,但 input 子树没有对应的 resolver,要扩 follow-up);`Event` 结构是 Cinux 自己的 `cinux::gui::Event`,不是 Linux 的 `input_event`,用户态要 mirror 它的字节布局(字段顺序和类型,不是 packed);`poll` 是 level-triggered 不是 edge;事件队列满了静默丢(对齐 GUI EventQueue 策略);NVMe 不放这一章(077 讲过 NVMe 驱动)。还有一条验证上的诚实:`poll` 路径在 dev note 里明说「只设计、未实跑」——本章的设计讲透了,但「真在 QEMU 里跑过」只能盖章到 `read` 路径,`poll` 等 ring3 GUI host 真用上时再盖。
+> 边界先说在前头:`/dev/event0` 是 flat 节点(不是 Linux 的 `/dev/input/event0`,DevFS 不为 input 子树投影层级——PTY 走的是 `dynamic_lookup` 投 `/dev/pts/<N>`,但 input 子树没有对应的 resolver,要扩 follow-up);`Event` 结构是 Cinux 自己的 `cinux::gui::Event`,不是 Linux 的 `input_event`,用户态要 mirror 它的字节布局(字段顺序和类型,不是 packed);`poll` 是 level-triggered 不是 edge;事件队列满了静默丢(对齐 GUI EventQueue 策略);NVMe 不放这一章(077 讲过 NVMe 驱动)。还有一条验证上的诚实:`poll` 路径在 dev note 里明说「只设计、未实跑」——本章的设计讲透了,但「真在 QEMU 里跑过」只能盖章到 `read` 路径,`poll` 等 ring3 GUI host 真用上时再盖。
 
 ## 这章咱们要点亮什么
 

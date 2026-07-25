@@ -8,7 +8,7 @@ title: 01 · 导引:点亮什么、为什么
 >
 > punchline 是个对比:**面对一块 PCI 设备,硬件设计师给了两条截然不同的路**。NVMe 走"我自己定义队列 + doorbell 寄存器"——你把命令塞进 Submission Queue,敲一下门铃(SQ tail doorbell),设备干完了往 Completion Queue 里写一条,你轮询那个环。VirtIO 走"咱们先谈判支持哪些特性,然后共享一组 virtqueue 描述符环"——你填描述符链、更新 avail 索引、kick 一下,设备消费完更新 used 索引。两条路最后都接到咱们已有的抽象上(NVMe 和 virtio-blk 都变成 `IBlockDevice`,挂 Ext2;virtio-net 变成 `NetDevice`,接网络栈)。
 >
-> A 档:punchline 是 run-kernel-test 里挂上真 `-device nvme`、`-device virtio-blk-pci`、`-device virtio-net-pci`,串口能看到三个设备都被枚举、初始化、跑通机制测——`[NVMe] enabled ... doorbell stride=4`、`[VirtIO] transport OK: negotiated=0x100000000 status=0xf`。
+> punchline 是 run-kernel-test 里挂上真 `-device nvme`、`-device virtio-blk-pci`、`-device virtio-net-pci`,串口能看到三个设备都被枚举、初始化、跑通机制测——`[NVMe] enabled ... doorbell stride=4`、`[VirtIO] transport OK: negotiated=0x100000000 status=0xf`。
 
 ## 这章咱们要点亮什么
 

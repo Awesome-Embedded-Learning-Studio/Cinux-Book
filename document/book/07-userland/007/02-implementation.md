@@ -76,6 +76,6 @@ class PtmxOps : public InodeOps {
 
 ## 控制终端:TIOCSCTTY + /dev/tty
 
-最后一块是「控制终端」语义。一个 session leader(setsid 之后)可以挂一个终端当自己的控制终端:往后它(及其进程组)的 Ctrl+C 往这个终端投、`/dev/tty` 指向这个终端。这靠 `TIOCSCTTY` ioctl(挂在 slave inode 上)设 `Task::controlling_tty`,把 PTY 跟 session 绑上(F3-M3 现成的 pgid/sid 在这接上,setsid 早留了缝)。`/dev/tty` 是「当前控制终端」的每进程别名——也走 DevFS 的 dynamic lookup,resolver 返回当前 task 的 controlling_tty 对应的 inode。
+最后一块是「控制终端」语义。一个 session leader(setsid 之后)可以挂一个终端当自己的控制终端:往后它(及其进程组)的 Ctrl+C 往这个终端投、`/dev/tty` 指向这个终端。这靠 `TIOCSCTTY` ioctl(挂在 slave inode 上)设 `Task::controlling_tty`,把 PTY 跟 session 绑上(setsid 早留了 pgid/sid 那条缝,这会儿接上)。`/dev/tty` 是「当前控制终端」的每进程别名——也走 DevFS 的 dynamic lookup,resolver 返回当前 task 的 controlling_tty 对应的 inode。
 
 这一块接通后,PTY 不只是个数据管子,而是有完整终端会话语义:session + 控制终端 + 前台组 + Ctrl+C 信号投递(062 console 那套信号路径,现在 PTY 也能走)。

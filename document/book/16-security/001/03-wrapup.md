@@ -33,4 +33,4 @@ void test_f9_nxe_smep_smap_enabled() {
 
 **SMAP 开了之后,「访用户内存」的纪律更严。** 入口已经不挂全局 `stac`(P3 移除),所以凡是没显式走 accessor(`copy_from_user`/`copy_to_user`,内部 `stac` 开窗 + `_ASM_EXTABLE` 容错)的访用户,一律被 SMAP 当非法访用户 #PF 拦下——包括 `validate_user_ptr` 那种只查 canonical 地址就直接解引用的旧路径。SMAP 让这条边界变成「不开窗就碰不得」,比之前 PF 兜底默默通过更安全。
 
-验证该看到什么,见配套 lab。下一章接着开 ASLR——给用户态布局加随机化,那是 F9 安全的另一条线。
+验证该看到什么,见配套 lab。下一章接着开 ASLR——给用户态布局加随机化,那是安全这一卷的另一条线。

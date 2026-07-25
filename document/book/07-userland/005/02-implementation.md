@@ -92,9 +92,9 @@ size_t ConsoleTty::read(char* buf, size_t len) {
 }
 ```
 
-(`console_tty.cpp:41`。)`do_read_kernel`(kernel-to-kernel 那一层)对 `fd==0` 调它(`sys_read.cpp:91`),忙等删掉,CPU 不再空转。P0b SMAP 分层后,`fd==0` 的阻塞读在 `do_read_kernel` 里写 kernel staging buffer,`sys_read` 只负责把字节 `copy_to_user`——阻塞不跨 `stac` 窗口。
+(`console_tty.cpp:41`。)`do_read_kernel`(kernel-to-kernel 那一层)对 `fd==0` 调它(`sys_read.cpp:91`),忙等删掉,CPU 不再空转。SMAP 分层之后,`fd==0` 的阻塞读在 `do_read_kernel` 里写 kernel staging buffer,`sys_read` 只负责把字节 `copy_to_user`——阻塞不跨 `stac` 窗口。
 
-> 这里那个 `InterruptGuard` + `prepare_to_wait` 的顺序是 F3 立的防丢失唤醒铁律。「检查有没有行、登记自己是读者、标记 Blocked」这三步必须在**关中断下原子完成**。不然有个要命的窗口:检查时没行 → 还没登记自己 → 键盘正好来了行 → feeder 找不到读者(还没登记)→ 我登记完了睡下 → 唤醒永远不来。关中断把这三步缝死,feeder 要么在我检查之前来(我看到行),要么在我睡下之后来(它叫得醒我),没有中间态。这套 `prepare_to_wait`/`schedule_blocked` 是 CinuxOS 已验证的标准缝,pipe、waitpid 都用它。
+> 这里那个 `InterruptGuard` + `prepare_to_wait` 的顺序是早先立的防丢失唤醒铁律。「检查有没有行、登记自己是读者、标记 Blocked」这三步必须在**关中断下原子完成**。不然有个要命的窗口:检查时没行 → 还没登记自己 → 键盘正好来了行 → feeder 找不到读者(还没登记)→ 我登记完了睡下 → 唤醒永远不来。关中断把这三步缝死,feeder 要么在我检查之前来(我看到行),要么在我睡下之后来(它叫得醒我),没有中间态。这套 `prepare_to_wait`/`schedule_blocked` 是 CinuxOS 已验证的标准缝,pipe、waitpid 都用它。
 >
 > 一个 SMP 的边界得诚实交代:`reader_` 是单读者指针(假设 shell 是 stdin 唯一的读者),**单 CPU 下关中断就是竞态自由**;可跨 CPU 时,两个核同时动 `reader_` 没有锁保护。测试不读 console stdin,所以 `-smp 2` 下不回归,但这是个已知的 follow-up——真要支持多读者 stdin,得加 Mutex 风格的 spinlock。console TTY 单读者的假设在当前(一个 shell)下成立,记着这层。
 

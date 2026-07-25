@@ -20,7 +20,7 @@ public:
 private:
     bool in_use_[PID_MAX + 1];           // 下标 0..256,0 不用
     int  next_hint_;                     // 下次从这儿开始找
-    mutable Spinlock lock_;              // 注:034 时无此字段;wholesale 后为
+    mutable Spinlock lock_;              // 注:034 时无此字段;后来为
                                          // SMP-safe 加锁(F-QA Q4d / DEBT-005)
 };
 ```
@@ -117,7 +117,7 @@ fork 如果老老实实把父进程的每一页用户内存都抄一份,代价�
 
 ```cpp
 void copy_page_table_level(uint64_t src_phys, uint64_t dst_phys, int level) {
-    // 注:034 时为三参签名;wholesale 后扩为五参,加了 virt_base 与
+    // 注:034 时为三参签名;后来扩为五参,加了 virt_base 与
     // cinux::mm::IVMAStore& vmas(见 fork.cpp / process_internal.hpp)。
     auto* src_table = phys_to_virt(src_phys);
     auto* dst_table = phys_to_virt(dst_phys);

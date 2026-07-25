@@ -4,7 +4,7 @@ title: 01 · 导引:还差缓存与文件锁
 
 # 导引:还差缓存与文件锁
 
-> A 档:punchline 是机制测——`run-kernel-test` 里 `run_dentry_tests` 验证缓存命中/未命中/失效,`run_flock_tests` 验证共享锁能并发、排他锁互斥、带 `LOCK_NB` 冲突返 `EAGAIN`。串口看到 `[PASS]` 即两条机制都按 Linux 语义答了。
+> punchline 是机制测——`run-kernel-test` 里 `run_dentry_tests` 验证缓存命中/未命中/失效,`run_flock_tests` 验证共享锁能并发、排他锁互斥、带 `LOCK_NB` 冲突返 `EAGAIN`。串口看到 `[PASS]` 即两条机制都按 Linux 语义答了。
 
 ## 这章咱们要点亮什么
 

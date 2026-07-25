@@ -6,7 +6,7 @@ title: 01 · PTY:伪终端把 console 单例变成多路终端
 
 > 前面(062)把 console TTY 做成了一个**单例**——系统就一个终端,键盘当输入、串口当回显。够 shell 自己用了,可一旦你想让「多个程序各跑在各自的终端里」(比如 GUI 里每个 shell 窗口、或者一个终端模拟器后面拖一个 shell 进程),单例就不够了。这一章立 **PTY(伪终端)**:一对 master/slave,slave 对程序来说**表现得像一个真终端**(有行规范、能 ioctl termios、能收 Ctrl+C 信号),master 是另一端(终端模拟器连它,喂输入、读输出)。PTY 的关键性质是它能**多路**——开一对就是开一个新终端,要几个开几对。这一章把 062 那个单例 console TTY 升级成 Linux 风格的多路 PTY。
 >
-> 这一章依赖两块前序:062 的 `TTY` 行规范(PTY 的 slave 直接复用它,不重写)、064 的 DevFS(PTY 节点必须是设备 inode,挂在 `/dev` 下)。所以 062 末尾那句「PTY 留 DevFS 之后」到这儿兑现。A 档:punchline 是 Linux PTY ABI 跑通——`open("/dev/ptmx")` 克隆出一对、`ioctl(fd, TIOCGPTN)` 拿 pty 号、`open("/dev/pts/N")` 拿 slave、master↔slave 数据往返、`TIOCSCTTY` 挂控制终端。一条诚实的边界先说在前头:这一章把 PTY 的**机制**(数据通路 + 设备节点 + 控制终端)做全了,但「真用户程序跑在 PTY 里」的全闭环留后面——那需要 `dup2`(把 slave 重定向成子进程的 stdio)和一个会主动 `open("/dev/ptmx")` 的 shell,是 CFBox 那条线的事。
+> 这一章依赖两块前序:062 的 `TTY` 行规范(PTY 的 slave 直接复用它,不重写)、064 的 DevFS(PTY 节点必须是设备 inode,挂在 `/dev` 下)。所以 062 末尾那句「PTY 留 DevFS 之后」到这儿兑现。验证口径:punchline 是 Linux PTY ABI 跑通——`open("/dev/ptmx")` 克隆出一对、`ioctl(fd, TIOCGPTN)` 拿 pty 号、`open("/dev/pts/N")` 拿 slave、master↔slave 数据往返、`TIOCSCTTY` 挂控制终端。一条诚实的边界先说在前头:这一章把 PTY 的**机制**(数据通路 + 设备节点 + 控制终端)做全了,但「真用户程序跑在 PTY 里」的全闭环留后面——那需要 `dup2`(把 slave 重定向成子进程的 stdio)和一个会主动 `open("/dev/ptmx")` 的 shell,是 CFBox 那条线的事。
 
 ## 这章咱们要点亮什么
 

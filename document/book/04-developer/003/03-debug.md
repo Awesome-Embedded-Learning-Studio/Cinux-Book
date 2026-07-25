@@ -6,15 +6,13 @@ title: 03 · 验证与收尾
 
 ## 验证
 
-B 档,验证靠机制测 + host 纯算术 + boot 日志。
+验证靠机制测 + host 纯算术 + boot 日志。
 
 **第一层:host 纯算术单测。** `test/unit/test_hpet_math.cpp` 五例 `ticks_to_ns`(100MHz/1ns tick/跑一年不溢出);`test/unit/test_rtc_math.cpp` 六例(bcd 解码 + epoch 已知日对照:1970/2000/2024/闰日/时分秒累加)。这层是「算术门」——纯函数 host 可测。
 
 **第二层:kernel 机制测。** `test_hpet.cpp` 几例,关键的 `test_counter_advances`(读两次主计数器,断言递增)——这条是防「绿盖住冻死设备」的哨兵:要是 ENABLE 没真生效(计数器没走),读两次是同一个值,测就红。还有 period sane(0 < period ≤ 1e8 fs)、monotonic 非减。`test_rtc.cpp` 读真实日期(sane year/month/day/h)+ boot epoch ∈ [2024, 2100)。
 
 **第三层:boot 日志。** `make run` 打 `[HPET] MMIO ... period ... counter enabled` + `[RTC] <真实日期> (epoch ...)`,production boot 真把两个时钟都起来了。
-
-`run-kernel-test-all` 两腿各 1012 passed / 0 failed(999 基线 + 13 HPET/RTC 测)。
 
 ## 这章没做的
 

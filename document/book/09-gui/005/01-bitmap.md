@@ -104,7 +104,7 @@ void Canvas::draw_bitmap(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
 
 ### icon_data.hpp:用 constexpr 把字符画编译成像素
 
-> **tag-bound 提示:** 这一章讲的是 032 当时的内核内 GUI。后续 wholesale(F13 visor 解耦)把 `kernel/gui/` 的窗口/图标管理类外置到 `third_party/Cinux-GUI/` 重写为 Widget 版;但 `kernel/gui/data/icon_data.hpp` 这个**纯数据头**留在了原地,因为它是 freestanding、零依赖,谁都能 include。下面所有路径仍指向 032 当时的内核内位置。
+> **tag-bound 提示:** 这一章讲的是 032 当时的内核内 GUI。后续的 visor 解耦把 `kernel/gui/` 的窗口/图标管理类外置到 `third_party/Cinux-GUI/` 重写为 Widget 版;但 `kernel/gui/data/icon_data.hpp` 这个**纯数据头**留在了原地,因为它是 freestanding、零依赖,谁都能 include。下面所有路径仍指向 032 当时的内核内位置。
 
 [icon_data.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/gui/data/icon_data.hpp) 把图标数据(尺寸常量、调色板、字符画、编译期图标工厂)都装在一个 `cinux::gui::icons::data` 命名空间里。标准尺寸是写死的:
 
@@ -158,7 +158,7 @@ constexpr IconBitmap build_icon(
 }
 ```
 
-注意这里的返回类型 `IconBitmap`,不是 `std::array<uint32_t,1024>`——它是仓库自定义的 **freestanding aggregate**:`struct IconBitmap { uint32_t pixels[1024]; ... }`,只重载了 `operator[]`(给 `build_icon` 填充用)和 `.data()`(给消费方拿到裸 `const uint32_t*` 喂给 `Canvas::draw_bitmap`)。原因写在文件头注释里:freestanding 内核**禁止 STL 容器**(见 DIRECTIVES A),所以 `std::array` 不能用,得换成这个等价的内置数组包装。这套禁令是后面 F13 把 STL 踢出内核的连带——032 当时还没走完,但图标数据这条线已经先按规矩来了。
+注意这里的返回类型 `IconBitmap`,不是 `std::array<uint32_t,1024>`——它是仓库自定义的 **freestanding aggregate**:`struct IconBitmap { uint32_t pixels[1024]; ... }`,只重载了 `operator[]`(给 `build_icon` 填充用)和 `.data()`(给消费方拿到裸 `const uint32_t*` 喂给 `Canvas::draw_bitmap`)。原因写在文件头注释里:freestanding 内核**禁止 STL 容器**(见 DIRECTIVES A),所以 `std::array` 不能用,得换成这个等价的内置数组包装。这套禁令是后来把 STL 踢出内核那条规矩的连带——032 当时还没走完,但图标数据这条线已经先按规矩来了。
 
 拆开看那个 `pixels[r * 32 + c] = palette_lookup(palette, nibble)`,里面藏着两级映射,值得单独说一句。先是 `hex_nibble`:把一个 ASCII 字符翻成 0-15 的数字——`'0'-'9'` 映到 0-9、`'a'-'f'`/`'A'-'F'` 映到 10-15、其余一律返回 0(也就是当透明)。所以你写的每一个字符,先被压成一个 4 位的调色板下标 `nibble`。然后是 `palette_lookup`:拿这个下标去 16 项调色板里取真正的 `uint32_t` 颜色。两级映射的好处是**字符和颜色解耦**——同一张字符画,换个调色板就是另一套配色;调色板也只有 16 项,正好够一个 nibble 编址,不多不少。注意 `k_shell_palette` 并没有把 16 项填满(只用了 0-7),没用到的槽位编译期也不会报错,因为下标只要落在 `[0,16)` 内就合法——这是个小余地,以后想给图标加新颜色不用动字符画,只在调色板空槽里加一项即可。
 
@@ -172,7 +172,7 @@ constexpr IconBitmap build_icon(
 
 ### desktop_icon.hpp:图标的「身份」与命中框
 
-> **tag-bound 提示(重要):** 这一节讲的 `DesktopIcon`(POD struct + 显式 `x`/`y`/`width`/`height` 字段 + `IconAction` 枚举 + 内联 `contains()` 命中框)是 **032 当时的内核内设计**。后续 wholesale(F13 visor 解耦)把它外置到 [third_party/Cinux-GUI/core/widget/desktop_icon.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/third_party/Cinux-GUI/core/widget/desktop_icon.hpp) **彻底重写**为 `class DesktopIcon : public Widget`:不再有公开坐标字段(位置走 Widget 树)、不再有 `contains()`(命中走 Widget clip stack)、`IconAction` 枚举被 `set_on_activate(ActivateFn, ctx)` **回调**取代、位图改由 `set_bitmap(pixels, mask, w, h)` + 1-bpp alpha mask 驱动 blit。下面这段 POD + `IconAction` + 半开区间命中框的教学,是 **032 当时的源码真相**——读者按 tag 切到 032 读源码即可,新设计在 Cinux-GUI 文档里另述。半开区间命中框作为图形 hit-test 的通用惯例依然值得学,只是它在 032 之后由 Widget 框架代管了。
+> **tag-bound 提示(重要):** 这一节讲的 `DesktopIcon`(POD struct + 显式 `x`/`y`/`width`/`height` 字段 + `IconAction` 枚举 + 内联 `contains()` 命中框)是 **032 当时的内核内设计**。后续的 visor 解耦把它外置到 [third_party/Cinux-GUI/core/widget/desktop_icon.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/third_party/Cinux-GUI/core/widget/desktop_icon.hpp) **彻底重写**为 `class DesktopIcon : public Widget`:不再有公开坐标字段(位置走 Widget 树)、不再有 `contains()`(命中走 Widget clip stack)、`IconAction` 枚举被 `set_on_activate(ActivateFn, ctx)` **回调**取代、位图改由 `set_bitmap(pixels, mask, w, h)` + 1-bpp alpha mask 驱动 blit。下面这段 POD + `IconAction` + 半开区间命中框的教学,是 **032 当时的源码真相**——读者按 tag 切到 032 读源码即可,新设计在 Cinux-GUI 文档里另述。半开区间命中框作为图形 hit-test 的通用惯例依然值得学,只是它在 032 之后由 Widget 框架代管了。
 
 光能画还不够。一个桌面图标得知道自己**在哪儿**、**点它该干嘛**。[desktop_icon.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/gui/desktop_icon.hpp) 把这些打包进 `DesktopIcon`:
 
@@ -209,7 +209,7 @@ struct DesktopIcon {
 
 ### window_manager.hpp:那个名不副实的光标常量
 
-> **tag-bound 提示:** 这一节描述的是 032 当时的内核内 `kernel/gui/window_manager.hpp`。后续 wholesale(F13 visor 解耦)把窗口管理器外置到 [third_party/Cinux-GUI/core/widget/window_manager.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/third_party/Cinux-GUI/core/widget/window_manager.hpp) 重写为 Widget 版,光标也改由 `Compositor` 统一绘制(`window_manager.cpp` 注释明说「cursor is now painted by the Compositor」)。下面这两个名实不符的常量是 **032 当时**的源码事实,**已随重构删除**,在新代码里 grep 不到——读这一节时按 tag 切回去看就对了。
+> **tag-bound 提示:** 这一节描述的是 032 当时的内核内 `kernel/gui/window_manager.hpp`。后续的 visor 解耦把窗口管理器外置到 [third_party/Cinux-GUI/core/widget/window_manager.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/third_party/Cinux-GUI/core/widget/window_manager.hpp) 重写为 Widget 版,光标也改由 `Compositor` 统一绘制(`window_manager.cpp` 注释明说「cursor is now painted by the Compositor」)。下面这两个名实不符的常量是 **032 当时**的源码事实,**已随重构删除**,在新代码里 grep 不到——读这一节时按 tag 切回去看就对了。
 
 这一章顺手还改了 [window_manager.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/gui/window_manager.hpp) 里两个光标常量,值得诚实记一笔:
 
@@ -222,7 +222,7 @@ static constexpr uint32_t CURSOR_BLACK   = 0x00FFFFFF;   // 实际是白色
 
 ## 调试现场
 
-> **历史提示(colorkey → alpha mask):** 032 当时 `draw_bitmap` 的透明机制是 **colorkey**(`0x00000000 == transparent`),下面这段「纯黑 = 透明」的陷阱正是 colorkey 设计的固有短板。后续 wholesale(F13 §4d)把它升级成了 **1-bpp alpha mask**——新增了 `Canvas::draw_bitmap_masked`(在 [canvas.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/drivers/canvas.cpp) 紧挨 `draw_bitmap` 之后)、编译期 `build_mask`(与 `build_icon` 同源、由同一批字符画生成)和配套的 `k_shell_mask`/`k_calc_mask`。透明从此由 **mask 位**决定,与像素颜色值解耦:一个不透明纯黑像素(非零 nibble 映到 `palette::BLACK = 0x00000000`)现在也能画出来了,这条 colorkey 隐患随之解决。`icon_data.hpp` 文件头注释明写「transparency is governed by the MASK, not by the colour value」。下面这段作为**历史教训**保留——colorkey 的设计权衡依然值得讲,只是它已不再是当前代码的真相。
+> **历史提示(colorkey → alpha mask):** 032 当时 `draw_bitmap` 的透明机制是 **colorkey**(`0x00000000 == transparent`),下面这段「纯黑 = 透明」的陷阱正是 colorkey 设计的固有短板。后续的 visor 解耦(§4d)把它升级成了 **1-bpp alpha mask**——新增了 `Canvas::draw_bitmap_masked`(在 [canvas.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/drivers/canvas.cpp) 紧挨 `draw_bitmap` 之后)、编译期 `build_mask`(与 `build_icon` 同源、由同一批字符画生成)和配套的 `k_shell_mask`/`k_calc_mask`。透明从此由 **mask 位**决定,与像素颜色值解耦:一个不透明纯黑像素(非零 nibble 映到 `palette::BLACK = 0x00000000`)现在也能画出来了,这条 colorkey 隐患随之解决。`icon_data.hpp` 文件头注释明写「transparency is governed by the MASK, not by the colour value」。下面这段作为**历史教训**保留——colorkey 的设计权衡依然值得讲,只是它已不再是当前代码的真相。
 
 032 这个 tag **没有调试笔记**。按 Cinux 的规矩我们不硬造踩坑故事,但这一章有个现成的、源码可证的设计陷阱值得单独讲——就是前面埋下的「纯黑 = 透明」的冲突。它是那种**不爆、但会坑你**的隐患,这里放到「调试现场」的视角再看一遍。
 
@@ -259,7 +259,7 @@ constexpr uint32_t DARK_BLACK  = 0x00101010;  // Near-black (opaque)
 
 ## 验证
 
-> **tag-bound 提示:** 下面这套测试组织——host 侧 `test/unit/test_bitmap_icon.cpp`、机内 `kernel/test/test_bitmap_icon.cpp`、`test/CMakeLists.txt` 里的 `add_test(NAME bitmap_icon ...)`、`main_test.cpp` 里的 `run_bitmap_icon_tests()`——是 **032 当时的布局**。后续 wholesale(F13 visor 解耦)把内核内 GUI 测试一并外置到 `third_party/Cinux-GUI/test/`,并按 `core/`/`host/` 重新拆分,旧的两个测试文件已删、`bitmap_icon` 这个 ctest 名也已不存在。下面给的文件路径、用例计数(23 / 17)、stub 退化串(`[BITMAP_ICON] CLI mode`)都是 **032 当时的事实**,读者按 tag 切源码即可。新测试布局见 Cinux-GUI 文档。
+> **tag-bound 提示:** 下面这套测试组织——host 侧 `test/unit/test_bitmap_icon.cpp`、机内 `kernel/test/test_bitmap_icon.cpp`、`test/CMakeLists.txt` 里的 `add_test(NAME bitmap_icon ...)`、`main_test.cpp` 里的 `run_bitmap_icon_tests()`——是 **032 当时的布局**。后续的 visor 解耦把内核内 GUI 测试一并外置到 `third_party/Cinux-GUI/test/`,并按 `core/`/`host/` 重新拆分,旧的两个测试文件已删、`bitmap_icon` 这个 ctest 名也已不存在。下面给的文件路径、用例计数(23 / 17)、stub 退化串(`[BITMAP_ICON] CLI mode`)都是 **032 当时的事实**,读者按 tag 切源码即可。新测试布局见 Cinux-GUI 文档。
 
 按上一节说的,测试天然分两层。
 

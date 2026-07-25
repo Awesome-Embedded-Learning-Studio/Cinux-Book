@@ -61,7 +61,7 @@ Page Cache 落地后,fault handler(`kernel/arch/x86_64/page_fault.cpp`)多了一
 
 文件 fault 路径给"不可执行"的页设了 NX 位(页表里的不可执行标志,bit 63)——这是 **W^X**(可写就不可执行、可执行就不可写)纪律的延续。但设 NX 有个**前置依赖**:`EFER.NXE`(不可执行使能)位必须先开。
 
-为什么是依赖而不是直接设?**NXE 没开时,页表里的 NX 位是个保留位**——设了它触发保留位异常,无限循环(`page_fault.cpp:431` 的保留位分支会把它判成 SIGSEGV,但在 EFER.NXE 开启之前这个位根本不该出现)。所以这条路径只在 **F9 安全弧把 NXE 打开之后**才生效(`page_fault.cpp:297` 注释:`F9 batch 2: NXE is on -- non-exec file pages are NX (bit 63 is valid now; was reserved-bit #PF before EFER.NXE)`)。**启用一项硬件特性之前,所有依赖它的代码都得先确认特性已开,否则保留位异常比普通 bug 难诊断。**
+为什么是依赖而不是直接设?**NXE 没开时,页表里的 NX 位是个保留位**——设了它触发保留位异常,无限循环(`page_fault.cpp:431` 的保留位分支会把它判成 SIGSEGV,但在 EFER.NXE 开启之前这个位根本不该出现)。所以这条路径只在 **NXE 那条安全弧把 EFER.NXE 打开之后**才生效(`page_fault.cpp:297` 注释原文:`F9 batch 2: NXE is on -- non-exec file pages are NX (bit 63 is valid now; was reserved-bit #PF before EFER.NXE)`)。**启用一项硬件特性之前,所有依赖它的代码都得先确认特性已开,否则保留位异常比普通 bug 难诊断。**
 
 ## 验证
 

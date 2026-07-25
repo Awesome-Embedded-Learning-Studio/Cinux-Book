@@ -94,7 +94,7 @@ movq $0xC0000100, %rcx   ; rdmsr ; movl %eax,80(%rdi) ; movl %edx,84(%rdi)
 movl 80(%rsi),%eax ; movl 84(%rsi),%edx ; movq $0xC0000100,%rcx ; wrmsr
 ```
 
-> **演进说明(重要)**:035 当时把 `gs_base`/`kgs_base` 当成 per-task 字段、在切换时 `rdmsr`/`wrmsr` 存取两个 GS MSR(0xC0000101 / 0xC0000102)。后来的 **F4-M3 P1-2** 重构把 GS 改成 **per-CPU**:`swapgs` 规约保证内核态全程 `MSR_GS_BASE` == 本 CPU 的 PerCpu 块,**不再**跨上下文切换存取 GS MSR。于是 `gs_base`/`kgs_base` 两个字段在结构体里保留(offset 64/72 仍占位),但被标注为 `RESERVED`、切换代码不再碰它们;真正跨任务保存的 MSR 只剩 `fs_base`(offset 80,per-thread TLS,F3-M2 起加的)。子进程也不再像 035 那样在 fork/TaskBuilder 里初始化 `kgs_base=g_per_cpu.gs_page_vaddr`(那个字段名后来也随 per-CPU 重构消失了)。所以读者**不要**照 035 的老办法把 GS 当 per-task 存——那是当时有效、后来被纠正的修法;现在的真理是「GS per-CPU、FS per-task」。`g_per_cpu.update_syscall_stack()` 在每次切换时刷新 `gs:0` 指向的内核栈顶。
+> **演进说明(重要)**:035 当时把 `gs_base`/`kgs_base` 当成 per-task 字段、在切换时 `rdmsr`/`wrmsr` 存取两个 GS MSR(0xC0000101 / 0xC0000102)。后来的重构把 GS 改成 **per-CPU**:`swapgs` 规约保证内核态全程 `MSR_GS_BASE` == 本 CPU 的 PerCpu 块,**不再**跨上下文切换存取 GS MSR。于是 `gs_base`/`kgs_base` 两个字段在结构体里保留(offset 64/72 仍占位),但被标注为 `RESERVED`、切换代码不再碰它们;真正跨任务保存的 MSR 只剩 `fs_base`(offset 80,per-thread TLS,后来加的)。子进程也不再像 035 那样在 fork/TaskBuilder 里初始化 `kgs_base=g_per_cpu.gs_page_vaddr`(那个字段名后来也随 per-CPU 重构消失了)。所以读者**不要**照 035 的老办法把 GS 当 per-task 存——那是当时有效、后来被纠正的修法;现在的真理是「GS per-CPU、FS per-task」。`g_per_cpu.update_syscall_stack()` 在每次切换时刷新 `gs:0` 指向的内核栈顶。
 
 ## execve 页内偏移:为什么 .rodata 全是零
 

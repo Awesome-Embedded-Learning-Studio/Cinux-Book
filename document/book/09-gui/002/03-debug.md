@@ -56,7 +56,7 @@ call handler 压入返回地址:                                   8 字节
 
 **为什么之前从来没炸?** 因为这个 bug 一直在那,只是以前的 IRQ handler 都没让编译器生成 `movaps`。直到这一章给键盘 handler 塞了双路分发、触发了 SSE 优化,才把这个潜伏的对齐问题顶出水面。这也是栈对齐 bug 最阴险的地方:它**静默**——简单 handler 不触发,只有编译器恰好用了对齐敏感的指令才暴露,排查难度高。教训很直接:**ISR stub 必须保证 handler 入口 `RSP ≡ 8 (mod 16)`,这是 ABI 的硬性要求,不是可选项**。
 
-> 顺带一提:修完 #GP 后,链接器还会因为另一个符号报错——`__dso_handle` 未定义。这是因为 030 当时的 `WindowManager::instance()` 里那个 `static WindowManager wm;` 单例**带析构函数**,编译器要把它通过 `__cxa_atexit(func, arg, __dso_handle)` 注册成程序退出时调用的析构。我们的 freestanding 内核没有动态链接,得自己提供这个符号。在 [crt_stub.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/crt_stub.cpp) 里补一个 `void* __dso_handle = nullptr;` 就够了(内核没有 DSO,空指针足矣)。一个对齐 bug 引出一个链接符号,这是「从零搭 GUI」这类大改动典型的连带效应。注:这个 `instance()` 单例是 tag 030 当时的实现,F13 visor 解耦后该单例已随 `WindowManager` 整体外置移除;`crt_stub.cpp` 里的 `__dso_handle = nullptr`(line 115)本身至今仍在。
+> 顺带一提:修完 #GP 后,链接器还会因为另一个符号报错——`__dso_handle` 未定义。这是因为 030 当时的 `WindowManager::instance()` 里那个 `static WindowManager wm;` 单例**带析构函数**,编译器要把它通过 `__cxa_atexit(func, arg, __dso_handle)` 注册成程序退出时调用的析构。我们的 freestanding 内核没有动态链接,得自己提供这个符号。在 [crt_stub.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/crt_stub.cpp) 里补一个 `void* __dso_handle = nullptr;` 就够了(内核没有 DSO,空指针足矣)。一个对齐 bug 引出一个链接符号,这是「从零搭 GUI」这类大改动典型的连带效应。注:这个 `instance()` 单例是 tag 030 当时的实现,visor 解耦后该单例已随 `WindowManager` 整体外置移除;`crt_stub.cpp` 里的 `__dso_handle = nullptr`(line 115)本身至今仍在。
 
 ### 双光标偏移:这不是 bug,是 PS/2 的宿命
 
@@ -99,7 +99,7 @@ cmake --build build --target run-big-kernel-test
 
 它会跑 `run_mouse_event_tests`(鼠标事件流:PS/2 包 → EventQueue → MouseEvent)、`run_window_tests`、`run_window_manager_tests`(create/destroy/raise/拖拽的端到端)、`run_gui_integration_tests`(`gui_init` 接线、键盘双路分发、PIT 滴答回调、鼠标事件经 EventQueue 流到窗口管理器)。这是把前面「镜像测」验证过的逻辑,放到真实的内核 + QEMU + PS/2 模拟器里再验一遍整条管线。
 
-> **tag-bound 说明**:`main_test.cpp` 注册这四个套是 030 当时的机内测布局。F13 visor 解耦后,`Window` / `WindowManager` / GUI 集成测试随整个 GUI 外置到 `third_party/Cinux-GUI/test/`,改用 standalone ctest 跑(`test_window.cpp` + `test_window_manager.cpp` 等,不再是 kernel 内 `main_test` 注册的套);`main_test.cpp` 里现存的 GUI 套只剩 `run_mouse_event_tests`(main_test.cpp:105/1198)。本章的机内测叙述按 tag 030 当时布局。
+> **tag-bound 说明**:`main_test.cpp` 注册这四个套是 030 当时的机内测布局。visor 解耦后,`Window` / `WindowManager` / GUI 集成测试随整个 GUI 外置到 `third_party/Cinux-GUI/test/`,改用 standalone ctest 跑(`test_window.cpp` + `test_window_manager.cpp` 等,不再是 kernel 内 `main_test` 注册的套);`main_test.cpp` 里现存的 GUI 套只剩 `run_mouse_event_tests`(main_test.cpp:105/1198)。本章的机内测叙述按 tag 030 当时布局。
 
 **第三层:视觉效果。** 想亲眼看到三个窗口、亲手拖一下:
 

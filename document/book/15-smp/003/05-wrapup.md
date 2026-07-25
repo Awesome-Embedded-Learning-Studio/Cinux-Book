@@ -31,7 +31,7 @@ cmake --build build --target run-kernel-test
 cmake --build build --target run-smp   # 启动日志见 [AP1] online (apic_id=1)
 ```
 
-A 档端到端:启动日志里 `[SMP] INIT-SIPI-SIPI -> apic_id 1` → `[AP1] GS anchored` → `[AP1] online`,两个核都 online。调度机制的更细验证(共享队列不 double-pick、lost-wakeup 关窗、原子 refcount)靠单核测试里的 scheduler/sync 并发用例——它们就是为多核正确性写的。真机 `-smp 2` 跑用户任务的端到端演示,受上面那个 AHCI heisenbug 挡住,本机跑不到那一步。
+端到端:启动日志里 `[SMP] INIT-SIPI-SIPI -> apic_id 1` → `[AP1] GS anchored` → `[AP1] online`,两个核都 online。调度机制的更细验证(共享队列不 double-pick、lost-wakeup 关窗、原子 refcount)靠单核测试里的 scheduler/sync 并发用例——它们就是为多核正确性写的。真机 `-smp 2` 跑用户任务的端到端演示,受上面那个 AHCI heisenbug 挡住,本机跑不到那一步。
 
 ## 小结与下一站
 

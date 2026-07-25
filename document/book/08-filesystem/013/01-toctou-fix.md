@@ -6,7 +6,7 @@ title: 01 · ProcFS 的 TOCTOU:锁内拷值,指针不逃出锁
 
 > 011 立 ProcFS 的时候,诚实交代过一个窗口:`/proc/<pid>/stat` 读的时候,`signal_find_task_by_pid` 在 registry 锁内找到 Task 指针、**释放锁返回**,然后 `format_proc_stat` 在锁外解引用那个指针读字段。当时说「task 永不释放,窗口极小,hobby OS 可接受,真修等 registry RCU 化」。这一章兑现那笔债——但用的是比 RCU 轻得多的办法:**锁内把字段拷成一个自包含的 snapshot(POD),锁外用的是 snapshot 不是指针**,指针一出锁就没用了。根因比 011 当时以为的更严重:那个「task 永不释放」的前提**早就失效了**(Task 现在会真 delete),所以这个窗口不是「极小」,是「SMP 下真 UAF」。
 >
-> B 档:这一章是个聚焦修复,没有新能力。验证靠新增的 snapshot 单测 + 既有 stat/cmdline 读测(自动验 snapshot 端到端)+ 两腿不回归。一条诚实的边界:这一章只闭了 ProcFS read 这一条路;registry 还有别的「锁内拿指针、锁外用」同族窗口(killpg、sys_pgrp),那些靠容忍 Zombie/Dead 兜着,全闭要等 refcount/RCU(长期)。
+> 这一章是个聚焦修复,没有新能力。验证靠新增的 snapshot 单测 + 既有 stat/cmdline 读测(自动验 snapshot 端到端)+ 两腿不回归。一条诚实的边界:这一章只闭了 ProcFS read 这一条路;registry 还有别的「锁内拿指针、锁外用」同族窗口(killpg、sys_pgrp),那些靠容忍 Zombie/Dead 兜着,全闭要等 refcount/RCU(长期)。
 
 ## 这章咱们要点亮什么
 
@@ -63,13 +63,13 @@ ProcFS 的 read 改走 snapshot:`ProcStatFileOps::read` / `ProcCmdlineFileOps::r
 - `killpg` 仍 snapshot 指针(靠 `signal_send` 容忍 Zombie/Dead 兜着);
 - `sys_pgrp` 返裸指针给调用方——潜在同族债(范围外,没修)。
 
-**registry TOCTOU 全闭要等 refcount/RCU**(Task 引用计数,真正的 RCU-safe registry)。那是 registry 引用计数级别的大改;snapshot 是 F6 范畴内、零接口变更的收敛修——闭掉最危险的(经 syscall 敞开窗口的 ProcFS read),其余靠容忍兜着,记着。
+**registry TOCTOU 全闭要等 refcount/RCU**(Task 引用计数,真正的 RCU-safe registry)。那是 registry 引用计数级别的大改;snapshot 是零接口变更的收敛修——闭掉最危险的(经 syscall 敞开窗口的 ProcFS read),其余靠容忍兜着,记着。
 
 ## 验证
 
 - 全量编译绿(改公共头 `signal.hpp`/`task_snapshot.hpp` 触发大重建,所有消费者过)。
-- `run-kernel-test-all` 两腿各 **1020 passed / 0 failed**(单核 + -smp 2)。新增 `test_snapshot_task_copies_fields`(验锁内拷字段对);既有 stat/cmdline 读测自动验 snapshot 端到端(它们现在走 snapshot 路径)。
-- host `ctest` 69/69(public 头没破 mock)。
+- `run-kernel-test-all` 两腿(单核 + `-smp 2`)全绿。新增 `test_snapshot_task_copies_fields`(验锁内拷字段对);既有 stat/cmdline 读测自动验 snapshot 端到端(它们现在走 snapshot 路径)。
+- host `ctest` 全绿(public 头没破 mock)。
 
 ## 小结
 

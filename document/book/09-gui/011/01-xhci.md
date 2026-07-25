@@ -4,7 +4,7 @@ title: 01 · xHCI USB:一张环、一个 cycle bit,把键鼠接到桌面
 
 # xHCI USB:一张环、一个 cycle bit,把键鼠接到桌面
 
-> 054 把桌面 GUI 从内核里拔了出来,可那套桌面的输入还只有 PS/2 鼠标——键盘敲不响、USB 鼠标也不认。这一章给内核接上一个真正的 USB 主控制器驱动:xHCI。它是一整条链:先在 PCI 总线上把 xHCI 控制器认出来、复位、用 MSI-X 给它挂一个中断向量;再学会和控制器通信的「语言」——一种叫 TRB 的 16 字节描述符排成的环,靠一个 cycle bit 无锁握手;然后用这套语言把一个 USB 设备枚举出来(分 slot、填 context、下 Address Device 命令);最后解析 HID 鼠标/键盘/tablet 的输入报告,送进 054 那个 GUI 窗口管理器已经在消费的同一个事件队列。A 档:验证靠内核测试 `test_xhci`(找控制器、复位、给设备寻址、跑通 HID 鼠标)。
+> 054 把桌面 GUI 从内核里拔了出来,可那套桌面的输入还只有 PS/2 鼠标——键盘敲不响、USB 鼠标也不认。这一章给内核接上一个真正的 USB 主控制器驱动:xHCI。它是一整条链:先在 PCI 总线上把 xHCI 控制器认出来、复位、用 MSI-X 给它挂一个中断向量;再学会和控制器通信的「语言」——一种叫 TRB 的 16 字节描述符排成的环,靠一个 cycle bit 无锁握手;然后用这套语言把一个 USB 设备枚举出来(分 slot、填 context、下 Address Device 命令);最后解析 HID 鼠标/键盘/tablet 的输入报告,送进 054 那个 GUI 窗口管理器已经在消费的同一个事件队列。验证靠内核测试 `test_xhci`(找控制器、复位、给设备寻址、跑通 HID 鼠标)。
 >
 > 诚实的边界先说清:这套驱动在 QEMU 上跑通,真中断的送达在 QEMU+nested-KVM 下并不可靠(中断器使能位锁存不上),所以生产路径其实是 worker 线程在轮询事件环,MSI-X 的武装留着给真硬件;SuperSpeed(5 Gb/s)、hub 拓扑这些没做;BIOS 那套 USB Legacy Support 的所有权交接在 QEMU 上不需要(启动即 OS-owned),真机才补。
 

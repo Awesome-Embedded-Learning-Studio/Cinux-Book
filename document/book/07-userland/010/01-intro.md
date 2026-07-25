@@ -6,7 +6,7 @@ title: 01 · Linux ABI 拼图:让 glibc/musl/busybox 跑起来
 
 > 059 让 musl 静态 hello 跑通,073 让静态 busybox 14 个 applet 跑通——这两章把「能让一个真程序起来」的 ABI 地基铺好了:Linux x86_64 的 syscall 号表、负 errno 的返回约定、铺满 auxv 的初始栈、busybox 试金石和它用到的 `getdents64`/`chmod`/`dup`/`fcntl`/`nanosleep`/`socket` 那一大坨。这一章接的不是另一批真程序,是另一批**契约**:让 glibc 和更激进的 musl 程序在启动和运行各阶段不被一个缺掉的 ABI 卡住——内核要么真给数据、要么诚实地返 `-ENOSYS` 让 libc 优雅降级。这一章一共讲十**四**个 Linux ABI 号 + 一个 Cinux 专有的偏离(`cinux_exit`),其中九个真实现、五个是 stub,但都不是「清单」,是 glibc 启动会挨个探过去的一条 ABI 谱。
 >
-> A 档:教程即验证。本章核实的是源码侧事实——这十五个号都注册进了 dispatch 表、号都和 Linux x86_64 对齐(只有 `cinux_exit` 占了 Linux `fadvise64` 的号,文档化偏离)、handler 逻辑和源码注释里声明的语义一致、dispatch 兜底返的是 `-kEnosys` 不是裸 `-1`。诚实的边界先放在台面上:九个真实现(`access`/`getrandom`/`pread64`/`prlimit64`/`time`/`gettimeofday`/`tkill`/`setitimer`/`sched_getaffinity`)、五个是返 `-ENOSYS` 或返 0 哄过的探测 stub(`getcpu`/`rseq`/`clone3`/`sendfile`/`set_robust_list`),外加一个 Cinux 专有的 `cinux_exit`。这不是残缺,是务实——内核**判断一个号该真实现还是 stub 的唯一依据,是 libc 拿到这个返回值后行为对不对**,不是「这个 syscall 容不容易实现」。这章就是把这条判断原则讲成可读的东西。
+> 验证口径:教程即验证。本章核实的是源码侧事实——这十五个号都注册进了 dispatch 表、号都和 Linux x86_64 对齐(只有 `cinux_exit` 占了 Linux `fadvise64` 的号,文档化偏离)、handler 逻辑和源码注释里声明的语义一致、dispatch 兜底返的是 `-kEnosys` 不是裸 `-1`。诚实的边界先放在台面上:九个真实现(`access`/`getrandom`/`pread64`/`prlimit64`/`time`/`gettimeofday`/`tkill`/`setitimer`/`sched_getaffinity`)、五个是返 `-ENOSYS` 或返 0 哄过的探测 stub(`getcpu`/`rseq`/`clone3`/`sendfile`/`set_robust_list`),外加一个 Cinux 专有的 `cinux_exit`。这不是残缺,是务实——内核**判断一个号该真实现还是 stub 的唯一依据,是 libc 拿到这个返回值后行为对不对**,不是「这个 syscall 容不容易实现」。这章就是把这条判断原则讲成可读的东西。
 
 ## 这章咱们要点亮什么
 

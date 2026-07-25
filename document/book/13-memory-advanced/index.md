@@ -4,7 +4,7 @@ title: 13 · 内存管理增强
 
 # 13 · 内存管理增强
 
-> F2 内存弧:在 05-memory 卷的 PMM/VMM/堆/地址空间之上,补 VMA、mmap、brk、Page Cache、demand paging、Buddy、Slab,再回迁 v1.0.0 的物理页两本账(pte_count + refcount)。这是 CinuxOS ROADMAP 点名的最大结构瓶颈,阻塞 mmap/CoW/共享内存/文件映射。读法:先 05-memory 卷(基础),再本卷(增强)。
+> 内存增强弧:在 05-memory 卷的 PMM/VMM/堆/地址空间之上,补 VMA、mmap、brk、Page Cache、demand paging、Buddy、Slab,再补物理页两本账(pte_count + refcount)。两本账那块是曾经阻塞 mmap/CoW/共享内存/文件映射的结构瓶颈。读法:先 05-memory 卷(基础),再本卷(增强)。
 
 ## 阅读顺序
 

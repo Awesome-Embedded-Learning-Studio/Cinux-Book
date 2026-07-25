@@ -6,7 +6,7 @@ title: 01 · 导引:两种时间,两个源
 
 > 到现在内核只有一种时间源——PIT(可编程间隔定时器),用来产生调度滴答。可程序常常要两种不同的时间:`clock_gettime(CLOCK_MONOTONIC)` 要的是「自开机以来过了多久」(测间隔、算超时,不受墙钟拨动影响);`clock_gettime(CLOCK_REALTIME)` 要的是「现在几点几分」(真世界时间,Unix epoch)。这俩是不同的语义,得两个不同的硬件源。这一章立两个时钟驱动:**HPET**(高精度定时器,做一个 free-running 计数器,给 monotonic 纳秒)和 **RTC**(实时时钟,CMOS 里那个,给墙钟的 Unix epoch),然后接到 `sys_clock_gettime`——MONOTONIC 读 HPET、REALTIME 用 RTC 的开机时刻加上 HPET 走过的 delta。
 >
-> B 档:这一章交付的是内部机制(两种时钟 + clock_gettime 接线),没有用户可见的新能力。验证靠机制测(计数器真在走、不是冻死)+ host 纯算术单测(ticks→ns 换算、BCD 解码、日期→epoch)+ boot 日志打出真实时间。一条诚实的边界先说在前头:HPET 这里只做**计数器**(monotonic 用),没做它的定时中断功能(给 TCP 重传、调度抢占那种「到点叫我」的 timer);RTC 只在 boot 读一次(端口 I/O 慢),墙钟靠 RTC 基线 + HPET delta 推进,不周期重同步。
+> 验证靠机制测(计数器真在走、不是冻死)+ host 纯算术单测(ticks→ns 换算、BCD 解码、日期→epoch)+ boot 日志打出真实时间。一条诚实的边界先说在前头:这一章交付的是内部机制(两种时钟 + clock_gettime 接线),没有用户可见的新能力;HPET 这里只做**计数器**(monotonic 用),没做它的定时中断功能(给 TCP 重传、调度抢占那种「到点叫我」的 timer);RTC 只在 boot 读一次(端口 I/O 慢),墙钟靠 RTC 基线 + HPET delta 推进,不周期重同步。
 
 ## 这章咱们要点亮什么
 

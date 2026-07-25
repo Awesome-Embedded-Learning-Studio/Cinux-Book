@@ -14,7 +14,7 @@ title: 05 · 收尾:验证、没做的、小结
 
 **第三层:make run 冒烟 + busybox smoke**。`make run` 起 QEMU,看 boot 序列出现 `[TMPFS] mounted at /tmp`(`tmpfs_init.cpp:48` 的 kprintf)。进 shell 后用 busybox 做一组操作:`echo hello > /tmp/hello.txt && cat /tmp/hello.txt`(可写可读、字节对得上)、`mkdir /tmp/build && touch /tmp/build/a.o && ls /tmp/build`(目录可建可列)、`rm /tmp/build/a.o && ls /tmp/build`(可删)、`mount -t tmpfs none /mnt/tmp && touch /mnt/tmp/x && umount /mnt/tmp && mount -t tmpfs none /mnt/tmp && ls /mnt/tmp`(运行时挂载/卸载/再挂,文件不见 = owned backend 真 delete)。
 
-> 测试数字怎么填。`run-kernel-test-all` 两腿(单核 + `-smp 2`)的通过数,得在 Book 工作树真跑后填,不照抄源仓库 dev note 的数(那是源仓库的,Book 侧须独立验证)。`scripts/check_test_count.sh` 就是干这个的——基线 `CINUX_TEST_BASELINE` 默认 875(`check_test_count.sh:14`),tmpfs 的 10 例机制测 + 1 例 syscall 真挂测都进 `big_kernel_test`,真跑后 passed 数应 ≥ 基线 + 这些例。用户态真能用 `/tmp` 靠 boot 冒烟 `[TMPFS] mounted at /tmp` + busybox smoke 两腿绿间接证明,不是 `big_kernel_test` 的直接断言——三层证据合力,任一单独都不够。
+> **怎么算真能用 `/tmp`。** boot 冒烟 `[TMPFS] mounted at /tmp` + busybox smoke 两腿绿只是间接证据,不是 `big_kernel_test` 机制测的直接断言——三层证据合力,任一单独都不够。`run-kernel-test-all` 两腿(单核 + `-smp 2`)绿是机制层,boot + busybox 是用户态层。
 
 ## 这章没做的
 

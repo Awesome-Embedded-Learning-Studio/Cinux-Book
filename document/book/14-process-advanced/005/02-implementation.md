@@ -10,7 +10,7 @@ title: 02 · 阻塞、SIGPIPE、命名 FIFO 三件实现
 
 匿名 pipe 的读写,写满/读空时该阻塞。原来的实现是自旋:`irq_enable(); for(一百万次){ hlt(); irq_disable(); 探一下有没有数据; irq_enable(); }`。这在 syscall 上下文里跑(`sys_write → do_write_kernel → pipe->write`),问题在于那个 `sti`(irq_enable)——
 
-> 跟 059(sys_ping #DF)是同一个坑,记一笔串起来。syscall 进来时,陷阱帧压在内核栈上(由 `%gs:0` 指向)。`sti` 打开一个窗口,这个窗口里 LAPIC 时钟中断来了——中断处理要压自己的帧,可能踩到/挪动那个 syscall 陷阱帧的位置,等 syscall 用 sysretq 弹帧返回时,弹出来的花是错的 → #DF(Double Fault),真硬件必炸。harness 不真跑 ring3 的阻塞路径(测试都是内核态直调),所以 931/0 假绿一直盖着这个隐患。059 的 sys_ping 是这么炸的,pipe 阻塞也是这么炸的——同根。
+> 跟 059(sys_ping #DF)是同一个坑,记一笔串起来。syscall 进来时,陷阱帧压在内核栈上(由 `%gs:0` 指向)。`sti` 打开一个窗口,这个窗口里 LAPIC 时钟中断来了——中断处理要压自己的帧,可能踩到/挪动那个 syscall 陷阱帧的位置,等 syscall 用 sysretq 弹帧返回时,弹出来的花是错的 → #DF(Double Fault),真硬件必炸。harness 不真跑 ring3 的阻塞路径(测试都是内核态直调),所以这条隐患一直被「测试全绿」盖着。059 的 sys_ping 是这么炸的,pipe 阻塞也是这么炸的——同根。
 
 修法是**真调度等待队列**,不自旋。复用现成 proven 模板:`prepare_to_wait()` + `schedule_blocked()` + `unblock()` + `Task::wait_next` 内侵式等待队列——这套 Mutex(`kernel/proc/sync.cpp`)和 console TTY 阻塞读(062)已经验过,lost-wakeup-safe 跨核。Pipe 加两条队列 `read_waiters_` / `write_waiters_`:
 

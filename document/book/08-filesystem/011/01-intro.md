@@ -4,7 +4,7 @@ title: 01 · 导引:范式与点亮什么
 
 # 导引:范式与点亮什么
 
-> A 档:punchline 是 `/proc` 真挂上、`ls /proc` 见到 pid、`cat /proc/<pid>/stat` 读到进程信息。这一章真正要讲的是「**虚拟 FS 的根是动态的**」时怎么处理——DevFS 的根是一张固定节点表(null/zero/console 写死),ProcFS 的根是**当前活进程的 pid**,进程随时在创建和退出,这个目录是活的。还有「读伪文件 = 现场从内核结构生成文本」这套做法。一条诚实的边界先说在前头:这是进程自省的第一刀——做 `/proc` 根枚举 pid + `/proc/<pid>/{stat,cmdline}`,外加 `/proc/meminfo`/`/proc/cpuinfo` 两个静态节点(都从 `g_pmm`/`g_acpi_info` 现场生成);`/proc/version`/`uptime` 静态节点和 `maps`/`fd`/`status` 每进程伪文件还不做,留 follow-up。
+> punchline 是 `/proc` 真挂上、`ls /proc` 见到 pid、`cat /proc/<pid>/stat` 读到进程信息。这一章真正要讲的是「**虚拟 FS 的根是动态的**」时怎么处理——DevFS 的根是一张固定节点表(null/zero/console 写死),ProcFS 的根是**当前活进程的 pid**,进程随时在创建和退出,这个目录是活的。还有「读伪文件 = 现场从内核结构生成文本」这套做法。一条诚实的边界先说在前头:这是进程自省的第一刀——做 `/proc` 根枚举 pid + `/proc/<pid>/{stat,cmdline}`,外加 `/proc/meminfo`/`/proc/cpuinfo` 两个静态节点(都从 `g_pmm`/`g_acpi_info` 现场生成);`/proc/version`/`uptime` 静态节点和 `maps`/`fd`/`status` 每进程伪文件还不做,留 follow-up。
 
 ## 这章咱们要点亮什么
 

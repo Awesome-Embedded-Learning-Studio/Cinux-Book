@@ -4,7 +4,7 @@ title: 01 · 测试侧的 §14:文件 gate 管不到文件里的那一段
 
 # 测试侧的 §14:文件 gate 管不到文件里的那一段
 
-> 054b 把生产代码里的 `#ifdef` 全赶去了 CMake,但留了一笔测试侧的账:`big_kernel_test`(跑在内核里、由 QEMU 驱动的那套测试)一直把 `test_xhci.cpp` 无条件编进源列表,于是关掉 USB 时它引用的 `XHCIController` 等符号找不到,`big_kernel_test` 在非 USB 下编都编不过。054b 把这件事诚实写进了边界。这一章就还这笔账——把同一个 file gate 思路用到测试那一侧,顺手处理一个 054b 没碰到的细节:测试文件**既挂 CMake 文件级 gate,又在文件里留一个 `#ifdef`**,两件事不矛盾,各有各的管辖区。B 档:验证靠构建矩阵——关掉 USB、或开 USB 关 GUI,`big_kernel_test` 都编得过、链接通过。
+> 054b 把生产代码里的 `#ifdef` 全赶去了 CMake,但留了一笔测试侧的账:`big_kernel_test`(跑在内核里、由 QEMU 驱动的那套测试)一直把 `test_xhci.cpp` 无条件编进源列表,于是关掉 USB 时它引用的 `XHCIController` 等符号找不到,`big_kernel_test` 在非 USB 下编都编不过。054b 把这件事诚实写进了边界。这一章就还这笔账——把同一个 file gate 思路用到测试那一侧,顺手处理一个 054b 没碰到的细节:测试文件**既挂 CMake 文件级 gate,又在文件里留一个 `#ifdef`**,两件事不矛盾,各有各的管辖区。验证靠构建矩阵——关掉 USB、或开 USB 关 GUI,`big_kernel_test` 都编得过、链接通过。
 >
 > 一句话定位:054b 讲了 §14 在**生产代码**里的落地;这一章是它在**测试代码**里的落地,外加一个「文件 gate 和文件内 `#ifdef` 什么时候得并存」的细节。
 

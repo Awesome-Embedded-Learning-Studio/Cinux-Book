@@ -41,7 +41,7 @@ VMA 的底(顶 - 1MB)以下没有 VMA → segfault,这就是隐式的栈溢出 g
 
 ## read() 也走 Page Cache
 
-041 的 Page Cache 只服务文件映射的按需分页。而 `read()` 读普通文件,直走 `Ext2FileOps::read`(wholesale 后位于 `libs/ext2/ext2_common.cpp`,080 章 ext2 独立成库那步挪过去的)——每次按 ext2 块读盘,**没缓存**。于是同一份文件,"mmap 读"和"read() 读"各走各的,read() 重复读反复 I/O。这一章让 read() 也接进 Page Cache:
+041 的 Page Cache 只服务文件映射的按需分页。而 `read()` 读普通文件,直走 `Ext2FileOps::read`(位于 `libs/ext2/ext2_common.cpp`,080 章把 ext2 独立成库时挪过去的)——每次按 ext2 块读盘,**没缓存**。于是同一份文件,"mmap 读"和"read() 读"各走各的,read() 重复读反复 I/O。这一章让 read() 也接进 Page Cache:
 
 ```cpp
 // kernel/mm/page_cache.hpp —— 给 read() 用的按字节读,内部按页切片复用 get_page

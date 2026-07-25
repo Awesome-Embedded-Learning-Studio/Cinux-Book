@@ -4,7 +4,7 @@ title: 01 · musl 静态移植:对齐 Linux ABI、铺初始栈,以及一个被 S
 
 # musl 静态移植:对齐 Linux ABI、铺初始栈,以及一个被 SMAP 拦下的潜伏 bug
 
-> 之前用户态跑的是 Cinux 自己那个极简 libc(手写的 `syscall.h` 那几个壳)。这一章换一套做法:让内核能跑**用真 musl libc 编译的静态程序**——musl 是 Linux 世界里常用的轻量 libc,用它编译的程序(比如 `hello world`)静态链接一个 `libc.a` 进来,扔到内核上就能跑。要做到这件事,内核得**把自己对齐到 Linux 的 ABI**:syscall 号得和 Linux x86_64 一致、返回值得是负 errno、给程序铺的初始栈得带 musl 启动要读的辅助向量(auxv)。这一章把这三件事做了,然后跑 musl 的 hello——结果 hello 一跑,挖出一个在内核里**潜伏了很久的真 bug**,而这个 bug 之所以一直没被发现,正好和上一卷(056)讲的 SMAP / WSL2 那条边界有关。A 档:punchline 是 musl 编译的 `hello` 真在内核里跑起来、打出 `Hello from musl`、干净退出。内核侧的 ABI + 初始栈靠测试验证(954/0);musl 程序的端到端跑通靠一个专门的 ring3 测试。
+> 之前用户态跑的是 Cinux 自己那个极简 libc(手写的 `syscall.h` 那几个壳)。这一章换一套做法:让内核能跑**用真 musl libc 编译的静态程序**——musl 是 Linux 世界里常用的轻量 libc,用它编译的程序(比如 `hello world`)静态链接一个 `libc.a` 进来,扔到内核上就能跑。要做到这件事,内核得**把自己对齐到 Linux 的 ABI**:syscall 号得和 Linux x86_64 一致、返回值得是负 errno、给程序铺的初始栈得带 musl 启动要读的辅助向量(auxv)。这一章把这三件事做了,然后跑 musl 的 hello——结果 hello 一跑,挖出一个在内核里**潜伏了很久的真 bug**,而这个 bug 之所以一直没被发现,正好和上一卷(056)讲的 SMAP / WSL2 那条边界有关。验证口径:punchline 是 musl 编译的 `hello` 真在内核里跑起来、打出 `Hello from musl`、干净退出。内核侧的 ABI + 初始栈靠测试验证;musl 程序的端到端跑通靠一个专门的 ring3 测试。
 >
 > 一条诚实的边界先说在前头:这一步的 musl 程序是**静态链接**的(把 musl 的 `libc.a` 整个链进可执行文件),不是动态链接(没有 `ldso`、没有 `PT_INTERP`)。动态链接是后面的事。而且 musl 的工具链(`build-musl.sh` 编出 sysroot)得先在宿主机上编一次,这一章讲的是内核侧怎么准备好接住 musl 程序,不是手把手教编 musl。
 
@@ -59,11 +59,11 @@ constexpr uint64_t AT_UID     = 11;
 ...
 ```
 
-（`initial_stack.hpp:37` 起,`AT_*` 那一列。)这个 helper 有 host 单测直接验栈布局(`test/unit/test_initial_stack.cpp`):走 argc/argv/envp/auxv 到 `AT_NULL`,断言 16 字节对齐 + 关键 AT_ 键都在——这就是内核侧 musl 就绪的客观证据(954/0 里含这个)。
+（`initial_stack.hpp:37` 起,`AT_*` 那一列。)这个 helper 有 host 单测直接验栈布局(`test/unit/test_initial_stack.cpp`):走 argc/argv/envp/auxv 到 `AT_NULL`,断言 16 字节对齐 + 关键 AT_ 键都在——这就是内核侧 musl 就绪的客观证据。
 
 ## 新 syscall:musl 要的那几个
 
-musl 启动链里会用几个 Cinux 原来没有(或不全)的 syscall,这一步补上:`sys_open`(`open`/`openat`,musl 加载文件)、`sys_stat`(`newfstatat`,musl 查文件元信息)、`sys_set_tid_address`(musl 设 cleartid 地址,F3 那套机制)。还有 `arch_prctl`(`ARCH_SET_FS` 设 TLS 的 `fs_base`,musl 的 `__init_tp` 要)之类。这些都是 musl 启动到某一步会发的 syscall,内核得有 handler 应答,否则 musl 拿到 `-ENOSYS` 就走不下去。
+musl 启动链里会用几个 Cinux 原来没有(或不全)的 syscall,这一步补上:`sys_open`(`open`/`openat`,musl 加载文件)、`sys_stat`(`newfstatat`,musl 查文件元信息)、`sys_set_tid_address`(musl 设 cleartid 地址,跟 clone/TLS 那套机制配套)。还有 `arch_prctl`(`ARCH_SET_FS` 设 TLS 的 `fs_base`,musl 的 `__init_tp` 要)之类。这些都是 musl 启动到某一步会发的 syscall,内核得有 handler 应答,否则 musl 拿到 `-ENOSYS` 就走不下去。
 
 ## 跑 musl hello:一个被 SMAP 拦下的潜伏 bug
 
@@ -103,6 +103,6 @@ Hello from musl on CinuxOS!         ← musl write(1,...) → SYS_write → kpri
 
 **musl 工具链得在宿主机上先编一次。** `tools/musl/build-musl.sh` 下载 musl 1.2.6、用宿主 GCC 编出一个 sysroot(`libc.a` + crt 文件 + 头文件)。这是宿主机侧的一次性工作,不是内核运行时的事——但它依赖网络下载 musl 源、依赖宿主 GCC 版本(脚本里处理了 GCC16 的 `-fno-link-libatomic` 之类坑)。内核测试的 ring3 smoke 默认是关的(`-DCINUX_MUSL_HELLO_SMOKE=ON` 才编进 hello),因为编 musl sysroot 不是每次构建都该做的事。
 
-**TLS / canary 依赖前面的弧。** musl 的 `__init_tp` 用 `arch_prctl(ARCH_SET_FS)` 设 `fs_base`(TLS),栈 canary 读 `%fs:0x28`——这些能工作,是因为 F3(clone/TLS)和 F9(canary 的种子来自 `AT_RANDOM`,这一章铺的)都就位了。musl 移植是站在前面好几卷的地基上的,不是孤立的一步。
+**TLS / canary 依赖前面的弧。** musl 的 `__init_tp` 用 `arch_prctl(ARCH_SET_FS)` 设 `fs_base`(TLS),栈 canary 读 `%fs:0x28`——这些能工作,是因为 clone/TLS 和栈 canary 的种子(来自 `AT_RANDOM`,这一章铺的)都就位了。musl 移植是站在前面好几卷的地基上的,不是孤立的一步。
 
 验证该看到什么,见配套 lab。下一章该把用户态再往前推——TTY 行规范、动态链接那一线。

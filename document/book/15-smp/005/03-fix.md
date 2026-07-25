@@ -66,6 +66,6 @@ Cinux 的选择是 `pick_next` **跳过**正在被存的任务,挑队列里别�
 
 **修的是调度竞态根因,不是 QEMU 时序怪癖。** 本机 `-smp 2` 的 AHCI heisenbug 表面是「QEMU 时序」,但根因是调度器的迁移窗口竞态。这个修法堵的是根因——竞态没了,不管 QEMU 时序怎么抖都不会再写花 ctx。
 
-**单核不破坏。** `on_cpu` 纪律在单核下是 no-op:本核的任务不会被 `pick_next` 跳过,`yield` 时 `next==prev` 直接返回的语义保持不变。所以单核 `run-kernel-test` 仍然 931 全绿,双核 `-smp 2` panic 归零。
+**单核不破坏。** `on_cpu` 纪律在单核下是 no-op:本核的任务不会被 `pick_next` 跳过,`yield` 时 `next==prev` 直接返回的语义保持不变。所以单核 `run-kernel-test` 仍然全绿,双核 `-smp 2` panic 归零。
 
 下一章回到 GUI 卷(054 GUI 解耦、055 xHCI USB)之后的下一条线;这套 SMP 加固到这里先收住。

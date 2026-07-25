@@ -20,7 +20,7 @@ title: 03 · 调试现场:fork 还没让子进程「返回 0」
 struct alignas(16) CpuContext {
     uint64_t r15, r14, r13, r12, rbp, rbx;   // 只存 callee-saved
     uint64_t rsp, rip;
-    // 注:034 时就是上面 8 个字段(64 字节);wholesale 后又加了
+    // 注:034 时就是上面 8 个字段(64 字节);后来又加了
     // gs_base / kgs_base / fs_base 三个 TLS 基址字段(sizeof 扩到 96)。
     // 但无论哪版,都没有 rax 字段——下面的论证不变。
 };

@@ -8,7 +8,7 @@ title: 01 · DevFS:把设备挂进 /dev
 >
 > 这一章真正的主题是「**怎么往已有的 VFS 里加一种新文件,而不动 VFS 的接口**」。前面立 VFS 时定义了一个 `InodeOps` 虚表(每个 inode 的行为:读、写、stat、readdir…);这一章加设备,做法是给 `InodeOps` 写**子类**(NullDevOps/ZeroDevOps/ConsoleDevOps),设备的「读写触发什么行为」全在子类的 override 里——基类接口一行不动。这是 Linux 加新文件类型的套路(ramdisk 那章也是这么干的),也是这一章能跟别的改动并行的原因:既然不动基类,各加各的子类,互不干扰。
 >
-> A 档:punchline 是 `/dev` 真挂上了,`ls /dev` 见到 null/zero/console,读写它们触发对的设备行为(null 丢、zero 给零、console 打串口)。一条诚实的边界先说在前头:这一章的 `/dev/console` 只接了**写**(写到串口),没接**读**——接 console TTY 的真 stdin(让 `read /dev/console` 读键盘)、`/dev/tty`、PTY,是后面 TTY 那条线 Phase 2 的事。`/dev/null`/`/dev/zero` 是完整的;console 这半,先把写做对。
+> punchline 是 `/dev` 真挂上了,`ls /dev` 见到 null/zero/console,读写它们触发对的设备行为(null 丢、zero 给零、console 打串口)。一条诚实的边界先说在前头:这一章的 `/dev/console` 只接了**写**(写到串口),没接**读**——接 console TTY 的真 stdin(让 `read /dev/console` 读键盘)、`/dev/tty`、PTY,是后面 TTY 那条线 Phase 2 的事。`/dev/null`/`/dev/zero` 是完整的;console 这半,先把写做对。
 
 ## 这章咱们要点亮什么
 
@@ -84,13 +84,13 @@ public:
 
 三层验证。
 
-**第一层:host 单测,核心逻辑。** `test/unit/test_devfs.cpp` 十九个 case:mount 建出三个标准节点、`lookup("null")`/`("zero")`/`("console")` 各命中对的 inode、null 读给 EOF 写丢弃、zero 读给零写丢弃、console write 走 mock sink(断言写下来的字节对)、stat 填对 `st_rdev`/`st_mode`、`/dev` 目录 readdir 列出节点、mount 幂等(重复 mount 不累加节点)。这层靠的就是 `CharSink` 解耦——mock sink 让 console 的派发在 host 上可断言。`./build/test/test_devfs` 报 19 passed。
+**第一层:host 单测,核心逻辑。** `test/unit/test_devfs.cpp` 十九个 case:mount 建出三个标准节点、`lookup("null")`/`("zero")`/`("console")` 各命中对的 inode、null 读给 EOF 写丢弃、zero 读给零写丢弃、console write 走 mock sink(断言写下来的字节对)、stat 填对 `st_rdev`/`st_mode`、`/dev` 目录 readdir 列出节点、mount 幂等(重复 mount 不累加节点)。这层靠的就是 `CharSink` 解耦——mock sink 让 console 的派发在 host 上可断言。`./build/test/test_devfs` 跑下来全绿。
 
 **第二层:kernel 内 test_devfs。** `kernel/test/test_devfs.cpp` 七例,在内核态跑同一套核心逻辑(设备行为、lookup、stat),证它在内核环境也对。
 
 **第三层:boot 冒烟。** `make run` 起真内核,看 `[DEVFS] mounted at /dev (3 nodes)`,然后 `ls /dev` 见 null/zero/console,`echo hi > /dev/null` 不报错(null 吃掉)、`cat /dev/zero`(限量)读出零。这一层 headless 自动测试罩不到(test kernel 不走 boot),得 `make run`。
 
-`run-kernel-test-all` 两腿各 **976 passed / 0 failed**(含 kernel test_devfs 七例)。
+`run-kernel-test-all` 两腿(单核 + `-smp 2`)全绿(含 kernel test_devfs 七例)。
 
 ## 这章没做的
 

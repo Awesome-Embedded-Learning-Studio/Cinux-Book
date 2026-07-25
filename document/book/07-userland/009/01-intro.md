@@ -8,7 +8,7 @@ title: 01 · busybox 当 PID1:init 不是 fork 出来的
 >
 > 这章有两个反直觉的坑值得专程来一趟。第一个:**PID 1 不是 `fork` 出来的**——内核 init 线程在入口处直接从 PID 分配器里领走 1 号,`execve` 又不换 pid,所以 busybox init 天然继承 PID 1。第二个:**`rt_sigtimedwait` 不能真阻塞**——busybox init 的主循环靠它的返回值驱动 respawn,一旦真睡死,`/bin/sh` 永远不会被 fork 出来,整个系统死锁。
 >
-> A 档:punchline 是非 GUI 构建启动后,串口能看到 `[INIT] pid=1` → busybox init 跑 `/etc/inittab` 的 sysinit → respawn 出 `/bin/sh` → ash 的 `~ #` 提示符。机制测试绿 ≠ init 真能跑起来——这一章的验收必须走非 GUI 的生产启动。
+> 验证口径:punchline 是非 GUI 构建启动后,串口能看到 `[INIT] pid=1` → busybox init 跑 `/etc/inittab` 的 sysinit → respawn 出 `/bin/sh` → ash 的 `~ #` 提示符。机制测试绿 ≠ init 真能跑起来——这一章的验收必须走非 GUI 的生产启动。
 
 ## 这章咱们要点亮什么
 

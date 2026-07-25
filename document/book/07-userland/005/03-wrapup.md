@@ -6,11 +6,11 @@ title: 03 · 收尾:验证、没做的与小结
 
 ## 验证
 
-这一章是 A 档,punchline 是用户可见的——shell 真能交互了。验证分三层。
+这一章的 punchline 是用户可见的——shell 真能交互了。验证分三层。
 
-**第一层:host 单测,行规范的纯逻辑。** `test/unit/test_tty.cpp` 九个 case:默认 termios 校验、行积累回显、退格编辑、`^C` 产信号、`^D` 空行 EOF、`^D` 提交无换行、`^U` 清行、raw 直通、行缓冲溢出丢弃。这层完全靠行规范核心那一步「纯逻辑 + 注入式解耦」的决定——能在 host 链真码,不用 mock。`ctest` 62/62。
+**第一层:host 单测,行规范的纯逻辑。** `test/unit/test_tty.cpp` 九个 case:默认 termios 校验、行积累回显、退格编辑、`^C` 产信号、`^D` 空行 EOF、`^D` 提交无换行、`^U` 清行、raw 直通、行缓冲溢出丢弃。这层完全靠行规范核心那一步「纯逻辑 + 注入式解耦」的决定——能在 host 链真码,不用 mock。
 
-**第二层:内核测试,机制测。** 除了既有的回归,还加了直接验信号真投的测:`test_console_tty_ctrl_c_sends_sigint_to_foreground`——造一个 Task(pgid=5),设它为前台组,喂 `^C`,查这个 Task 的 `sig_pending` 里有没有 SIGINT。还有 Ctrl+Z→SIGTSTP、TIOCSPGRP 传内核址返 `-EFAULT`。这层不只是「绿」,是证信号真投了。`run-kernel-test-all` 两 leg 各 **967 passed / 0 failed**(单核 + `-smp 2`,后者还带 AP 机制回读 PASS)。
+**第二层:内核测试,机制测。** 除了既有的回归,还加了直接验信号真投的测:`test_console_tty_ctrl_c_sends_sigint_to_foreground`——造一个 Task(pgid=5),设它为前台组,喂 `^C`,查这个 Task 的 `sig_pending` 里有没有 SIGINT。还有 Ctrl+Z→SIGTSTP、TIOCSPGRP 传内核址返 `-EFAULT`。这层不只是「绿」,是证信号真投了。单核和 `-smp 2` 两条腿都跑通(后者还带 AP 机制回读)。
 
 **第三层:真交互。** 跑 `make run` 起 QEMU,进 shell,亲手敲:打一行字、按退格编辑、回车提交;跑个程序按 Ctrl+C 看它被打断;按 Ctrl+D 看 shell 读到 EOF。这一层本机的 headless 自动测试罩不到(没有真键盘输入),要靠你自己在 QEMU 里试。
 

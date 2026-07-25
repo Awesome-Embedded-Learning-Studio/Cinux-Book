@@ -18,7 +18,7 @@ title: 01 · 跳进 Ring 3:用户态与特权隔离
 
 第四块是用户地址空间 + 用户页。`launch_first_user()` 新建一个 `AddressSpace`,在 `0x400000` 映一页代码(塞进四字节字节流 `cli;hlt;jmp .-2`),在 `0x7FFFFF000` 下面映射 4 页栈,全部带 `FLAG_USER`。配套的关键改造在 `vmm.cpp`:`walk_level` 加了 `user_flag` 参数,把 `FLAG_USER` 从 `VMM::map` 一路传到 PDPT/PD/PT 每一级。
 
-第五块是 `#GP` 区分来源。`handle_gp` 用 `from_user = (frame->cs & 0x03) != 0` 判断异常来自内核还是 Ring 3,来自 Ring 3 的 `#GP` 多打一句 `protection works!`——这就是 milestone 的验收信号。
+第五块是 `#GP` 区分来源。`handle_gp` 用 `from_user = (frame->cs & 0x03) != 0` 判断异常来自内核还是 Ring 3,来自 Ring 3 的 `#GP` 多打一句 `protection works!`——这就是本章的验收信号。
 
 合起来,这一章证明了「Ring 3 真的进得去,而且真的被特权层挡住」。但要划清边界:用户态此刻没法和内核通信——它只能触发异常,然后内核 `cli;hlt` 停机。`launch_first_user()` 不会返回,`main.cpp` 里它后面的键盘轮询循环在本 demo 里**不可达**(后面调试现场会点破为什么头注释里那句「Scheduler init」是没擦干净的遗留)。这是一个「单向往返」的演示,不是完整的用户态。
 
