@@ -4,6 +4,8 @@ title: 031 · 原生终端应用:让窗口第一次能"做事"
 
 # 031 · 原生终端应用:让窗口第一次能"做事"
 
+> ⚠️ **tag-bound 提示(2026-07)**:本章基于 tag-031 当时的内核内 GUI(Canvas 即时渲染 + `Window`/`Terminal` 类)。wholesale 后(F13 visor 解耦 + F-GUI-USERSPACE)GUI 完全重写并外置 `third_party/Cinux-GUI/`:Canvas 即时渲染 → PaintList 保留模式,`Window`/`Terminal` → `Widget`/`TerminalWidget` 复合控件,`handle_key`/`add_window`/`focused` 等接口全变。本章引用的 `kernel/gui/*.cpp` 多数已挪或重写。读者请按 tag-031 读源码;本章保留 tag-bound 叙事(tag-031 是 GUI 从「内核内」→「解耦」→「userspace」演进的早期形态)。
+
 > 到 030 为止,我们有了一只会动的桌面:窗口能拖、能关、有 Z 序,鼠标点哪儿它知道。但这些窗口**里面是空的**——内容区一片浅灰,什么都干不了。键盘事件虽然已经能进事件队列,可 `WindowManager::handle_key()` 还是那句 `(void)ev;`,事件进了队列就石沉大海。这一章我们要补上最关键的一刀:让窗口真正能"做事"——具体说,做一个**原生终端窗口**,你点中它、在里头打字,字符就带着光标出现在窗口里。这不是再画一个静态矩形,而是内核里第一次出现一个"跑在窗口里的应用"。
 
 ## 这一章我们要点亮什么
