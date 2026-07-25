@@ -4,7 +4,7 @@ title: Lab 004 · 加载第一个内核
 
 # Lab 004 · 加载第一个内核
 
-> 这个 lab 配套 [004 · 加载第一个内核](../../book/01-boot/004-boot-load-mini-kernel.md),是 boot 卷的收尾。目标:让 bootloader 把一个 C++ mini kernel 从磁盘读进内存、用 BootInfo 交接、跳进高半内核入口,跑通一组 C++ 冒烟测试。**ELF 载入地址、BootInfo 布局、高半映射、crt 桩都得自己搭**,不给现成答案。
+> 这个 lab 配套 [004 · 加载第一个内核](../../book/01-boot/004/),是 boot 卷的收尾。目标:让 bootloader 把一个 C++ mini kernel 从磁盘读进内存、用 BootInfo 交接、跳进高半内核入口,跑通一组 C++ 冒烟测试。**ELF 载入地址、BootInfo 布局、高半映射、crt 桩都得自己搭**,不给现成答案。
 
 ## 实验目标
 
