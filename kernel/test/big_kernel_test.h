@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include "kernel/arch/x86_64/io.hpp"
+#include "kernel/fs/vfs_filesystem.hpp"
 #include "kernel/lib/kprintf.hpp"
 
 using cinux::lib::kprintf;
@@ -49,6 +51,82 @@ inline int get_total_failed() {
 }  // namespace test
 
 // ============================================================
+// Filesystem test helper
+// ============================================================
+
+/**
+ * @brief Run a VFS lookup and collapse the result to a raw pointer.
+ *
+ * FileSystem::lookup() now returns ErrorOr<Inode*>.  Many integration tests
+ * only care about found vs. not-found and keep their TEST_ASSERT_NOT_NULL /
+ * null-fallback style unchanged — this helper adapts the ErrorOr result back
+ * to a nullable pointer so those tests need no logic changes.
+ *
+ * @return The found Inode, or nullptr on any lookup error.
+ */
+inline cinux::fs::Inode* lookup_or_null(cinux::fs::FileSystem* fs, const char* path) {
+    auto result = fs->lookup(path);
+    return result.ok() ? result.value() : nullptr;
+}
+
+/**
+ * @brief Run InodeOps::create and collapse ErrorOr<Inode*> to a nullable pointer.
+ *
+ * Lets legacy tests keep TEST_ASSERT_NULL / TEST_ASSERT_NOT_NULL style after
+ * create() moved to ErrorOr<Inode*>.
+ */
+inline cinux::fs::Inode* create_or_null(cinux::fs::Inode* dir, const char* name, uint32_t len) {
+    auto r = dir->ops->create(dir, name, len);
+    return r.ok() ? r.value() : nullptr;
+}
+
+/** @brief Same as create_or_null but for InodeOps::mkdir. */
+inline cinux::fs::Inode* mkdir_or_null(cinux::fs::Inode* dir, const char* name, uint32_t len) {
+    auto r = dir->ops->mkdir(dir, name, len);
+    return r.ok() ? r.value() : nullptr;
+}
+
+/**
+ * @brief Run InodeOps::unlink and return a POSIX-style result code.
+ *
+ * @return 0 on success, -1 on any error — keeps TEST_ASSERT_EQ(rc, 0/-1) style.
+ */
+inline int64_t unlink_rc(cinux::fs::Inode* dir, const char* name, uint32_t len) {
+    return dir->ops->unlink(dir, name, len).ok() ? 0 : -1;
+}
+
+/**
+ * @brief Run InodeOps::read and collapse ErrorOr<int64_t> to a raw code.
+ *
+ * @return The byte count (0 = EOF) on success, or -1 on any error — keeps
+ * TEST_ASSERT_EQ(n, <count>) / TEST_ASSERT_GE(n, 0) style unchanged.
+ */
+inline int64_t read_or_neg1(const cinux::fs::Inode* inode, uint64_t offset, void* buf,
+                            uint64_t count) {
+    auto r = inode->ops->read(inode, offset, buf, count);
+    return r.ok() ? r.value() : -1;
+}
+
+/** @brief Same as read_or_neg1 but for InodeOps::write. */
+inline int64_t write_or_neg1(cinux::fs::Inode* inode, uint64_t offset, const void* buf,
+                             uint64_t count) {
+    auto r = inode->ops->write(inode, offset, buf, count);
+    return r.ok() ? r.value() : -1;
+}
+
+/**
+ * @brief Same as read_or_neg1 but for InodeOps::readdir.
+ *
+ * @return 1 when an entry was filled, 0 when the directory is exhausted, or
+ * -1 on any error — preserves the pre-ErrorOr call-site semantics.
+ */
+inline int64_t readdir_or_neg1(const cinux::fs::Inode* inode, uint64_t index, char* name,
+                               uint64_t name_max) {
+    auto r = inode->ops->readdir(inode, index, name, name_max);
+    return r.ok() ? r.value() : -1;
+}
+
+// ============================================================
 // Assertion Macros
 // ============================================================
 
@@ -71,6 +149,23 @@ inline int get_total_failed() {
 #define TEST_ASSERT_NOT_NULL(ptr) TEST_ASSERT((ptr) != nullptr)
 #define TEST_ASSERT_TRUE(expr)    TEST_ASSERT((expr) == true)
 #define TEST_ASSERT_FALSE(expr)   TEST_ASSERT((expr) == false)
+
+/// Assert an ErrorOr expression is OK; on failure mark the test failed and
+/// force-exit the run via QEMU isa-debug-exit (port 0xf4 <- 1).  Non-void-safe:
+/// unlike TEST_ASSERT it cannot `return;` from a helper that returns a value,
+/// so it terminates the whole run instead.  Use for setup calls
+/// (mount/get_page/...) whose ErrorOr result was previously dropped (DEBT-016).
+#define ASSERT_OK(expr)                                                                            \
+    do {                                                                                           \
+        auto&& _aok_r = (expr);                                                                    \
+        if (!_aok_r.ok()) {                                                                        \
+            kprintf("[FAIL] %s error at %s:%d\n", #expr, __FILE__, __LINE__);                      \
+            test::tests_failed++;                                                                  \
+            cinux::io::io_outb(0xf4, 1);  /* QEMU isa-debug-exit: failure (exit code 3) */        \
+            while (true) {                                                                         \
+            }                                                                                      \
+        }                                                                                          \
+    } while (0)
 
 // ============================================================
 // Test Runner Macros

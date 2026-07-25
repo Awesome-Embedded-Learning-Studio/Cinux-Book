@@ -1,0 +1,53 @@
+---
+# Cinux clang-tidy configuration (F-INFRA I-8).
+#
+# Curated allowlist for a freestanding C++17 kernel: high-signal checks only.
+# Hosted/RTTI/exception/STL-library assumptions are DISABLED (the kernel is
+# freestanding with no <vector>/<memory>/exceptions/RTTI). Cinux-Base submodule
+# headers are excluded via HeaderFilterRegex (they are already -Wpedantic -Werror).
+#
+# Run locally:
+#   run-clang-tidy -p build -j$(nproc)
+# compile_commands.json is exported by CMake (CMAKE_EXPORT_COMPILE_COMMANDS ON);
+# clang-tidy reuses the GCC build commands. This is ADVISORY ONLY -- NOT a
+# blocking CI gate: clang-tidy version skew (local 22 vs CI runners) already
+# forced the clang-format CI off; a blocking gate waits on a pinned LLVM apt
+# version. See document/notes/2026-06-19-finfra-8-clang-tidy.md.
+
+Checks:
+  - '-*'
+  - 'clang-analyzer-core.*'            # null deref, stack-address-escape, call-and-message
+  - 'clang-analyzer-cplusplus.NewDelete'
+  - 'bugprone-narrowing-conversions'   # implicit narrowing (uint64 -> uint32)
+  - 'bugprone-suspicious-enum-usage'
+  - 'bugprone-sizeof-expression'       # sizeof(pointer), sizeof in arithmetic
+  - 'bugprone-integer-division'        # unintended int division in float context
+  - 'bugprone-unused-raii'             # discarded lock temporaries
+  - 'bugprone-bool-pointer-implicit-conversion'
+  - 'cppcoreguidelines-pro-type-cstyle-cast'  # complements -Wold-style-cast in headers
+  - 'cppcoreguidelines-slicing'        # object slicing through value semantics
+  - 'modernize-use-nullptr'            # NULL / 0 -> nullptr
+  - 'modernize-use-override'           # missing `override`
+  - 'modernize-use-using'              # typedef -> using
+  - 'modernize-loop-convert'           # index loops -> range-for where safe
+  - 'readability-function-size'
+  - 'readability-redundant-*'
+  - 'readability-simplify-boolean-expr'
+# Deliberately DISABLED (hosted/library/RTTI/exception assumptions a freestanding
+# kernel violates, or pure noise):
+#   modernize-deprecated-headers  -- kernel uses C headers (<stddef.h>) by convention
+#   hicpp-*, google-*, cert-err61-cpp, bugprone-exception-escape
+#   cppcoreguidelines-{avoid-c-arrays,no-malloc,pro-bounds-*,owning-memory,init-variables}
+#   alpha.webkit.NoUncountedMemberChecker -- no WebKit refcounted types
+
+WarningsAsErrors: ''
+
+HeaderFilterRegex: '^kernel/(arch|drivers|fs|ipc|lib|mm|proc|syscall|gui)/'
+
+FormatStyle: file
+
+CheckOptions:
+  - key:   readability-function-size.LineThreshold
+    value: '120'
+  - key:   readability-function-size.StatementThreshold
+    value: '80'

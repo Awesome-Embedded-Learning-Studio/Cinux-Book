@@ -7,20 +7,17 @@
  */
 
 #include "keyboard.hpp"
+#include "kernel/drivers/ps2/ps2.hpp"  // 8042 controller constants (shared with mouse)
 
 #include <stdint.h>
 
+#include "hid.hpp"  // HID keycode->ASCII tables + modifier bits (USB keyboard)
 #include "kernel/arch/x86_64/io.hpp"
-#include "kernel/arch/x86_64/pic.hpp"
+#include "kernel/drivers/hpet/hpet.hpp"  // g_hpet.monotonic_ns (USB autorepeat)
+#include "kernel/drivers/tty/console_tty.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/proc/sync.hpp"
 
-#ifdef CINUX_GUI
-#    include "kernel/drivers/mouse.hpp"
-#    include "kernel/gui/event.hpp"
-#endif
-
-using cinux::arch::PIC;
 using cinux::io::io_inb;
 using cinux::io::io_outb;
 using cinux::io::io_wait;
@@ -28,30 +25,9 @@ using cinux::lib::kprintf;
 
 namespace cinux::drivers {
 
-// ============================================================
-// PS/2 Controller Constants (internal)
-// ============================================================
-
-namespace Ps2Port {
-constexpr uint16_t DATA    = 0x60;  ///< PS/2 data register (read/write)
-constexpr uint16_t STATUS  = 0x64;  ///< PS/2 status register (read)
-constexpr uint16_t COMMAND = 0x64;  ///< PS/2 controller command (write)
-}  // namespace Ps2Port
-
-namespace Ps2Cmd {
-constexpr uint8_t READ_CONFIG   = 0x20;
-constexpr uint8_t WRITE_CONFIG  = 0x60;
-constexpr uint8_t DISABLE_PORT2 = 0xA7;
-constexpr uint8_t ENABLE_PORT2  = 0xA8;
-constexpr uint8_t DISABLE_PORT1 = 0xAD;
-constexpr uint8_t ENABLE_PORT1  = 0xAE;
-constexpr uint8_t SELF_TEST     = 0xAA;
-}  // namespace Ps2Cmd
-
-namespace Ps2Status {
-constexpr uint8_t OUTPUT_FULL = 0x01;
-constexpr uint8_t INPUT_FULL  = 0x02;
-}  // namespace Ps2Status
+// PS/2 controller constants (Ps2Port / Ps2Cmd / Ps2Status) live in
+// kernel/drivers/ps2/ps2.hpp -- shared with mouse.cpp (the 8042 is one
+// controller wired to both devices).
 
 // ============================================================
 // Scan Code Set 1 Special Keys (internal)
@@ -70,7 +46,6 @@ constexpr uint8_t EXTENDED = 0xE0;
 // Ring Buffer Constants (internal)
 // ============================================================
 
-static constexpr uint32_t KEY_QUEUE_SIZE  = 64;
 static constexpr uint32_t SCAN_TABLE_SIZE = 128;
 
 // ============================================================
@@ -127,13 +102,17 @@ static constexpr char kScToUpper[SCAN_TABLE_SIZE] = {
 // Static storage
 // ============================================================
 
-KeyEvent Keyboard::queue_[KEY_QUEUE_SIZE] = {};
-uint32_t Keyboard::head_                  = 0;
-uint32_t Keyboard::tail_                  = 0;
+cinux::lib::RingBuffer<KeyEvent, Keyboard::KEY_QUEUE_SIZE> Keyboard::buf_;
 
 bool Keyboard::shift_held_ = false;
 bool Keyboard::ctrl_held_  = false;
 bool Keyboard::alt_held_   = false;
+
+bool                  Keyboard::usb_primary_      = false;
+uint8_t               Keyboard::usb_prev_keys_[6] = {};
+Keyboard::KeyListener Keyboard::key_listener_     = nullptr;
+uint8_t               Keyboard::usb_repeat_key_      = 0;
+uint64_t              Keyboard::usb_repeat_deadline_ = 0;
 
 // ============================================================
 // Internal helpers
@@ -214,8 +193,7 @@ void Keyboard::init() {
     send_command(Ps2Cmd::ENABLE_PORT1);
 
     // Step 7: Reset internal state
-    head_       = 0;
-    tail_       = 0;
+    buf_.clear();
     shift_held_ = false;
     ctrl_held_  = false;
     alt_held_   = false;
@@ -228,12 +206,16 @@ void Keyboard::init() {
 // ============================================================
 
 void Keyboard::irq1_handler(cinux::arch::InterruptFrame* /*frame*/) {
-    // Read the scan code from the PS/2 data port
     uint8_t sc = io_inb(Ps2Port::DATA);
+
+    // USB keyboard owns input: drain the PS/2 byte but do not feed the queue
+    // (single producer for the SPSC event queue + ring buffer).
+    if (usb_primary_) {
+        return;
+    }
 
     // Handle extended scan code prefix (0xE0) -- skip for now
     if (sc == ScanCode::EXTENDED) {
-        PIC::send_eoi(1);
         return;
     }
 
@@ -245,49 +227,21 @@ void Keyboard::irq1_handler(cinux::arch::InterruptFrame* /*frame*/) {
     if (make_code == ScanCode::LSHIFT || make_code == ScanCode::RSHIFT) {
         shift_held_ = pressed;
     }
-
     if (make_code == ScanCode::LCTRL) {
         ctrl_held_ = pressed;
     }
-
     if (make_code == ScanCode::LALT) {
         alt_held_ = pressed;
     }
 
-    // Build the event
-    KeyEvent ev{};
-    ev.scancode = sc;
-    ev.pressed  = pressed;
-    ev.shift    = shift_held_;
-    ev.ctrl     = ctrl_held_;
-    ev.alt      = alt_held_;
-    ev.ascii    = 0;
-
     // Translate to ASCII only on key press and if the make code is in range
+    char ascii = 0;
     if (pressed && make_code < SCAN_TABLE_SIZE) {
-        ev.ascii = shift_held_ ? kScToUpper[make_code] : kScToLower[make_code];
+        ascii = shift_held_ ? kScToUpper[make_code] : kScToLower[make_code];
     }
 
-    // Enqueue the event
-    enqueue(ev);
-
-#ifdef CINUX_GUI
-    // Dual dispatch: also push into the GUI EventQueue for the window manager
-    {
-        cinux::gui::Event gui_ev{};
-        gui_ev.type_ = ev.pressed ? cinux::gui::EventType::KeyDown : cinux::gui::EventType::KeyUp;
-        gui_ev.key.ascii    = ev.ascii;
-        gui_ev.key.scancode = ev.scancode;
-        gui_ev.key.pressed  = ev.pressed;
-        gui_ev.key.shift    = ev.shift;
-        gui_ev.key.ctrl     = ev.ctrl;
-        gui_ev.key.alt      = ev.alt;
-        cinux::drivers::Mouse::event_queue().enqueue(gui_ev);
-    }
-#endif
-
-    // Signal End-Of-Interrupt for IRQ1
-    PIC::send_eoi(1);
+    dispatch_key(sc, ascii, pressed, shift_held_, ctrl_held_, alt_held_);
+    // EOI is sent by the ISR_IRQ stub after this handler returns.
 }
 
 // ============================================================
@@ -296,15 +250,8 @@ void Keyboard::irq1_handler(cinux::arch::InterruptFrame* /*frame*/) {
 
 bool Keyboard::poll(KeyEvent& out) {
     cinux::proc::InterruptGuard guard;
-    (void)guard;
 
-    if (head_ == tail_) {
-        return false;
-    }
-
-    out   = queue_[head_];
-    head_ = (head_ + 1) % KEY_QUEUE_SIZE;
-    return true;
+    return buf_.pop(out);
 }
 
 // ============================================================
@@ -312,15 +259,149 @@ bool Keyboard::poll(KeyEvent& out) {
 // ============================================================
 
 void Keyboard::enqueue(const KeyEvent& ev) {
-    uint32_t next = (tail_ + 1) % KEY_QUEUE_SIZE;
+    // Drop the event if the buffer is full -- RingBuffer::push returns
+    // false when full, matching the previous drop-newest semantics.
+    static_cast<void>(buf_.push(ev));
+}
 
-    // Drop the event if the buffer is full
-    if (next == head_) {
-        return;
+// ============================================================
+// Keyboard::set_usb_primary() / dispatch_key() / inject_usb_report()
+// (USB boot-keyboard input path -- Batch 5B)
+// ============================================================
+
+namespace {
+/// True if @p code appears in the first @p n entries of @p keys (edge detect).
+bool key_in(const uint8_t* keys, uint8_t n, uint8_t code) {
+    for (uint8_t i = 0; i < n; ++i) {
+        if (keys[i] == code) {
+            return true;
+        }
+    }
+    return false;
+}
+}  // namespace
+
+void Keyboard::set_usb_primary(bool primary) {
+    usb_primary_ = primary;
+}
+
+void Keyboard::register_key_listener(KeyListener listener) {
+    key_listener_ = listener;
+}
+
+void Keyboard::dispatch_key(uint8_t code, char ascii, bool pressed, bool shift, bool ctrl,
+                            bool alt) {
+    // Ctrl + letter -> control char (^C=0x03, ^D=0x04, ^Z=0x1A, ^\=0x1C ...).
+    // The scan tables yield the base letter; Ctrl was tracked but not applied,
+    // so Ctrl+C arrived as 'c' instead of 0x03 and never reached the TTY's
+    // VINTR handling. Apply the standard PC ^X = X & 0x1F decoding for letters.
+    if (ctrl && ascii != 0) {
+        char lower = static_cast<char>(ascii | 0x20);  // fold to lowercase
+        if (lower >= 'a' && lower <= 'z') {
+            ascii = static_cast<char>(ascii & 0x1F);
+        }
     }
 
-    queue_[tail_] = ev;
-    tail_         = next;
+    KeyEvent ev{};
+    ev.scancode = code;
+    ev.pressed  = pressed;
+    ev.shift    = shift;
+    ev.ctrl     = ctrl;
+    ev.alt      = alt;
+    ev.ascii    = ascii;
+    enqueue(ev);
+
+    // Dual dispatch: hand the event to a registered listener (e.g. the GUI
+    // pushing it into its EventQueue).  No #ifdef here -- the keyboard driver
+    // doesn't know about the GUI; whoever wants keys registers a listener
+    // (CODING-TASTE §14).
+    if (key_listener_ != nullptr) {
+        key_listener_(ev);
+    }
+
+    // F10-M3 batch 2: feed the console TTY line discipline (stdin). Echo +
+    // canonical editing happen here; sys_read fd==0 drains the cooked line.
+    // The Backspace key arrives as ^H (VERASE, set in ConsoleTty::init) and
+    // Enter already as '\n' from the scancode table.
+    if (pressed && ascii != 0) {
+        char c = (ascii == '\r') ? '\n' : ascii;
+        console_tty().input(c);  // F10-M3: line discipline + signal + wake reader
+    }
+}
+
+// Ctrl+letter -> POSIX control char (^A=0x01..^Z=0x1A); Ctrl+C becomes the
+// 0x03 INTR the TTY line discipline maps to SIGINT.  HID only gives us the
+// shifted/unshifted letter, so without this the INTR byte never reaches the
+// tty and Ctrl+C can't interrupt a foreground process (e.g. busybox ping).
+char apply_ctrl_modifier(char ascii, bool ctrl) {
+    if (!ctrl) {
+        return ascii;
+    }
+    if (ascii >= 'A' && ascii <= 'Z') {
+        return static_cast<char>(ascii - 'A' + 1);
+    }
+    if (ascii >= 'a' && ascii <= 'z') {
+        return static_cast<char>(ascii - 'a' + 1);
+    }
+    return ascii;
+}
+
+void Keyboard::inject_usb_report(uint8_t modifier, const uint8_t* keycodes, uint8_t n) {
+    const bool shift = (modifier & (usb::HidKbdMod::kLShift | usb::HidKbdMod::kRShift)) != 0;
+    const bool ctrl  = (modifier & (usb::HidKbdMod::kLCtrl | usb::HidKbdMod::kRCtrl)) != 0;
+    const bool alt   = (modifier & (usb::HidKbdMod::kLAlt | usb::HidKbdMod::kRAlt)) != 0;
+    shift_held_      = shift;
+    ctrl_held_       = ctrl;
+    alt_held_        = alt;
+
+    // Press edges + autorepeat.  USB HID reports the same key every interval
+    // (~10ms) while held; without software repeat the line discipline would
+    // only see one backspace per keypress.  Arm a deadline on the first edge,
+    // then re-emit at kUsbRepeatIntervalNs once it passes (Linux-style).
+    const uint64_t now = g_hpet.available() ? g_hpet.monotonic_ns() : 0;
+    for (uint8_t i = 0; i < n; ++i) {
+        const uint8_t code = keycodes[i];
+        if (code <= 1) {
+            continue;  // 0 = none, 1 = rollover error
+        }
+        if (!key_in(usb_prev_keys_, 6, code)) {
+            // new press edge -> dispatch + arm autorepeat
+            char ascii = 0;
+            if (code < usb::kHidKeymapSize) {
+                ascii = shift ? usb::kHidShifted[code] : usb::kHidUnshifted[code];
+            }
+            ascii = apply_ctrl_modifier(ascii, ctrl);  // ^C=0x03 INTR, ^D=0x04 EOF, ^Z=0x1A SUSP
+            dispatch_key(code, ascii, /*pressed=*/true, shift, ctrl, alt);
+            usb_repeat_key_      = code;
+            usb_repeat_deadline_ = now + kUsbRepeatDelayNs;
+        } else if (now != 0 && code == usb_repeat_key_ && now >= usb_repeat_deadline_) {
+            // held past the deadline -> emit a repeat
+            char ascii = 0;
+            if (code < usb::kHidKeymapSize) {
+                ascii = shift ? usb::kHidShifted[code] : usb::kHidUnshifted[code];
+            }
+            ascii = apply_ctrl_modifier(ascii, ctrl);  // ^C=0x03 INTR, ^D=0x04 EOF, ^Z=0x1A SUSP
+            dispatch_key(code, ascii, /*pressed=*/true, shift, ctrl, alt);
+            usb_repeat_deadline_ = now + kUsbRepeatIntervalNs;
+        }
+    }
+
+    // Release edges: in the previous report but not held now.
+    for (uint8_t i = 0; i < 6; ++i) {
+        const uint8_t code = usb_prev_keys_[i];
+        if (code <= 1 || key_in(keycodes, n, code)) {
+            continue;
+        }
+        dispatch_key(code, 0, /*pressed=*/false, shift, ctrl, alt);
+        if (code == usb_repeat_key_) {
+            usb_repeat_key_ = 0;  // releasing the repeating key stops autorepeat
+        }
+    }
+
+    // Save this report for the next edge comparison.
+    for (uint8_t i = 0; i < 6; ++i) {
+        usb_prev_keys_[i] = (i < n) ? keycodes[i] : 0;
+    }
 }
 
 }  // namespace cinux::drivers

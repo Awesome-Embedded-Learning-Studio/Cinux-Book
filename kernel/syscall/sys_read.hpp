@@ -26,4 +26,9 @@ namespace cinux::syscall {
  */
 int64_t sys_read(uint64_t fd, uint64_t buf_virt, uint64_t count, uint64_t, uint64_t, uint64_t);
 
+/// P0b (SMAP): pure kernel-to-kernel read (fd -> KERNEL buffer). For fd=0 it
+/// blocks in console_tty_read on the kernel buffer (AC=0 safe). Kernel-internal
+/// callers and tests use this; sys_read is the user boundary.
+int64_t do_read_kernel(int fd, void* kbuf, uint64_t count);
+
 }  // namespace cinux::syscall

@@ -242,14 +242,16 @@ void test_sys_write_registered() {
 }
 
 void test_sys_write_invalid_fd_rejected() {
-    int64_t r0 = sys_write(0, 0x1000, 5, 0, 0, 0);
-    TEST_ASSERT_EQ(r0, -1);
+    // P0b: bad fd is kernel logic (do_write_kernel -> -EBADF), not access_ok.
+    const char buf[5] = {0};
+    int64_t    r0     = cinux::syscall::do_write_kernel(0, buf, 5);
+    TEST_ASSERT_LT(r0, 0);
 }
 
 void test_sys_write_null_buf_rejected() {
-    // buf_virt == 0 (null pointer) should return -1
+    // buf_virt == 0 (null pointer) should return a negative errno
     int64_t r1 = sys_write(1, 0, 5, 0, 0, 0);
-    TEST_ASSERT_EQ(r1, -1);
+    TEST_ASSERT_LT(r1, 0);
 }
 
 void test_syscall_nr_constants() {

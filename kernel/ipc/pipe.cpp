@@ -1,193 +1,271 @@
 /**
  * @file kernel/ipc/pipe.cpp
- * @brief Pipe implementation -- ring-buffer read/write with spin-wait blocking
+ * @brief Pipe implementation -- ring-buffer read/write with scheduler blocking
+ *
+ * F8-M1: the old sti/hlt spin loop is gone.  Blocking now uses the scheduler's
+ * prepare_to_wait()/schedule_blocked()/unblock() triplet (the same pattern as
+ * Mutex::lock and the console TTY): a full/empty buffer parks the caller on a
+ * wait queue, and the peer wakes it after draining/enqueuing or on close.
+ * This is #DF-safe (no sti inside the syscall path).  The host unit-test build
+ * has no scheduler, so CINUX_HOST_TEST compiles the blocking path out and
+ * reads/writes return what fits -- synchronous tests never hit full/empty.
  */
 
 #include "kernel/ipc/pipe.hpp"
 
-#include "kernel/arch/x86_64/irq.hpp"
+#include <stddef.h>
+#include <stdint.h>
+
+#include "kernel/errno.hpp"  // kEintr
+
+#ifndef CINUX_HOST_TEST
+#    include "kernel/proc/process.hpp"  // Task + signal_deliverable_pending
+#    include "kernel/proc/scheduler.hpp"  // prepare_to_wait/schedule_blocked/unblock
+#endif
 
 namespace cinux::ipc {
 
-using cinux::arch::irq_disable;
-using cinux::arch::irq_enable;
-using cinux::arch::irq_save;
-using cinux::arch::irq_restore;
-using cinux::arch::hlt;
+#ifndef CINUX_HOST_TEST
+namespace {
+using cinux::proc::Scheduler;
+using cinux::proc::Task;
+
+/// Append @p t to the tail of a wait queue (intrusive via Task::wait_next).
+/// Records the head address in t->wait_queue_head so signal_send() can wake
+/// @p t for EINTR (see Task::wait_queue_head).
+void wait_enqueue(Task*& head, Task* t) {
+    t->wait_next = nullptr;
+    t->wait_queue_head = &head;
+    if (head == nullptr) {
+        head = t;
+        return;
+    }
+    Task* tail = head;
+    while (tail->wait_next != nullptr) {
+        tail = tail->wait_next;
+    }
+    tail->wait_next = t;
+}
+
+/// Remove and return the queue head, or nullptr if empty.
+Task* wait_dequeue(Task*& head) {
+    Task* t = head;
+    if (t != nullptr) {
+        head               = t->wait_next;
+        t->wait_next       = nullptr;
+        t->wait_queue_head = nullptr;
+    }
+    return t;
+}
+
+/// Unlink @p t from the wait queue (F8-M5 poll, or a signal-woken task
+/// unlinking itself after EINTR).  No-op if @p t is not queued.  Caller
+/// holds lock_.
+void wait_remove(Task*& head, Task* t) {
+    if (head == nullptr || t == nullptr) {
+        return;
+    }
+    if (head == t) {
+        head               = t->wait_next;
+        t->wait_next       = nullptr;
+        t->wait_queue_head = nullptr;
+        return;
+    }
+    Task* prev = head;
+    while (prev->wait_next != nullptr && prev->wait_next != t) {
+        prev = prev->wait_next;
+    }
+    if (prev->wait_next == t) {
+        prev->wait_next    = t->wait_next;
+        t->wait_next       = nullptr;
+        t->wait_queue_head = nullptr;
+    }
+}
+
+/// Wake one waiter (FIFO head).  Called under lock_; this is safe because,
+/// unlike a mutex, the pipe hands no ownership to the woken task -- it simply
+/// re-acquires the pipe lock fresh when the scheduler runs it (after we drop
+/// the lock).  No AB-BA: the scheduler run-queue lock is never held across a
+/// pipe-lock acquisition.
+void wake_one(Task*& head) {
+    Task* t = wait_dequeue(head);
+    if (t != nullptr) {
+        Scheduler::unblock(t);
+    }
+}
+
+/// Wake every waiter (used on close so blocked peers observe the close).
+void wake_all(Task*& head) {
+    while (Task* t = wait_dequeue(head)) {
+        Scheduler::unblock(t);
+    }
+}
+}  // namespace
+#endif  // CINUX_HOST_TEST
 
 // ============================================================
 // Constructor
 // ============================================================
 
-Pipe::Pipe() : head_(0), tail_(0), count_(0), reader_open_(true), writer_open_(true) {}
+Pipe::Pipe() : reader_open_(true), writer_open_(true) {}
 
 // ============================================================
 // Write
 // ============================================================
 
-int64_t Pipe::write(const char* data, uint64_t count) {
+int64_t Pipe::write(const char* data, uint64_t count, bool nonblock) {
     if (data == nullptr || count == 0) {
         return -1;
     }
 
-    // Disable interrupts while the lock is held to prevent deadlock with
-    // PIT's try_read() -- the IRQ handler runs on the same CPU and would
-    // spin forever trying to acquire the same lock.
-    uint64_t orig_flags = irq_save();
-
     uint64_t written = 0;
+    for (;;) {
+#ifndef CINUX_HOST_TEST
+        bool need_block = false;
+#endif
+        {
+            auto g = lock_.irq_guard();
 
-    while (written < count) {
-        lock_.acquire();
-
-        if (!reader_open_) {
-            lock_.release();
-            goto out;
-        }
-
-        // Spin-wait if the buffer is completely full.
-        // Release the lock AND re-enable interrupts so the reader (PIT)
-        // can drain the pipe and make progress.
-        if (count_ == PIPE_BUFFER_SIZE) {
-            lock_.release();
-            irq_enable();
-
-            for (uint32_t i = 0; i < PIPE_SPIN_WAIT_ITERS; i++) {
-                hlt();
-                irq_disable();
-
-                lock_.acquire();
-                bool still_full  = (count_ == PIPE_BUFFER_SIZE);
-                bool reader_gone = !reader_open_;
-                lock_.release();
-
-                if (!still_full || reader_gone) {
-                    break;
-                }
-                irq_enable();
+            // Reader closed: no point buffering more.  The caller maps -1 to
+            // BrokenPipe (-> SIGPIPE); any bytes already pushed stay readable.
+            if (!reader_open_) {
+                break;
             }
-            irq_disable();
-            continue;
-        }
 
-        uint32_t space = PIPE_BUFFER_SIZE - count_;
-        uint64_t chunk = count - written;
-        if (chunk > space) {
-            chunk = space;
-        }
-
-        uint32_t first = PIPE_BUFFER_SIZE - tail_;
-        if (first > chunk) {
-            first = static_cast<uint32_t>(chunk);
-        }
-
-        for (uint32_t i = 0; i < first; i++) {
-            buffer_[tail_ + i] = data[written + i];
-        }
-        tail_ = (tail_ + first) % PIPE_BUFFER_SIZE;
-        count_ += first;
-        written += first;
-
-        uint32_t second = static_cast<uint32_t>(chunk) - first;
-        if (second > 0) {
-            for (uint32_t i = 0; i < second; i++) {
-                buffer_[tail_ + i] = data[written + i];
+            // Push as many bytes as fit; push_batch handles wrap-around.
+            if (!buf_.full()) {
+                size_t space  = PIPE_BUFFER_SIZE - buf_.size();
+                size_t remain = static_cast<size_t>(count - written);
+                size_t chunk  = remain < space ? remain : space;
+                written += buf_.push_batch(data + written, chunk);
+#ifndef CINUX_HOST_TEST
+                // Newly buffered data may unblock a reader.
+                wake_one(read_waiters_);
+#endif
             }
-            tail_ = (tail_ + second) % PIPE_BUFFER_SIZE;
-            count_ += second;
-            written += second;
-        }
 
-        lock_.release();
+            if (written >= count) {
+                break;  // whole request satisfied
+            }
+
+            // Still bytes to write but the buffer is full.
+            if (nonblock) {
+                return written > 0 ? static_cast<int64_t>(written) : PIPE_WOULDBLOCK;
+            }
+#ifdef CINUX_HOST_TEST
+            break;  // host: no scheduler, never block; return partial
+#else
+            // Blocking: park on the write wait queue.  prepare_to_wait() under
+            // the irq_guard makes the Blocked flip atomic vs a concurrent reader
+            // draining (no lost wakeup); schedule_blocked() runs after the guard
+            // drops, with IRQs restored and the lock released.
+            Task* self = Scheduler::current();
+            if (self == nullptr) {
+                break;  // no scheduler context (early boot): don't block
+            }
+            wait_enqueue(write_waiters_, self);
+            Scheduler::prepare_to_wait(self);
+            need_block = true;
+#endif
+        }  // irq_guard drops: IRQs restored + lock released BEFORE switching out
+#ifndef CINUX_HOST_TEST
+        if (need_block) {
+            Scheduler::schedule_blocked();
+        }
+        // EINTR: a signal landed while we were parked.  Return what we have so
+        // far (partial writes are valid POSIX), or -EINTR if nothing was pushed
+        // yet.  The woken task must unlink itself from the write queue -- do it
+        // under lock_ so a concurrent producer does not see a stale link.
+        if (Scheduler::current() != nullptr &&
+            signal_deliverable_pending(Scheduler::current())) {
+            auto g = lock_.irq_guard();
+            wait_remove(write_waiters_, Scheduler::current());
+            return written > 0 ? static_cast<int64_t>(written) : -cinux::kEintr;
+        }
+        // Woken by a reader freeing space (or by close_reader); loop and retry.
+#endif
     }
 
-out:
-    irq_restore(orig_flags);
-    return (written > 0) ? static_cast<int64_t>(written) : (reader_open_ ? 0 : -1);
+    if (written > 0) {
+        return static_cast<int64_t>(written);
+    }
+    if (!reader_open_) {
+        return -1;  // reader gone -> BrokenPipe
+    }
+    return 0;  // host early-break with nothing pushed, reader still open
 }
 
 // ============================================================
 // Read
 // ============================================================
 
-int64_t Pipe::read(char* buf, uint64_t count) {
+int64_t Pipe::read(char* buf, uint64_t count, bool nonblock) {
     if (buf == nullptr || count == 0) {
         return -1;
     }
 
-    // Same IRQ-safety rationale as write().
-    uint64_t orig_flags = irq_save();
-
     uint64_t total_read = 0;
+    for (;;) {
+#ifndef CINUX_HOST_TEST
+        bool need_block = false;
+#endif
+        {
+            auto g = lock_.irq_guard();
 
-    while (total_read < count) {
-        lock_.acquire();
-
-        // Writer closed and buffer drained -- EOF
-        if (!writer_open_ && count_ == 0) {
-            lock_.release();
-            goto out;
-        }
-
-        // Spin-wait if the buffer is empty.
-        if (count_ == 0) {
-            lock_.release();
-            irq_enable();
-
-            for (uint32_t i = 0; i < PIPE_SPIN_WAIT_ITERS; i++) {
-                hlt();
-                irq_disable();
-
-                lock_.acquire();
-                bool still_empty = (count_ == 0);
-                bool writer_gone = !writer_open_;
-                lock_.release();
-
-                if (!still_empty || writer_gone) {
-                    break;
-                }
-                irq_enable();
+            // Drain whatever is buffered; pop_batch handles wrap-around.
+            if (!buf_.empty()) {
+                size_t avail  = buf_.size();
+                size_t remain = static_cast<size_t>(count - total_read);
+                size_t chunk  = remain < avail ? remain : avail;
+                total_read += buf_.pop_batch(buf + total_read, chunk);
+#ifndef CINUX_HOST_TEST
+                // Freed space may unblock a writer.
+                wake_one(write_waiters_);
+#endif
             }
-            irq_disable();
-            continue;
-        }
 
-        // Compute how many contiguous bytes we can read from head_
-        uint64_t chunk = count - total_read;
-        if (chunk > count_) {
-            chunk = count_;
-        }
-
-        // First segment: head_ to end of buffer
-        uint32_t first = PIPE_BUFFER_SIZE - head_;
-        if (first > chunk) {
-            first = static_cast<uint32_t>(chunk);
-        }
-
-        for (uint32_t i = 0; i < first; i++) {
-            buf[total_read + i] = buffer_[head_ + i];
-        }
-        head_ = (head_ + first) % PIPE_BUFFER_SIZE;
-        count_ -= first;
-        total_read += first;
-
-        // Second segment (wraps to beginning of buffer)
-        uint32_t second = static_cast<uint32_t>(chunk) - first;
-        if (second > 0) {
-            for (uint32_t i = 0; i < second; i++) {
-                buf[total_read + i] = buffer_[i];
+            if (total_read >= count) {
+                break;  // satisfied the full request
             }
-            head_ = (head_ + second) % PIPE_BUFFER_SIZE;
-            count_ -= second;
-            total_read += second;
-        }
 
-        lock_.release();
+            // Writer closed: return what we have, or EOF if nothing was read.
+            if (!writer_open_) {
+                return total_read > 0 ? static_cast<int64_t>(total_read) : 0;
+            }
+
+            // Writer still open but nothing (more) buffered right now.
+            if (nonblock) {
+                return total_read > 0 ? static_cast<int64_t>(total_read) : PIPE_WOULDBLOCK;
+            }
+#ifdef CINUX_HOST_TEST
+            break;  // host: no scheduler, never block; return partial
+#else
+            Task* self = Scheduler::current();
+            if (self == nullptr) {
+                break;
+            }
+            wait_enqueue(read_waiters_, self);
+            Scheduler::prepare_to_wait(self);
+            need_block = true;
+#endif
+        }
+#ifndef CINUX_HOST_TEST
+        if (need_block) {
+            Scheduler::schedule_blocked();
+        }
+        // EINTR: a signal landed while we were parked.  Return what we have so
+        // far (partial reads are valid POSIX), or -EINTR if nothing was read.
+        // Unlink ourselves under lock_ so a producer does not wake a stale link.
+        if (Scheduler::current() != nullptr &&
+            signal_deliverable_pending(Scheduler::current())) {
+            auto g = lock_.irq_guard();
+            wait_remove(read_waiters_, Scheduler::current());
+            return total_read > 0 ? static_cast<int64_t>(total_read) : -cinux::kEintr;
+        }
+#endif
     }
 
-out:
-    irq_restore(orig_flags);
-    return (total_read > 0) ? static_cast<int64_t>(total_read) : (writer_open_ ? 0 : 0);
+    return total_read > 0 ? static_cast<int64_t>(total_read) : 0;
 }
 
 // ============================================================
@@ -195,17 +273,79 @@ out:
 // ============================================================
 
 void Pipe::close_reader() {
-    auto guard   = lock_.guard();
+    auto g       = lock_.irq_guard();
     reader_open_ = false;
+#ifndef CINUX_HOST_TEST
+    // Wake all writers so they retry, see reader_open_ == false, and return -1
+    // (BrokenPipe -> SIGPIPE).
+    wake_all(write_waiters_);
+#endif
 }
 
 void Pipe::close_writer() {
-    auto guard   = lock_.guard();
+    auto g       = lock_.irq_guard();
     writer_open_ = false;
+#ifndef CINUX_HOST_TEST
+    // Wake all readers so they retry, see writer_open_ == false, and return EOF
+    // (or the remaining buffered bytes).
+    wake_all(read_waiters_);
+#endif
 }
 
 // ============================================================
-// State queries (lock-free -- for diagnostics / fast-path checks)
+// Open-description refcount per end (DEBT-023)
+// ============================================================
+
+void Pipe::add_read_ref() {
+    auto g = lock_.irq_guard();
+    if (read_refs_ == 0) {
+        reader_open_ = true;  // re-open epoch: revive after a prior last-close
+    }
+    ++read_refs_;
+}
+
+void Pipe::add_write_ref() {
+    auto g = lock_.irq_guard();
+    if (write_refs_ == 0) {
+        writer_open_ = true;
+    }
+    ++write_refs_;
+}
+
+void Pipe::release_read_ref() {
+    // Inline the close (reader_open_ = false + wake writers) rather than call
+    // close_reader(): we already hold lock_ via irq_guard, and close_reader()
+    // would re-acquire it.  Reaching 0 means the LAST fd referring to a read
+    // end closed -> writers must observe BrokenPipe.
+    auto g = lock_.irq_guard();
+    if (read_refs_ == 0) {
+        return;  // underflow guard (unbalanced release vs add)
+    }
+    --read_refs_;
+    if (read_refs_ == 0) {
+        reader_open_ = false;
+#ifndef CINUX_HOST_TEST
+        wake_all(write_waiters_);
+#endif
+    }
+}
+
+void Pipe::release_write_ref() {
+    auto g = lock_.irq_guard();
+    if (write_refs_ == 0) {
+        return;
+    }
+    --write_refs_;
+    if (write_refs_ == 0) {
+        writer_open_ = false;
+#ifndef CINUX_HOST_TEST
+        wake_all(read_waiters_);  // readers retry -> EOF
+#endif
+    }
+}
+
+// ============================================================
+// State queries (lock-free -- diagnostics / fast-path checks)
 // ============================================================
 
 bool Pipe::reader_alive() const {
@@ -217,19 +357,84 @@ bool Pipe::writer_alive() const {
 }
 
 bool Pipe::is_empty() const {
-    return count_ == 0;
+    return buf_.empty();
 }
 
 bool Pipe::is_full() const {
-    return count_ == PIPE_BUFFER_SIZE;
+    return buf_.full();
 }
 
 uint32_t Pipe::available() const {
-    return count_;
+    return static_cast<uint32_t>(buf_.size());
 }
 
 // ============================================================
-// Non-blocking try_read / try_write
+// poll(2) / select(2) readiness (F8-M5)
+// ============================================================
+
+uint32_t Pipe::poll_read_events([[maybe_unused]] cinux::proc::Task* waiter) {
+    auto     g    = lock_.irq_guard();
+    uint32_t mask = 0;
+    // POLLIN whenever bytes are buffered; POLLHUP once the writer closes (Linux
+    // reports both when unread data remains after close).
+    if (!buf_.empty()) {
+        mask |= cinux::fs::kPollIn;
+    }
+    if (!writer_open_) {
+        mask |= cinux::fs::kPollHup;
+    }
+#ifndef CINUX_HOST_TEST
+    // Register the poller so a later write / close wakes it.  Done under lock_
+    // (and IRQs off) atomically with the readiness check -- the prepare_to_wait
+    // contract: a write that lands in the window is either seen as POLLIN here
+    // or finds the waiter already queued and wakes it, never lost.
+    if (waiter != nullptr) {
+        wait_enqueue(read_waiters_, waiter);
+    }
+#else
+    // host: no scheduler / wait queues -- readiness only
+#endif
+    return mask;
+}
+
+uint32_t Pipe::poll_write_events([[maybe_unused]] cinux::proc::Task* waiter) {
+    auto     g    = lock_.irq_guard();
+    uint32_t mask = 0;
+    // POLLOUT while there is space; POLLERR once the reader closes (a further
+    // write would SIGPIPE).  A closed reader is an error, not a hangup.
+    if (!buf_.full()) {
+        mask |= cinux::fs::kPollOut;
+    }
+    if (!reader_open_) {
+        mask |= cinux::fs::kPollErr;
+    }
+#ifndef CINUX_HOST_TEST
+    if (waiter != nullptr) {
+        wait_enqueue(write_waiters_, waiter);
+    }
+#else
+#endif
+    return mask;
+}
+
+void Pipe::remove_read_waiter([[maybe_unused]] cinux::proc::Task* waiter) {
+#ifndef CINUX_HOST_TEST
+    auto g = lock_.irq_guard();
+    wait_remove(read_waiters_, waiter);
+#else
+#endif
+}
+
+void Pipe::remove_write_waiter([[maybe_unused]] cinux::proc::Task* waiter) {
+#ifndef CINUX_HOST_TEST
+    auto g = lock_.irq_guard();
+    wait_remove(write_waiters_, waiter);
+#else
+#endif
+}
+
+// ============================================================
+// Non-blocking try_read / try_write (ignore wait queues)
 // ============================================================
 
 int64_t Pipe::try_read(char* buf, uint64_t count) {
@@ -240,44 +445,20 @@ int64_t Pipe::try_read(char* buf, uint64_t count) {
     auto guard = lock_.guard();
 
     // Writer closed and buffer drained -- EOF
-    if (!writer_open_ && count_ == 0) {
+    if (!writer_open_ && buf_.empty()) {
         return 0;
     }
 
     // Buffer empty -- return 0 immediately (no spin-wait)
-    if (count_ == 0) {
+    if (buf_.empty()) {
         return 0;
     }
 
-    // Compute how many contiguous bytes we can read from head_
-    uint64_t chunk = count;
-    if (chunk > count_) {
-        chunk = count_;
-    }
-
-    // First segment: head_ to end of buffer
-    uint32_t first = PIPE_BUFFER_SIZE - head_;
-    if (first > chunk) {
-        first = static_cast<uint32_t>(chunk);
-    }
-
-    for (uint32_t i = 0; i < first; i++) {
-        buf[i] = buffer_[head_ + i];
-    }
-    head_ = (head_ + first) % PIPE_BUFFER_SIZE;
-    count_ -= first;
-
-    // Second segment (wraps to beginning of buffer)
-    uint32_t second = static_cast<uint32_t>(chunk) - first;
-    if (second > 0) {
-        for (uint32_t i = 0; i < second; i++) {
-            buf[first + i] = buffer_[i];
-        }
-        head_ = (head_ + second) % PIPE_BUFFER_SIZE;
-        count_ -= second;
-    }
-
-    return static_cast<int64_t>(chunk);
+    size_t avail  = buf_.size();
+    size_t want   = static_cast<size_t>(count);
+    size_t chunk  = want < avail ? want : avail;
+    size_t popped = buf_.pop_batch(buf, chunk);
+    return static_cast<int64_t>(popped);
 }
 
 int64_t Pipe::try_write(const char* data, uint64_t count) {
@@ -293,40 +474,15 @@ int64_t Pipe::try_write(const char* data, uint64_t count) {
     }
 
     // Buffer full -- return 0 immediately (no spin-wait)
-    if (count_ == PIPE_BUFFER_SIZE) {
+    if (buf_.full()) {
         return 0;
     }
 
-    // Compute how many contiguous bytes we can write from tail_
-    uint32_t space = PIPE_BUFFER_SIZE - count_;
-    uint64_t chunk = count;
-    if (chunk > space) {
-        chunk = space;
-    }
-
-    // First segment: tail_ to end of buffer
-    uint32_t first = PIPE_BUFFER_SIZE - tail_;
-    if (first > chunk) {
-        first = static_cast<uint32_t>(chunk);
-    }
-
-    for (uint32_t i = 0; i < first; i++) {
-        buffer_[tail_ + i] = data[i];
-    }
-    tail_ = (tail_ + first) % PIPE_BUFFER_SIZE;
-    count_ += first;
-
-    // Second segment (wraps to beginning of buffer)
-    uint32_t second = static_cast<uint32_t>(chunk) - first;
-    if (second > 0) {
-        for (uint32_t i = 0; i < second; i++) {
-            buffer_[i] = data[first + i];
-        }
-        tail_ = (tail_ + second) % PIPE_BUFFER_SIZE;
-        count_ += second;
-    }
-
-    return static_cast<int64_t>(chunk);
+    size_t space  = PIPE_BUFFER_SIZE - buf_.size();
+    size_t want   = static_cast<size_t>(count);
+    size_t chunk  = want < space ? want : space;
+    size_t pushed = buf_.push_batch(data, chunk);
+    return static_cast<int64_t>(pushed);
 }
 
 }  // namespace cinux::ipc

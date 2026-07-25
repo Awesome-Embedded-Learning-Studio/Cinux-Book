@@ -141,7 +141,8 @@ void test_pipe_read_ops_delegates_read() {
 
     PipeReadOps read_ops(pipe);
     char        buf[8] = {};
-    int64_t     r      = read_ops.read(nullptr, 0, buf, 8);
+    auto        r_res  = read_ops.read(nullptr, 0, buf, 8);
+    int64_t     r      = r_res.ok() ? r_res.value() : -1;
     TEST_ASSERT_EQ(r, 2);
     TEST_ASSERT_EQ(buf[0], 'O');
     TEST_ASSERT_EQ(buf[1], 'K');
@@ -153,7 +154,8 @@ void test_pipe_read_ops_write_returns_minus1() {
     auto*       pipe = new Pipe();
     PipeReadOps read_ops(pipe);
 
-    int64_t w = read_ops.write(nullptr, 0, "data", 4);
+    auto    w_res = read_ops.write(nullptr, 0, "data", 4);
+    int64_t w     = w_res.ok() ? w_res.value() : -1;
     TEST_ASSERT_EQ(w, -1);
 
     delete pipe;
@@ -163,7 +165,8 @@ void test_pipe_write_ops_delegates_write() {
     auto* pipe = new Pipe();
 
     PipeWriteOps write_ops(pipe);
-    int64_t      w = write_ops.write(nullptr, 0, "W", 1);
+    auto         w_res = write_ops.write(nullptr, 0, "W", 1);
+    int64_t      w     = w_res.ok() ? w_res.value() : -1;
     TEST_ASSERT_EQ(w, 1);
 
     char    buf[8] = {};
@@ -178,9 +181,10 @@ void test_pipe_write_ops_read_returns_minus1() {
     auto*        pipe = new Pipe();
     PipeWriteOps write_ops(pipe);
 
-    // PipeWriteOps inherits read() from InodeOps, which returns -1
+    // PipeWriteOps inherits read() from InodeOps, which is unsupported
     char    buf[8] = {};
-    int64_t r      = write_ops.read(nullptr, 0, buf, 8);
+    auto    r_res  = write_ops.read(nullptr, 0, buf, 8);
+    int64_t r      = r_res.ok() ? r_res.value() : -1;
     TEST_ASSERT_EQ(r, -1);
 
     delete pipe;
@@ -327,6 +331,65 @@ void test_pipe_try_write_after_close_reader() {
 }
 
 // ============================================================
+// 9. O_NONBLOCK semantics (F8-M1 batch 2)
+// ============================================================
+
+// A non-blocking write to a FULL pipe returns PIPE_WOULDBLOCK rather than
+// blocking.  (The harness is single-threaded, so a blocking write would hang;
+// this also guards against the blocking path ever being reached here.)
+void test_pipe_nonblock_write_full_returns_wouldblock() {
+    auto* pipe = new Pipe();
+
+    // Fill the buffer exactly.
+    char src[cinux::ipc::PIPE_BUFFER_SIZE];
+    for (uint32_t i = 0; i < cinux::ipc::PIPE_BUFFER_SIZE; i++) {
+        src[i] = static_cast<char>(i);
+    }
+    int64_t filled = pipe->write(src, cinux::ipc::PIPE_BUFFER_SIZE);
+    TEST_ASSERT_EQ(filled, static_cast<int64_t>(cinux::ipc::PIPE_BUFFER_SIZE));
+    TEST_ASSERT_TRUE(pipe->is_full());
+
+    // nonblock write on a full buffer -> PIPE_WOULDBLOCK (not a hang, not 0).
+    TEST_ASSERT_EQ(pipe->write("X", 1, /*nonblock=*/true), cinux::ipc::PIPE_WOULDBLOCK);
+
+    delete pipe;
+}
+
+// A non-blocking read on an EMPTY pipe (writer still open) returns
+// PIPE_WOULDBLOCK; once the writer closes it returns 0 (EOF).
+void test_pipe_nonblock_read_empty_returns_wouldblock() {
+    auto* pipe = new Pipe();
+    char  buf[8];
+
+    // Writer open, buffer empty -> would-block, NOT a false EOF.
+    TEST_ASSERT_EQ(pipe->read(buf, 8, /*nonblock=*/true), cinux::ipc::PIPE_WOULDBLOCK);
+
+    // Writer closed, buffer empty -> genuine EOF (0), not would-block.
+    pipe->close_writer();
+    TEST_ASSERT_EQ(pipe->read(buf, 8, /*nonblock=*/true), 0);
+
+    delete pipe;
+}
+
+// The InodeOps adapter maps PIPE_WOULDBLOCK to Error::WouldBlock (-EAGAIN).
+void test_pipe_write_ops_nonblock_full_is_wouldblock() {
+    auto*        pipe = new Pipe();
+    PipeWriteOps write_ops(pipe, /*nonblock=*/true);
+
+    char src[cinux::ipc::PIPE_BUFFER_SIZE];
+    for (uint32_t i = 0; i < cinux::ipc::PIPE_BUFFER_SIZE; i++) {
+        src[i] = static_cast<char>(i);
+    }
+    pipe->write(src, cinux::ipc::PIPE_BUFFER_SIZE);  // fill (fits, no block)
+
+    auto w = write_ops.write(nullptr, 0, "X", 1);
+    TEST_ASSERT_TRUE(!w.ok());
+    TEST_ASSERT_TRUE(w.error() == cinux::lib::Error::WouldBlock);
+
+    delete pipe;
+}
+
+// ============================================================
 // Entry point
 // ============================================================
 
@@ -356,6 +419,9 @@ extern "C" void run_pipe_tests() {
     RUN_TEST(test_pipe_try_read_nullptr);
     RUN_TEST(test_pipe_try_read_after_close_writer);
     RUN_TEST(test_pipe_try_write_after_close_reader);
+    RUN_TEST(test_pipe_nonblock_write_full_returns_wouldblock);
+    RUN_TEST(test_pipe_nonblock_read_empty_returns_wouldblock);
+    RUN_TEST(test_pipe_write_ops_nonblock_full_is_wouldblock);
 
     TEST_SUMMARY();
 }

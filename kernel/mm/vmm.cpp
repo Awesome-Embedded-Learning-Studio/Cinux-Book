@@ -10,16 +10,11 @@
 
 #include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
+#include "kernel/arch/x86_64/phys_virt.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/pmm.hpp"
 
 namespace cinux::mm {
-
-// ============================================================
-// Constants
-// ============================================================
-
-constexpr uint64_t KERNEL_VMA = 0xFFFFFFFF80000000ULL;
 
 // ============================================================
 // Global instance
@@ -33,11 +28,6 @@ VMM g_vmm;
 using namespace cinux::arch;
 
 namespace {
-
-/** Convert a physical address to a virtual address via the higher-half mapping. */
-PageEntry* phys_to_virt(uint64_t phys) {
-    return reinterpret_cast<PageEntry*>(phys + KERNEL_VMA);
-}
 
 /**
  * @brief Walk one level of the page table, allocating if needed
@@ -59,7 +49,7 @@ PageEntry* walk_level(PageEntry* table, uint64_t index, bool should_alloc, uint6
             uint64_t big_phys  = entry.phys_addr();
             uint64_t big_flags = entry.raw & ~ADDR_MASK;
 
-            uint64_t new_page = cinux::mm::g_pmm.alloc_page_locked();
+            uint64_t new_page = cinux::mm::g_pmm.alloc_page();
             if (new_page == 0) {
                 return nullptr;
             }
@@ -79,7 +69,7 @@ PageEntry* walk_level(PageEntry* table, uint64_t index, bool should_alloc, uint6
         return nullptr;
     }
 
-    uint64_t new_page = cinux::mm::g_pmm.alloc_page_locked();
+    uint64_t new_page = cinux::mm::g_pmm.alloc_page();
     if (new_page == 0) {
         return nullptr;
     }
@@ -107,7 +97,6 @@ void VMM::init() {
 
 bool VMM::split_2mb_page(uint64_t virt) {
     auto g = lock_.guard();
-    (void)g;
 
     uint64_t pml4_phys  = kernel_pml4_;
     auto*    pml4_table = phys_to_virt(pml4_phys);
@@ -126,7 +115,6 @@ bool VMM::split_2mb_page(uint64_t virt) {
 
 bool VMM::map(uint64_t virt, uint64_t phys, uint64_t flags, uint64_t* pml4) {
     auto g = lock_.guard();
-    (void)g;
     return map_nolock(virt, phys, flags, pml4);
 }
 
@@ -156,7 +144,6 @@ bool VMM::map_nolock(uint64_t virt, uint64_t phys, uint64_t flags, uint64_t* pml
 
 bool VMM::map_2mb(uint64_t virt, uint64_t phys, uint64_t flags, uint64_t* pml4) {
     auto g = lock_.guard();
-    (void)g;
 
     uint64_t pml4_phys  = pml4 ? *pml4 : kernel_pml4_;
     auto*    pml4_table = phys_to_virt(pml4_phys);
@@ -178,7 +165,6 @@ bool VMM::map_2mb(uint64_t virt, uint64_t phys, uint64_t flags, uint64_t* pml4) 
 
 void VMM::unmap(uint64_t virt, uint64_t* pml4) {
     auto g = lock_.guard();
-    (void)g;
 
     uint64_t pml4_phys  = pml4 ? *pml4 : kernel_pml4_;
     auto*    pml4_table = phys_to_virt(pml4_phys);

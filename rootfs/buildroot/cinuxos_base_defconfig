@@ -1,0 +1,33 @@
+# Cinux F-USABILITY base profile — minimal busybox + musl rootfs
+# Buildroot 2026.02.3 | Bootlin prebuilt x86_64 musl toolchain（不编 GCC）
+# 产物 output/images/rootfs.ext2 → Cinux AHCI port 1
+#
+# 验证目标（阶段0）：Buildroot 出的 minimal rootfs 能在 Cinux boot 到 ash。
+# getty 走 overlay 注入的 inittab（::respawn:/bin/sh），避开 Cinux 缺 /dev/ttyS0。
+
+# === 架构 ===
+BR2_x86_64=y
+
+# === 外部工具链：Bootlin prebuilt x86_64 musl stable（不编 GCC，CI 友好）===
+BR2_TOOLCHAIN_EXTERNAL=y
+BR2_TOOLCHAIN_EXTERNAL_BOOTLIN=y
+BR2_TOOLCHAIN_EXTERNAL_BOOTLIN_X86_64_MUSL_STABLE=y
+
+# === 系统：busybox init ===
+BR2_INIT_BUSYBOX=y
+BR2_TARGET_GENERIC_HOSTNAME="cinux"
+BR2_TARGET_GENERIC_ISSUE="Welcome to Cinux (Buildroot)"
+BR2_TARGET_ENABLE_ROOT_LOGIN=y
+BR2_TARGET_GENERIC_ROOT_PASSWD=""
+
+# === rootfs：ext2 rev1（Cinux ext2 驱动从 superblock 读块大小，任意支持）===
+BR2_TARGET_ROOTFS_EXT2=y
+BR2_TARGET_ROOTFS_EXT2_2r1=y
+# BR2_TARGET_ROOTFS_TAR is not set
+
+# === overlay：Cinux 友好 inittab（直接 respawn /bin/sh，不依赖 getty/ttyS0）===
+# 路径相对 Buildroot 源码根(build/buildroot/)；Cinux repo 在其 ../../
+BR2_ROOTFS_OVERLAY="../../rootfs/overlay"
+
+# === 不编 Linux kernel（Cinux 自己的）+ 不编 bootloader（Cinux MBR/stage2）===
+# 默认即关（仅 qemu_x86_64_defconfig 才开 BR2_LINUX_KERNEL）

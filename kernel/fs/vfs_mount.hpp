@@ -39,6 +39,12 @@ struct MountPoint {
     char        path[MOUNT_PATH_MAX];  ///< Absolute path prefix (e.g. "/")
     FileSystem* fs;                    ///< Concrete filesystem backend
     bool        in_use;                ///< Whether this slot is occupied
+    /// True when @p fs was heap-allocated by sys_mount and must therefore be
+    /// `delete`d by vfs_mount_remove (sys_umount2).  Boot/static mounts wire a
+    /// static FileSystem (g_devfs, g_procfs, g_tmpfs, ...) and leave this false,
+    /// so removing them frees nothing.  Default false keeps every existing
+    /// caller (boot wiring + tests with stack-local/mock backends) unchanged.
+    bool        owned{false};
 };
 
 // ============================================================
@@ -65,12 +71,20 @@ void vfs_mount_init();
  *
  * @param path  Absolute path prefix for the mount point
  * @param fs    Pointer to an initialised FileSystem backend
+ * @param owned True when @p fs is heap-allocated and should be freed on remove
+ *              (sys_mount passes true; boot/static wiring passes false).  Defaults
+ *              false so existing 2-arg callers are unchanged.
  * @return true on success, false if the table is full or args are invalid
  */
-bool vfs_mount_add(const char* path, FileSystem* fs);
+bool vfs_mount_add(const char* path, FileSystem* fs, bool owned = false);
 
 /**
  * @brief Remove a mount point by path
+ *
+ * Ownership-aware: if the slot was registered with @p owned=true (sys_mount),
+ * the FileSystem backend is `delete`d before the slot is freed; a static/boot
+ * mount (@p owned=false, the default) is detached without freeing (its object
+ * outlives the table).  Either way the slot becomes available again.
  *
  * @param path  The mount path to remove
  * @return true on success, false if not found

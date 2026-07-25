@@ -4,7 +4,7 @@ title: Lab 002 · 进入保护模式
 
 # Lab 002 · 进入保护模式
 
-> 这个 lab 配套 [002 · 进入保护模式](../../book/01-boot/002-boot-gdt-protected.md)。目标是在 [Lab 001](lab-001-real-mode.md) 的 Stage2 末尾(VESA 之后)接上一段代码,把机器从实模式切到 32 位保护模式,并用 0xE9 debugcon 验证自己真的进去了。**GDT 自己拼位、CR0 自己拨、远跳自己写**,不给现成答案。
+> 这个 lab 配套 [002 · 进入保护模式](../../book/01-boot/002/)。目标是在 [Lab 001](lab-001-real-mode.md) 的 Stage2 末尾(VESA 之后)接上一段代码,把机器从实模式切到 32 位保护模式,并用 0xE9 debugcon 验证自己真的进去了。**GDT 自己拼位、CR0 自己拨、远跳自己写**,不给现成答案。
 
 ## 实验目标
 
@@ -16,7 +16,7 @@ title: Lab 002 · 进入保护模式
 ## 前置条件
 
 - 已完成 Lab 001:Stage2 能配好 VESA、屏幕能切图形模式。
-- 理解段描述符的位布局(access byte / flags nibble / base / limit 三段拆分),不清楚就先翻 [002 章的设计图](../../book/01-boot/002-boot-gdt-protected.md#设计图)。
+- 理解段描述符的位布局(access byte / flags nibble / base / limit 三段拆分),不清楚就先翻 [002 章的设计图](../../book/01-boot/002/02-design.md)。
 
 ## 任务分解
 

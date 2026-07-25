@@ -23,11 +23,62 @@ set(BIG_KERNEL_COMPILE_OPTIONS
     -fno-exceptions
     -fno-rtti
     -fno-pie
-    -fno-stack-protector
+    -fstack-protector-strong -mstack-protector-guard=global  # F9 batch 6: stack canary
     -mcmodel=kernel
+    # Cancel the global _FORTIFY_SOURCE=2 (root CMakeLists CMAKE_CXX_FLAGS_RELEASE)
+    # for the freestanding kernel: gcc fortify rewrites memcpy/memset/memmove to
+    # __memcpy_chk/__memset_chk/__memmove_chk, which the kernel does not provide
+    # (no glibc) -> link failure. Host unit tests keep _FORTIFY_SOURCE (they link
+    # glibc and benefit from the overflow checks); kernel objects opt out here.
+    -U_FORTIFY_SOURCE
     -mno-red-zone
     -Wall
     -Wextra
+    # F-INFRA I-3 (R2): bring the kernel body up to the Cinux-Base submodule's
+    # warning discipline (the submodule already enforces -Wshadow/-Wold-style-cast
+    #/-Wnon-virtual-dtor). -Wconversion/-Wpedantic stay OUT here (kernel uses GNU
+    # inline-asm extensions; -Wconversion is too noisy — see follow-up G6).
+    # -Werror=return-type is a near-zero-noise correctness check (already clean).
+    # (-Werror=implicit-int / implicit-function-declaration are C-only and emit
+    # "not valid for C++" noise in a C++ kernel, so omitted.)
+    -Wshadow
+    -Wold-style-cast
+    -Wnon-virtual-dtor
+    -Woverloaded-virtual
+    -Wformat=2
+    -Werror=return-type
+    # F-QA Q1-1: zero-cost warning gates. Enable the checks, then escalate the
+    # zero-noise ones to -Werror= so violations fail the build (zero-warning
+    # discipline, aligned with Linux's -Wimplicit-fallthrough / CONFIG_W* ethos).
+    # -Wnull-dereference stays a plain warning (GCC cross-function analysis
+    # occasionally false-positives). -Wframe-larger-than=1024 flags production
+    # frames > 1024 B (16 KB stack + IRQ nesting). DEBT-015 closed 2026-06-25
+    # (char[PATH_MAX] -> PathBuf heap in 8 syscalls + sys_dmesg LogEntry[16] ->
+    # heap; big_kernel now zero hits). NOTE: GCC cannot escalate this via
+    # -Werror=frame-larger-than (it rejects the parameterised warning name), so
+    # F-WARN escalates via the GLOBAL -Werror below. big_kernel_test fixtures
+    # were shrunk in F-WARN (large buffers -> static, large structs -> heap
+    # unique_ptr), so the gate now applies to tests too -- no suppress.
+    -Wvla
+    -Wimplicit-fallthrough=3
+    -Wundef
+    -Wduplicated-branches
+    -Wduplicated-cond
+    -Wlogical-op
+    -Wnull-dereference
+    -Wformat-security
+    -Wframe-larger-than=1024
+    -Werror=implicit-fallthrough
+    -Werror=undef
+    -Werror=duplicated-branches
+    -Werror=duplicated-cond
+    -Werror=logical-op
+    -Werror=format-security
+    # F-WARN: the global -Werror is applied to big_kernel_common (kernel
+    # objects) PRIVATEly below, so it covers production kernel code WITHOUT
+    # propagating to big_kernel_test (test/ fixtures still have frame-larger-
+    # than, left for F-WARN). The -Werror=specific correctness flags above DO
+    # still apply to tests (return-type etc are correctness, not fixture size).
 )
 
 set(BIG_KERNEL_LINK_OPTIONS
@@ -35,6 +86,11 @@ set(BIG_KERNEL_LINK_OPTIONS
     -nostdlib
     -static
     -no-pie
+    # The custom linker.ld discards .note.gnu.build-id, so GCC's default
+    # --build-id is ignored and ld warns. A build-id is meaningless for a kernel
+    # ELF loaded at a fixed physical address; disable it explicitly for a clean
+    # link (F-INFRA I-3: zero-warning build).
+    -Wl,--build-id=none
 )
 
 # Object library: shared sources between production and test kernels.
@@ -42,11 +98,19 @@ set(BIG_KERNEL_LINK_OPTIONS
 add_library(big_kernel_common OBJECT)
 
 target_compile_options(big_kernel_common PUBLIC ${BIG_KERNEL_COMPILE_OPTIONS})
+# F-WARN: global -Werror on kernel objects only. PRIVATE = does NOT propagate
+# to big_kernel_test (whose test/ fixtures still exceed frame-larger-than, ~180
+# sites, left for the F-WARN milestone). GCC can't do -Werror=frame-larger-than
+# (parameterised name) so the global flag is what enforces it on kernel code.
+target_compile_options(big_kernel_common PRIVATE -Werror -Wno-error=null-dereference)
 
 target_include_directories(big_kernel_common PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}
 )
+
+# Third-party libraries (Cinux-Base etc.)
+add_subdirectory(${CMAKE_SOURCE_DIR}/third_party ${CMAKE_BINARY_DIR}/third_party)
 
 # Sub-modules (each adds its sources to big_kernel_common)
 add_subdirectory(arch)
@@ -57,11 +121,38 @@ add_subdirectory(mm)
 add_subdirectory(proc)
 add_subdirectory(syscall)
 add_subdirectory(ipc)
+add_subdirectory(net)
 
-# GUI mode: add compile definition and GUI-specific sources
+# Feature switches -> same-named PUBLIC compile definitions on big_kernel_common.
+# The list lives in cmake/options.cmake (CINUX_COMPILE_DEF_OPTS); adding a flag
+# there + a CINUX_COMPILE_DEF_OPTS entry wires a new switch through with no per-
+# flag if() here. CINUX_UBSAN stays separate (below) -- it needs more than a
+# define (sanitizer flag + stub exclusions).
+foreach(_opt IN LISTS CINUX_COMPILE_DEF_OPTS)
+    if(CINUX_${_opt})
+        target_compile_definitions(big_kernel_common PUBLIC CINUX_${_opt})
+    endif()
+endforeach()
+
+# GUI mode: the define above is not enough -- GUI also pulls its own sources
+# subtree (kernel/gui/) and links cinux-gui (see big_kernel / big_kernel_test).
 if(CINUX_GUI)
-    target_compile_definitions(big_kernel_common PUBLIC CINUX_GUI)
     add_subdirectory(gui)
+endif()
+
+# F-INFRA I-9: opt-in UBSan. -fsanitize=undefined at COMPILE only (the freestanding
+# stubs in kernel/lib/ubsan.cpp resolve the __ubsan_handle_* refs -- no libubsan).
+# Exclude the stub + the diagnostic/panic path so a UB hit cannot recurse.
+if(CINUX_UBSAN)
+    target_compile_options(big_kernel_common PUBLIC -fsanitize=undefined -fno-sanitize=alignment)
+    set_source_files_properties(
+        ${CMAKE_SOURCE_DIR}/kernel/lib/ubsan.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/lib/kprintf.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/backtrace.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/mm/diagnostics.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/exception_handlers.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/fault_diag.cpp
+        PROPERTIES COMPILE_OPTIONS "-fno-sanitize=undefined")
 endif()
 
 # ============================================================
@@ -96,6 +187,10 @@ add_executable(big_kernel
 
 target_sources(big_kernel PRIVATE $<TARGET_OBJECTS:big_kernel_common>)
 target_link_libraries(big_kernel PRIVATE big_kernel_common)
+# F13 cinux::gui: link the host-neutral core (third_party/Cinux-GUI/, GUI only).
+if(CINUX_GUI)
+    target_link_libraries(big_kernel PRIVATE cinux-gui)
+endif()
 add_dependencies(big_kernel user_binary_obj initrd_obj)
 target_sources(big_kernel PRIVATE
     ${CMAKE_BINARY_DIR}/user/user_binary.o
@@ -119,11 +214,14 @@ add_executable(big_kernel_test
     test/main_test.cpp
     test/test_gdt_idt.cpp
     test/test_pic_pit.cpp
+    test/test_acpi.cpp
+    test/test_apic.cpp
+    test/test_hpet.cpp
+    test/test_rtc.cpp
     test/test_video.cpp
     test/test_keyboard.cpp
     test/test_pmm.cpp
     test/test_vmm.cpp
-    test/test_heap.cpp
     test/test_address_space.cpp
     test/test_scheduler.cpp
     test/test_sync.cpp
@@ -136,30 +234,82 @@ add_executable(big_kernel_test
     test/test_vfs_syscall.cpp
     test/test_ext2.cpp
     test/test_ahci_write.cpp
+    test/test_ahci_block_device.cpp
+    test/test_nvme.cpp
+    test/test_virtio.cpp
     test/test_ext2_allocator.cpp
     test/test_ext2_ops.cpp
     test/test_ext2_inode_ops.cpp
+    test/test_ext4_extents.cpp
     test/test_syscall_ext2.cpp
     test/test_shell_write.cpp
     test/test_cwd_stat.cpp
     test/test_canvas.cpp
     test/test_mouse_event.cpp
-    test/test_window.cpp
-    test/test_window_manager.cpp
-    test/test_gui_integration.cpp
-    test/test_bitmap_icon.cpp
-    test/test_desktop.cpp
-    test/test_terminal.cpp
     test/test_pipe.cpp
     test/test_sys_pipe.cpp
-    test/test_terminal_shell.cpp
+    test/test_fifo.cpp
+    test/test_shm.cpp
+    test/test_poll.cpp
     test/test_fork_exec.cpp
-    test/test_multi_terminal.cpp
     test/test_kprintf_format.cpp
+    test/test_concurrent_ring_buffer.cpp
+    test/test_user_ptr.cpp
+    test/test_pmm_pte_count.cpp
+    test/test_klog.cpp
+    test/test_sys_dmesg.cpp
+    test/test_dma_buffer.cpp
+    test/test_dma_pool.cpp
+    test/test_prdt_builder.cpp
+    test/test_block_device.cpp
+    test/test_vma.cpp
+    test/test_mmap.cpp
+    test/test_brk.cpp
+    test/test_signal.cpp
+    test/test_tls.cpp
+    test/test_futex.cpp
+    test/test_shared_resources.cpp
+    test/test_clone.cpp
+    test/test_process_group.cpp
+    test/test_page_cache.cpp
+    test/test_file_mmap.cpp
+    test/test_buddy.cpp
+    test/test_slab.cpp
+    test/test_kmalloc.cpp
+    test/test_kallsyms.cpp
+    test/test_backtrace.cpp
+    test/test_memory_stats.cpp
+    test/test_aslr.cpp
+    test/test_creds.cpp
+    test/test_devfs.cpp
+    test/test_pty_device.cpp
+    test/test_procfs.cpp
+    test/test_tmpfs.cpp
+    test/test_mount.cpp
+    test/test_flock.cpp  # F6-M1 B2: flock(2)
+    test/test_dentry.cpp  # F6-M1 B3: DentryCache
+    test/test_access.cpp
 )
+
+# F5-M5 xHCI: gate the USB test on CINUX_USB so a CINUX_USB=OFF build links
+# (the driver is absent; run_xhci_tests is #ifdef CINUX_USB'd in main_test.cpp).
+if(CINUX_USB)
+    target_sources(big_kernel_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test/test_xhci.cpp)
+endif()
+
+# F5-M6 e1000: gate the NIC test on CINUX_NET so a CINUX_NET=OFF build links
+# (the driver is absent; run_e1000_tests is #ifdef CINUX_NET'd in main_test.cpp).
+if(CINUX_NET)
+    target_sources(big_kernel_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test/test_e1000.cpp)
+    target_sources(big_kernel_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test/test_net.cpp)
+    target_sources(big_kernel_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test/test_socket.cpp)
+endif()
 
 target_sources(big_kernel_test PRIVATE $<TARGET_OBJECTS:big_kernel_common>)
 target_link_libraries(big_kernel_test PRIVATE big_kernel_common)
+if(CINUX_GUI)
+    target_link_libraries(big_kernel_test PRIVATE cinux-gui)
+endif()
 add_dependencies(big_kernel_test user_binary_obj initrd_obj)
 target_sources(big_kernel_test PRIVATE
     ${CMAKE_BINARY_DIR}/user/user_binary.o
@@ -173,6 +323,18 @@ set_target_properties(big_kernel_test PROPERTIES
 
 target_link_options(big_kernel_test PRIVATE ${BIG_KERNEL_LINK_OPTIONS})
 
+# F-QA Q1-2: ErrorOr is [[nodiscard]] (Cinux-Base expected.hpp), so ignoring an
+# ErrorOr return warns under -Wunused-result. Production kernel code is clean
+# (zero ignores); kernel/test/ fixtures deliberately ignore some setup returns
+# (e.g. ramdisk/ext2 mount()) inside non-void helpers where TEST_ASSERT_TRUE's
+# bare `return;` won't compile. Suppress in the test binary only — DEBT-016
+# tracks replacing these with a non-void-safe ASSERT_OK macro so this is removed.
+# F-CLN 批1 (DEBT-015): exempt test binary from the production frame-size hard
+# gate above. Test fixtures legitimately place large objects (LogEntry[16], AHCI
+# request arrays, ramdisk buffers) on the stack; they do not run under IRQ
+# nesting on the 16 KB kernel stack. Production (big_kernel) stays gated.
+target_compile_options(big_kernel_test PRIVATE -Wno-frame-larger-than)
+
 # Build test disk image: copy the test ELF to sectors where the big kernel lives
 set(BIG_KERNEL_TEST_BIN "${CMAKE_BINARY_DIR}/kernel/big/big_kernel_test_crc.bin")
 
@@ -182,3 +344,47 @@ add_custom_command(TARGET big_kernel_test POST_BUILD
     COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/append_crc32.py ${BIG_KERNEL_TEST_BIN}
     COMMENT "Creating big kernel test binary with trailing CRC32"
 )
+
+# ============================================================
+# F-INFRA I-5: KALLSYMS symbol table (per-target, POST_BUILD regen)
+# ============================================================
+# Each kernel executable embeds its own {addr,name} table so panic backtraces
+# resolve to function names without host addr2line. linker.ld places .rodata
+# (where this table lands) AFTER .text, so adding the table never moves any
+# recorded function address: a single nm pass over the linked ELF is correct,
+# and the POST_BUILD regeneration converges. The generator writes ONLY when
+# content changes (preserves mtime), so once stable it triggers no rebuild.
+set(KALLSYMS_GEN        ${CMAKE_SOURCE_DIR}/scripts/generate_kallsyms.py)
+set(KALLSYMS_DATA_TEST  ${CMAKE_BINARY_DIR}/kernel/kallsyms_data_test.cpp)
+set(KALLSYMS_DATA_KERNEL ${CMAKE_BINARY_DIR}/kernel/kallsyms_data_kernel.cpp)
+
+# Seed an empty stub at configure time so the first build compiles. A clean
+# checkout therefore needs a second build for the real table to be compiled in
+# (CI builds twice). Guarded: do NOT overwrite a previously-regenerated real
+# table on reconfigure.
+set(_KALLSYMS_STUB [==[
+// AUTO-GENERATED placeholder (first build); regenerated POST_BUILD from nm.
+#include <stddef.h>
+#include "kernel/lib/kallsyms.hpp"
+extern "C" const cinux::lib::KallsymEntry g_kallsyms_table[] = {};
+extern "C" const size_t g_kallsyms_count = 0;
+]==])
+if(NOT EXISTS ${KALLSYMS_DATA_TEST})
+    file(WRITE ${KALLSYMS_DATA_TEST} "${_KALLSYMS_STUB}")
+endif()
+if(NOT EXISTS ${KALLSYMS_DATA_KERNEL})
+    file(WRITE ${KALLSYMS_DATA_KERNEL} "${_KALLSYMS_STUB}")
+endif()
+
+target_sources(big_kernel      PRIVATE ${KALLSYMS_DATA_KERNEL})
+target_sources(big_kernel_test PRIVATE ${KALLSYMS_DATA_TEST})
+set_source_files_properties(${KALLSYMS_DATA_KERNEL} ${KALLSYMS_DATA_TEST}
+                            PROPERTIES GENERATED TRUE)
+
+# Regenerate each table from its own linked ELF after every build.
+add_custom_command(TARGET big_kernel POST_BUILD
+    COMMAND python3 ${KALLSYMS_GEN} $<TARGET_FILE:big_kernel> ${KALLSYMS_DATA_KERNEL}
+    COMMENT "KALLSYMS: regenerate big_kernel symbol table")
+add_custom_command(TARGET big_kernel_test POST_BUILD
+    COMMAND python3 ${KALLSYMS_GEN} $<TARGET_FILE:big_kernel_test> ${KALLSYMS_DATA_TEST}
+    COMMENT "KALLSYMS: regenerate big_kernel_test symbol table")

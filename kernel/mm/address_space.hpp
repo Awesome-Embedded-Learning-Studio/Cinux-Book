@@ -20,6 +20,11 @@
 
 #include <stdint.h>
 
+#include <cinux/refcount.hpp>  // RefCount (F-QA Q4e-1 / DEBT-006)
+
+#include "kernel/mm/vma.hpp"
+#include "kernel/proc/sync.hpp"
+
 namespace cinux::mm {
 
 class AddressSpace {
@@ -55,6 +60,24 @@ public:
     // Allow move -- transfers ownership of pml4_phys_
     AddressSpace(AddressSpace&& other) noexcept;
     AddressSpace& operator=(AddressSpace&& other) noexcept;
+
+    // ============================================================
+    // Reference counting (F-QA Q4e-1 / DEBT-006)
+    // ============================================================
+
+    /** Bump the reference count (CLONE_VM thread shares this address space). */
+    void acquire() { refcount_.acquire(); }
+
+    /**
+     * @brief Drop a reference.
+     * @return true if this was the last reference -- the caller now owns
+     *         cleanup (delete this address space, freeing its PML4 subtree).
+     *
+     * Threads created with CLONE_VM share one AddressSpace; the last thread to
+     * exit releases it. Without this, a sibling thread's exit would free the
+     * shared PML4 and crash the rest of the thread group (DEBT-006).
+     */
+    bool release() { return refcount_.release(); }
 
     // ============================================================
     // Static initialisation
@@ -117,6 +140,12 @@ public:
     /** Get the saved kernel PML4 physical address. */
     static uint64_t kernel_pml4();
 
+    /** Borrow this space's VMA store (the sorted record of user mappings). */
+    IVMAStore& vmas() { return vma_store_; }
+
+    /** Borrow the lock that serialises VMA store access for this space. */
+    cinux::proc::Spinlock& vma_lock() { return vma_lock_; }
+
 private:
     // ============================================================
     // Internal helpers
@@ -136,6 +165,16 @@ private:
 
     /** Physical address of this address space's PML4 root. */
     uint64_t pml4_phys_{};
+
+    /// VMA bookkeeping: the sorted set of user-space mappings in this space.
+    LinkedListVMAStore vma_store_;
+
+    /// F-QA Q4e-1 (DEBT-006): CLONE_VM shared refcount. Default =1 (owner);
+    /// clone(CLONE_VM) acquire()s; thread exit release()s, last one frees.
+    cinux::lib::RefCount refcount_;
+
+    /// Serialises access to vma_store_ (page-fault path, mmap, etc.).
+    cinux::proc::Spinlock vma_lock_;
 
     /** Saved kernel PML4 physical address (populated by init_kernel). */
     static uint64_t kernel_pml4_;

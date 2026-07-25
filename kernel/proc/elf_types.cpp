@@ -41,8 +41,11 @@ ElfValidateResult validate_elf_header(const Elf64_Ehdr* ehdr, uint64_t total_siz
         return ElfValidateResult::BadMachine;
     }
 
-    // Check type: must be executable
-    if (ehdr->e_type != ET_EXEC) {
+    // Check type: ET_EXEC (fixed-base executable, incl. non-PIE dynamic) or
+    // ET_DYN (shared object / PIE). F10-M2: ET_DYN is required so the kernel
+    // can load the dynamic interpreter (ld-musl / ld-linux), which is always a
+    // shared object; it also unlocks PIE main programs (follow-up).
+    if (ehdr->e_type != ET_EXEC && ehdr->e_type != ET_DYN) {
         return ElfValidateResult::BadType;
     }
 
@@ -59,6 +62,13 @@ ElfValidateResult validate_elf_header(const Elf64_Ehdr* ehdr, uint64_t total_siz
     // Check there is at least one program header
     if (ehdr->e_phnum == 0) {
         return ElfValidateResult::NoPhdrs;
+    }
+    // DEBT-012: cap e_phnum so a corrupt/hostile ELF can't force a huge phdr
+    // table alloc + read (uint16 max -> 65535*56 = ~3.6MB). Real ELFs have
+    // <30 program headers; 256 is generous.
+    constexpr uint16_t kMaxPhnum = 256;
+    if (ehdr->e_phnum > kMaxPhnum) {
+        return ElfValidateResult::BadPhnum;
     }
 
     return ElfValidateResult::Ok;

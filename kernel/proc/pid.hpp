@@ -17,6 +17,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "proc/sync.hpp"  // Spinlock (F-QA Q4d / DEBT-005)
+
 namespace cinux::proc {
 
 class PidAllocator {
@@ -64,6 +66,11 @@ public:
 private:
     bool in_use_[PID_MAX + 1];
     int  next_hint_;
+
+    // F-QA Q4d (DEBT-005): SMP-safe allocator. alloc()'s check-then-set is
+    // non-atomic, so two cores forking concurrently could grab the same PID.
+    // mutable: const queries (is_allocated/count) also take it.
+    mutable Spinlock lock_;
 };
 
 /// Global PID allocator instance.

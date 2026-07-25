@@ -38,6 +38,26 @@ bool has_1gb_pages() {
 
 }  // anonymous namespace
 
+// F9 batch 3/4: enable SMEP (CR4[20]) + SMAP (CR4[21]) on this CPU. SMEP
+// stops the kernel executing user pages; SMAP stops it reading/writing them
+// unless STAC (set AC) temporarily allows it -- syscall/ISR entries STAC,
+// exits CLAC (syscall.S / interrupts.S). CPUID-gated: writing an unsupported
+// CR4 bit #GP-faults. CR4 is per-CPU, so both the BSP (main) and every AP
+// (ap_main) must call this.
+void enable_smep_smap() {
+    uint32_t eax = 7, ebx = 0, ecx = 0, edx = 0;
+    __asm__ volatile("cpuid" : "+a"(eax), "+c"(ecx), "=b"(ebx), "=d"(edx));
+    uint64_t cr4;
+    __asm__ volatile("mov %%cr4, %0" : "=r"(cr4));
+    if (ebx & (1u << 7)) {
+        cr4 |= (1ULL << 20);  // CR4.SMEP (CPUID.07H:EBX[7])
+    }
+    if (ebx & (1u << 20)) {
+        cr4 |= (1ULL << 21);  // CR4.SMAP (CPUID.07H:EBX[20])
+    }
+    __asm__ volatile("mov %0, %%cr4" : : "r"(cr4));
+}
+
 void map_mmio(uint64_t phys, uint64_t size) {
     auto* pd   = reinterpret_cast<volatile uint64_t*>(PD_VIRT_ADDR);
     auto* pdpt = reinterpret_cast<volatile uint64_t*>(PDPT_VIRT_ADDR);

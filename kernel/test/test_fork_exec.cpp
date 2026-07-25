@@ -35,6 +35,8 @@
 #include "kernel/proc/pid.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/signal.hpp"
+#include "kernel/proc/sync.hpp"
 #include "kernel/syscall/sys_execve.hpp"
 #include "kernel/syscall/sys_fork.hpp"
 #include "kernel/syscall/sys_getpid.hpp"
@@ -57,6 +59,37 @@ using cinux::arch::FLAG_WRITABLE;
 using cinux::arch::FLAG_USER;
 using cinux::arch::FLAG_COW;
 using cinux::arch::FLAG_GLOBAL;
+
+namespace {
+
+// Size of the syscall_entry pt_regs frame (16 qwords): user_rsp..rbp.  It sits
+// at the very top of the kernel stack; a path-A (user) fork/clone child copies
+// it onto its clean stack and points ctx.rsp at it.
+constexpr uint64_t kSyscallFrameSize = 128;
+
+bool task_stack_contains(const Task* task, uint64_t addr) {
+    return addr >= task->kernel_stack && addr < task->kernel_stack_top;
+}
+
+// New fork/clone child invariant (replaces the old copied_rbp_chain_is_relocated,
+// which assumed the deleted RBP-chain walk).  ctx.rsp must always be in-stack;
+// then the two Linux-style paths are distinguished by ctx.rip:
+//   - ret_from_fork      (path A, user): rsp points at the syscall frame at top
+//   - fork_child_trampoline (path B, kernel): rbp is in-stack (or 0 at top frame)
+bool child_resume_context_is_valid(const Task* child) {
+    if (!task_stack_contains(child, child->ctx.rsp)) {
+        return false;
+    }
+    if (child->ctx.rip == reinterpret_cast<uint64_t>(cinux::proc::ret_from_fork)) {
+        return child->ctx.rsp == child->kernel_stack_top - kSyscallFrameSize;
+    }
+    if (child->ctx.rip != reinterpret_cast<uint64_t>(cinux::proc::fork_child_trampoline)) {
+        return false;
+    }
+    return child->ctx.rbp == 0 || task_stack_contains(child, child->ctx.rbp);
+}
+
+}  // namespace
 
 // ============================================================
 // Test 1: SyscallNr constants
@@ -124,6 +157,7 @@ void test_sys_getpid_returns_nonnegative() {
     // with pid=42 so the syscall can exercise the TCB read path.
     Task tmp{};
     tmp.pid    = 42;
+    tmp.tgid   = 42;  // F3-M2: getpid() reports tgid
     tmp.ppid   = 1;
     Task* prev = cinux::proc::Scheduler::current();
     cinux::proc::Scheduler::set_current(&tmp);
@@ -158,6 +192,7 @@ namespace test_getpid_dispatch {
 void test_dispatch_getpid() {
     Task tmp{};
     tmp.pid    = 7;
+    tmp.tgid   = 7;  // F3-M2: getpid() reports tgid
     tmp.ppid   = 2;
     Task* prev = cinux::proc::Scheduler::current();
     cinux::proc::Scheduler::set_current(&tmp);
@@ -379,12 +414,13 @@ void test_dispatch_sys_fork() {
     Task tmp{};
     tmp.pid  = 42;
     tmp.ppid = 1;
-    // kernel_stack_top must be set above the current RSP so fork()'s
-    // stack usage calculation (kernel_stack_top - current_rsp) doesn't
-    // underflow.
+    // Pin kernel_stack_top only a small offset above the live RSP so the
+    // copied length (kernel_stack_top - current_rsp) stays well under the
+    // 16 KiB child stack -- a full-stack offset would make fork() copy more
+    // than one stack and underflow the child mapping.
     uint64_t rsp;
     __asm__ volatile("movq %%rsp, %0" : "=r"(rsp));
-    tmp.kernel_stack_top = rsp + 16384;
+    tmp.kernel_stack_top = rsp + 4096;
     Task* prev           = cinux::proc::Scheduler::current();
     cinux::proc::Scheduler::set_current(&tmp);
 
@@ -392,9 +428,20 @@ void test_dispatch_sys_fork() {
     // which depends on Scheduler::add_task etc.  In the test harness
     // the scheduler is initialised but not running, so we verify
     // that the dispatch path is reachable.
-    int64_t ret = sys_fork(0, 0, 0, 0, 0, 0);
+    cinux::proc::InterruptGuard ig;  // keep IF=0 so the child cannot be scheduled mid-test
+    int64_t                     ret = sys_fork(0, 0, 0, 0, 0, 0);
     // fork may succeed (return child_pid) or fail (return -1)
     TEST_ASSERT_TRUE(ret == -1 || ret >= 0);
+    // Quarantine the child so it can never be scheduled.  The harness tmp task
+    // has no address space, so fork() takes path B and the child would run
+    // fork_child_trampoline if ever switched in.
+    if (ret > 0) {
+        Task* child = cinux::proc::signal_find_task_by_pid(static_cast<int>(ret));
+        if (child != nullptr) {
+            TEST_ASSERT_TRUE(child_resume_context_is_valid(child));
+            cinux::proc::Scheduler::remove_task(child);
+        }
+    }
 
     cinux::proc::Scheduler::set_current(prev);
 }
@@ -405,14 +452,22 @@ void test_dispatch_sys_fork_via_table() {
     tmp.ppid = 1;
     uint64_t rsp;
     __asm__ volatile("movq %%rsp, %0" : "=r"(rsp));
-    tmp.kernel_stack_top = rsp + 16384;
+    tmp.kernel_stack_top = rsp + 4096;
     Task* prev           = cinux::proc::Scheduler::current();
     cinux::proc::Scheduler::set_current(&tmp);
 
-    int64_t dispatched =
+    cinux::proc::InterruptGuard ig;
+    int64_t                     dispatched =
         syscall_dispatch(static_cast<uint64_t>(SyscallNr::SYS_fork), 0, 0, 0, 0, 0, 0);
     // Should be reachable via dispatch table (registered in syscall_init)
     TEST_ASSERT_TRUE(dispatched == -1 || dispatched >= 0);
+    if (dispatched > 0) {
+        Task* child = cinux::proc::signal_find_task_by_pid(static_cast<int>(dispatched));
+        if (child != nullptr) {
+            TEST_ASSERT_TRUE(child_resume_context_is_valid(child));
+            cinux::proc::Scheduler::remove_task(child);
+        }
+    }
 
     cinux::proc::Scheduler::set_current(prev);
 }
@@ -564,6 +619,29 @@ void test_valid_header() {
                    static_cast<int>(ElfValidateResult::Ok));
 }
 
+// F10-M2: a shared object (ET_DYN) must also validate -- the dynamic
+// interpreter (ld-musl / ld-linux) is always ET_DYN, and the kernel loads it.
+void test_valid_et_dyn() {
+    using namespace cinux::proc::elf;
+
+    Elf64_Ehdr ehdr{};
+    ehdr.e_ident[0]  = 0x7F;
+    ehdr.e_ident[1]  = 'E';
+    ehdr.e_ident[2]  = 'L';
+    ehdr.e_ident[3]  = 'F';
+    ehdr.e_ident[4]  = ELF_CLASS_64;
+    ehdr.e_ident[5]  = ELF_DATA_LSB;
+    ehdr.e_type      = ET_DYN;  // shared object / PIE -- accepted since F10-M2
+    ehdr.e_machine   = EM_X86_64;
+    ehdr.e_phoff     = sizeof(Elf64_Ehdr);
+    ehdr.e_phentsize = sizeof(Elf64_Phdr);
+    ehdr.e_phnum     = 1;
+    ehdr.e_entry     = 0x1080;  // ET_DYN: entry is base-relative
+
+    TEST_ASSERT_EQ(static_cast<int>(validate_elf_header(&ehdr, 4096)),
+                   static_cast<int>(ElfValidateResult::Ok));
+}
+
 void test_bad_magic() {
     using namespace cinux::proc::elf;
 
@@ -691,18 +769,18 @@ void test_text_vs_data_flags() {
 namespace test_sys_execve_dispatch {
 
 void test_dispatch_sys_execve() {
-    // In the test harness, VFS is not mounted, so execve with a
-    // non-empty path should return an error (FileNotFound or similar).
+    // P0c: kernel-to-kernel do_execve_kernel with a kernel path. VFS not
+    // mounted / temp task has no address space -> execve returns an error.
     Task tmp{};
     tmp.pid    = 42;
     tmp.ppid   = 1;
     Task* prev = cinux::proc::Scheduler::current();
     cinux::proc::Scheduler::set_current(&tmp);
 
-    // Pass a kernel pointer to a path string
-    const char* path = "/bin/test";
-    int64_t     ret  = sys_execve(reinterpret_cast<uint64_t>(path), 0, 0, 0, 0, 0);
-    // Should fail: no VFS mounted, no address space on the temp task
+    const char*        kpath = "/bin/test";
+    const char* const* kargv = nullptr;
+    const char* const* kenvp = nullptr;
+    int64_t            ret   = cinux::syscall::do_execve_kernel(kpath, kargv, kenvp);
     TEST_ASSERT_TRUE(ret < 0);
 
     cinux::proc::Scheduler::set_current(prev);
@@ -829,7 +907,8 @@ void test_waitpid_no_children() {
     cinux::proc::Scheduler::set_current(&tmp);
 
     int  status = 0;
-    auto result = cinux::proc::waitpid(-1, &status, cinux::proc::g_pid_alloc);
+    auto result =
+        cinux::proc::waitpid(-1, &status, cinux::proc::kWaitNoHang, cinux::proc::g_pid_alloc);
     TEST_ASSERT_EQ(static_cast<int>(result),
                    static_cast<int>(cinux::proc::WaitpidResult::NoChildren));
 
@@ -856,7 +935,7 @@ void test_waitpid_zombie_child_reaped() {
     cinux::proc::Scheduler::set_current(&tmp);
 
     int  status = 0;
-    auto result = cinux::proc::waitpid(21, &status, local_alloc);
+    auto result = cinux::proc::waitpid(21, &status, cinux::proc::kWaitNoHang, local_alloc);
 
     TEST_ASSERT_EQ(static_cast<int>(result), static_cast<int>(cinux::proc::WaitpidResult::Ok));
     TEST_ASSERT_EQ(status, 7);
@@ -889,11 +968,14 @@ void test_waitpid_any_zombie() {
     Task* prev = cinux::proc::Scheduler::current();
     cinux::proc::Scheduler::set_current(&tmp);
 
-    int  status = 0;
-    auto result = cinux::proc::waitpid(-1, &status, local_alloc);
+    int  reaped_pid = 0;
+    int  status     = 0;
+    auto result =
+        cinux::proc::waitpid(-1, &status, cinux::proc::kWaitNoHang, local_alloc, &reaped_pid);
 
     TEST_ASSERT_EQ(static_cast<int>(result), static_cast<int>(cinux::proc::WaitpidResult::Ok));
     TEST_ASSERT_EQ(status, 99);
+    TEST_ASSERT_EQ(reaped_pid, 32);
     // child2 should be unlinked; child1 remains
     TEST_ASSERT_EQ(tmp.children, &child1);
 
@@ -917,7 +999,7 @@ void test_waitpid_not_exited() {
     cinux::proc::Scheduler::set_current(&tmp);
 
     int  status = 0;
-    auto result = cinux::proc::waitpid(41, &status, local_alloc);
+    auto result = cinux::proc::waitpid(41, &status, cinux::proc::kWaitNoHang, local_alloc);
 
     TEST_ASSERT_EQ(static_cast<int>(result),
                    static_cast<int>(cinux::proc::WaitpidResult::NotExited));
@@ -941,7 +1023,7 @@ void test_waitpid_not_found() {
     cinux::proc::Scheduler::set_current(&tmp);
 
     int  status = 0;
-    auto result = cinux::proc::waitpid(99, &status, local_alloc);
+    auto result = cinux::proc::waitpid(99, &status, cinux::proc::kWaitNoHang, local_alloc);
 
     TEST_ASSERT_EQ(static_cast<int>(result),
                    static_cast<int>(cinux::proc::WaitpidResult::NotFound));
@@ -965,7 +1047,7 @@ void test_waitpid_invalid_pid() {
     cinux::proc::Scheduler::set_current(&tmp);
 
     int  status = 0;
-    auto result = cinux::proc::waitpid(0, &status, local_alloc);
+    auto result = cinux::proc::waitpid(0, &status, cinux::proc::kWaitNoHang, local_alloc);
 
     TEST_ASSERT_EQ(static_cast<int>(result),
                    static_cast<int>(cinux::proc::WaitpidResult::InvalidPid));
@@ -1041,7 +1123,7 @@ void test_reaped_pid_is_freed() {
     cinux::proc::Scheduler::set_current(&tmp);
 
     int  status = 0;
-    auto result = cinux::proc::waitpid(child_pid, &status, local_alloc);
+    auto result = cinux::proc::waitpid(child_pid, &status, cinux::proc::kWaitNoHang, local_alloc);
 
     TEST_ASSERT_EQ(static_cast<int>(result), static_cast<int>(cinux::proc::WaitpidResult::Ok));
     TEST_ASSERT_FALSE(local_alloc.is_allocated(child_pid));
@@ -1119,6 +1201,7 @@ extern "C" void run_fork_exec_tests() {
     RUN_TEST(test_elf_constants_kernel::test_et_exec);
 
     RUN_TEST(test_elf_validation_kernel::test_valid_header);
+    RUN_TEST(test_elf_validation_kernel::test_valid_et_dyn);
     RUN_TEST(test_elf_validation_kernel::test_bad_magic);
     RUN_TEST(test_elf_validation_kernel::test_bad_class);
     RUN_TEST(test_elf_validation_kernel::test_bad_machine);

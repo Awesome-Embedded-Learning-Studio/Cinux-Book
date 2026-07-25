@@ -6,9 +6,10 @@
  * Decoupled from any output device so that host-side unit tests can
  * supply a mock OutputFn without linking the serial / IO driver.
  *
- * Supported specifiers:  %%  %c  %s  %d  %u  %x  %X  %p
- * Length modifiers:      %ld  %lu  %lx  %lX  (long — 64-bit on LP64)
+ * Supported specifiers:  %%  %c  %s  %d  %u  %o  %x  %X  %p
+ * Length modifiers:      %ld  %lu  %lo  %lx  %lX  (long — 64-bit on LP64)
  *                        %lld %llu %llx %llX (long long — 64-bit)
+ *                        %zd  %zu  %zo  %zx  %zX  (size_t — 64-bit on LP64)
  * Width modifiers:       %Nd   (right-align, space-pad)
  *                        %0Nd  (right-align, zero-pad)
  *                        %-Nd  (left-align, space-pad for numbers)
@@ -143,6 +144,39 @@ inline int format_hex(uint64_t value, char* buffer, int buffer_size, bool lowerc
     return idx;
 }
 
+/**
+ * @brief Format an unsigned 64-bit integer as octal
+ *
+ * Used for file mode bits (st_mode) where octal is the Unix convention.
+ *
+ * @param value        The number to format
+ * @param buffer       Output buffer (at least 23 bytes; 64-bit octal is up to 22 digits)
+ * @param buffer_size  Capacity of buffer
+ * @return Number of characters written (excluding NUL)
+ */
+inline int format_octal(uint64_t value, char* buffer, int buffer_size) {
+    if (buffer_size < 1) {
+        return 0;
+    }
+
+    const char* digits = "01234567";
+    char        tmp[24];
+    int         tmp_idx = 0;
+
+    do {
+        tmp[tmp_idx++] = digits[value & 0x7];
+        value >>= 3;
+    } while (value > 0 && tmp_idx < 24);
+
+    int idx = 0;
+    while (tmp_idx > 0 && idx < buffer_size - 1) {
+        buffer[idx++] = tmp[--tmp_idx];
+    }
+    buffer[idx] = '\0';
+
+    return idx;
+}
+
 // ============================================================
 // Generic formatted output engine
 // ============================================================
@@ -182,11 +216,34 @@ void vkprintf_impl(OutputFn&& putc_fn, const char* fmt, va_list args) {
             fmt++;
         }
 
-        // Parse optional length modifier: l, ll
-        // On LP64 (x86_64 Linux) both long and long long are 64-bit.
+        // Parse optional precision '.*' or '.N' (applies to %s: cap the char
+        // count, so callers can print a non-NUL-terminated buffer like a
+        // readlink() target via %.*s).  Other specifiers ignore it for now.
+        int precision = -1;
+        if (*fmt == '.') {
+            ++fmt;
+            if (*fmt == '*') {
+                precision = va_arg(args, int);
+                ++fmt;
+            } else {
+                precision = 0;
+                while (*fmt >= '0' && *fmt <= '9') {
+                    precision = precision * 10 + (*fmt - '0');
+                    ++fmt;
+                }
+            }
+        }
+
+        // Parse optional length modifier: l, ll, z (size_t)
+        // On LP64 (x86_64) long, long long and size_t are all 64-bit, so 'z'
+        // selects the same 64-bit va_arg width as a single 'l'.
         int long_count = 0;
         while (*fmt == 'l') {
             long_count++;
+            fmt++;
+        }
+        if (*fmt == 'z') {
+            long_count = 1;
             fmt++;
         }
 
@@ -208,10 +265,14 @@ void vkprintf_impl(OutputFn&& putc_fn, const char* fmt, va_list args) {
                 s = "(null)";
             }
 
-            // Measure string length
+            // Measure string length, capped by precision (%.*s / %.Ns) -- needed
+            // for non-NUL-terminated buffers such as readlink() targets.
             int slen = 0;
             while (s[slen] != '\0') {
                 slen++;
+            }
+            if (precision >= 0 && precision < slen) {
+                slen = precision;
             }
 
             if (left_align) {
@@ -277,6 +338,28 @@ void vkprintf_impl(OutputFn&& putc_fn, const char* fmt, va_list args) {
             uint64_t uv = (long_count > 0) ? va_arg(args, uint64_t)
                                            : static_cast<uint64_t>(va_arg(args, unsigned int));
             len         = format_unsigned(uv, buffer, sizeof(buffer));
+
+            char pad = zero_pad ? '0' : ' ';
+            if (!left_align) {
+                for (int i = len; i < width; i++) {
+                    putc_fn(pad);
+                }
+            }
+            for (int i = 0; i < len; i++) {
+                putc_fn(buffer[i]);
+            }
+            if (left_align) {
+                for (int i = len; i < width; i++) {
+                    putc_fn(' ');
+                }
+            }
+            break;
+        }
+
+        case 'o': {
+            uint64_t ov = (long_count > 0) ? va_arg(args, uint64_t)
+                                           : static_cast<uint64_t>(va_arg(args, unsigned int));
+            len         = format_octal(ov, buffer, sizeof(buffer));
 
             char pad = zero_pad ? '0' : ' ';
             if (!left_align) {

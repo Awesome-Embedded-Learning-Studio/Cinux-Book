@@ -53,11 +53,16 @@ usermode_init_asm:
     movq $0x200, %rax                  # $0x200→%rax: mask IF bit (bit 9)
     wrmsr                              # %edx:%eax→MSR[rcx]: write SFMASK
 
-    # Enable SYSCALL/SYSRET via EFER.SCE (System Call Extensions)
+    # Enable SYSCALL/SYSRET via EFER.SCE and the No-Execute bit via EFER.NXE
+    # (F9 batch 2). NXE is x86_64 baseline: long mode uses PAE page tables,
+    # whose bit-63 NX is a reserved-bit #PF until NXE is set, and every
+    # x86_64 CPU (and QEMU) supports it -- no CPUID gate needed. Both the BSP
+    # and every AP run usermode_init_asm, so this single site enables NX on
+    # all cores (sidesteps the BSP/AP MSR-divergence class of bugs).
     movq $0xC0000080, %rcx             # MSR_EFER→%rcx: EFER MSR index
     rdmsr                              # MSR[rcx]→%edx:%eax: read current EFER
-    orq $1, %rax                       # $1|%rax→%rax: set SCE bit (bit 0)
-    wrmsr                              # %edx:%eax→MSR[rcx]: write EFER with SCE enabled
+    orq $(1 | (1 << 11)), %rax         # SCE(bit0)|NXE(bit11)→%rax: set both
+    wrmsr                              # %edx:%eax→MSR[rcx]: write EFER with SCE+NXE
 
     ret                                 # return to caller
 
@@ -84,9 +89,11 @@ jump_to_usermode:
     # First argument to user program (passed in %rdi at user entry)
     movq %rdx, %rdi                    # %rdx→%rdi: argument for user entry function
 
-    # R11 = RFLAGS for SYSRET: set IF (bit 9) so interrupts are enabled in user mode
-    pushq $0x202                       # $0x202→(%rsp): push RFLAGS with IF|bit1 set
-    popq %r11                          # (%rsp)→%r11: pop into R11 (SYSRET restores this)
+    # R11 = RFLAGS for SYSRET: set IF (bit 9) so interrupts are enabled in user mode.
+    # Use a direct immediate load (not push/pop): RSP was just switched to the user
+    # stack above, so a push would write user memory from kernel mode -- a SMAP
+    # violation (#PF -> #DF, since RSP is already user) when CR4.SMAP is set.
+    movq $0x202, %r11                  # $0x202→%r11: RFLAGS with IF|bit1 set (SYSRET restores)
 
     # Zero out unused registers to avoid leaking kernel data
     xorq %rax, %rax                    # 0→%rax: clear RAX
@@ -101,6 +108,22 @@ jump_to_usermode:
     xorq %r13, %r13                    # 0→%r13: clear R13
     xorq %r14, %r14                    # 0→%r14: clear R14
     xorq %r15, %r15                    # 0→%r15: clear R15
+
+    # swapgs to the user GS base before leaving kernel mode.  In kernel mode
+    # MSR_GS_BASE = this CPU's PerCpu block and MSR_KERNEL_GS_BASE = user GS;
+    # swapgs flips them so user mode sees MSR_GS_BASE = user GS (0) and the
+    # next SYSCALL/IRQ entry's swapgs restores the kernel PerCpu pointer.
+    #
+    # Hardening (F5-M5 -smp): cli across the swapgs->SYSRETQ window.  After this
+    # swapgs we are STILL CPL=0 but GS_BASE is the user value (0); an IRQ taken
+    # in the gap is delivered in kernel mode, so the ISR stub's CPL-based entry
+    # swapgs does NOT fire, and the handler would run with percpu()==NULL.  This
+    # is a latent -smp landmine (a second CPU's timer/IPI landing in a
+    # two-instruction window); Linux keeps this whole window at IF=0 for the same
+    # reason.  cli blocks maskable IRQs for the two instructions; SYSRETQ then
+    # reloads RFLAGS from R11 (IF set) so user mode keeps interrupts.
+    cli                                 # block IRQs across swapgs->SYSRETQ
+    swapgs                              # kernel_gs↔user_gs: activate user GS
 
     # Execute SYSRET to enter Ring 3
     # SYSRET: %rcx→RIP, %r11→RFLAGS, CS=STAR[63:48]+16, SS=STAR[63:48]+8

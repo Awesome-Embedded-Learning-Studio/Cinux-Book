@@ -14,6 +14,16 @@
 namespace cinux::syscall {
 
 /**
+ * @brief Terminate the current task and reap, recording a pre-encoded waitpid
+ *        status word (WIFEXITED code<<8, or WIFSIGNALED signal number).
+ *
+ * Shared by sys_exit() (WIFEXITED) and signal-default-kill (WIFSIGNALED) so the
+ * two encode exit_status differently while reusing one Zombie+reap path.
+ * Does not return.  (F-USABILITY batch 4.)
+ */
+void exit_and_reap_current(int encoded_status);
+
+/**
  * @brief Terminate the current task with an exit code
  *
  * Marks the current task as Dead and yields to the scheduler.
@@ -23,5 +33,18 @@ namespace cinux::syscall {
  * @return Should not return; scheduler picks the next task
  */
 int64_t sys_exit(uint64_t code, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+
+/**
+ * @brief Terminate the current thread group with an exit code (F10-M1 batch 4)
+ *
+ * musl's exit()/QuickExit path calls exit_group first, falling back to
+ * exit() only if it returns.  For the current single-threaded musl model
+ * exit_group == exit (terminate the lone task); terminating every thread in
+ * the group is a follow-up once CLONE_THREAD programs are exercised.
+ *
+ * @param code  Exit code (0 = success)
+ * @return Should not return.
+ */
+int64_t sys_exit_group(uint64_t code, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 
 }  // namespace cinux::syscall

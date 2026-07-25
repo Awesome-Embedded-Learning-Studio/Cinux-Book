@@ -33,7 +33,6 @@
 #include "kernel/mm/pmm.hpp"
 
 using cinux::arch::GDT;
-using cinux::arch::g_gdt;
 using cinux::arch::GDT_KERNEL_CODE;
 using cinux::arch::GDT_KERNEL_DATA;
 using cinux::arch::GDT_USER_CODE;
@@ -58,12 +57,13 @@ namespace test_tss_rsp0 {
 
 void test_set_rsp0() {
     // Set a known value and verify by reading back
-    // Note: tss_set_rsp0 is a static method on GDT that writes to g_gdt.tss_.rsp[0]
+    // Note: tss_set_rsp0 is a static method on GDT that writes to this CPU's
+    // TSS (gdt_blocks[cpu_id].tss_.rsp[0] -- [0] for the BSP).
     uint64_t test_val = 0x801000;
     GDT::tss_set_rsp0(test_val);
 
     // Read it back via the same mechanism
-    // tss_set_rsp0 writes to g_gdt.tss_.rsp[0], we verify indirectly
+    // tss_set_rsp0 writes to this CPU's TSS, we verify indirectly
     // by setting a different value and confirming no crash
     GDT::tss_set_rsp0(0x9000);
     TEST_ASSERT_TRUE(true);  // reached without crash
@@ -117,6 +117,36 @@ void test_efer_sce_bit_set() {
     // EFER.SCE (bit 0) should be enabled
     uint64_t efer = read_msr(0xC0000080);
     TEST_ASSERT_TRUE(efer & 0x1);
+}
+
+void test_f9_nxe_smep_smap_enabled() {
+    // F9: EFER.NXE (bit 11) is x86_64 baseline -- always expected on.
+    uint64_t efer = read_msr(0xC0000080);
+    TEST_ASSERT_TRUE((efer >> 11) & 1);
+
+    // SMEP/SMAP are CPUID-gated (CPUID.07H:EBX[7]/[20], sub-leaf ecx=0). The
+    // kernel's enable_smep_smap() sets CR4[20]/[21] only when the CPU reports
+    // support; the test mirrors that. Verified on -cpu host (SMEP/SMAP exposed
+    // + asserted). -cpu max on WSL2 KVM hides CPUID leaf 7 (EBX=0) -> correctly
+    // left clear there; real HW exposes them -> asserted.
+    uint32_t a7 = 7, b7 = 0, c7 = 0, d7 = 0;
+    __asm__ volatile("cpuid" : "+a"(a7), "+c"(c7), "=b"(b7), "=d"(d7));
+    uint64_t cr4;
+    __asm__ volatile("mov %%cr4, %0" : "=r"(cr4));
+    if (b7 & (1u << 7)) {
+        TEST_ASSERT_TRUE((cr4 >> 20) & 1);  // CR4.SMEP
+    }
+    if (b7 & (1u << 20)) {
+        TEST_ASSERT_TRUE((cr4 >> 21) & 1);  // CR4.SMAP
+    }
+
+    // F-VERIFY M0-3: CR4.OSFXSR (bit 9) + CR4.OSXMMEXCPT (bit 10) are set
+    // unconditionally by boot.S (BSP) and ap_trampoline.S (AP, OR 0x620) to
+    // enable SSE / SSE-exception support in long mode -- not CPUID-gated like
+    // SMEP/SMAP, so assert unconditionally.  Read back so a "green but the bit
+    // is silently clear" regression fails loud (the SMEP/SMAP-was-off class).
+    TEST_ASSERT_TRUE((cr4 >> 9) & 1);   // CR4.OSFXSR
+    TEST_ASSERT_TRUE((cr4 >> 10) & 1);  // CR4.OSXMMEXCPT
 }
 
 void test_sfmask_if_bit() {
@@ -313,7 +343,7 @@ void test_df_stack_in_tss_ist1() {
     TEST_ASSERT_EQ(tr, GDT_TSS);
 
     // We verify that TR is loaded, which means IST1 is configured
-    // (the actual IST1 value is stored inside g_gdt which is private)
+    // (the actual IST1 value is stored inside gdt_blocks[0] which is private)
     TEST_ASSERT_TRUE(true);
 }
 
@@ -352,6 +382,7 @@ extern "C" void run_usermode_tests() {
     RUN_TEST(test_msr::test_star_msr_sysret_base);
     RUN_TEST(test_msr::test_star_msr_syscall_cs);
     RUN_TEST(test_msr::test_efer_sce_bit_set);
+    RUN_TEST(test_msr::test_f9_nxe_smep_smap_enabled);
     RUN_TEST(test_msr::test_sfmask_if_bit);
 
     RUN_TEST(test_user_address_space::test_create_user_space);

@@ -1,0 +1,67 @@
+/**
+ * @file kernel/fs/procfs_content.hpp
+ * @brief ProcFS pseudo-file content generation (F6-M2)
+ *
+ * Generates the text bodies of the /proc/<pid>/{stat,cmdline} pseudo-files from
+ * a TaskSnapshot (fields copied under the registry lock -- DEBT-022).  Split
+ * out of procfs.cpp so procfs.cpp (the FS plumbing -- inode pools, ops, lookup)
+ * stays under the 500-line file cap; this module is the "render a snapshot to
+ * text" concern alone.
+ *
+ * The formatters are kernel-linked and therefore not part of the host unit
+ * tests.
+ *
+ * Namespace: cinux::fs
+ */
+
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+namespace cinux::proc {
+struct TaskSnapshot;  // full definition in kernel/proc/process.hpp
+}
+
+namespace cinux::fs {
+
+/// Buffer cap for a generated /proc/<pid>/stat line.  The layout is
+/// "pid (name) state ppid tgid uid gid\n"; name is bounded, so the whole line
+/// fits well under 96 bytes.
+static constexpr uint32_t kProcStatLineMax = 96;
+
+/// Buffer cap for /proc/<pid>/cmdline content (task name + NUL).
+static constexpr uint32_t kProcCmdlineMax = 64;
+
+/// Buffer cap for /proc/meminfo content (7 "Key: value kB\n" lines).
+static constexpr uint32_t kProcMeminfoMax = 160;
+
+/// Buffer cap for /proc/cpuinfo content (per-CPU blocks; ~4 CPUs worst case).
+static constexpr uint32_t kProcCpuinfoMax = 256;
+
+/// Format a simplified /proc/meminfo into @p buf (NUL-terminated).  busybox
+/// `free` parses MemTotal / MemFree / MemAvailable / Buffers / Cached; we report
+/// MemTotal/MemFree/MemAvailable from @p total_kb/@p free_kb and zero the rest
+/// (Cinux tracks no buffer/cache/swap).  @return content length (excl. NUL).
+uint32_t format_proc_meminfo(uint32_t total_kb, uint32_t free_kb, char* buf, uint32_t cap);
+
+/// Format a simplified /proc/cpuinfo into @p buf (NUL-terminated).  Emits one
+/// "processor / apicid / model name" block per CPU; busybox `nproc` counts the
+/// "processor :" lines and `cat /proc/cpuinfo` shows the per-CPU topology.
+/// @p apic_ids may be null (sequential ids fallback).  @return length (excl. NUL).
+uint32_t format_proc_cpuinfo(uint32_t cpu_count, const uint8_t* apic_ids, char* buf,
+                             uint32_t cap);
+
+/// Format a simplified /proc/<pid>/stat line into @p buf (NUL-terminated).
+/// Layout: "pid (name) state ppid tgid uid gid\n".  This is a documented subset
+/// of Linux's /proc/<pid>/stat (Cinux keeps no per-task accounting fields).
+/// @return content length in bytes (excluding the NUL).
+uint32_t format_proc_stat(const cinux::proc::TaskSnapshot& s, char* buf, uint32_t cap);
+
+/// Copy the task name (bounded) into @p dst and append a NUL; return the length
+/// including the NUL.  /proc/<pid>/cmdline is NUL-separated argv on Linux;
+/// Cinux keeps no argv, so the task name (comm) is exposed as a best-effort
+/// single field.
+uint32_t format_proc_cmdline(const cinux::proc::TaskSnapshot& s, char* dst, uint32_t cap);
+
+}  // namespace cinux::fs

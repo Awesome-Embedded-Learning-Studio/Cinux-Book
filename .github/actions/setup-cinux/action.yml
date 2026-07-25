@@ -1,0 +1,107 @@
+name: Setup Cinux build
+description: >-
+  Shared CI precondition for Cinux jobs: checkout (submodules) + apt install
+  (ccache always on) + ccache cache + optional musl/busybox cache + compiler
+  version + cmake configure (ccache launchers wired in) + dump the CINUX_ switch
+  state to the log. Build/run/artifact stay in the calling job (they vary most).
+
+inputs:
+  apt-packages:
+    description: Extra apt packages beyond ccache (e.g. "qemu-system-x86 e2fsprogs python3").
+    required: true
+  cmake-flags:
+    description: >-
+      CMake -D flags passed to `cmake -B build <flags> -S .`. ccache launchers
+      (-DCMAKE_C/CXX_COMPILER_LAUNCHER=ccache) are added automatically; do NOT
+      include them here.
+    required: true
+  cache-musl:
+    description: Cache build/musl-sysroot (ring-3 smoke jobs).
+    default: 'false'
+  cache-busybox:
+    description: Cache build/busybox-src + build/musl/busybox (busybox-smoke job).
+    default: 'false'
+  cache-buildroot:
+    description: Cache the buildroot tree (src+dl+output) for the gcc-smoke job.
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ github.head_ref || github.ref_name }}
+        submodules: recursive
+
+    - name: Install dependencies
+      shell: bash
+      # apt-get update first: the runner image's apt index is a few days stale,
+      # so a since-rotated package version (e.g. ovmf 2024.02-2ubuntu0.8) 404s
+      # on install. Refresh the index so install picks the current version.
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ccache ${{ inputs.apt-packages }}
+
+    - name: ccache cache
+      # Shared across ALL jobs/cells: ccache keys its store on the full compile
+      # command, so host vs freestanding -mcmodel=kernel, -O0 vs -O2, sanitizer
+      # vs none never collide -- one coarse key maximises cross-job reuse.
+      uses: actions/cache@v4
+      with:
+        path: ~/.ccache
+        key: ccache-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'cmake/toolchain-x86_64.cmake', 'cmake/options.cmake', 'kernel/CMakeLists.txt', 'third_party/Cinux-Base') }}
+        restore-keys: |
+          ccache-${{ runner.os }}-
+
+    - name: Cache musl sysroot
+      if: inputs.cache-musl == 'true'
+      uses: actions/cache@v4
+      with:
+        path: build/musl-sysroot
+        key: musl-${{ runner.os }}-${{ hashFiles('tools/musl/build-musl.sh') }}
+
+    - name: Cache BusyBox source/build
+      if: inputs.cache-busybox == 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          build/busybox-src/busybox-*
+          build/musl/busybox
+        key: busybox-${{ runner.os }}-${{ hashFiles('tools/musl/build-busybox.sh', 'tools/musl/busybox-1.36.0.config') }}
+
+    - name: Cache buildroot tree
+      if: inputs.cache-buildroot == 'true'
+      uses: actions/cache@v4
+      with:
+        # src + dl (Bootlin toolchain tarball) + output (compiled base target).
+        # Key ONLY on the defconfig: `make buildroot` reads the defconfig, not
+        # the overlay -- the overlay is merged at assemble time (assemble is not
+        # cached; assemble_gcc_rootfs.sh runs every build with the latest
+        # overlay). Keying on the overlay (as before) made every overlay tweak
+        # (e.g. F-USABILITY b4a adding the g++ smoke line to
+        # cinux-usability-test.sh) invalidate the cache and force a full ~5 min
+        # buildroot recompile for nothing. Pin concrete files (no globs): a
+        # malformed hashFiles glob silently breaks composite-action injection.
+        path: build/buildroot-ci
+        key: buildroot-${{ runner.os }}-${{ hashFiles('rootfs/buildroot/cinuxos_base_defconfig') }}
+
+    - name: Compiler version
+      shell: bash
+      run: |
+        echo "GCC $(gcc --version | head -1)"
+        ccache --version | head -1
+
+    - name: Configure
+      shell: bash
+      run: |
+        ccache --max-size=1G
+        cmake -B build \
+              -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+              -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+              ${{ inputs.cmake-flags }} -S .
+
+    - name: Show Cinux configuration
+      # Mirror the cmake/options.cmake STATUS print into the CI log so a
+      # mis-set switch is visible without digging into CMakeCache.txt.
+      shell: bash
+      run: grep -E '^CINUX_' build/CMakeCache.txt || true

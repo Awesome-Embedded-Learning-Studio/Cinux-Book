@@ -10,9 +10,11 @@
 
 #include <stdint.h>
 
+#include "kernel/proc/percpu.hpp"
+
 namespace cinux::arch {
 
-GDT g_gdt;
+GDT gdt_blocks[cinux::proc::kMaxCpus];
 
 void GDT::init() {
     entries_[0] = null_entry();
@@ -50,6 +52,11 @@ void GDT::init() {
 
     // Set up IST1 to point at the top of the dedicated Double Fault stack
     tss_.ist[0] = reinterpret_cast<uint64_t>(&df_stack_[sizeof(df_stack_)]);
+    // IST2: dedicated IRQ stack. Hardware IRQs (registered with ist=2) land
+    // their fxsave + ISR frame here instead of the interrupted task's stack,
+    // so a 100 Hz PIT tick or a mouse IRQ cannot stomp the running task's
+    // render-frame stack objects (F13-B Bug ②).
+    tss_.ist[1] = reinterpret_cast<uint64_t>(&irq_stack_[sizeof(irq_stack_)]);
 
     const auto tss_addr = reinterpret_cast<uint64_t>(&tss_);
     entries_[7]         = tss_low_entry(tss_addr, sizeof(TaskStateSegment) - 1);
@@ -62,7 +69,7 @@ void GDT::init() {
 }
 
 void GDT::tss_set_rsp0(uint64_t rsp0) {
-    g_gdt.tss_.rsp[0] = rsp0;
+    gdt_blocks[cinux::proc::percpu()->cpu_id].tss_.rsp[0] = rsp0;
 }
 
 void GDT::load() {
@@ -76,12 +83,19 @@ void GDT::load() {
         "movw %[ds], %%ax\n\t"
         "movw %%ax, %%ds\n\t"
         "movw %%ax, %%es\n\t"
-        "movw %%ax, %%fs\n\t"
-        "movw %%ax, %%gs\n\t"
         "movw %%ax, %%ss\n\t"
         :
         : [gdtr] "m"(gdtr_), [cs] "i"(GDT_KERNEL_CODE), [ds] "i"(GDT_KERNEL_DATA)
         : "rax", "memory");
+    // NOTE: %fs/%gs are intentionally NOT reloaded here.  In long mode their
+    // bases live in MSR_FS_BASE/MSR_GS_BASE (per-thread TLS / per-CPU PerCpu),
+    // NOT in the GDT descriptor -- loading a flat data selector into %fs/%gs
+    // forces the descriptor's base (0) into the MSR, clobbering the GS anchor.
+    // On APs this was fatal: ap_main anchors GS_BASE=percpu, THEN loads this
+    // GDT, so the old `movw %ax,%gs` here zeroed GS_BASE mid-boot and every
+    // later percpu()/current() read BIOS garbage at phys 0x18 -> #GP (F4-M4
+    // M4-2-3, GOTCHA#25).  A null %fs/%gs selector with an MSR base is the
+    // standard long-mode percpu arrangement (Linux does the same).
 
     const uint16_t tss_sel = GDT_TSS;
     __asm__ volatile("ltr %[sel]\n\t" : : [sel] "r"(tss_sel) : "memory");

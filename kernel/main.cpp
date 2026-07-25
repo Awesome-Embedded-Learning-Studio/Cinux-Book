@@ -38,32 +38,46 @@
 #include <stdint.h>
 
 #include "boot/boot_info.h"
+#include "kernel/arch/x86_64/extable.hpp"  // F-EXTABLE: sort_extable at boot
 #include "kernel/arch/x86_64/gdt.hpp"
 #include "kernel/arch/x86_64/idt.hpp"
+#include "kernel/arch/x86_64/irq_backend.hpp"
 #include "kernel/arch/x86_64/memory_layout.hpp"
+#include "kernel/arch/x86_64/paging.hpp"  // F9 batch 3: enable_smep
 #include "kernel/arch/x86_64/paging_config.hpp"
 #include "kernel/arch/x86_64/pic.hpp"
+#include "kernel/arch/x86_64/smp.hpp"
 #include "kernel/arch/x86_64/syscall.hpp"
 #include "kernel/arch/x86_64/usermode.hpp"
+#include "kernel/drivers/acpi/acpi.hpp"
 #include "kernel/drivers/ahci/ahci.hpp"
+#include "kernel/drivers/hpet/hpet.hpp"
 #include "kernel/drivers/keyboard/keyboard.hpp"
+#include "kernel/drivers/net/e1000_init.hpp"
+#include "kernel/drivers/nvme/nvme.hpp"
+#include "kernel/drivers/nvme/nvme_block_device.hpp"
 #include "kernel/drivers/pci/pci.hpp"
 #include "kernel/drivers/pit/pit.hpp"
+#include "kernel/drivers/rtc/rtc.hpp"
+#include "kernel/drivers/tty/console_tty.hpp"
 #include "kernel/drivers/video/console.hpp"
 #include "kernel/drivers/video/font.hpp"
 #include "kernel/drivers/video/framebuffer.hpp"
-#ifdef CINUX_GUI
-#    include "kernel/drivers/canvas.hpp"
-#    include "kernel/gui/gui_init.hpp"
-#endif
+#include "kernel/drivers/virtio/virtio_blk.hpp"
+#include "kernel/drivers/virtio/virtio_net.hpp"
+#include "kernel/lib/kallsyms.hpp"
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/lib/random.hpp"  // F9 batch 7: g_random
 #include "kernel/mm/address_space.hpp"
-#include "kernel/mm/heap.hpp"
+#include "kernel/mm/page_cache.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/mm/slab.hpp"
 #include "kernel/mm/vmm.hpp"
+#include "kernel/net/net_init.hpp"
 #include "kernel/proc/init.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/userspace.hpp"  // handoff_framebuffer_to_gui (§14: GUI init or no-op stub)
 
 using cinux::arch::PIC;
 using cinux::drivers::Console;
@@ -93,16 +107,27 @@ extern "C" void kernel_main() {
     // Step 1: Initialise the serial port used by kprintf
     cinux::lib::kprintf_init();
 
+    // F-INFRA I-5: register the build-generated symbol table so panic backtraces
+    // resolve to function names without host addr2line. Safe at IF=0 (no locks).
+    cinux::lib::kallsyms_set_table(g_kallsyms_table, g_kallsyms_count);
+
     // Step 2: Print the milestone message
     cinux::lib::kprintf("[BIG] Big kernel running @ 0x1000000\n");
 
     // Step 3: Initialise the GDT (must come before IDT)
-    cinux::arch::g_gdt.init();
-    cinux::lib::kprintf("[BIG] GDT loaded (TSS with IST1 Double Fault stack).\n");
+    cinux::arch::gdt_blocks[0].init();
+    cinux::lib::kprintf("[BIG] GDT loaded (TSS with IST1 #DF + IST2 IRQ stacks).\n");
 
     // Step 4: Initialise the IDT (depends on GDT selectors)
     cinux::arch::g_idt.init();
     cinux::lib::kprintf("[BIG] IDT loaded (#DF uses IST1).\n");
+
+    // F4-M3 P1-2 (early): anchor the BSP's GS base at its PerCpu block now, so
+    // percpu() (which reads MSR_GS_BASE) works before any interrupt fires or any
+    // code uses it.  Also configures STAR/EFER for SYSRET (formerly Step 18).
+    cinux::arch::usermode_init();
+    cinux::arch::enable_smep_smap();  // F9 batch 3/4: SMEP+SMAP on the BSP (CR4 per-CPU)
+    cinux::lib::kprintf("[BIG] PerCpu GS base anchored (BSP).\n");
 
     // Step 5: Initialise the PIC (remap IRQ0-7 -> 0x20-0x27,
     //         IRQ8-15 -> 0x28-0x2F, all masked)
@@ -112,14 +137,20 @@ extern "C" void kernel_main() {
     // Step 6: Register IRQ handlers in the IDT (vectors 0x20-0x2F)
     irq_init();
 
+    // F-EXTABLE: sort the __ex_table (user-accessor fixup sites) by fault_rip so
+    // handle_pf can binary-search it. IDT is up and interrupts are still off, so
+    // no accessor fault can fire yet (no user program). Safe no-op while empty.
+    cinux::arch::sort_extable();
+
     // Step 7: Initialise PIT channel 0 at 100 Hz (10 ms per tick)
     PIT::init(100);
 
-    // Step 8: Trigger a software breakpoint to verify exception
-    // handling still works after PIC/IRQ setup
-    cinux::lib::kprintf("[BIG] Triggering int $3 breakpoint...\n");
-    __asm__ volatile("int $3");
-    cinux::lib::kprintf("[BIG] Breakpoint returned, continuing.\n");
+    // F9 batch 7: seed the kernel PRNG (rdrand/TSC/PIT entropy) for ASLR (b8).
+    cinux::lib::g_random.init();
+
+    // Step 7b: Parse ACPI (RSDP/MADT) for the APIC base addresses and CPU list
+    // that M2 consumes.  Only needs the loader's direct map, which is already up.
+    cinux::drivers::acpi::init();
 
     // Step 9: Initialise Physical Memory Manager
     auto* boot_info = reinterpret_cast<const BootInfo*>(BOOT_INFO_PHYS);
@@ -131,14 +162,26 @@ extern "C" void kernel_main() {
     // Step 11: Save kernel PML4 for per-process address spaces
     cinux::mm::AddressSpace::init_kernel();
 
-    // Step 12: Initialise kernel heap (64 KB initial region after kernel image)
-    constexpr uint64_t HEAP_VIRT_BASE    = cinux::arch::KMEM_HEAP_BASE;
-    constexpr uint64_t HEAP_INITIAL_SIZE = 64 * 1024;
-    cinux::mm::g_heap.init(HEAP_VIRT_BASE, HEAP_INITIAL_SIZE);
+    // Step 11b: HPET high-res monotonic + RTC wall clock (F5-M4).  HPET needs VMM
+    // (it maps its MMIO window) and ACPI (find_table); RTC is pure port I/O.
+    // Both are up by here.  These feed sys_clock_gettime: MONOTONIC <- HPET
+    // (PIT fallback), REALTIME <- RTC boot epoch + HPET monotonic delta.
+    cinux::drivers::g_hpet.init();
+    cinux::drivers::g_rtc.init();
+
+    // Step 12: Initialise the slab allocator (small objects) + kmalloc.  Large
+    // allocations reuse the direct map, so only the slab window is reserved.
+    cinux::mm::g_slab.init(cinux::arch::KMEM_SLAB_BASE, cinux::arch::KMEM_SLAB_SIZE);
+    cinux::mm::init_dedicated_caches();  // F2-M7b: task / vma / cached_page caches
+
+    // Step 12b: Initialise the file-backed page cache (F2-M4).  Advisory 10%
+    // ceiling; eviction is deferred.  Needs the slab for CachedPage nodes.
+    cinux::mm::g_page_cache.init(cinux::mm::g_pmm.free_page_count() / 10);
 
     // Step 13: Initialise framebuffer from BootInfo
     Framebuffer fb;
     fb.init(*boot_info);
+    cinux::drivers::set_system_framebuffer(&fb);  // F-GUI-USERSPACE b1: /dev/fb0 mmap
     cinux::lib::kprintf("[BIG] Framebuffer initialised: %ux%u %ubpp\n", fb.width(), fb.height(),
                         boot_info->fb_bpp);
 
@@ -153,31 +196,33 @@ extern "C" void kernel_main() {
     cinux::lib::kprintf_register_sink(Console::console_sink_adapter, &console);
     cinux::lib::kprintf("[BIG] Console initialised -- dual output active.\n");
 
-#ifdef CINUX_GUI
-    // Step 15b: Initialise GUI canvas and window manager
-    static cinux::drivers::Canvas g_canvas;
-    g_canvas.init(fb);
-    cinux::gui::gui_init(g_canvas, font);
-#endif
+    // F10-M3 batch 2: wire the console TTY (stdin line discipline + echo sink)
+    // before the keyboard starts delivering IRQs.
+    cinux::drivers::console_tty().init();
+
+    // Step 15b: hand the framebuffer + console off to the GUI (canvas + window
+    // manager init; console detached so routine logs stop overlaying the
+    // desktop).  No-op when GUI is compiled out (§14 stub linked).  kpanic
+    // re-enables all sinks, so a crash still reaches the screen.
+    cinux::proc::handoff_framebuffer_to_gui(fb, font, console);
 
     // Step 16: Initialise the PS/2 keyboard controller
     Keyboard::init();
 
-    // Step 17: Unmask IRQ0 (PIT timer) and IRQ1 (Keyboard), enable interrupts
-    PIC::unmask(0);
-    PIC::unmask(1);
-    cinux::lib::kprintf("[BIG] IRQ0+IRQ1 unmasked, enabling interrupts...\n");
+    // Step 17: Switch from the 8259 PIC to the APIC (mask PIC, enable LAPIC,
+    // route ISA IRQ 0/1/12 onto vectors 0x20/0x21/0x2C via the I/O APIC), then
+    // enable interrupts.  Falls back to PIC if ACPI/APIC init fails.
+    cinux::arch::switch_to_apic();
     __asm__ volatile("sti");
     cinux::lib::kprintf("[BIG] Interrupts enabled.\n");
 
-#ifdef CINUX_GUI
-    // Step 17b: Unmask IRQ12 (PS/2 mouse) for GUI mode
-    PIC::unmask(12);
-    cinux::lib::kprintf("[BIG] IRQ12 unmasked for PS/2 mouse.\n");
-#endif
+    // Step 17b: Boot Application Processors (F4-M3 P2).  Bring each AP through
+    // INIT-SIPI-SIPI to 64-bit long mode; they reach ap_main(), signal online,
+    // then halt (no tasks until M4).  No-op on a single-CPU machine.
+    cinux::arch::boot_aps();
 
-    // Step 18: Initialise user-mode support (STAR/EFER MSRs)
-    cinux::arch::usermode_init();
+    // Step 18: user-mode STAR/EFER support was initialised early (right after
+    // the IDT) so the BSP's GS base is anchored before interrupts are enabled.
 
     // Step 19: Initialise syscall infrastructure (LSTAR, SFMASK, dispatch table)
     cinux::arch::syscall_init();
@@ -216,9 +261,127 @@ extern "C" void kernel_main() {
         cinux::lib::kprintf("[AHCI] No AHCI controller found.\n");
     }
 
+    // Step 21a (F5-M3): NVMe controller -- 并存 independent second disk.
+    // Production rootfs stays on AHCI (init.cpp mounts Ext2 over AHCIBlockDevice);
+    // this brings up an NvmeBlockDevice for the batch-5 perf comparison and any
+    // future NVMe-backed Ext2.  Polling mode: init_msi_x masks every entry, so
+    // the ISR stub at IDT[0x41] (installed in irq_init) never fires -- io_submit
+    // polls the IO CQ directly.  switch_to_apic ran at Step 17, so a later batch
+    // can safely unmask for true async IRQ if desired.
+    static cinux::drivers::nvme::NvmeController nvme_ctrl;
+    cinux::drivers::pci::PCIDevice              nvme_dev;
+    if (pci.find_nvme(nvme_dev)) {
+        cinux::drivers::nvme::NamespaceInfo ns{};
+        // init_msi_x MUST precede create_io_queues: QEMU's nvme_create_cq checks
+        // msix_enabled (returns NVME_INVALID_IRQ_VECTOR if MSI-X is off and the
+        // IO CQ carries a non-zero IV).  init_msi_x enables MSI-X (then masks
+        // every entry for polling mode), so the check passes.
+        if (nvme_ctrl.init(nvme_dev).ok() && nvme_ctrl.enable().ok() &&
+            nvme_ctrl.init_msi_x().ok() && nvme_ctrl.identify_namespace(1, ns).ok() &&
+            nvme_ctrl.create_io_queues().ok()) {
+            auto bd =
+                cinux::drivers::nvme::NvmeBlockDevice::create(nvme_ctrl, 1, ns.nsze, ns.lba_size);
+            if (bd.ok()) {
+                // Leak into a static so the device outlives this scope; batch 5
+                // exposes an accessor for the perf comparison.
+                static cinux::drivers::nvme::NvmeBlockDevice nvme_blk = std::move(bd.value());
+                cinux::drivers::nvme::set_nvme_block_device(&nvme_blk);
+                cinux::lib::kprintf("[NVMe] NvmeBlockDevice ready (nsze=%llu lba_size=%llu)\n",
+                                    static_cast<unsigned long long>(ns.nsze),
+                                    static_cast<unsigned long long>(ns.lba_size));
+            }
+        }
+    }
+
+    // Step 21a2 (F5-M2): VirtIO-blk controller -- 并存 independent third disk.
+    // Mirrors NVMe Step 21a: PCI find + transport init + feature negotiate +
+    // VirtIOBlock::create (3-desc chain polling IBlockDevice).  Polling mode
+    // (no MSI-X until batch 3).  Independent of AHCI/NVMe rootfs.
+    static cinux::drivers::virtio::VirtIODevice virtio_blk_dev;
+    cinux::drivers::pci::PCIDevice              virtio_blk_pci;
+    if (pci.find_virtio_block(virtio_blk_pci)) {
+        if (virtio_blk_dev.init(virtio_blk_pci).ok()) {
+            auto fr = virtio_blk_dev.negotiate_features(cinux::drivers::virtio::Feature::VERSION_1);
+            if (fr.ok()) {
+                // Enable MSI-X real interrupt (batch 3): entry 0 -> 0x42, unmasked.
+                // Production only -- the test kernel has no switch_to_apic, so an
+                // unmasked MSI would strand in the LAPIC ISR (NVMe batch-3 root
+                // cause); test_virtio therefore never calls init_msi_x.
+                auto mr = virtio_blk_dev.init_msi_x(cinux::drivers::virtio::kVirtioBlkIrqVector);
+                if (!mr.ok()) {
+                    cinux::lib::kprintf("[VirtIO-blk] MSI-X init failed -- polling mode\n");
+                }
+                const uint64_t capacity = virtio_blk_dev.device_cfg_read64(0);
+                auto bd = cinux::drivers::virtio::VirtIOBlock::create(virtio_blk_dev, capacity);
+                if (bd.ok()) {
+                    static cinux::drivers::virtio::VirtIOBlock virtio_blk = std::move(bd.value());
+                    virtio_blk_dev.set_status(cinux::drivers::virtio::Status::DRIVER_OK);
+                    cinux::drivers::virtio::set_virtio_block_device(&virtio_blk);
+                    cinux::lib::kprintf("[VirtIO-blk] ready (capacity=%llu sectors)\n",
+                                        static_cast<unsigned long long>(capacity));
+                }
+            }
+        }
+    }
+
+    // Step 21a3 (F5-M2 batch 5): VirtIO-net NIC (production, real interrupt path).
+    // Driver + transport + MSI-X unmask in place; NetStack attach (supplement/
+    // replace e1000) + SLIRP ping is a follow-up integration gate.
+    static cinux::drivers::virtio::VirtIODevice virtio_net_dev;
+    cinux::drivers::pci::PCIDevice              virtio_net_pci;
+    if (pci.find_virtio_net(virtio_net_pci)) {
+        if (virtio_net_dev.init(virtio_net_pci).ok()) {
+            auto fr = virtio_net_dev.negotiate_features(cinux::drivers::virtio::Feature::VERSION_1);
+            if (fr.ok()) {
+                auto mr = virtio_net_dev.init_msi_x(cinux::drivers::virtio::kVirtioNetIrqVector);
+                if (!mr.ok()) {
+                    cinux::lib::kprintf("[VirtIO-net] MSI-X init failed -- polling mode\n");
+                }
+                auto nr = cinux::drivers::virtio::VirtIONetDevice::create(virtio_net_dev);
+                if (nr.ok()) {
+                    static cinux::drivers::virtio::VirtIONetDevice virtio_net =
+                        std::move(nr.value());
+                    cinux::drivers::virtio::set_virtio_net_device(
+                        &virtio_net);  // F5-M2 task 2: net::init() attaches it
+                    virtio_net_dev.set_status(cinux::drivers::virtio::Status::DRIVER_OK);
+                    // F5-M2 task 2: pre-fill one RX buffer so the first SLIRP ARP
+                    // reply has somewhere to land (else dropped before poll_rx
+                    // supplies one -> ping stalls on ARP resolve).
+                    if (!virtio_net.prime_rx().ok()) {
+                        cinux::lib::kprintf("[VirtIO-net] RX prime failed\n");
+                    }
+                    {
+                        cinux::net::EthAddr vmac{};
+                        virtio_net.mac(vmac);
+                        cinux::lib::kprintf(
+                            "[VirtIO-net] ready (IRQ 0x%x) MAC %02x:%02x:%02x:%02x:%02x:%02x\n",
+                            cinux::drivers::virtio::kVirtioNetIrqVector, vmac.oct[0], vmac.oct[1],
+                            vmac.oct[2], vmac.oct[3], vmac.oct[4], vmac.oct[5]);
+                    }
+                }
+            }
+        }
+    }
+
+    // Step 21b: Bring up the e1000 NIC (if present).  §14 file gate: net::init()
+    // is a no-op stub when CINUX_NET is off, so this call needs no #ifdef.
+    cinux::drivers::net::init();
+
+    // Step 21c: Bring up the L3 stack (ARP / IPv4 / ICMP) over the NIC -- the
+    // composition root that builds the adapter + NetStack and attaches them.
+    // §14 file gate: no-op stub when CINUX_NET is off, so no #ifdef here.
+    cinux::net::init();
+
     // Step 22: Initialise scheduler and spawn kernel init thread
     cinux::lib::kprintf("[BIG] ===== Scheduler & Init Thread =====\n");
     Scheduler::init();
+
+    // F7 follow-up: start the resident net RX poll-driver kthread (sti/hlt +
+    // NetStack::poll). Must come after the scheduler is up; it runs at low
+    // priority and yields cooperatively after each poll/sleep round. Lets ping()
+    // yield (default pump) instead of sti/hlt-ing inside the syscall (the #DF
+    // hazard). No-op if no NIC.
+    cinux::net::start_poll_driver();
 
     auto* init_task =
         TaskBuilder().set_entry(cinux::proc::kernel_init_thread).set_name("kernel_init").build();

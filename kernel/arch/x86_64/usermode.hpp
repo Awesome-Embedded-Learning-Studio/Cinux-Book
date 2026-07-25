@@ -31,11 +31,26 @@ namespace cinux::arch {
 /// Default virtual address for user program entry (linker base)
 constexpr uint64_t USER_ENTRY_BASE = 0x400000;
 
+/// Fixed virtual address of the sigreturn trampoline page (F9 batch 1).
+/// A single read-only, user-executable page mapped by execve holding the
+/// 8-byte `int $0x80` sigreturn stub. Lets the user stack be marked NX (F9
+/// batch 2): the handler return address points here, not to code on the stack
+/// (aligned with Linux's vDSO __restore_rt). Sits below the ELF image in
+/// otherwise-unused low user space.
+constexpr uint64_t USER_SIGRETURN_PAGE = 0x100000;
+
 /// Default virtual address for the top of the user stack
 constexpr uint64_t USER_STACK_TOP = 0x7FFFFF000;
 
 /// Number of 4 KB pages for the user stack (16 KB)
 constexpr uint64_t USER_STACK_PAGES = 4;
+
+/// Maximum user stack size -- the stack VMA spans this many bytes below
+/// USER_STACK_TOP and grows down on demand (F2-M5). Only USER_STACK_PAGES are
+/// pre-mapped at the top; the rest is demand-paged as the stack grows down.
+/// Accesses below [USER_STACK_TOP - USER_STACK_GROWTH) hit no VMA -> segfault
+/// (stack overflow guard).
+constexpr uint64_t USER_STACK_GROWTH = 0x100000ULL;  // 1 MB
 
 /// x86_64 SysV ABI: RSP = 8 mod 16 at _start entry (mimics `call` push)
 constexpr uint64_t USER_ABI_RSP_OFFSET = 8;

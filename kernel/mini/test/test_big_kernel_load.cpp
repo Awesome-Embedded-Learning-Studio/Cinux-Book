@@ -128,7 +128,7 @@ void test_load_elf_success() {
     TEST_ASSERT_TRUE(g_phase1_ok);
     uint64_t entry = load_big_kernel_phase2(g_state, BIG_KERNEL_LBA);
     TEST_ASSERT(entry != 0);
-    kprintf("  Entry point: 0x%p\n", reinterpret_cast<void*>(entry));
+    kprintf("  Entry point: %p\n", reinterpret_cast<void*>(entry));
     g_loaded_entry = entry;
 }
 }  // namespace test_big_kernel_load

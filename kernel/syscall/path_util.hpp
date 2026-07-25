@@ -39,15 +39,47 @@ inline bool validate_user_ptr(uint64_t ptr) {
 }
 
 /**
+ * @brief Read one NUL-terminated user path into a kernel buffer via the SMAP
+ *        accessor (get_user byte-by-byte; never raw-dereferences user memory).
+ *
+ * Rejects bad addresses (access_ok), empty strings, and strings that do not
+ * fit in @p cap. @p out is NUL-terminated on success.
+ *
+ * @param path_virt  User virtual address of the path string
+ * @param out        Kernel buffer (at least @p cap bytes)
+ * @param cap        Capacity of @p out (use cinux::fs::PATH_MAX)
+ * @return true on success, false on access failure / empty / too long
+ */
+bool read_user_path(uint64_t path_virt, char* out, size_t cap);
+
+/**
  * @brief Resolve a user-space path to an absolute kernel-side path
  *
- * Validates the user pointer, then resolves the path relative to
- * the current task's cwd.  The result is canonicalised.
+ * Reads the user path via read_user_path (SMAP accessor), then resolves it
+ * relative to the current task's cwd.  The result is canonicalised.
  *
  * @param path_virt  User virtual address of the path string
  * @param out        Output buffer (at least cinux::fs::PATH_MAX bytes)
  * @return true on success, false on error
  */
 bool resolve_user_path(uint64_t path_virt, char* out);
+
+/**
+ * @brief Split a path into parent directory path and leaf name
+ *
+ * For example, "foo/bar/baz" -> parent="foo/bar", name="baz".
+ * Edge case: "baz" -> parent="" (root), name="baz".
+ *
+ * @p name_out points into @p path (not copied); @p parent_out receives a
+ * NUL-terminated copy suitable for VFS lookup().
+ *
+ * @param path         Full path (NUL-terminated, relative to FS root)
+ * @param parent_out   Buffer for the parent path (>= cinux::fs::PATH_MAX bytes)
+ * @param name_out     Set to the start of the leaf name within @p path
+ * @param namelen_out  Set to the length of the leaf name
+ * @return true on success, false if @p path is empty or ends with '/'
+ */
+bool split_pathname(const char* path, char* parent_out, const char** name_out,
+                    uint32_t* namelen_out);
 
 }  // namespace cinux::syscall

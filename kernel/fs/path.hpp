@@ -19,6 +19,30 @@ namespace cinux::fs {
 /// Maximum absolute path length (including NUL terminator)
 static constexpr uint32_t PATH_MAX = 4096;
 
+/// Heap-allocated PATH_MAX scratch buffer (RAII).  Path resolution runs inside
+/// syscall handlers; a `char resolved[PATH_MAX]` (4 KB) on the kernel stack --
+/// twice over in handlers that also split a parent path, plus the canonicaliser's
+/// own 4 KB scratch -- overflowed the 16 KB kernel stack on the first path
+/// syscall (F5-M5 -smp shell).  Linux keeps 8 KB stacks by NOT putting path
+/// buffers on them; this does the same: the buffer lives on the heap and is
+/// freed at scope exit.  Implicitly converts to `char*` so call sites read like
+/// a plain buffer.
+class PathBuf {
+public:
+    PathBuf() : buf_(new char[PATH_MAX]) { buf_[0] = '\0'; }
+    ~PathBuf() { delete[] buf_; }
+    PathBuf(const PathBuf&)            = delete;
+    PathBuf& operator=(const PathBuf&) = delete;
+
+    char&       operator[](uint32_t i) noexcept { return buf_[i]; }
+    char*       data() noexcept { return buf_; }
+    const char* data() const noexcept { return buf_; }
+    operator char*() noexcept { return buf_; }
+
+private:
+    char* buf_;
+};
+
 /**
  * @brief Canonicalise a path in-place
  *

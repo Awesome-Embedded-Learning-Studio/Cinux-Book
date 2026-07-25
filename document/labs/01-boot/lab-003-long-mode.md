@@ -4,7 +4,7 @@ title: Lab 003 · 跨进长模式
 
 # Lab 003 · 跨进长模式
 
-> 这个 lab 配套 [003 · 跨进长模式](../../book/01-boot/003-boot-long-mode.md)。目标是在 [Lab 002](lab-002-gdt-protected.md) 的 `pm_entry`(打完 `'P'`)之后接上:搭一套临时页表、按固定顺序拨开关、远跳进 64 位,最后 debugcon 再吐一个 `'L'`。**页表项自己算位、EFER 自己拨、64 位描述符自己拼**,不给现成答案。
+> 这个 lab 配套 [003 · 跨进长模式](../../book/01-boot/003/)。目标是在 [Lab 002](lab-002-gdt-protected.md) 的 `pm_entry`(打完 `'P'`)之后接上:搭一套临时页表、按固定顺序拨开关、远跳进 64 位,最后 debugcon 再吐一个 `'L'`。**页表项自己算位、EFER 自己拨、64 位描述符自己拼**,不给现成答案。
 
 ## 实验目标
 
@@ -17,7 +17,7 @@ title: Lab 003 · 跨进长模式
 ## 前置条件
 
 - 已完成 Lab 002:机器能进 32 位 PM,`debug.log` 里能看到 `P`。
-- 理解四级页表(PML4/PDPT/PD/PT)、2MB 大页的 PS 位、MSR 的读写(`rdmsr`/`wrmsr`)。不清楚就先翻 [003 章的设计图](../../book/01-boot/003-boot-long-mode.md#设计图)。
+- 理解四级页表(PML4/PDPT/PD/PT)、2MB 大页的 PS 位、MSR 的读写(`rdmsr`/`wrmsr`)。不清楚就先翻 [003 章的设计图](../../book/01-boot/003/02-design.md)。
 
 ## 任务分解
 

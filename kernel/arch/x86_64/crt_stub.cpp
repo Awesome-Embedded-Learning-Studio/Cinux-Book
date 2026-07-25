@@ -9,7 +9,7 @@
  *   - __stack_chk_fail     : called if stack canary is corrupted
  *   - __cxa_atexit         : no-op (kernels never "exit")
  *   - _init_global_ctors   : walks .init_array, calls each constructor
- *   - operator new / delete: redirected to Heap::alloc / Heap::free
+ *   - operator new / delete: redirected to kmalloc / kfree
  *
  * All stubs that represent programming errors simply cli;hlt forever.
  */
@@ -19,7 +19,8 @@
 
 #include <new>
 
-#include "kernel/mm/heap.hpp"
+#include "kernel/lib/kprintf.hpp"
+#include "kernel/mm/slab.hpp"
 
 extern "C" {
 
@@ -35,7 +36,9 @@ extern "C" {
  */
 [[noreturn]] void __cxa_pure_virtual() {
     __asm__ volatile("cli");
-    __asm__ volatile("outb %0, %1" : : "a"((uint8_t)'V'), "Nd"((uint16_t)0xE9));
+    __asm__ volatile("outb %0, %1"
+                     :
+                     : "a"(static_cast<uint8_t>('V')), "Nd"(static_cast<uint16_t>(0xE9)));
     while (1) {
         __asm__ volatile("cli; hlt");
     }
@@ -51,12 +54,35 @@ extern "C" {
  * With -fno-stack-protector this should never fire, but we
  * provide it anyway in case someone enables stack protectors.
  */
+// F9 batch 6: the stack canary. -mstack-protector-guard=global makes GCC
+// read/write this symbol in every protected function's prologue/epilogue.
+// Seeded at boot from the TSC (boot.S) for a per-boot random value.
+uint64_t __stack_chk_guard = 0;
+
 [[noreturn]] void __stack_chk_fail() {
-    __asm__ volatile("cli");
-    __asm__ volatile("outb %0, %1" : : "a"((uint8_t)'S'), "Nd"((uint16_t)0xE9));
-    while (1) {
-        __asm__ volatile("cli; hlt");
-    }
+    cinux::lib::kpanic("Stack smashing detected (canary corrupted)\n");
+}
+
+// ============================================================
+// C assert() failure handler
+// ============================================================
+
+/**
+ * @brief Invoked by the assert() macro (<cassert>) when a check fails
+ *
+ * Cinux-Base's header-only types (e.g. ErrorOr::value()) use assert().  In a
+ * freestanding kernel there is no libc __assert_fail, so we provide one that
+ * reports the failure site via kpanic and halts.
+ *
+ * @param assertion  The expression text that failed
+ * @param file       Source file name
+ * @param line       Source line number
+ * @param function   Enclosing function name (may be null)
+ */
+[[noreturn]] void __assert_fail(const char* assertion, const char* file, unsigned int line,
+                                const char* function) {
+    cinux::lib::kpanic("Assertion failed: %s (%s:%u: %s)\n", assertion, file, line,
+                       function != nullptr ? function : "");
 }
 
 // ============================================================
@@ -155,76 +181,97 @@ void _init_global_ctors() {
 }  // extern "C"
 
 // ============================================================
-// Operator new / delete -- redirected to Heap
+// Operator new / delete -- redirected to kmalloc / kfree
 // ============================================================
 // Must be outside extern "C" -- they need C++ mangling.
 
 /**
- * @brief Single-object new -- delegates to Heap::alloc
+ * @brief Single-object new -- delegates to kmalloc (slab or buddy)
  */
 void* operator new(unsigned long size) {
-    return cinux::mm::g_heap.alloc(static_cast<size_t>(size));
+    return cinux::mm::kmalloc(static_cast<size_t>(size));
 }
 
 /**
- * @brief Array new -- delegates to Heap::alloc
+ * @brief Array new -- delegates to kmalloc
  */
 void* operator new[](unsigned long size) {
-    return cinux::mm::g_heap.alloc(static_cast<size_t>(size));
+    return cinux::mm::kmalloc(static_cast<size_t>(size));
 }
 
 /**
- * @brief Aligned new -- delegates to Heap::alloc with alignment
+ * @brief Aligned new -- delegates to kmalloc with alignment
  */
 void* operator new(unsigned long size, std::align_val_t align) {
-    return cinux::mm::g_heap.alloc(static_cast<size_t>(size), static_cast<size_t>(align));
+    return cinux::mm::kmalloc(static_cast<size_t>(size), static_cast<size_t>(align));
 }
 
 /**
- * @brief Aligned array new -- delegates to Heap::alloc with alignment
+ * @brief Aligned array new -- delegates to kmalloc with alignment
  */
 void* operator new[](unsigned long size, std::align_val_t align) {
-    return cinux::mm::g_heap.alloc(static_cast<size_t>(size), static_cast<size_t>(align));
+    return cinux::mm::kmalloc(static_cast<size_t>(size), static_cast<size_t>(align));
 }
 
 /**
- * @brief Single-object delete -- delegates to Heap::free
+ * @brief Single-object delete -- delegates to kfree
  */
 void operator delete(void* ptr) noexcept {
-    cinux::mm::g_heap.free(ptr);
+    cinux::mm::kfree(ptr);
 }
 
 /**
- * @brief Sized delete -- delegates to Heap::free (size ignored)
+ * @brief Sized delete -- delegates to kfree (size ignored)
  */
 void operator delete(void* ptr, unsigned long) noexcept {
-    cinux::mm::g_heap.free(ptr);
+    cinux::mm::kfree(ptr);
 }
 
 /**
- * @brief Array delete -- delegates to Heap::free
+ * @brief Array delete -- delegates to kfree
  */
 void operator delete[](void* ptr) noexcept {
-    cinux::mm::g_heap.free(ptr);
+    cinux::mm::kfree(ptr);
 }
 
 /**
- * @brief Sized array delete -- delegates to Heap::free (size ignored)
+ * @brief Sized array delete -- delegates to kfree (size ignored)
  */
 void operator delete[](void* ptr, unsigned long) noexcept {
-    cinux::mm::g_heap.free(ptr);
+    cinux::mm::kfree(ptr);
 }
 
 /**
- * @brief Aligned delete -- delegates to Heap::free (alignment ignored)
+ * @brief Aligned delete -- delegates to kfree (alignment ignored)
  */
 void operator delete(void* ptr, std::align_val_t) noexcept {
-    cinux::mm::g_heap.free(ptr);
+    cinux::mm::kfree(ptr);
 }
 
 /**
- * @brief Aligned sized delete -- delegates to Heap::free
+ * @brief Aligned sized delete -- delegates to kfree
  */
 void operator delete(void* ptr, unsigned long, std::align_val_t) noexcept {
-    cinux::mm::g_heap.free(ptr);
+    cinux::mm::kfree(ptr);
 }
+
+// ============================================================
+// libstdc++ Assertion Failure Handler (_GLIBCXX_ASSERTIONS)
+// ============================================================
+
+// GCC 16 libstdc++ compiles bounds checks into std::unique_ptr<T[]>::operator[]
+// (and other container accessors) even without -D_GLIBCXX_ASSERTIONS; on
+// violation it calls std::__glibcxx_assert_fail. A freestanding kernel links no
+// libstdc++, so we provide the symbol and route the failure to kpanic -- the
+// same pattern as __assert_fail / __stack_chk_fail. This lets the kernel use
+// modern C++ (std::unique_ptr, std::array bounds checks, etc.) without shunning
+// it: a violated assertion is a real bug, so we halt loudly rather than UB.
+namespace std {
+[[noreturn]] void __glibcxx_assert_fail(const char* file, int line, const char* function,
+                                        const char* condition) noexcept {
+    cinux::lib::kpanic("libstdc++ assertion failed: %s (%s:%d: %s)\n",
+                       condition != nullptr ? condition : "(null)",
+                       file != nullptr ? file : "(null)", line,
+                       function != nullptr ? function : "(null)");
+}
+}  // namespace std

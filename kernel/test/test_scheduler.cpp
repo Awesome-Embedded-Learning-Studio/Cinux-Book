@@ -142,18 +142,25 @@ void test_enqueue_dequeue() {
     rr.enqueue(t2);
     rr.enqueue(t3);
 
-    // pick_next should rotate through t1, t2, t3
+    // pick_next REMOVES the winner from the queue (F4-M4 M4-2-2 runqueue
+    // multi-core safety: a running task must not sit in the shared queue, or a
+    // second CPU could double-pick it).  Round-robin cycling is driven by
+    // re-enqueueing the picked task -- exactly what schedule() does when a
+    // running task yields -- so this test mirrors that here.
     Task* n1 = rr.pick_next();
     TEST_ASSERT_EQ(n1, t1);
     TEST_ASSERT_EQ(static_cast<int>(n1->state), static_cast<int>(TaskState::Running));
+    rr.enqueue(n1);  // simulate schedule() re-enqueuing the yielding task
 
     Task* n2 = rr.pick_next();
     TEST_ASSERT_EQ(n2, t2);
+    rr.enqueue(n2);
 
     Task* n3 = rr.pick_next();
     TEST_ASSERT_EQ(n3, t3);
+    rr.enqueue(n3);
 
-    // Wrap around
+    // Wrap around: t1 is back at the head (t2, t3 were enqueued after it).
     Task* n4 = rr.pick_next();
     TEST_ASSERT_EQ(n4, t1);
 }
@@ -190,7 +197,7 @@ void test_empty_pick_next() {
 namespace test_cpu_context {
 
 void test_layout() {
-    TEST_ASSERT_EQ(sizeof(CpuContext), 80u);
+    TEST_ASSERT_EQ(sizeof(CpuContext), 96u);
     TEST_ASSERT_EQ(offsetof(CpuContext, r15), 0u);
     TEST_ASSERT_EQ(offsetof(CpuContext, r14), 8u);
     TEST_ASSERT_EQ(offsetof(CpuContext, r13), 16u);
@@ -199,6 +206,9 @@ void test_layout() {
     TEST_ASSERT_EQ(offsetof(CpuContext, rbx), 40u);
     TEST_ASSERT_EQ(offsetof(CpuContext, rsp), 48u);
     TEST_ASSERT_EQ(offsetof(CpuContext, rip), 56u);
+    TEST_ASSERT_EQ(offsetof(CpuContext, gs_base), 64u);
+    TEST_ASSERT_EQ(offsetof(CpuContext, kgs_base), 72u);
+    TEST_ASSERT_EQ(offsetof(CpuContext, fs_base), 80u);
     TEST_ASSERT_EQ(alignof(CpuContext), 16u);
 }
 
@@ -221,19 +231,19 @@ static CpuContext task_a_ctx;
 static CpuContext task_b_ctx;
 
 static void task_a_func() {
-    task_a_count++;
+    task_a_count = task_a_count + 1;
     // Switch to task B
     context_switch(&task_a_ctx, &task_b_ctx);
     // Comes back here after B yields
-    task_a_count++;
+    task_a_count = task_a_count + 1;
     // Done
-    done = true;
+    done         = true;
     // Switch back to boot
     context_switch(&task_a_ctx, &boot_ctx);
 }
 
 static void task_b_func() {
-    task_b_count++;
+    task_b_count = task_b_count + 1;
     // Switch back to task A
     context_switch(&task_b_ctx, &task_a_ctx);
     // Should not reach here in this test
@@ -372,6 +382,43 @@ void test_block_unblock() {
     TEST_ASSERT_EQ(static_cast<int>(task->state), static_cast<int>(TaskState::Ready));
 }
 
+// Verifies the real dispatch path that NoRescheduleGuard suppresses in the
+// phantom-task tests: block(current) must genuinely context-switch to a
+// runnable task and resume the caller once that task exits.  b runs, wakes a,
+// and returns into the exit_current trampoline (wired by TaskBuilder at
+// task_builder.cpp:100-103), which schedules back to a.
+static Task* g_block_dispatch_a     = nullptr;
+static bool  g_block_dispatch_b_ran = false;
+
+static void block_dispatch_b_entry() {
+    g_block_dispatch_b_ran = true;
+    Scheduler::unblock(g_block_dispatch_a);  // wake a so exit_current can pick it
+    // Returning falls into exit_current -> schedule -> a resumes.
+}
+
+void test_block_dispatches_to_runnable() {
+    Scheduler::init();
+    g_block_dispatch_a     = nullptr;
+    g_block_dispatch_b_ran = false;
+
+    Task* a = TaskBuilder().set_entry(test_task_builder::dummy_entry).set_name("blk_a").build();
+    Task* b = TaskBuilder().set_entry(block_dispatch_b_entry).set_name("blk_b").build();
+    TEST_ASSERT_NOT_NULL(a);
+    TEST_ASSERT_NOT_NULL(b);
+
+    g_block_dispatch_a = a;     // b's entry unblocks this task before exiting
+    Scheduler::set_current(a);  // the harness thread role-plays task a
+    Scheduler::add_task(b);     // b waits, runnable, in the run queue
+
+    // No NoRescheduleGuard here: block(a) MUST really dispatch to b.  This
+    // proves the guard suppresses scheduling only when explicitly asked.
+    Scheduler::block(a, "dispatch test");
+    // a resumes here after b ran, exited, and scheduled back.
+
+    TEST_ASSERT_TRUE(g_block_dispatch_b_ran);  // b ran => a real dispatch happened
+    Scheduler::set_current(nullptr);
+}
+
 }  // namespace test_scheduler_new
 
 // ============================================================
@@ -395,15 +442,20 @@ void test_locked_enqueue_dequeue() {
     rr.enqueue(t2);
     rr.enqueue(t3);
 
+    // pick_next removes the winner (F4-M4 M4-2-2); re-enqueue after each pick
+    // (as schedule() does on yield) to drive the round-robin cycling.
     Task* n1 = rr.pick_next();
     TEST_ASSERT_EQ(n1, t1);
     TEST_ASSERT_EQ(static_cast<int>(n1->state), static_cast<int>(TaskState::Running));
+    rr.enqueue(n1);
 
     Task* n2 = rr.pick_next();
     TEST_ASSERT_EQ(n2, t2);
+    rr.enqueue(n2);
 
     Task* n3 = rr.pick_next();
     TEST_ASSERT_EQ(n3, t3);
+    rr.enqueue(n3);
 
     Task* n4 = rr.pick_next();
     TEST_ASSERT_EQ(n4, t1);
@@ -449,6 +501,222 @@ void test_locked_fifo_order() {
 }  // namespace test_round_robin_locked
 
 // ============================================================
+// Test 11: SchedulingClass policy hooks (F3-M4 batch 1)
+// ============================================================
+
+namespace test_sched_class_hooks {
+
+void test_task_tick_quantum() {
+    RoundRobin rr;
+    Task* t = TaskBuilder().set_entry(test_task_builder::dummy_entry).set_name("tick_q").build();
+    TEST_ASSERT_NOT_NULL(t);
+
+    rr.enqueue(t);
+    rr.pick_next();  // select t, recharge its quantum to DEFAULT_TIME_SLICE
+
+    // The first (DEFAULT_TIME_SLICE - 1) ticks do not request preemption...
+    for (int i = 1; i < Scheduler::DEFAULT_TIME_SLICE; i++) {
+        TEST_ASSERT_FALSE(rr.task_tick(t));
+    }
+    // ...the DEFAULT_TIME_SLICE-th tick exhausts the quantum and recharges.
+    TEST_ASSERT_TRUE(rr.task_tick(t));
+    // After recharging the task again has a full slice.
+    TEST_ASSERT_FALSE(rr.task_tick(t));
+}
+
+void test_task_fork_inherits_priority() {
+    RoundRobin rr;
+    Task*      parent = TaskBuilder()
+                            .set_entry(test_task_builder::dummy_entry)
+                            .set_name("fork_p")
+                            .set_priority(7)
+                            .build();
+    Task*      child  = TaskBuilder()
+                            .set_entry(test_task_builder::dummy_entry)
+                            .set_name("fork_c")
+                            .set_priority(0)
+                            .build();
+    TEST_ASSERT_NOT_NULL(parent);
+    TEST_ASSERT_NOT_NULL(child);
+
+    rr.task_fork(parent, child);
+    TEST_ASSERT_EQ(child->priority, 7u);
+}
+
+void test_task_deadline_default_zero() {
+    // RoundRobin does not override task_deadline, so the base default (0,
+    // "not deadline-based") applies.
+    RoundRobin rr;
+    Task*      t = TaskBuilder().set_entry(test_task_builder::dummy_entry).set_name("dl").build();
+    TEST_ASSERT_NOT_NULL(t);
+    TEST_ASSERT_EQ(rr.task_deadline(t), 0u);
+}
+
+}  // namespace test_sched_class_hooks
+
+// ============================================================
+// Test 12: Priority-aware RoundRobin (F3-M4 batch 2)
+// ============================================================
+
+namespace test_priority {
+
+void test_priority_picks_lowest_value() {
+    RoundRobin rr;
+    Task*      hi = TaskBuilder()
+                        .set_entry(test_task_builder::dummy_entry)
+                        .set_name("hi")
+                        .set_priority(0)
+                        .build();
+    Task*      lo = TaskBuilder()
+                        .set_entry(test_task_builder::dummy_entry)
+                        .set_name("lo")
+                        .set_priority(10)
+                        .build();
+    TEST_ASSERT_NOT_NULL(hi);
+    TEST_ASSERT_NOT_NULL(lo);
+
+    rr.enqueue(hi);  // priority 0
+    rr.enqueue(lo);  // priority 10
+
+    // Lower value = higher priority: hi is always selected while ready.  pick_next
+    // removes hi (F4-M4 M4-2-2); re-enqueue it (as schedule() does on yield) so
+    // the strict-priority check below sees it ready again.
+    Task* p1 = rr.pick_next();
+    TEST_ASSERT_EQ(p1, hi);
+    rr.enqueue(p1);
+    // hi is still the lowest value, so it is picked again (strict priority --
+    // lo is starved while a higher-priority task is ready).
+    TEST_ASSERT_EQ(rr.pick_next(), hi);
+}
+
+void test_priority_round_robin_within_level() {
+    RoundRobin rr;
+    Task*      a = TaskBuilder()
+                       .set_entry(test_task_builder::dummy_entry)
+                       .set_name("a")
+                       .set_priority(5)
+                       .build();
+    Task*      b = TaskBuilder()
+                       .set_entry(test_task_builder::dummy_entry)
+                       .set_name("b")
+                       .set_priority(5)
+                       .build();
+    Task*      c = TaskBuilder()
+                       .set_entry(test_task_builder::dummy_entry)
+                       .set_name("c")
+                       .set_priority(9)
+                       .build();
+    TEST_ASSERT_NOT_NULL(a);
+    TEST_ASSERT_NOT_NULL(b);
+    TEST_ASSERT_NOT_NULL(c);
+
+    rr.enqueue(a);
+    rr.enqueue(b);
+    rr.enqueue(c);
+
+    // Equal-priority tasks (a, b) round-robin; c (lower priority) is starved.
+    // pick_next removes the winner (F4-M4 M4-2-2); re-enqueue after each pick
+    // (as schedule() does on yield) to drive the round-robin cycling.
+    Task* pa = rr.pick_next();
+    TEST_ASSERT_EQ(pa, a);
+    rr.enqueue(pa);
+    Task* pb = rr.pick_next();
+    TEST_ASSERT_EQ(pb, b);
+    rr.enqueue(pb);
+    Task* pa2 = rr.pick_next();
+    TEST_ASSERT_EQ(pa2, a);
+    rr.enqueue(pa2);
+    TEST_ASSERT_EQ(rr.pick_next(), b);
+}
+
+void test_priority_ignores_enqueue_order() {
+    RoundRobin rr;
+    Task*      first  = TaskBuilder()
+                            .set_entry(test_task_builder::dummy_entry)
+                            .set_name("first")
+                            .set_priority(20)
+                            .build();
+    Task*      second = TaskBuilder()
+                            .set_entry(test_task_builder::dummy_entry)
+                            .set_name("second")
+                            .set_priority(1)
+                            .build();
+    rr.enqueue(first);   // enqueued first but lower priority
+    rr.enqueue(second);  // enqueued later but higher priority
+
+    // pick_next selects by priority, not enqueue order.
+    TEST_ASSERT_EQ(rr.pick_next(), second);
+}
+
+}  // namespace test_priority
+
+// ============================================================
+// Test 13: Multi-class consultation (F3-M4 batch 3)
+// ============================================================
+
+namespace test_multi_class {
+
+// A class that is always empty.
+class EmptyClass : public SchedulingClass {
+public:
+    void        enqueue(Task*) override {}
+    void        dequeue(Task*) override {}
+    Task*       pick_next() override { return nullptr; }
+    const char* name() const override { return "EmptyClass"; }
+};
+
+// A class that holds a single task and drains it on pick_next.
+class OneShotClass : public SchedulingClass {
+public:
+    void  enqueue(Task* t) override { task_ = t; }
+    void  dequeue(Task*) override { task_ = nullptr; }
+    Task* pick_next() override {
+        Task* t = task_;
+        task_   = nullptr;
+        return t;
+    }
+    const char* name() const override { return "OneShotClass"; }
+
+private:
+    Task* task_ = nullptr;
+};
+
+void test_pick_next_from_skips_empty() {
+    EmptyClass   a;
+    OneShotClass b;
+    EmptyClass   c;
+    Task* mine = TaskBuilder().set_entry(test_task_builder::dummy_entry).set_name("mc").build();
+    b.enqueue(mine);
+
+    SchedulingClass* classes[3] = {&a, &b, &c};
+    // a empty -> skip; b returns mine -> selected; c never asked.
+    TEST_ASSERT_EQ(Scheduler::pick_next_from(classes, 3), mine);
+}
+
+void test_pick_next_from_all_empty() {
+    EmptyClass       a;
+    EmptyClass       b;
+    SchedulingClass* classes[2] = {&a, &b};
+    TEST_ASSERT_NULL(Scheduler::pick_next_from(classes, 2));
+}
+
+void test_pick_next_from_first_class_wins() {
+    OneShotClass a;
+    OneShotClass b;
+    Task* first = TaskBuilder().set_entry(test_task_builder::dummy_entry).set_name("first").build();
+    Task* second =
+        TaskBuilder().set_entry(test_task_builder::dummy_entry).set_name("second").build();
+    a.enqueue(first);
+    b.enqueue(second);
+
+    SchedulingClass* classes[2] = {&a, &b};
+    // a (index 0) wins; b is never consulted.
+    TEST_ASSERT_EQ(Scheduler::pick_next_from(classes, 2), first);
+}
+
+}  // namespace test_multi_class
+
+// ============================================================
 // Entry point
 // ============================================================
 
@@ -470,10 +738,23 @@ extern "C" void run_scheduler_tests() {
     RUN_TEST(test_scheduler_new::test_is_initialized);
     RUN_TEST(test_scheduler_new::test_remove_task);
     RUN_TEST(test_scheduler_new::test_block_unblock);
+    RUN_TEST(test_scheduler_new::test_block_dispatches_to_runnable);
 
     RUN_TEST(test_round_robin_locked::test_locked_enqueue_dequeue);
     RUN_TEST(test_round_robin_locked::test_locked_dequeue_middle);
     RUN_TEST(test_round_robin_locked::test_locked_fifo_order);
+
+    RUN_TEST(test_sched_class_hooks::test_task_tick_quantum);
+    RUN_TEST(test_sched_class_hooks::test_task_fork_inherits_priority);
+    RUN_TEST(test_sched_class_hooks::test_task_deadline_default_zero);
+
+    RUN_TEST(test_priority::test_priority_picks_lowest_value);
+    RUN_TEST(test_priority::test_priority_round_robin_within_level);
+    RUN_TEST(test_priority::test_priority_ignores_enqueue_order);
+
+    RUN_TEST(test_multi_class::test_pick_next_from_skips_empty);
+    RUN_TEST(test_multi_class::test_pick_next_from_all_empty);
+    RUN_TEST(test_multi_class::test_pick_next_from_first_class_wins);
 
     TEST_SUMMARY();
 }

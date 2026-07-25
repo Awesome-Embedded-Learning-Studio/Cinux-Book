@@ -24,4 +24,7 @@ namespace cinux::syscall {
  */
 int64_t sys_getcwd(uint64_t buf_virt, uint64_t size, uint64_t, uint64_t, uint64_t, uint64_t);
 
+/// P0e (SMAP): write cwd into a KERNEL buffer (no user memory). Tests call this.
+int64_t do_getcwd_kernel(char* dst, uint32_t size);
+
 }  // namespace cinux::syscall

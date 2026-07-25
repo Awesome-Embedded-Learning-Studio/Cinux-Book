@@ -58,14 +58,85 @@ static constexpr int FD_NONE = -1;
  * independent offsets.
  */
 struct File {
-    File(Inode* in, uint64_t off, OpenFlags fl) : inode(in), offset(off), flags(fl) {}
+    File(Inode* in, uint64_t off, OpenFlags fl, bool cx = false)
+        : inode(in), offset(off), flags(fl), cloexec(cx) {}
 
-    Inode*    inode;   ///< Pointer to the underlying inode (non-null when in use)
-    uint64_t  offset;  ///< Current read/write offset in bytes
-    OpenFlags flags;   ///< Access mode (RDONLY, WRONLY, RDWR)
+    Inode*    inode;    ///< Pointer to the underlying inode (non-null when in use)
+    uint64_t  offset;   ///< Current read/write offset in bytes
+    OpenFlags flags;    ///< Access mode (RDONLY, WRONLY, RDWR)
+    bool      cloexec;  ///< FD_CLOEXEC (F-ECO batch 4: fcntl F_GETFD/F_SETFD)
 
     mutable cinux::proc::Spinlock offset_lock_;
+
+    /// Reference count: how many FileRef holders (fd slots) point at this File.
+    /// __atomic_* ACQ_REL (a File is shared across FDTables after fork/clone).
+    /// FileRef bumps on copy/adopt, drops on destroy; on 0 it deletes the File.
+    /// File itself still does NOT touch inode on ctor/dtor (test fixtures may
+    /// free an inode before its File); inode refcount stays with FDTable
+    /// (DEBT-023). Moving the inode ref onto the File (needed for dup/fork to
+    /// SHARE one File, Linux open-file-description semantics) is batch 2.
+    uint32_t refcount{0};
 };
+
+// ============================================================
+// FileRef (RAII handle to a File; refcount-managed)
+// ============================================================
+
+/// RAII handle to a File. Copying SHARES the File (bumps refcount) -- exactly
+/// Linux's open-file-description sharing across dup/fork. Destruction drops the
+/// refcount and deletes the File on 0. FDTable stores FileRef, so fd install /
+/// remove / close is refcount-correct by value semantics: no manual delete, no
+/// double-free (the test `delete retrieved` + `~FDTable delete` class of bug
+/// becomes impossible -- nothing manually deletes a File anymore).
+class FileRef {
+public:
+    FileRef() = default;
+    explicit FileRef(File* f) : f_(f) { ref(); }     // adopt: +1
+    FileRef(const FileRef& o) : f_(o.f_) { ref(); }  // copy:  +1 (share)
+    FileRef& operator=(const FileRef& o) {
+        unref();
+        f_ = o.f_;
+        ref();
+        return *this;
+    }
+    FileRef(FileRef&& o) noexcept : f_(o.f_) { o.f_ = nullptr; }
+    FileRef& operator=(FileRef&& o) noexcept {
+        unref();
+        f_   = o.f_;
+        o.f_ = nullptr;
+        return *this;
+    }
+    ~FileRef() { unref(); }
+    File*    get() const { return f_; }
+    File*    operator->() const { return f_; }
+    explicit operator bool() const { return f_ != nullptr; }
+
+private:
+    void ref() {
+        if (f_ != nullptr)
+            __atomic_add_fetch(&f_->refcount, 1, __ATOMIC_ACQ_REL);
+    }
+    void unref() {
+        if (f_ != nullptr && __atomic_sub_fetch(&f_->refcount, 1, __ATOMIC_ACQ_REL) == 0) {
+            delete f_;
+        }
+    }
+    File* f_{nullptr};
+};
+
+/// Bump an inode's open-description refcount (DEBT-023). Called when a File
+/// enters an FDTable (alloc / set / dup / dup2 -- fork/clone-copy go through
+/// set()).  Paired with inode_unref, which on the last close invokes
+/// InodeOps::release.  File itself stays a plain struct -- it does NOT touch
+/// inode on construction or destruction, so test fixtures may free an inode
+/// before its File without use-after-free.
+void inode_ref(Inode* inode);
+
+/// Drop one open-description refcount; on the last (refcount -> 0) invoke
+/// InodeOps::release (pipe end -> EOF/POLLHUP, socket -> FIN).  Called from
+/// FDTable::close / dup2-displace OUTSIDE the fd-table lock (release may do
+/// driver work).  Null-safe.
+void inode_unref(Inode* inode);
 
 // ============================================================
 // File Descriptor Table
@@ -74,9 +145,9 @@ struct File {
 /**
  * @brief Per-process file descriptor table
  *
- * Manages a fixed-size array of File pointers.  Descriptor 0 is
- * reserved for stdin, 1 for stdout, and 2 for stderr (allocated
- * externally by the shell / init setup).
+ * Manages a fixed-size array of File pointers.  alloc() follows Linux fd
+ * allocation semantics: return the lowest unused descriptor, including
+ * standard-stream slots 0/1/2 when they are free.
  *
  * Lifetime: the FDTable owns the File objects; close() releases them.
  */
@@ -85,9 +156,35 @@ public:
     /**
      * @brief Construct an empty descriptor table
      *
-     * All slots initialised to nullptr.
+     * All slots initialised to nullptr.  Refcount starts at 1 (F3-M2 batch 3:
+     * CLONE_FILES threads share one table via acquire/release).
      */
     FDTable();
+
+    /**
+     * @brief Resource-safety backstop: drop every still-open FileRef
+     *
+     * `fds_[]` are FileRef value members, so the implicit destructor already
+     * unref's every slot -- no manual loop is needed. The backstop (no File
+     * leaks for stack-allocated FDTables / skip-release paths) is now provided
+     * by FileRef's own destructor.
+     */
+    ~FDTable() = default;
+
+    /**
+     * @name Reference counting (F3-M2 batch 3)
+     *
+     * CLONE_FILES threads share one FDTable (acquire bumps the refcount); fork
+     * and clone-without-FILES each get a private copy.  release() frees the
+     * table (and closes every live File) when the last reference drops.
+     */
+    ///@{
+    void acquire();
+    void release();
+    ///@}
+
+    /** Current reference count (diagnostics / tests). */
+    uint32_t refcount() const { return refcount_; }
 
     /**
      * @brief Allocate a file descriptor and assign a File to it
@@ -134,10 +231,30 @@ public:
      */
     bool set(int fd, File* file);
 
+    /**
+     * @name fd duplication (F-ECO batch 4: dup / dup2 / fcntl F_DUPFD)
+     *
+     * Each duplicate is a NEW File (independent open file description), copying
+     * the source inode + offset + flags + cloexec.  This is NOT Linux's shared
+     * description (two fds sharing one offset) -- it is a hobby-OS simplification
+     * that avoids refcounting File, and is sufficient for sh redirect (the new fd
+     * reaches the same inode/pipe).  Shared-description semantics is a follow-up.
+     */
+    ///@{
+    /// Copy @p oldfd to the lowest free fd >= @p min_fd.  Returns the new fd,
+    /// or FD_NONE if @p oldfd is invalid / the table is full.
+    int dup(int oldfd, int min_fd);
+    /// Copy @p oldfd to @p newfd (closing @p newfd first if open).  Returns
+    /// @p newfd, or FD_NONE if either fd is out of range / @p oldfd is invalid.
+    /// If @p oldfd == @p newfd and valid, returns @p newfd (Linux no-op).
+    int dup2(int oldfd, int newfd);
+    ///@}
+
 private:
-    /// Fixed-size array of File pointers (nullptr = unused slot)
-    File*                         fds_[FD_TABLE_SIZE];
+    /// Fixed-size array of file handles (empty FileRef = unused slot)
+    FileRef                       fds_[FD_TABLE_SIZE];
     mutable cinux::proc::Spinlock lock_;
+    uint32_t                      refcount_;  ///< F3-M2 batch 3: shared by CLONE_FILES threads
 };
 
 }  // namespace cinux::fs

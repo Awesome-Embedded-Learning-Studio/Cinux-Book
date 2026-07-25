@@ -55,34 +55,34 @@ TEST("fd_table: all slots are nullptr after construction") {
 // 2. Alloc -- sequential allocation
 // ============================================================
 
-// First alloc returns fd 3 (0-2 reserved for stdin/stdout/stderr).
-TEST("fd_table: first alloc returns fd 3") {
+// First alloc returns fd 0 (Linux lowest-free-fd semantics).
+TEST("fd_table: first alloc returns fd 0") {
     FDTable table;
     Inode   dummy{};
     int     fd = table.alloc(&dummy, OpenFlags::RDONLY);
-    ASSERT_EQ(fd, 3);
+    ASSERT_EQ(fd, 0);
 }
 
-// Sequential allocs return monotonically increasing indices starting from 3.
-TEST("fd_table: sequential allocs return 3 4 5") {
+// Sequential allocs return monotonically increasing indices starting from 0.
+TEST("fd_table: sequential allocs return 0 1 2") {
     FDTable table;
     Inode   dummy{};
 
-    ASSERT_EQ(table.alloc(&dummy, OpenFlags::RDONLY), 3);
-    ASSERT_EQ(table.alloc(&dummy, OpenFlags::WRONLY), 4);
-    ASSERT_EQ(table.alloc(&dummy, OpenFlags::RDWR), 5);
+    ASSERT_EQ(table.alloc(&dummy, OpenFlags::RDONLY), 0);
+    ASSERT_EQ(table.alloc(&dummy, OpenFlags::WRONLY), 1);
+    ASSERT_EQ(table.alloc(&dummy, OpenFlags::RDWR), 2);
 }
 
 // ============================================================
 // 3. Alloc -- table full
 // ============================================================
 
-// Filling all assignable slots (3-255) returns FD_NONE on next alloc.
+// Filling all slots returns FD_NONE on next alloc.
 TEST("fd_table: alloc returns FD_NONE when table is full") {
     FDTable table;
     Inode   dummy{};
 
-    for (uint32_t i = 3; i < FD_TABLE_SIZE; ++i) {
+    for (uint32_t i = 0; i < FD_TABLE_SIZE; ++i) {
         int fd = table.alloc(&dummy, OpenFlags::RDWR);
         ASSERT_EQ(fd, static_cast<int>(i));
     }
@@ -96,34 +96,34 @@ TEST("fd_table: alloc returns FD_NONE when table is full") {
 // 4. Alloc -- reuses lowest freed slot
 // ============================================================
 
-// After closing fd 4, the next alloc should return 4 (lowest free).
+// After closing fd 1, the next alloc should return 1 (lowest free).
 TEST("fd_table: alloc reuses lowest freed slot") {
     FDTable table;
     Inode   dummy{};
 
-    // Allocate 3, 4, 5
+    // Allocate 0, 1, 2
     table.alloc(&dummy, OpenFlags::RDONLY);
     table.alloc(&dummy, OpenFlags::RDONLY);
     table.alloc(&dummy, OpenFlags::RDONLY);
 
-    // Close fd 4
-    ASSERT_EQ(table.close(4), 0);
+    // Close fd 1
+    ASSERT_EQ(table.close(1), 0);
 
-    // Next alloc should reuse slot 4
+    // Next alloc should reuse slot 1
     int fd = table.alloc(&dummy, OpenFlags::WRONLY);
-    ASSERT_EQ(fd, 4);
+    ASSERT_EQ(fd, 1);
 }
 
-// Closing fd 3 when 3,4 are open; next alloc returns 3.
-TEST("fd_table: alloc reuses slot 3 after closing it") {
+// Closing fd 0 when 0,1 are open; next alloc returns 0.
+TEST("fd_table: alloc reuses slot 0 after closing it") {
     FDTable table;
     Inode   dummy{};
 
     table.alloc(&dummy, OpenFlags::RDONLY);
     table.alloc(&dummy, OpenFlags::RDONLY);
 
-    ASSERT_EQ(table.close(3), 0);
-    ASSERT_EQ(table.alloc(&dummy, OpenFlags::RDWR), 3);
+    ASSERT_EQ(table.close(0), 0);
+    ASSERT_EQ(table.alloc(&dummy, OpenFlags::RDWR), 0);
 }
 
 // ============================================================
@@ -316,24 +316,24 @@ TEST("fd_table: File offset initialised to 0") {
 // 11. Stress: fill, close all, refill
 // ============================================================
 
-// Fill the assignable table, close every other descriptor, then realloc.
+// Fill the table, close every other descriptor, then realloc.
 TEST("fd_table: fill close_even then realloc") {
     FDTable table;
     Inode   dummy{};
 
-    // Fill all assignable slots (3-255)
-    for (uint32_t i = 3; i < FD_TABLE_SIZE; ++i) {
+    // Fill all slots (0-255)
+    for (uint32_t i = 0; i < FD_TABLE_SIZE; ++i) {
         int fd = table.alloc(&dummy, OpenFlags::RDWR);
         ASSERT_EQ(fd, static_cast<int>(i));
     }
 
-    // Close even-numbered fds (starting from 3)
-    for (uint32_t i = 4; i < FD_TABLE_SIZE; i += 2) {
+    // Close even-numbered fds
+    for (uint32_t i = 0; i < FD_TABLE_SIZE; i += 2) {
         ASSERT_EQ(table.close(static_cast<int>(i)), 0);
     }
 
     // Realloc should fill even-numbered slots in order
-    for (uint32_t i = 4; i < FD_TABLE_SIZE; i += 2) {
+    for (uint32_t i = 0; i < FD_TABLE_SIZE; i += 2) {
         int fd = table.alloc(&dummy, OpenFlags::RDWR);
         ASSERT_EQ(fd, static_cast<int>(i));
     }
@@ -347,23 +347,23 @@ TEST("fd_table: full lifecycle fill close refill") {
     FDTable table;
     Inode   dummy{};
 
-    // Fill assignable slots (3-255)
-    for (uint32_t i = 3; i < FD_TABLE_SIZE; ++i) {
+    // Fill all slots (0-255)
+    for (uint32_t i = 0; i < FD_TABLE_SIZE; ++i) {
         ASSERT_EQ(table.alloc(&dummy, OpenFlags::RDWR), static_cast<int>(i));
     }
 
     // Close all
-    for (uint32_t i = 3; i < FD_TABLE_SIZE; ++i) {
+    for (uint32_t i = 0; i < FD_TABLE_SIZE; ++i) {
         ASSERT_EQ(table.close(static_cast<int>(i)), 0);
     }
 
     // Verify all nullptr
-    for (uint32_t i = 3; i < FD_TABLE_SIZE; ++i) {
+    for (uint32_t i = 0; i < FD_TABLE_SIZE; ++i) {
         ASSERT_NULL(table.get(static_cast<int>(i)));
     }
 
-    // Refill -- should start from 3 again
-    for (uint32_t i = 3; i < FD_TABLE_SIZE; ++i) {
+    // Refill -- should start from 0 again
+    for (uint32_t i = 0; i < FD_TABLE_SIZE; ++i) {
         ASSERT_EQ(table.alloc(&dummy, OpenFlags::RDWR), static_cast<int>(i));
     }
 }

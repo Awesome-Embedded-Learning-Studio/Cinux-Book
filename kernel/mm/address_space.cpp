@@ -8,8 +8,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <utility>
+
 #include "kernel/arch/x86_64/paging.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
+#include "kernel/arch/x86_64/phys_virt.hpp"
 #include "kernel/lib/kprintf.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vmm.hpp"
@@ -28,8 +31,6 @@ uint64_t AddressSpace::kernel_pml4_ = 0;
 
 using namespace cinux::arch;
 
-constexpr uint64_t KERNEL_VMA = 0xFFFFFFFF80000000ULL;
-
 // PML4 entry indices that belong to user space (lower half)
 constexpr uint32_t USER_PML4_START = 0;
 constexpr uint32_t USER_PML4_END   = 256;
@@ -43,15 +44,6 @@ constexpr int LEVEL_PT   = 1;
 // ============================================================
 // Internal helpers
 // ============================================================
-
-namespace {
-
-/** Convert a physical address to a virtual address via the higher-half mapping. */
-PageEntry* phys_to_virt(uint64_t phys) {
-    return reinterpret_cast<PageEntry*>(phys + KERNEL_VMA);
-}
-
-}  // anonymous namespace
 
 // ============================================================
 // Static initialisation
@@ -113,7 +105,8 @@ AddressSpace::~AddressSpace() {
 // Move operations
 // ============================================================
 
-AddressSpace::AddressSpace(AddressSpace&& other) noexcept : pml4_phys_(other.pml4_phys_) {
+AddressSpace::AddressSpace(AddressSpace&& other) noexcept
+    : pml4_phys_(other.pml4_phys_), vma_store_(std::move(other.vma_store_)) {
     other.pml4_phys_ = 0;
 }
 
@@ -130,9 +123,10 @@ AddressSpace& AddressSpace::operator=(AddressSpace&& other) noexcept {
             g_pmm.free_page(pml4_phys_);
         }
 
-        // Take ownership of the other's PML4
+        // Take ownership of the other's PML4 and VMA store
         pml4_phys_       = other.pml4_phys_;
         other.pml4_phys_ = 0;
+        vma_store_       = std::move(other.vma_store_);
     }
     return *this;
 }
@@ -181,14 +175,35 @@ void AddressSpace::free_subtree(uint64_t table_phys, int level) {
             continue;
         }
 
-        // Stop recursion at PT level -- PT entries point to data pages
-        // which are NOT owned by the address space infrastructure
-        if (level > LEVEL_PT) {
-            free_subtree(table[i].phys_addr(), level - 1);
+        // DEBT-009: a huge entry (1 GB at PDPT, 2 MB at PD) maps a data page,
+        // not a child page table -- descending would parse the huge-page body as
+        // PT entries and free garbage.  Huge-page free (buddy order) isn't wired
+        // yet (no user huge mappings); warn and skip.  Encountering this
+        // means a future huge-mapping milestone forgot to update this path.
+        if (table[i].huge) {
+            cinux::lib::kprintf(
+                "[MM] free_subtree: huge entry @ level %d phys=0x%lx "
+                "skipped (huge free unimplemented)\n",
+                level, static_cast<unsigned long>(table[i].phys_addr()));
+            continue;
         }
 
-        // Free the page table page at this level
+        if (level == LEVEL_PT) {
+            // Device/IoPhys pages (framebuffer LFB) carry FLAG_PCD and are not
+            // PMM-managed -- skip or the dec writes the counter arrays OOB.
+            if (table[i].raw & cinux::arch::FLAG_PCD) {
+                table[i].raw = 0;
+                continue;
+            }
+            uint64_t data_phys = table[i].phys_addr();
+            g_pmm.pte_count_dec_and_test(data_phys);
+            table[i].raw = 0;
+            continue;
+        }
+
+        free_subtree(table[i].phys_addr(), level - 1);
         g_pmm.free_page(table[i].phys_addr());
+        table[i].raw = 0;
     }
 }
 

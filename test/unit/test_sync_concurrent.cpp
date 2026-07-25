@@ -28,6 +28,11 @@ public:
 
     void acquire() {
         while (locked_.exchange(true, std::memory_order_acquire)) {
+            // Yield under contention: cuts starvation AND lets ThreadSanitizer
+            // make progress under its ~100x instrumentation overhead (a pure
+            // tight spin hangs TSan on the 8-thread contended test).  Real
+            // kernel spinlocks do the equivalent (cpu_relax/pause) in the loop.
+            std::this_thread::yield();
         }
     }
 

@@ -24,9 +24,10 @@
 
 #include "big_kernel_test.h"
 #include "kernel/drivers/ahci/ahci.hpp"
+#include "kernel/drivers/ahci/ahci_block_device.hpp"
 #include "kernel/drivers/pci/pci.hpp"
 #include "kernel/drivers/pit/pit.hpp"
-#include "kernel/fs/ext2.hpp"
+#include "libs/ext2/ext2.hpp"
 
 using cinux::drivers::pci::PCI;
 using cinux::drivers::pci::PCIDevice;
@@ -45,12 +46,13 @@ using cinux::fs::InodeType;
 namespace {
 
 struct AhciExt2Pair {
-    AHCI* ahci;
-    Ext2* ext2;
+    AHCI*                                  ahci;
+    Ext2*                                  ext2;
+    cinux::drivers::ahci::AHCIBlockDevice* blk_dev;
 };
 
 AhciExt2Pair setup_ext2() {
-    AhciExt2Pair result{nullptr, nullptr};
+    AhciExt2Pair result{nullptr, nullptr, nullptr};
 
     PCI pci;
     pci.init();
@@ -66,14 +68,18 @@ AhciExt2Pair setup_ext2() {
         return result;
     }
 
-    result.ext2 = new Ext2(*result.ahci, 1);
-    result.ext2->mount();
+    auto blk = cinux::drivers::ahci::AHCIBlockDevice::create(*result.ahci, 1);
+    result.blk_dev =
+        blk.ok() ? new cinux::drivers::ahci::AHCIBlockDevice(std::move(blk.value())) : nullptr;
+    result.ext2 = new Ext2(result.blk_dev);
+    ASSERT_OK(result.ext2->mount());
 
     return result;
 }
 
 void teardown_ext2(AhciExt2Pair& pair) {
     delete pair.ext2;
+    delete pair.blk_dev;
     delete pair.ahci;
     pair.ext2 = nullptr;
     pair.ahci = nullptr;
@@ -132,12 +138,12 @@ void test_file_inode_read_write() {
     const char write_data[] = "InodeOps virtual dispatch";
     uint32_t   len          = sizeof(write_data) - 1;
 
-    int64_t written = ino->ops->write(ino, 0, write_data, len);
+    int64_t written = write_or_neg1(ino, 0, write_data, len);
     TEST_ASSERT_EQ(written, static_cast<int64_t>(len));
 
     // Read data back through ops
     char    read_buf[64] = {};
-    int64_t read_back    = ino->ops->read(ino, 0, read_buf, len);
+    int64_t read_back    = read_or_neg1(ino, 0, read_buf, len);
     TEST_ASSERT_EQ(read_back, static_cast<int64_t>(len));
 
     for (uint32_t i = 0; i < len; ++i) {
@@ -174,15 +180,15 @@ void test_file_ops_dir_defaults() {
     TEST_ASSERT_NOT_NULL(ino->ops);
 
     // create should return nullptr (default)
-    Inode* created = ino->ops->create(ino, "x", 1);
+    Inode* created = create_or_null(ino, "x", 1);
     TEST_ASSERT_NULL(created);
 
     // mkdir should return nullptr (default)
-    Inode* dir = ino->ops->mkdir(ino, "d", 1);
+    Inode* dir = mkdir_or_null(ino, "d", 1);
     TEST_ASSERT_NULL(dir);
 
     // unlink should return -1 (default)
-    int64_t rc = ino->ops->unlink(ino, "x", 1);
+    int64_t rc = unlink_rc(ino, "x", 1);
     TEST_ASSERT_EQ(rc, static_cast<int64_t>(-1));
 
     cinux::lib::kprintf("[INODE_OPS] File ops dir defaults OK\n");
@@ -208,10 +214,10 @@ void test_dir_inode_readdir() {
     TEST_ASSERT_TRUE(pair.ext2->is_mounted());
 
     // Root is inode 2
-    Inode* root = pair.ext2->lookup("");
+    Inode* root = lookup_or_null(pair.ext2, "");
     // lookup("") may return nullptr; try "."
     if (root == nullptr) {
-        root = pair.ext2->lookup(".");
+        root = lookup_or_null(pair.ext2, ".");
     }
     // If neither works, create a dir and use it
     if (root == nullptr) {
@@ -224,7 +230,7 @@ void test_dir_inode_readdir() {
 
         // readdir on the new directory should at least find "." and ".."
         char    rname[256] = {};
-        int64_t rc         = dir_ino->ops->readdir(dir_ino, 0, rname, 256);
+        int64_t rc         = readdir_or_neg1(dir_ino, 0, rname, 256);
         TEST_ASSERT_GT(rc, 0);  // readdir returns 1 on success, -1 on failure
         TEST_ASSERT_EQ(rname[0], '.');
 
@@ -238,7 +244,7 @@ void test_dir_inode_readdir() {
     TEST_ASSERT_NOT_NULL(root->ops);
 
     char    rname[256] = {};
-    int64_t rc         = root->ops->readdir(root, 0, rname, 256);
+    int64_t rc         = readdir_or_neg1(root, 0, rname, 256);
     // At least one entry should be readable (readdir returns 1 on success)
     TEST_ASSERT_GT(rc, 0);
 
@@ -272,7 +278,7 @@ void test_create_via_ops() {
 
     // Use ops->create to create a file inside
     const char filename[] = "inner";
-    Inode*     file       = dir->ops->create(dir, filename, 5);
+    Inode*     file       = create_or_null(dir, filename, 5);
     TEST_ASSERT_NOT_NULL(file);
     TEST_ASSERT_EQ(file->type, InodeType::Regular);
 
@@ -287,7 +293,7 @@ void test_create_via_ops() {
         lookup_path[li++] = filename[j];
     lookup_path[li] = '\0';
 
-    Inode* found = pair.ext2->lookup(lookup_path);
+    Inode* found = lookup_or_null(pair.ext2, lookup_path);
     TEST_ASSERT_NOT_NULL(found);
     TEST_ASSERT_EQ(found->ino, file->ino);
 
@@ -324,7 +330,7 @@ void test_mkdir_via_ops() {
 
     // Use ops->mkdir to create a subdirectory
     const char child[] = "sub";
-    Inode*     subdir  = dir->ops->mkdir(dir, child, 3);
+    Inode*     subdir  = mkdir_or_null(dir, child, 3);
     TEST_ASSERT_NOT_NULL(subdir);
     TEST_ASSERT_EQ(subdir->type, InodeType::Directory);
 
@@ -339,7 +345,7 @@ void test_mkdir_via_ops() {
         lookup_path[li++] = child[j];
     lookup_path[li] = '\0';
 
-    Inode* found = pair.ext2->lookup(lookup_path);
+    Inode* found = lookup_or_null(pair.ext2, lookup_path);
     TEST_ASSERT_NOT_NULL(found);
     TEST_ASSERT_EQ(found->ino, subdir->ino);
 
@@ -377,7 +383,7 @@ void test_unlink_via_ops() {
 
     // Create a file inside
     const char filename[] = "victim";
-    Inode*     file       = dir->ops->create(dir, filename, 6);
+    Inode*     file       = create_or_null(dir, filename, 6);
     TEST_ASSERT_NOT_NULL(file);
 
     // Verify file exists via composite lookup path
@@ -390,15 +396,15 @@ void test_unlink_via_ops() {
         lookup_path[li++] = filename[j];
     lookup_path[li] = '\0';
 
-    Inode* found = pair.ext2->lookup(lookup_path);
+    Inode* found = lookup_or_null(pair.ext2, lookup_path);
     TEST_ASSERT_NOT_NULL(found);
 
     // Use ops->unlink to remove it
-    int64_t rc = dir->ops->unlink(dir, filename, 6);
+    int64_t rc = unlink_rc(dir, filename, 6);
     TEST_ASSERT_EQ(rc, static_cast<int64_t>(0));
 
     // Verify file is gone
-    Inode* gone = pair.ext2->lookup(lookup_path);
+    Inode* gone = lookup_or_null(pair.ext2, lookup_path);
     TEST_ASSERT_NULL(gone);
 
     cinux::lib::kprintf("[INODE_OPS] ops->unlink file OK\n");
@@ -430,11 +436,11 @@ void test_dir_ops_file_defaults() {
     TEST_ASSERT_NOT_NULL(dir->ops);
 
     char    buf[16] = {};
-    int64_t read_rc = dir->ops->read(dir, 0, buf, 16);
+    int64_t read_rc = read_or_neg1(dir, 0, buf, 16);
     TEST_ASSERT_EQ(read_rc, static_cast<int64_t>(-1));
 
     const char data[]   = "x";
-    int64_t    write_rc = dir->ops->write(dir, 0, data, 1);
+    int64_t    write_rc = write_or_neg1(dir, 0, data, 1);
     TEST_ASSERT_EQ(write_rc, static_cast<int64_t>(-1));
 
     cinux::lib::kprintf("[INODE_OPS] Dir ops read/write defaults OK\n");
@@ -469,38 +475,38 @@ void test_ops_type_dispatch() {
 
     // Create a file inside
     const char filename[] = "tfile";
-    Inode*     file       = dir->ops->create(dir, filename, 5);
+    Inode*     file       = create_or_null(dir, filename, 5);
     TEST_ASSERT_NOT_NULL(file);
     TEST_ASSERT_NOT_NULL(file->ops);
 
     // File read should succeed (not return -1)
     const char wdata[] = "hello";
-    int64_t    written = file->ops->write(file, 0, wdata, 5);
+    int64_t    written = write_or_neg1(file, 0, wdata, 5);
     TEST_ASSERT_EQ(written, static_cast<int64_t>(5));
 
     char    rbuf[16]  = {};
-    int64_t read_back = file->ops->read(file, 0, rbuf, 5);
+    int64_t read_back = read_or_neg1(file, 0, rbuf, 5);
     TEST_ASSERT_EQ(read_back, static_cast<int64_t>(5));
 
     // Dir read should fail (return -1 default)
     char    dbuf[16] = {};
-    int64_t dir_read = dir->ops->read(dir, 0, dbuf, 16);
+    int64_t dir_read = read_or_neg1(dir, 0, dbuf, 16);
     TEST_ASSERT_EQ(dir_read, static_cast<int64_t>(-1));
 
     // Dir create should succeed (not return nullptr)
     const char fname2[] = "f2";
-    Inode*     file2    = dir->ops->create(dir, fname2, 2);
+    Inode*     file2    = create_or_null(dir, fname2, 2);
     TEST_ASSERT_NOT_NULL(file2);
 
     // File create should fail (return nullptr default)
-    Inode* bad = file->ops->create(file, "x", 1);
+    Inode* bad = create_or_null(file, "x", 1);
     TEST_ASSERT_NULL(bad);
 
     cinux::lib::kprintf("[INODE_OPS] Ops type dispatch verified OK\n");
 
     // Cleanup
-    dir->ops->unlink(dir, filename, 5);
-    dir->ops->unlink(dir, fname2, 2);
+    unlink_rc(dir, filename, 5);
+    unlink_rc(dir, fname2, 2);
     pair.ext2->unlink(2, dirname, name_len(dirname));
     teardown_ext2(pair);
 }

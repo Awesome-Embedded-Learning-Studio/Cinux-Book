@@ -27,6 +27,8 @@
 
 #include <stdint.h>
 
+#include <cinux/ring_buffer.hpp>
+
 // Forward declaration -- InterruptFrame is defined in idt.hpp
 namespace cinux::arch {
 struct InterruptFrame;
@@ -99,20 +101,56 @@ public:
      */
     static bool poll(KeyEvent& out);
 
+    /// Select the active input source (PS/2 vs USB).  When USB is primary the
+    /// PS/2 IRQ1 handler stops feeding the queue (single producer, SPSC safe).
+    static void set_usb_primary(bool primary);
+
+    /// Inject a decoded USB boot-keyboard report (hard-IRQ context, from the
+    /// xHCI TransferListener).  Detects press/release edges vs the previous
+    /// report, maps HID keycodes to ASCII, and enqueues KeyEvents (mirrors the
+    /// PS/2 irq1_handler path).  @p modifier = report modifier bitmask;
+    /// @p keycodes = the up-to-6 currently-pressed usage IDs.
+    static void inject_usb_report(uint8_t modifier, const uint8_t* keycodes, uint8_t n);
+
+    /// Register a listener that receives every decoded KeyEvent (after the
+    /// internal queue enqueue).  Lets the GUI dual-dispatch keys into its own
+    /// EventQueue without the keyboard driver depending on the GUI (CODING-TASTE
+    /// §14: no #ifdef CINUX_GUI in the keyboard).  Pass nullptr to unregister.
+    using KeyListener = void (*)(const KeyEvent&);
+    static void register_key_listener(KeyListener listener);
+
 private:
     static constexpr uint32_t KEY_QUEUE_SIZE = 64;
 
     static void enqueue(const KeyEvent& ev);
 
-    // Ring buffer storage
-    static KeyEvent queue_[KEY_QUEUE_SIZE];
-    static uint32_t head_;
-    static uint32_t tail_;
+    // Ring buffer storage.  SPSC ring buffer from Cinux-Base; access is
+    // serialised between the IRQ1 context (enqueue) and poll()'s
+    // InterruptGuard, so the ring buffer itself need not be thread-safe.
+    static cinux::lib::RingBuffer<KeyEvent, KEY_QUEUE_SIZE> buf_;
 
     // Modifier tracking state
     static bool shift_held_;
     static bool ctrl_held_;
     static bool alt_held_;
+
+    static bool    usb_primary_;       ///< USB keyboard owns input when true
+    static uint8_t usb_prev_keys_[6];  ///< previous report keycodes (edge detect)
+    static KeyListener key_listener_;  ///< optional key-consumer hook (§14)
+
+    // Autorepeat (software-driven via HPET; USB HID has no hardware repeat).
+    static uint8_t  usb_repeat_key_;       ///< keycode currently autorepeating (0 = none)
+    static uint64_t usb_repeat_deadline_;  ///< monotonic_ns deadline of the next repeat
+
+    /// Initial hold delay before autorepeat begins (matches Linux defaults).
+    static constexpr uint64_t kUsbRepeatDelayNs    = 500'000'000;   // 500 ms
+    /// Interval between repeated events once repeating (20 keys/s).
+    static constexpr uint64_t kUsbRepeatIntervalNs = 50'000'000;    // 50 ms
+
+    /// Build + enqueue a KeyEvent and dual-dispatch to the GUI queue (shared by
+    /// the PS/2 and USB paths).  @p code = HID usage ID (USB) or scan code (PS/2).
+    static void dispatch_key(uint8_t code, char ascii, bool pressed, bool shift, bool ctrl,
+                             bool alt);
 };
 
 }  // namespace cinux::drivers

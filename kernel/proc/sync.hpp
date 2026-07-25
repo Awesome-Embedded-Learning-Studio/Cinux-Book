@@ -78,6 +78,10 @@ private:
     };
 };
 
+// F4-M5 R6-Part2: runtime lock-order deadlock detection + the schedule()-while-
+// locked assert now live in lockdep.hpp (per-CPU held stack + lock-order graph).
+// Compiled out when CINUX_LOCKDEP is off.
+
 // ============================================================
 // Mutex -- blocking mutual exclusion
 // ============================================================

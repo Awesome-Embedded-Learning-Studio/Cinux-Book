@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 namespace cinux::mini::arch {
@@ -97,6 +98,16 @@ struct InterruptFrame {
     uint64_t rsp;                 ///< Stack pointer (pushed by CPU)
     uint64_t ss;                  ///< Stack segment selector (pushed by CPU)
 };
+
+// F-INFRA I-4 (R11): mirror the big-kernel InterruptFrame layout lock. The mini
+// and big kernels are separate executables so the two cannot share one
+// compile-time assertion; keep them in sync by convention and pin each
+// independently so a drift fails the build here too.
+static_assert(sizeof(InterruptFrame) == 168, "21 x uint64");
+static_assert(offsetof(InterruptFrame, r15) == 0, "first ISR-saved register");
+static_assert(offsetof(InterruptFrame, error_code) == 120, "error_code precedes the CPU frame");
+static_assert(offsetof(InterruptFrame, rip) == 128, "CPU pushes rip at frame+128");
+static_assert(offsetof(InterruptFrame, ss) == 160, "ss is the final CPU-pushed field");
 
 // ============================================================
 // Public Interface

@@ -1,72 +1,194 @@
 name: Cinux CI
 
+# 五层 CI(对齐 CinuxOS)+ 文档构建验证(Cinux-Book 特有)。
+# 触发:push main / PR 往 main·develop(每个 PR 都跑,不管源分支)。
+# 走 PR 流程即可让 migrate/* 等工作分支获得 CI 反馈;
+# 若要让某分支直接 push 也跑,把分支名加进 push.branches。
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main, develop]
 
-permissions:
-  contents: write
-
 jobs:
-  format:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-
-      - name: Install clang-format
-        run: sudo apt-get install -y clang-format
-
-      - name: Format code
-        run: |
-          find kernel user test boot \
-            \( -name '*.cpp' -o -name '*.hpp' -o -name '*.c' -o -name '*.h' \) \
-            -exec clang-format -i {} +
-
-      - uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: 'style: auto-format with clang-format'
+  # ── 五层 CI(迁移自 CinuxOS)─────────────────────────────────────
 
   host-tests:
-    needs: format
+    # 第 1 层:host 单元测试。ASan+UBSan+gcov(F-QA Q1-5)和 TSAN(F-VERIFY M4)
+    # 互斥,所以是 2-cell matrix。asan cell 额外跑内存布局重叠检查
+    # (ELF 静态分析,sanitizer 无关)。
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [asan, tsan]
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref || github.ref_name }}
-
-      - name: Install dependencies
-        run: sudo apt-get install -y qemu-system-x86 e2fsprogs python3 cmake
-
-      - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCINUX_BUILD_TESTS=ON -S .
-
+          submodules: recursive
+      - uses: ./.github/actions/setup-cinux
+        with:
+          apt-packages: qemu-system-x86 e2fsprogs python3
+          cmake-flags: -DCMAKE_BUILD_TYPE=Release -DCINUX_BUILD_TESTS=ON ${{ matrix.sanitizer == 'asan' && '-DCINUX_HOST_ASAN=ON' || '-DCINUX_HOST_TSAN=ON' }}
       - name: Build
-        run: cmake --build build -j$(nproc)
-
+        run: |
+          ccache --zero-stats
+          cmake --build build -j$(nproc)
+          ccache --show-stats || true
+      - name: Check memory layout (region/LBA overlap)
+        if: matrix.sanitizer == 'asan'
+        run: python3 scripts/check_memory_layout.py --mini-elf build/kernel/mini/mini_kernel --big-elf build/kernel/big/big_kernel
       - name: Run host tests
         working-directory: build
         run: make test_host
 
   line-limits:
-    needs: format
+    # 第 2 层:纯 Python 静态门(无需工具链)。行数 + freestanding 头检查。
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref || github.ref_name }}
-
       - name: Check line-count limits
         run: python3 scripts/check_line_limits.py --hpp 500
+      - name: Check freestanding headers
+        run: python3 scripts/check_freestanding_headers.py
+
+  kernel-tests:
+    # 第 3 层:内核 QEMU 测试。build_type(Debug/Release)× sanitizer
+    # (none/ubsan/lockdep)6-cell matrix,UBSAN/LOCKDEP 成为 CI 常驻回归门。
+    # run-kernel-test-all 单核 + -smp 2 一体跑;check_test_count 防测试数回归。
+    name: kernel-tests (${{ matrix.build_type }}, ${{ matrix.sanitizer }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+        sanitizer: [none, ubsan, lockdep]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          submodules: recursive
+      - uses: ./.github/actions/setup-cinux
+        with:
+          apt-packages: qemu-system-x86 e2fsprogs python3 linux-libc-dev
+          cache-musl: 'true'
+          cmake-flags: -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCINUX_BUILD_TESTS=ON ${{ matrix.sanitizer == 'ubsan' && '-DCINUX_UBSAN=ON' || '' }} ${{ matrix.sanitizer == 'lockdep' && '-DCINUX_LOCKDEP=ON' || '' }}
+      - name: Build musl user binaries (/hello, /forktest)
+        run: |
+          tools/musl/build-musl.sh
+          tools/musl/build-hello.sh
+          tools/musl/build-forktest.sh
+      - name: Build
+        # 编译两次:首遍种子 KALLSYMS stub,POST_BUILD 从 nm 重生成真表,二遍编进去。
+        run: |
+          ccache --zero-stats
+          cmake --build build -j$(nproc)
+          cmake --build build -j$(nproc)
+          ccache --show-stats || true
+      - name: Run kernel tests (single-CPU + -smp 2)
+        working-directory: build
+        run: |
+          set -o pipefail
+          timeout 300 make run-kernel-test-all 2>&1 | tee serial.log
+      - name: Check test count did not regress
+        working-directory: build
+        run: bash ${{ github.workspace }}/scripts/check_test_count.sh serial.log
+      - name: Upload serial log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-test-serial-log-${{ matrix.build_type }}-${{ matrix.sanitizer }}
+          path: build/serial.log
+          if-no-files-found: ignore
+
+  busybox-smoke:
+    # 第 4 层:真用户态生态门。静态 BusyBox + CINUX_BUSYBOX_SMOKE,单核 & -smp 2。
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          submodules: recursive
+      - uses: ./.github/actions/setup-cinux
+        with:
+          apt-packages: qemu-system-x86 e2fsprogs python3 curl bzip2 linux-libc-dev
+          cache-musl: 'true'
+          cache-busybox: 'true'
+          cmake-flags: -DCMAKE_BUILD_TYPE=Release -DCINUX_BUILD_TESTS=ON -DCINUX_BUSYBOX_SMOKE=ON
+      - name: Build musl + BusyBox user binaries
+        run: |
+          tools/musl/build-musl.sh
+          tools/musl/build-hello.sh
+          tools/musl/build-forktest.sh
+          tools/musl/build-busybox.sh
+      - name: Build
+        run: |
+          ccache --zero-stats
+          cmake --build build -j$(nproc)
+          cmake --build build -j$(nproc)
+          ccache --show-stats || true
+      - name: Run BusyBox smoke (single-CPU + -smp 2)
+        working-directory: build
+        run: |
+          set -o pipefail
+          timeout 300 make run-kernel-test-all 2>&1 | tee busybox-serial.log
+      - name: Upload BusyBox serial log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: busybox-smoke-serial-log
+          path: build/busybox-serial.log
+          if-no-files-found: ignore
+
+  gcc-smoke:
+    # 第 5 层:真 native-GCC 工具链门。buildroot base + gcc closure,
+    # 在生产内核里跑 `gcc hello.c && ./a.out` 出 "Hello from GCC!"。
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          submodules: recursive
+      - uses: ./.github/actions/setup-cinux
+        with:
+          # cc1 在 cpp-N(不在 gcc-N);全 gcc-13 family 同版本,extract.sh 镜像整 closure。
+          apt-packages: bc cmake xxd qemu-system-x86 e2fsprogs python3 curl rsync cpio ncurses-dev libssl-dev bison flex linux-libc-dev gcc-13 g++-13 cpp-13 binutils libc6-dev libgcc-13-dev libstdc++-13-dev
+          cmake-flags: -DCMAKE_BUILD_TYPE=Release -DCINUX_BUILD_TESTS=ON -DCINUX_GUI=OFF -DCINUX_BUILDROOT_DIR=${{ github.workspace }}/build/buildroot-ci
+          cache-buildroot: 'true'
+      - name: Build buildroot base rootfs (cached)
+        run: scripts/build-buildroot.sh build/buildroot-ci cinuxos_base_defconfig
+      - name: Build kernel image
+        run: cmake --build build --target image -j$(nproc)
+      - name: Assemble gcc rootfs
+        env:
+          BR_TARGET: ${{ github.workspace }}/build/buildroot-ci/output/target
+          GCC_BIN: gcc-13
+        run: cmake --build build --target assemble-gcc-rootfs -j$(nproc)
+      - name: Run gcc gate
+        run: |
+          set -o pipefail
+          timeout 900 cmake --build build --target run-buildroot-usability 2>&1 | tee build/gcc-smoke.log
+      - name: Upload gcc-smoke log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gcc-smoke-log
+          path: build/gcc-smoke.log
+          if-no-files-found: ignore
+
+  # ── 文档构建验证(Cinux-Book 特有)──────────────────────────────
 
   docs:
-    needs: format
+    # VitePress 分卷并发构建 + dead-link 隐式检查(build 报断链即失败)。
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -74,21 +196,17 @@ jobs:
         with:
           ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0   # getBuildInfo 需要 git tag 取页脚版本号
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 10.33.3
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: pnpm
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
       - name: Restore build cache
         uses: actions/cache@v4
         with:
@@ -96,30 +214,7 @@ jobs:
           key: cinux-build-${{ runner.os }}-${{ hashFiles('document/**', 'site/.vitepress/config/**', 'site/.vitepress/plugins/**', 'site/.vitepress/public/**', 'site/.vitepress/theme/**', 'project.config.ts', 'scripts/build.ts', 'package.json', 'pnpm-lock.yaml') }}
           restore-keys: |
             cinux-build-${{ runner.os }}-
-
       - name: Build docs
         run: pnpm build
         env:
           BUILD_CONCURRENCY: '3'
-
-  kernel-tests:
-    needs: format
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
-
-      - name: Install dependencies
-        run: sudo apt-get install -y qemu-system-x86 e2fsprogs python3 cmake
-
-      - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCINUX_BUILD_TESTS=ON -S .
-
-      - name: Build
-        run: cmake --build build -j$(nproc)
-
-      - name: Run kernel tests
-        working-directory: build
-        run: make run-kernel-test

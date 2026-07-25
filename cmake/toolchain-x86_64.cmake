@@ -1,27 +1,12 @@
 set(CMAKE_SYSTEM_NAME Generic)
 set(CMAKE_SYSTEM_PROCESSOR x86_64)
 
-set(CMAKE_C_FLAGS_INIT "
-    -ffreestanding
-    -fno-stack-protector
-    -mno-red-zone
-    -mcmodel=kernel
-    -Wall
-    -Wextra
-")
-
-set(CMAKE_CXX_FLAGS_INIT ${CMAKE_C_FLAGS_INIT} "
-    -fno-exceptions
-    -fno-rtti
-    -std=c++17
-")
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CMAKE_ASM_FLAGS_INIT "-Wa,--divide")
-
-set(CMAKE_EXE_LINKER_FLAGS_INIT "
-    -nostdlib                
-    -static                     
-")
+set(CMAKE_EXE_LINKER_FLAGS_INIT "-nostdlib -static")
 
 set(CMAKE_FIND_ROOT_PATH "")
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)

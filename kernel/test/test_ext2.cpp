@@ -24,8 +24,9 @@
 
 #include "big_kernel_test.h"
 #include "kernel/drivers/ahci/ahci.hpp"
+#include "kernel/drivers/ahci/ahci_block_device.hpp"
 #include "kernel/drivers/pci/pci.hpp"
-#include "kernel/fs/ext2.hpp"
+#include "libs/ext2/ext2.hpp"
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/vfs_mount.hpp"
 #include "kernel/lib/string.hpp"
@@ -52,12 +53,13 @@ namespace {
  * On failure, returns nullptr for ext2 (ahci may be non-null).
  */
 struct AhciExt2Pair {
-    AHCI* ahci;
-    Ext2* ext2;
+    AHCI*                                  ahci;
+    Ext2*                                  ext2;
+    cinux::drivers::ahci::AHCIBlockDevice* blk_dev;
 };
 
 AhciExt2Pair setup_ext2() {
-    AhciExt2Pair result{nullptr, nullptr};
+    AhciExt2Pair result{nullptr, nullptr, nullptr};
 
     // PCI enumeration
     PCI pci;
@@ -73,8 +75,11 @@ AhciExt2Pair setup_ext2() {
     result.ahci->init(ahci_dev);
 
     // Ext2 mount on port 1 (port 0 is the AHCI test disk)
-    result.ext2 = new Ext2(*result.ahci, 1);
-    result.ext2->mount();
+    auto blk = cinux::drivers::ahci::AHCIBlockDevice::create(*result.ahci, 1);
+    result.blk_dev =
+        blk.ok() ? new cinux::drivers::ahci::AHCIBlockDevice(std::move(blk.value())) : nullptr;
+    result.ext2 = new Ext2(result.blk_dev);
+    ASSERT_OK(result.ext2->mount());
 
     return result;
 }
@@ -82,6 +87,7 @@ AhciExt2Pair setup_ext2() {
 /// Tear down the AHCI + Ext2 pair
 void teardown_ext2(AhciExt2Pair& pair) {
     delete pair.ext2;
+    delete pair.blk_dev;
     delete pair.ahci;
     pair.ext2 = nullptr;
     pair.ahci = nullptr;
@@ -128,7 +134,7 @@ void test_lookup_root_returns_directory() {
     auto pair = setup_ext2();
     TEST_ASSERT_NOT_NULL(pair.ext2);
 
-    Inode* root = pair.ext2->lookup("");
+    Inode* root = lookup_or_null(pair.ext2, "");
     TEST_ASSERT_NOT_NULL(root);
     TEST_ASSERT_EQ(static_cast<uint32_t>(root->type), static_cast<uint32_t>(InodeType::Directory));
 
@@ -139,7 +145,7 @@ void test_lookup_root_slash_returns_directory() {
     auto pair = setup_ext2();
     TEST_ASSERT_NOT_NULL(pair.ext2);
 
-    Inode* root = pair.ext2->lookup("/");
+    Inode* root = lookup_or_null(pair.ext2, "/");
     TEST_ASSERT_NOT_NULL(root);
     TEST_ASSERT_EQ(static_cast<uint32_t>(root->type), static_cast<uint32_t>(InodeType::Directory));
 
@@ -150,7 +156,7 @@ void test_lookup_root_has_readdir_ops() {
     auto pair = setup_ext2();
     TEST_ASSERT_NOT_NULL(pair.ext2);
 
-    Inode* root = pair.ext2->lookup("");
+    Inode* root = lookup_or_null(pair.ext2, "");
     TEST_ASSERT_NOT_NULL(root);
     TEST_ASSERT_NOT_NULL(root->ops);
 
@@ -169,7 +175,7 @@ void test_lookup_nonexistent_returns_null() {
     auto pair = setup_ext2();
     TEST_ASSERT_NOT_NULL(pair.ext2);
 
-    Inode* ino = pair.ext2->lookup("nonexistent_file_xyz.txt");
+    Inode* ino = lookup_or_null(pair.ext2, "nonexistent_file_xyz.txt");
     TEST_ASSERT_NULL(ino);
 
     teardown_ext2(pair);
@@ -183,10 +189,10 @@ void test_lookup_file_has_read_ops() {
     // at least one file.  Try "etc/motd" as a common test file.
     // If not found, we skip gracefully (not fail) since the disk
     // image content may vary.
-    Inode* ino = pair.ext2->lookup("etc/motd");
+    Inode* ino = lookup_or_null(pair.ext2, "etc/motd");
     if (ino == nullptr) {
         // Try other common paths
-        ino = pair.ext2->lookup("hello.txt");
+        ino = lookup_or_null(pair.ext2, "hello.txt");
     }
     if (ino == nullptr) {
         // No regular file to test; skip by passing
@@ -201,13 +207,13 @@ void test_lookup_file_has_read_ops() {
 
     // Read the file content
     char    buf[256] = {};
-    int64_t n        = ino->ops->read(ino, 0, buf, sizeof(buf) - 1);
+    int64_t n        = read_or_neg1(ino, 0, buf, sizeof(buf) - 1);
     TEST_ASSERT_GT(n, 0);
 
     cinux::lib::kprintf("[EXT2] Read %ld bytes from file\n", n);
 
     // Write should succeed now that write path is implemented
-    int64_t w = ino->ops->write(ino, 0, "x", 1);
+    int64_t w = write_or_neg1(ino, 0, "x", 1);
     TEST_ASSERT_EQ(w, 1);
 
     teardown_ext2(pair);
@@ -217,9 +223,9 @@ void test_read_with_offset() {
     auto pair = setup_ext2();
     TEST_ASSERT_NOT_NULL(pair.ext2);
 
-    Inode* ino = pair.ext2->lookup("etc/motd");
+    Inode* ino = lookup_or_null(pair.ext2, "etc/motd");
     if (ino == nullptr) {
-        ino = pair.ext2->lookup("hello.txt");
+        ino = lookup_or_null(pair.ext2, "hello.txt");
     }
     if (ino == nullptr) {
         teardown_ext2(pair);
@@ -230,12 +236,12 @@ void test_read_with_offset() {
 
     // Read first 4 bytes
     char    buf1[8] = {};
-    int64_t n1      = ino->ops->read(ino, 0, buf1, 4);
+    int64_t n1      = read_or_neg1(ino, 0, buf1, 4);
     TEST_ASSERT_EQ(n1, 4);
 
     // Read next 4 bytes at offset 4
     char    buf2[8] = {};
-    int64_t n2      = ino->ops->read(ino, 4, buf2, 4);
+    int64_t n2      = read_or_neg1(ino, 4, buf2, 4);
     TEST_ASSERT_EQ(n2, 4);
 
     // The two reads should give different content (unless the file
@@ -249,9 +255,9 @@ void test_read_past_end_returns_zero() {
     auto pair = setup_ext2();
     TEST_ASSERT_NOT_NULL(pair.ext2);
 
-    Inode* ino = pair.ext2->lookup("etc/motd");
+    Inode* ino = lookup_or_null(pair.ext2, "etc/motd");
     if (ino == nullptr) {
-        ino = pair.ext2->lookup("hello.txt");
+        ino = lookup_or_null(pair.ext2, "hello.txt");
     }
     if (ino == nullptr) {
         teardown_ext2(pair);
@@ -262,7 +268,7 @@ void test_read_past_end_returns_zero() {
 
     // Read past end
     char    buf[16] = {};
-    int64_t n       = ino->ops->read(ino, ino->size + 100, buf, sizeof(buf));
+    int64_t n       = read_or_neg1(ino, ino->size + 100, buf, sizeof(buf));
     TEST_ASSERT_EQ(n, 0);
 
     teardown_ext2(pair);
@@ -280,18 +286,18 @@ void test_readdir_dot_and_dotdot() {
     auto pair = setup_ext2();
     TEST_ASSERT_NOT_NULL(pair.ext2);
 
-    Inode* root = pair.ext2->lookup("");
+    Inode* root = lookup_or_null(pair.ext2, "");
     TEST_ASSERT_NOT_NULL(root);
     TEST_ASSERT_NOT_NULL(root->ops);
     char name[256] = {};
 
     // Index 0: "."
-    int64_t n0 = root->ops->readdir(root, 0, name, sizeof(name));
+    int64_t n0 = readdir_or_neg1(root, 0, name, sizeof(name));
     TEST_ASSERT_EQ(n0, 1);
     TEST_ASSERT_TRUE(strcmp(name, ".") == 0);
 
     // Index 1: ".."
-    int64_t n1 = root->ops->readdir(root, 1, name, sizeof(name));
+    int64_t n1 = readdir_or_neg1(root, 1, name, sizeof(name));
     TEST_ASSERT_EQ(n1, 1);
     TEST_ASSERT_TRUE(strcmp(name, "..") == 0);
 
@@ -302,13 +308,13 @@ void test_readdir_finds_real_entries() {
     auto pair = setup_ext2();
     TEST_ASSERT_NOT_NULL(pair.ext2);
 
-    Inode* root = pair.ext2->lookup("");
+    Inode* root = lookup_or_null(pair.ext2, "");
     TEST_ASSERT_NOT_NULL(root);
 
     char name[256] = {};
 
     // Index 2+: should find at least one real entry
-    int64_t n2 = root->ops->readdir(root, 2, name, sizeof(name));
+    int64_t n2 = readdir_or_neg1(root, 2, name, sizeof(name));
     if (n2 == 1) {
         cinux::lib::kprintf("[EXT2] Readdir entry: %s\n", name);
         // Name should not be empty
@@ -322,7 +328,7 @@ void test_readdir_returns_zero_when_exhausted() {
     auto pair = setup_ext2();
     TEST_ASSERT_NOT_NULL(pair.ext2);
 
-    Inode* root = pair.ext2->lookup("");
+    Inode* root = lookup_or_null(pair.ext2, "");
     TEST_ASSERT_NOT_NULL(root);
 
     char name[256] = {};
@@ -330,7 +336,7 @@ void test_readdir_returns_zero_when_exhausted() {
     // Drain all entries
     bool hit_end = false;
     for (uint64_t i = 0; i < 256; ++i) {
-        int64_t n = root->ops->readdir(root, i, name, sizeof(name));
+        int64_t n = readdir_or_neg1(root, i, name, sizeof(name));
         if (n == 0) {
             hit_end = true;
             break;
@@ -388,7 +394,7 @@ void test_vfs_lookup_through_vfs() {
     cinux::fs::FileSystem* fs       = cinux::fs::vfs_resolve("/", &rel_path);
     TEST_ASSERT_NOT_NULL(fs);
 
-    Inode* root = fs->lookup(rel_path);
+    Inode* root = lookup_or_null(fs, rel_path);
     TEST_ASSERT_NOT_NULL(root);
     TEST_ASSERT_EQ(static_cast<uint32_t>(root->type), static_cast<uint32_t>(InodeType::Directory));
 
@@ -410,12 +416,12 @@ void test_vfs_open_read_close() {
     cinux::fs::FileSystem* fs       = cinux::fs::vfs_resolve("/etc/motd", &rel_path);
     TEST_ASSERT_NOT_NULL(fs);
 
-    Inode* ino = fs->lookup(rel_path);
+    Inode* ino = lookup_or_null(fs, rel_path);
     if (ino == nullptr) {
         // Try alternative
         fs = cinux::fs::vfs_resolve("/hello.txt", &rel_path);
         if (fs != nullptr) {
-            ino = fs->lookup(rel_path);
+            ino = lookup_or_null(fs, rel_path);
         }
     }
     if (ino == nullptr) {
@@ -435,7 +441,7 @@ void test_vfs_open_read_close() {
     TEST_ASSERT_NOT_NULL(file->inode);
     TEST_ASSERT_NOT_NULL(file->inode->ops);
     char    buf[256] = {};
-    int64_t n        = file->inode->ops->read(file->inode, file->offset, buf, sizeof(buf) - 1);
+    int64_t n        = read_or_neg1(file->inode, file->offset, buf, sizeof(buf) - 1);
     TEST_ASSERT_GT(n, 0);
 
     cinux::lib::kprintf("[EXT2] VFS read %ld bytes\n", n);
@@ -465,7 +471,7 @@ void test_vfs_lookup_nonexistent() {
     cinux::fs::FileSystem* fs       = cinux::fs::vfs_resolve("/no_such_file_at_all.txt", &rel_path);
     TEST_ASSERT_NOT_NULL(fs);
 
-    Inode* ino = fs->lookup(rel_path);
+    Inode* ino = lookup_or_null(fs, rel_path);
     TEST_ASSERT_NULL(ino);
 
     cinux::fs::vfs_mount_remove("/");

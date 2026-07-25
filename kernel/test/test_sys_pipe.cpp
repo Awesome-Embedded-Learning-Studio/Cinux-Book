@@ -19,11 +19,17 @@
  */
 
 #include "big_kernel_test.h"
+#include "kernel/errno.hpp"
 #include "kernel/fs/file.hpp"
 #include "kernel/fs/inode.hpp"
+#include "kernel/fs/vfs_mount.hpp"  // g_global_fd_table (do_write_kernel fd resolution)
 #include "kernel/ipc/pipe.hpp"
 #include "kernel/ipc/pipe_ops.hpp"
+#include "kernel/proc/process.hpp"  // Task (SIGPIPE test current-task scratch)
+#include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/signal.hpp"  // sig_is_member / Signal::kSigpipe
 #include "kernel/syscall/sys_pipe.hpp"
+#include "kernel/syscall/sys_write.hpp"  // do_write_kernel (SIGPIPE end-to-end)
 
 using cinux::fs::FDTable;
 using cinux::fs::File;
@@ -50,7 +56,7 @@ void test_sys_pipe_fdtable_set_slot0() {
     TEST_ASSERT_NOT_NULL(retrieved);
     TEST_ASSERT_TRUE(retrieved == f);
 
-    delete retrieved;
+    // retrieved is owned by FDTable (FileRef); ~FDTable unref's it on exit
 }
 
 void test_sys_pipe_fdtable_set_slot1() {
@@ -65,7 +71,7 @@ void test_sys_pipe_fdtable_set_slot1() {
     TEST_ASSERT_NOT_NULL(retrieved);
     TEST_ASSERT_TRUE(retrieved->flags == OpenFlags::WRONLY);
 
-    delete retrieved;
+    // retrieved is owned by FDTable (FileRef); ~FDTable unref's it on exit
 }
 
 // ============================================================
@@ -117,12 +123,12 @@ void test_sys_pipe_write_read_roundtrip() {
 
     // Write data through write inode's ops
     const char msg[] = "KernelPipe";
-    int64_t    w     = write_inode->ops->write(write_inode, 0, msg, 10);
+    int64_t    w     = write_or_neg1(write_inode, 0, msg, 10);
     TEST_ASSERT_EQ(w, 10);
 
     // Read data through read inode's ops
     char    buf[16] = {};
-    int64_t r       = read_inode->ops->read(read_inode, 0, buf, 10);
+    int64_t r       = read_or_neg1(read_inode, 0, buf, 10);
     TEST_ASSERT_EQ(r, 10);
 
     // Verify content
@@ -138,8 +144,8 @@ void test_sys_pipe_write_read_roundtrip() {
     TEST_ASSERT_EQ(buf[9], 'e');
 
     // Cleanup
-    delete write_file;
-    delete read_file;
+    // write_file owned by FDTable (FileRef); no manual delete
+    // read_file owned by FDTable (FileRef); no manual delete
     delete write_inode;
     delete read_inode;
     delete write_ops;
@@ -174,11 +180,60 @@ void test_sys_pipe_write_after_close_reader() {
     pipe->close_reader();
 
     // Write should fail
-    int64_t w = write_inode->ops->write(write_inode, 0, "data", 4);
+    int64_t w = write_or_neg1(write_inode, 0, "data", 4);
     TEST_ASSERT_EQ(w, -1);
 
-    delete write_file;
-    delete read_file;
+    // write_file owned by FDTable (FileRef); no manual delete
+    // read_file owned by FDTable (FileRef); no manual delete
+    delete write_inode;
+    delete read_inode;
+    delete write_ops;
+    delete read_ops;
+    delete pipe;
+}
+
+// ============================================================
+// 4b. DEBT-023: dup'd read fd -- first close does NOT EOF, last close does
+// ============================================================
+
+void test_sys_pipe_dup_last_close_eof() {
+    FDTable table;
+
+    Pipe* pipe      = new Pipe();
+    auto* read_ops  = new PipeReadOps(pipe);
+    auto* write_ops = new PipeWriteOps(pipe);
+
+    Inode* read_inode = new Inode();
+    read_inode->ops   = read_ops;
+    read_inode->type  = InodeType::Regular;
+
+    Inode* write_inode = new Inode();
+    write_inode->ops   = write_ops;
+    write_inode->type  = InodeType::Regular;
+
+    table.set(0, new File(read_inode, 0, OpenFlags::RDONLY));
+    table.set(1, new File(write_inode, 0, OpenFlags::WRONLY));
+
+    // Duplicate the read fd: read_inode refcount = 2 (two fds share one inode).
+    int dup_fd = table.dup(0, 3);
+    TEST_ASSERT_TRUE(dup_fd > 0);
+
+    // Close the ORIGINAL read fd. With DEBT-023 this only drops refcount 2->1
+    // (NOT the last), so the reader end stays alive -- write must still succeed.
+    // Without end-refcounting this would already have fired EOF/BrokenPipe.
+    TEST_ASSERT_EQ(table.close(0), 0);
+    int64_t w1 = write_or_neg1(write_inode, 0, "a", 1);
+    TEST_ASSERT_EQ(w1, 1);  // reader alive via the dup -> no early EOF
+
+    // Close the DUP -- now refcount 1->0, the LAST fd referring to a read end,
+    // so release() fires close_reader() and the writer sees the reader gone.
+    TEST_ASSERT_EQ(table.close(dup_fd), 0);
+    int64_t w2 = write_or_neg1(write_inode, 0, "b", 1);
+    TEST_ASSERT_EQ(w2, -1);  // last read close -> BrokenPipe
+
+    // Cleanup: close() already freed the Files; free the pipe resources. The
+    // write fd close drops the write-end refcount to 0 -> close_writer().
+    table.close(1);
     delete write_inode;
     delete read_inode;
     delete write_ops;
@@ -214,11 +269,11 @@ void test_sys_pipe_read_eof_after_close_writer() {
 
     // Read should return 0 (EOF)
     char    buf[16] = {};
-    int64_t r       = read_inode->ops->read(read_inode, 0, buf, 8);
+    int64_t r       = read_or_neg1(read_inode, 0, buf, 8);
     TEST_ASSERT_EQ(r, 0);
 
-    delete write_file;
-    delete read_file;
+    // write_file owned by FDTable (FileRef); no manual delete
+    // read_file owned by FDTable (FileRef); no manual delete
     delete write_inode;
     delete read_inode;
     delete write_ops;
@@ -250,7 +305,7 @@ void test_sys_pipe_drain_then_eof() {
     table.set(1, write_file);
 
     // Write data
-    int64_t w = write_inode->ops->write(write_inode, 0, "AB", 2);
+    int64_t w = write_or_neg1(write_inode, 0, "AB", 2);
     TEST_ASSERT_EQ(w, 2);
 
     // Close writer
@@ -258,17 +313,17 @@ void test_sys_pipe_drain_then_eof() {
 
     // Drain remaining data
     char    buf[16] = {};
-    int64_t r       = read_inode->ops->read(read_inode, 0, buf, 8);
+    int64_t r       = read_or_neg1(read_inode, 0, buf, 8);
     TEST_ASSERT_EQ(r, 2);
     TEST_ASSERT_EQ(buf[0], 'A');
     TEST_ASSERT_EQ(buf[1], 'B');
 
     // Now EOF
-    r = read_inode->ops->read(read_inode, 0, buf, 8);
+    r = read_or_neg1(read_inode, 0, buf, 8);
     TEST_ASSERT_EQ(r, 0);
 
-    delete write_file;
-    delete read_file;
+    // write_file owned by FDTable (FileRef); no manual delete
+    // read_file owned by FDTable (FileRef); no manual delete
     delete write_inode;
     delete read_inode;
     delete write_ops;
@@ -300,22 +355,22 @@ void test_sys_pipe_multiple_cycles() {
     table.set(1, write_file);
 
     // First cycle
-    TEST_ASSERT_EQ(write_inode->ops->write(write_inode, 0, "AB", 2), 2);
+    TEST_ASSERT_EQ(write_or_neg1(write_inode, 0, "AB", 2), 2);
     char buf[8] = {};
-    TEST_ASSERT_EQ(read_inode->ops->read(read_inode, 0, buf, 2), 2);
+    TEST_ASSERT_EQ(read_or_neg1(read_inode, 0, buf, 2), 2);
     TEST_ASSERT_EQ(buf[0], 'A');
     TEST_ASSERT_EQ(buf[1], 'B');
 
     // Second cycle
-    TEST_ASSERT_EQ(write_inode->ops->write(write_inode, 0, "CDEF", 4), 4);
-    TEST_ASSERT_EQ(read_inode->ops->read(read_inode, 0, buf, 4), 4);
+    TEST_ASSERT_EQ(write_or_neg1(write_inode, 0, "CDEF", 4), 4);
+    TEST_ASSERT_EQ(read_or_neg1(read_inode, 0, buf, 4), 4);
     TEST_ASSERT_EQ(buf[0], 'C');
     TEST_ASSERT_EQ(buf[1], 'D');
     TEST_ASSERT_EQ(buf[2], 'E');
     TEST_ASSERT_EQ(buf[3], 'F');
 
-    delete write_file;
-    delete read_file;
+    // write_file owned by FDTable (FileRef); no manual delete
+    // read_file owned by FDTable (FileRef); no manual delete
     delete write_inode;
     delete read_inode;
     delete write_ops;
@@ -360,8 +415,8 @@ void test_sys_pipe_set_replaces() {
     TEST_ASSERT_TRUE(retrieved == f2);
     TEST_ASSERT_TRUE(retrieved->flags == OpenFlags::WRONLY);
 
-    delete f1;
-    delete retrieved;
+    // f1 was dropped when set(0, f2) displaced it (FileRef already unref'd)
+    // retrieved is owned by FDTable (FileRef); ~FDTable unref's it on exit
 }
 
 // ============================================================
@@ -370,7 +425,7 @@ void test_sys_pipe_set_replaces() {
 
 void test_sys_pipe_rejects_null() {
     int64_t r = cinux::syscall::sys_pipe(0, 0, 0, 0, 0, 0);
-    TEST_ASSERT_EQ(r, -1);
+    TEST_ASSERT_EQ(r, -cinux::kEfault);
 }
 
 // ============================================================
@@ -380,7 +435,7 @@ void test_sys_pipe_rejects_null() {
 void test_sys_pipe_rejects_kernel_addr() {
     // 0xFFFFFFFF80100000 is a kernel-space address (bit 47 set)
     int64_t r = cinux::syscall::sys_pipe(0xFFFFFFFF80100000ULL, 0, 0, 0, 0, 0);
-    TEST_ASSERT_EQ(r, -1);
+    TEST_ASSERT_EQ(r, -cinux::kEfault);
 }
 
 // ============================================================
@@ -402,7 +457,72 @@ void test_sys_pipe_set_preserves_fields() {
     TEST_ASSERT_EQ(retrieved->offset, 99ULL);
     TEST_ASSERT_TRUE(retrieved->flags == OpenFlags::RDWR);
 
-    delete retrieved;
+    // retrieved is owned by FDTable (FileRef); ~FDTable unref's it on exit
+}
+
+// ============================================================
+// 13. SIGPIPE: write to a pipe whose reader closed -> -EPIPE + SIGPIPE (F8-M1)
+// ============================================================
+
+namespace {
+// RAII: point Scheduler::current() at a scratch Task so do_write_kernel's
+// SIGPIPE delivery targets a task whose sig_pending we can inspect. Mirrors the
+// CurrentTaskGuard pattern in test_signal.cpp / test_creds.cpp.
+struct CurrentTaskGuard {
+    cinux::proc::Task* prev;
+    explicit CurrentTaskGuard(cinux::proc::Task* task) : prev(cinux::proc::Scheduler::current()) {
+        cinux::proc::Scheduler::set_current(task);
+    }
+    ~CurrentTaskGuard() { cinux::proc::Scheduler::set_current(prev); }
+};
+}  // namespace
+
+// Closing the read end, then writing through do_write_kernel must return -EPIPE
+// AND raise SIGPIPE on the writer.  Before F8-M1 this was masked: PipeWriteOps
+// returned IOError -> -EIO, so sys_write's kEpipe branch never fired.
+void test_sys_pipe_sigpipe_on_broken_write() {
+    // Build a pipe; install both ends in the GLOBAL fd table, because
+    // do_write_kernel resolves fds through current_fd_table() (== the global
+    // table in the harness).
+    auto*  pipe        = new Pipe();
+    auto*  read_ops    = new PipeReadOps(pipe);
+    auto*  write_ops   = new PipeWriteOps(pipe);
+    Inode* read_inode  = new Inode();
+    Inode* write_inode = new Inode();
+    read_inode->ops    = read_ops;
+    write_inode->ops   = write_ops;
+
+    int rfd = cinux::fs::g_global_fd_table().alloc(read_inode, OpenFlags::RDONLY);
+    int wfd = cinux::fs::g_global_fd_table().alloc(write_inode, OpenFlags::WRONLY);
+    TEST_ASSERT_GE(rfd, 0);
+    TEST_ASSERT_GE(wfd, 0);
+
+    // Reader gone -> BrokenPipe -> -EPIPE + SIGPIPE queued on current.
+    pipe->close_reader();
+
+    // signal_send() dereferences sig_actions, so the scratch Task needs a real
+    // SharedSigActions (same wiring as test_signal). {} value-inits sig_pending=0.
+    cinux::proc::Task self{};
+    self.sig_actions = cinux::proc::SharedSigActions::create();
+    {
+        CurrentTaskGuard guard(&self);
+
+        int64_t r = cinux::syscall::do_write_kernel(wfd, "x", 1);
+        TEST_ASSERT_EQ(r, -cinux::kEpipe);
+        // SIGPIPE really was queued (the regression this test guards against:
+        // previously the write returned -EIO and no signal was sent).
+        TEST_ASSERT_TRUE(
+            cinux::proc::sig_is_member(self.sig_pending, cinux::proc::Signal::kSigpipe));
+    }
+
+    // Cleanup the global table (close frees the File; pipe/inode/ops are ours).
+    cinux::fs::g_global_fd_table().close(rfd);
+    cinux::fs::g_global_fd_table().close(wfd);
+    delete write_inode;
+    delete read_inode;
+    delete write_ops;
+    delete read_ops;
+    delete pipe;
 }
 
 // ============================================================
@@ -418,6 +538,7 @@ extern "C" void run_sys_pipe_tests() {
     RUN_TEST(test_sys_pipe_fdtable_set_at_table_size);
     RUN_TEST(test_sys_pipe_write_read_roundtrip);
     RUN_TEST(test_sys_pipe_write_after_close_reader);
+    RUN_TEST(test_sys_pipe_dup_last_close_eof);
     RUN_TEST(test_sys_pipe_read_eof_after_close_writer);
     RUN_TEST(test_sys_pipe_drain_then_eof);
     RUN_TEST(test_sys_pipe_multiple_cycles);
@@ -426,6 +547,7 @@ extern "C" void run_sys_pipe_tests() {
     RUN_TEST(test_sys_pipe_rejects_null);
     RUN_TEST(test_sys_pipe_rejects_kernel_addr);
     RUN_TEST(test_sys_pipe_set_preserves_fields);
+    RUN_TEST(test_sys_pipe_sigpipe_on_broken_write);
 
     TEST_SUMMARY();
 }

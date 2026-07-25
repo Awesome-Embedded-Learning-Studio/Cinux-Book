@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 namespace cinux::arch {
@@ -26,20 +27,21 @@ namespace cinux::arch {
 // ============================================================
 
 enum class ExceptionVector : uint8_t {
-    DE  = 0,   ///< #DE: Divide Error
-    DB  = 1,   ///< #DB: Debug Exception
-    NMI = 2,   ///< Non-maskable Interrupt
-    BP  = 3,   ///< #BP: Breakpoint (INT3)
-    OF  = 4,   ///< #OF: Overflow
-    BR  = 5,   ///< #BR: BOUND Range Exceeded
-    UD  = 6,   ///< #UD: Invalid Opcode
-    NM  = 7,   ///< #NM: Device Not Available
-    DF  = 8,   ///< #DF: Double Fault (has error code)
-    TS  = 10,  ///< #TS: Invalid TSS (has error code)
-    NP  = 11,  ///< #NP: Segment Not Present (has error code)
-    SS  = 12,  ///< #SS: Stack-Segment Fault (has error code)
-    GP  = 13,  ///< #GP: General Protection (has error code)
-    PF  = 14,  ///< #PF: Page Fault (has error code)
+    DE        = 0,     ///< #DE: Divide Error
+    DB        = 1,     ///< #DB: Debug Exception
+    NMI       = 2,     ///< Non-maskable Interrupt
+    BP        = 3,     ///< #BP: Breakpoint (INT3)
+    OF        = 4,     ///< #OF: Overflow
+    BR        = 5,     ///< #BR: BOUND Range Exceeded
+    UD        = 6,     ///< #UD: Invalid Opcode
+    NM        = 7,     ///< #NM: Device Not Available
+    DF        = 8,     ///< #DF: Double Fault (has error code)
+    TS        = 10,    ///< #TS: Invalid TSS (has error code)
+    NP        = 11,    ///< #NP: Segment Not Present (has error code)
+    SS        = 12,    ///< #SS: Stack-Segment Fault (has error code)
+    GP        = 13,    ///< #GP: General Protection (has error code)
+    PF        = 14,    ///< #PF: Page Fault (has error code)
+    Sigreturn = 0x80,  ///< F3-M1: int $0x80 sigreturn gate (user-callable trap)
 };
 
 // ============================================================
@@ -75,6 +77,16 @@ struct [[gnu::packed]] InterruptFrame {
     uint64_t rip, cs, rflags, rsp, ss;
 };
 
+// F-INFRA I-4 (R11): lock the interrupt stack frame. interrupts.S builds this
+// frame by sequential push and the C handler indexes it via (RSP+offset), so
+// the FIELD OFFSETS are the asm ABI contract -- not just the total size. A field
+// reorder here would read the wrong register in the handler with no other signal.
+static_assert(sizeof(InterruptFrame) == 168, "21 x uint64");
+static_assert(offsetof(InterruptFrame, r15) == 0, "first ISR-saved register");
+static_assert(offsetof(InterruptFrame, error_code) == 120, "error_code precedes the CPU frame");
+static_assert(offsetof(InterruptFrame, rip) == 128, "CPU pushes rip at frame+128");
+static_assert(offsetof(InterruptFrame, ss) == 160, "ss is the final CPU-pushed field");
+
 // ============================================================
 // IDT Class
 // ============================================================
@@ -90,6 +102,10 @@ public:
     void init();
     void set_handler(ExceptionVector vector, Stub stub, uint16_t selector, uint8_t type_attr,
                      uint8_t ist = 0);
+
+    /// Load this CPU's IDTR to point at the (shared) IDT.  Each CPU must LIDT
+    /// its own IDTR; init() does it for the BSP, APs call this from ap_main.
+    void load();
 
 private:
     struct [[gnu::packed]] Entry {
@@ -112,8 +128,6 @@ private:
 
     Entry   entries_[kMaxEntries]{};
     Pointer idtr_{};
-
-    void load();
 };
 
 /// Global IDT instance (zero-initialized in BSS)

@@ -5,7 +5,7 @@
  * Test coverage:
  *   - FDTable::set() installs a File at a specific slot
  *   - FDTable::set() returns false for out-of-range fd
- *   - FDTable::set() replaces an existing entry (caller manages old File)
+ *   - FDTable::set() replaces an existing entry (FileRef unrefs the displaced File)
  *   - Pipe + FDTable::set() + InodeOps round-trip: write via PipeWriteOps,
  *     read via PipeReadOps through the FDTable indirection
  *   - Close read end (via FDTable) then write returns -1
@@ -88,8 +88,8 @@ TEST("sys_pipe: FDTable set installs File at specific slot") {
     ASSERT_TRUE(retrieved->inode == &inode);
     ASSERT_TRUE(retrieved->flags == OpenFlags::RDONLY);
 
-    // Clean up to avoid leak (set bypasses alloc, so we delete manually)
-    delete retrieved;
+    // f is owned by the table via set(); FDTable's destructor frees it
+    // (resource-safety backstop, DEBT-017).
 }
 
 // set() at slot 1 installs correctly.
@@ -104,8 +104,7 @@ TEST("sys_pipe: FDTable set installs File at slot 1") {
     ASSERT_NOT_NULL(retrieved);
     ASSERT_TRUE(retrieved == f);
     ASSERT_TRUE(retrieved->flags == OpenFlags::WRONLY);
-
-    delete retrieved;
+    // f owned by table (set()); destructor frees it (DEBT-017).
 }
 
 // ============================================================
@@ -143,7 +142,7 @@ TEST("sys_pipe: FDTable set rejects fd beyond table size") {
 // 3. FDTable::set() -- replaces existing entry
 // ============================================================
 
-// set() replaces whatever was at the slot (caller manages old entry).
+// set() replaces whatever was at the slot (FileRef unrefs the displaced old).
 TEST("sys_pipe: FDTable set replaces existing entry") {
     FDTable table;
     Inode   inode1{};
@@ -160,9 +159,10 @@ TEST("sys_pipe: FDTable set replaces existing entry") {
     ASSERT_TRUE(retrieved == f2);
     ASSERT_TRUE(retrieved->flags == OpenFlags::WRONLY);
 
-    // f1 was replaced without being freed -- caller responsibility
-    delete f1;
-    delete retrieved;
+    // set(0, f2) DISPLACED f1: under FileRef semantics the displaced File is
+    // unref'd (deleted on 0) when the fd-table lock is released, so f1 is
+    // already gone -- do NOT free it here. f2 stays in the table; ~FDTable
+    // releases it via FileRef.
 }
 
 // ============================================================
@@ -184,18 +184,18 @@ TEST("sys_pipe: pipe write/read round-trip through FDTable") {
 
     // Write data through the write inode's ops
     const char msg[] = "PipeData";
-    int64_t    w     = ep.write_inode->ops->write(ep.write_inode, 0, msg, 8);
+    int64_t    w     = ep.write_inode->ops->write(ep.write_inode, 0, msg, 8).value();
     ASSERT_EQ(w, 8);
 
     // Read data through the read inode's ops
     char    buf[16] = {};
-    int64_t r       = ep.read_inode->ops->read(ep.read_inode, 0, buf, 8);
+    int64_t r       = ep.read_inode->ops->read(ep.read_inode, 0, buf, 8).value();
     ASSERT_EQ(r, 8);
     ASSERT_TRUE(memcmp(buf, "PipeData", 8) == 0);
 
     // Cleanup: delete File objects (table.set gave us ownership)
-    delete write_file;
-    delete read_file;
+    // read_file/write_file were installed via set(); FDTable owns them and
+    // its destructor frees them (resource-safety backstop, DEBT-017).
     cleanup_pipe_endpoints(ep);
 }
 
@@ -218,12 +218,14 @@ TEST("sys_pipe: write returns -1 after close_reader") {
     // Close the reader
     ep.pipe->close_reader();
 
-    // Write should fail
-    int64_t w = ep.write_inode->ops->write(ep.write_inode, 0, "data", 4);
-    ASSERT_EQ(w, -1);
+    // Write should fail with BrokenPipe (F8-M1: maps to -EPIPE + SIGPIPE in
+    // sys_write; was IOError/-EIO before, which never raised SIGPIPE).
+    auto wr = ep.write_inode->ops->write(ep.write_inode, 0, "data", 4);
+    ASSERT_TRUE(!wr.ok());
+    ASSERT_TRUE(wr.error() == cinux::lib::Error::BrokenPipe);
 
-    delete write_file;
-    delete read_file;
+    // read_file/write_file were installed via set(); FDTable owns them and
+    // its destructor frees them (resource-safety backstop, DEBT-017).
     cleanup_pipe_endpoints(ep);
 }
 
@@ -248,11 +250,11 @@ TEST("sys_pipe: read returns 0 after close_writer") {
 
     // Read should return 0 (EOF)
     char    buf[16] = {};
-    int64_t r       = ep.read_inode->ops->read(ep.read_inode, 0, buf, 8);
+    int64_t r       = ep.read_inode->ops->read(ep.read_inode, 0, buf, 8).value();
     ASSERT_EQ(r, 0);
 
-    delete write_file;
-    delete read_file;
+    // read_file/write_file were installed via set(); FDTable owns them and
+    // its destructor frees them (resource-safety backstop, DEBT-017).
     cleanup_pipe_endpoints(ep);
 }
 
@@ -272,23 +274,23 @@ TEST("sys_pipe: drain then EOF through FDTable") {
     ASSERT_TRUE(table.set(1, write_file));
 
     // Write some data
-    ASSERT_EQ(ep.write_inode->ops->write(ep.write_inode, 0, "AB", 2), 2);
+    ASSERT_EQ(ep.write_inode->ops->write(ep.write_inode, 0, "AB", 2).value(), 2);
 
     // Close writer
     ep.pipe->close_writer();
 
     // Drain remaining data
     char    buf[16] = {};
-    int64_t r       = ep.read_inode->ops->read(ep.read_inode, 0, buf, 8);
+    int64_t r       = ep.read_inode->ops->read(ep.read_inode, 0, buf, 8).value();
     ASSERT_EQ(r, 2);
     ASSERT_TRUE(memcmp(buf, "AB", 2) == 0);
 
     // Now EOF
-    r = ep.read_inode->ops->read(ep.read_inode, 0, buf, 8);
+    r = ep.read_inode->ops->read(ep.read_inode, 0, buf, 8).value();
     ASSERT_EQ(r, 0);
 
-    delete write_file;
-    delete read_file;
+    // read_file/write_file were installed via set(); FDTable owns them and
+    // its destructor frees them (resource-safety backstop, DEBT-017).
     cleanup_pipe_endpoints(ep);
 }
 
@@ -312,8 +314,7 @@ TEST("sys_pipe: FDTable set preserves File fields") {
     ASSERT_TRUE(retrieved->inode == &inode);
     ASSERT_EQ(retrieved->offset, 42ULL);
     ASSERT_TRUE(retrieved->flags == OpenFlags::RDWR);
-
-    delete retrieved;
+    // f owned by table (set()); destructor frees it (DEBT-017).
 }
 
 // ============================================================
@@ -350,18 +351,18 @@ TEST("sys_pipe: multiple write/read cycles") {
     ASSERT_TRUE(table.set(1, write_file));
 
     // First cycle
-    ASSERT_EQ(ep.write_inode->ops->write(ep.write_inode, 0, "AB", 2), 2);
+    ASSERT_EQ(ep.write_inode->ops->write(ep.write_inode, 0, "AB", 2).value(), 2);
     char buf[8] = {};
-    ASSERT_EQ(ep.read_inode->ops->read(ep.read_inode, 0, buf, 2), 2);
+    ASSERT_EQ(ep.read_inode->ops->read(ep.read_inode, 0, buf, 2).value(), 2);
     ASSERT_TRUE(memcmp(buf, "AB", 2) == 0);
 
     // Second cycle
-    ASSERT_EQ(ep.write_inode->ops->write(ep.write_inode, 0, "CDEF", 4), 4);
-    ASSERT_EQ(ep.read_inode->ops->read(ep.read_inode, 0, buf, 4), 4);
+    ASSERT_EQ(ep.write_inode->ops->write(ep.write_inode, 0, "CDEF", 4).value(), 4);
+    ASSERT_EQ(ep.read_inode->ops->read(ep.read_inode, 0, buf, 4).value(), 4);
     ASSERT_TRUE(memcmp(buf, "CDEF", 4) == 0);
 
-    delete write_file;
-    delete read_file;
+    // read_file/write_file were installed via set(); FDTable owns them and
+    // its destructor frees them (resource-safety backstop, DEBT-017).
     cleanup_pipe_endpoints(ep);
 }
 

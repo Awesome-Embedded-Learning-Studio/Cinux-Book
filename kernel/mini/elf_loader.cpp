@@ -169,8 +169,8 @@ uint64_t load_elf(void* elf_src, uint64_t staging_size) {
     }
 
     // Step 4: Log ELF header information
-    kprintf("[ELF] Entry point: 0x%p\n", saved_entry);
-    kprintf("[ELF] Program headers: %u at offset 0x%p\n", saved_phnum, saved_phoff);
+    kprintf("[ELF] Entry point: %p\n", saved_entry);
+    kprintf("[ELF] Program headers: %u at offset %p\n", saved_phnum, saved_phoff);
 
     // Step 5: Iterate through saved program headers and load PT_LOAD segments
     for (uint16_t i = 0; i < saved_phnum; i++) {
@@ -181,14 +181,14 @@ uint64_t load_elf(void* elf_src, uint64_t staging_size) {
             continue;
         }
 
-        kprintf("[ELF] PT_LOAD[%u]: vaddr=0x%p paddr=0x%p filesz=0x%p memsz=0x%p\n", i,
+        kprintf("[ELF] PT_LOAD[%u]: vaddr=%p paddr=%p filesz=%p memsz=%p\n", i,
                 phdr.p_vaddr, phdr.p_paddr, phdr.p_filesz, phdr.p_memsz);
 
         // Validate that segment data lies within the staging buffer.
         if (phdr.p_offset + phdr.p_filesz > staging_size) {
             kprintf(
                 "[ELF] ERROR: segment %u data exceeds staging buffer "
-                "(offset=0x%p + filesz=0x%p > staging=0x%p)\n",
+                "(offset=%p + filesz=%p > staging=%p)\n",
                 i, phdr.p_offset, phdr.p_filesz, staging_size);
             return 0;
         }
@@ -212,7 +212,7 @@ uint64_t load_elf(void* elf_src, uint64_t staging_size) {
         }
 
         kprintf(
-            "[ELF] Loaded segment %u: 0x%p -> 0x%p (%u bytes, BSS %u bytes)\n", i, phdr.p_offset,
+            "[ELF] Loaded segment %u: %p -> %p (%u bytes, BSS %u bytes)\n", i, phdr.p_offset,
             dest_addr, phdr.p_filesz,
             phdr.p_memsz > phdr.p_filesz ? static_cast<uint32_t>(phdr.p_memsz - phdr.p_filesz) : 0);
     }

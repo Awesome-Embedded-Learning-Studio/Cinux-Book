@@ -1,4 +1,4 @@
-build*/
+/build*/
 .cache
 helpers
 # Claude Code / AI 产物：目前全部不提交（含 CLAUDE.md 与整个 .claude/），稳定后再解除
@@ -27,6 +27,7 @@ Makefile
 *.elf
 *.bin
 *.img
+!test/data/ext2_test.img
 
 # ============================================================
 # 磁盘镜像

@@ -11,6 +11,17 @@ Usage:
     python3 scripts/check_memory_layout.py \
         [--mini-elf build/kernel/mini/mini_kernel] \
         [--big-elf build/kernel/big/big_kernel]
+
+Scope (F-VERIFY M0-5): covers STATIC layout only -- linker-script regions,
+ELF PT_LOAD segments, and disk LBA ranges. It CANNOT catch runtime-allocated
+MMIO overlaps such as the xHCI BAR0 vs MSI-X Table/PBA collision (those
+addresses are programmed at boot from PCI config, not known at link time).
+The runtime guard for that is a boot self-test (read a known MMIO register
+after mapping, assert it is not another device's signature) -- tracked in
+F-VERIFY M3/M6. The MSI-X Table/PBA virt bases ARE constexpr
+(kMsixTableVirt/KMEM_MMIO_BASE+0x40000 in msix_controller.cpp) but live in a
+separate MMIO address space; adding them here is a possible future extension
+once the script models MMIO as a distinct region set.
 """
 
 import argparse

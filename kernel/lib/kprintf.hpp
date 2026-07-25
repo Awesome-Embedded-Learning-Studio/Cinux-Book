@@ -62,6 +62,28 @@ static constexpr uint32_t KPRINTF_MAX_SINKS = 8;
  */
 void kprintf_register_sink(OutputSink fn, void* ctx);
 
+/**
+ * @brief Enable or disable a registered sink by (fn, ctx)
+ *
+ * A disabled sink stays registered but receives no output.  Used to detach the
+ * framebuffer console once the GUI owns the screen, without unregistering it
+ * (so kpanic can re-enable it for on-screen crash display).  No-op if no sink
+ * matches (fn, ctx).
+ *
+ * @param fn       Sink callback (same pointer passed to kprintf_register_sink)
+ * @param ctx      Opaque context (same pointer passed to kprintf_register_sink)
+ * @param enabled  true to enable, false to disable
+ */
+void kprintf_set_sink_enabled(OutputSink fn, void* ctx, bool enabled);
+
+/**
+ * @brief Force-enable every registered sink
+ *
+ * Called by kpanic so a crash always reaches every possible output, including
+ * a console sink the GUI detached.
+ */
+void kprintf_enable_all_sinks();
+
 // ============================================================
 // Initialization and formatted output
 // ============================================================
@@ -81,7 +103,7 @@ void kprintf_init();
  * @param fmt  printf-style format string
  * @param ...  variadic arguments matching the format specifiers
  */
-void kprintf(const char* fmt, ...);
+__attribute__((format(printf, 1, 2))) void kprintf(const char* fmt, ...);
 
 /**
  * @brief va_list variant of kprintf
@@ -91,7 +113,7 @@ void kprintf(const char* fmt, ...);
  * @param fmt   printf-style format string
  * @param args  already-initialised va_list
  */
-void kvprintf(const char* fmt, va_list args);
+__attribute__((format(printf, 1, 0))) void kvprintf(const char* fmt, va_list args);
 
 /**
  * @brief Kernel panic -- print message and halt
@@ -102,6 +124,6 @@ void kvprintf(const char* fmt, va_list args);
  * @param fmt  printf-style format string
  * @param ...  variadic arguments
  */
-[[noreturn]] void kpanic(const char* fmt, ...);
+[[noreturn]] __attribute__((format(printf, 1, 2))) void kpanic(const char* fmt, ...);
 
 }  // namespace cinux::lib

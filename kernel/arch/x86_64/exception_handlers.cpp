@@ -8,18 +8,36 @@
  * Policy:
  *   - Non-fatal exceptions (#BP, #DB): print info and continue via IRETQ
  *   - Fatal exceptions (all others): print register dump, then cli;hlt forever
+ *
+ * Exception-type messages go through klog (klog_error/klog_warn) so they
+ * enter the dmesg ring buffer with a level, while still printing in real
+ * time.  The verbose register dump and kpanic stay on kprintf (real-time
+ * diagnostics; the dump is large and kpanic is the halt path).
  */
 
+#include <stdarg.h>
 #include <stdint.h>
 
 #include "arch/x86_64/paging.hpp"
+#include "kernel/arch/x86_64/backtrace.hpp"
+#include "kernel/arch/x86_64/extable.hpp"  // F-EXTABLE: search_exception_tables
+#include "kernel/arch/x86_64/fault_diag.hpp"  // F-VERIFY: capture_first_gp/pf + CoW diag (extracted from this file)
 #include "kernel/arch/x86_64/idt.hpp"
+#include "kernel/arch/x86_64/io.hpp"
 #include "kernel/arch/x86_64/paging_config.hpp"
+#include "kernel/arch/x86_64/phys_virt.hpp"
+#include "kernel/lib/klog.hpp"
 #include "kernel/lib/kprintf.hpp"
+#include "kernel/lib/string.hpp"
+#include "kernel/mm/address_space.hpp"
+#include "kernel/mm/diagnostics.hpp"
+#include "kernel/mm/page_cache.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/mm/vma.hpp"
 #include "kernel/mm/vmm.hpp"
 #include "kernel/proc/process.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/signal.hpp"
 
 extern "C" char __kernel_stack_top[];
 extern "C" char __boot_guard_start[];
@@ -60,11 +78,77 @@ void dump_registers(const InterruptFrame* frame, const char* name, uint8_t vecto
 
 [[noreturn]] void fatal_halt() {
     while (1) {
-        __asm__ volatile("cli; hlt");
+        __asm__ volatile(
+            "cli; \
+            hlt");
     }
 }
 
+// Synchronous user-mode CPU exception (#DE/#UD/#OF/#BR): the offending USER
+// task must die, not the kernel -- same policy as handle_gp / handle_pf (Linux
+// force_sig_info for synchronous faults).  Force-delivers @p sig past sig_blocked
+// so a task that masked it (gcc's abort path blocks SIGILL via rt_sigprocmask)
+// terminates instead of livelocking at the faulting rip (see handle_gp for the
+// full rationale).  Returns true when the caller may return -- the ISR stub's
+// signal_check_deliver_isr delivers the signal on IRETQ; false when the caller
+// must panic (kernel-mode fault, or no current task).
+bool user_fault_to_signal(const InterruptFrame* frame, const char* name,
+                          cinux::proc::Signal sig) {
+    if ((frame->cs & 0x03) == 0) {
+        return false;  // kernel mode: a kernel fault stays fatal.
+    }
+    auto* task = cinux::proc::Scheduler::current();
+    if (task == nullptr) {
+        return false;
+    }
+    klog_error("%s user mode: tid=%u '%s' rip=%p cs=%p rsp=%p -- sending signal %d",
+               name, static_cast<unsigned>(task->tid), task->name ? task->name : "(null)",
+               reinterpret_cast<const void*>(frame->rip), reinterpret_cast<const void*>(frame->cs),
+               reinterpret_cast<const void*>(frame->rsp), static_cast<int>(sig));
+    cinux::proc::signal_force_send(task, sig);
+    return true;
+}
+
 }  // anonymous namespace
+
+// Central kernel-panic path (FO batch 3): uniform diagnostics for every fatal
+// exception and explicit kpanic().  Prints the reason, dumps registers when a
+// frame is available, walks + symbolizes the call stack, notes the current
+// task, then halts.  Replaces the per-handler dump_registers/klog/fatal_halt
+// triplet with a single entry point.
+[[noreturn]] void panic(const InterruptFrame* frame, const char* name, uint8_t vector,
+                        const char* fmt, ...) {
+    kprintf("\n========== KERNEL PANIC ==========\n");
+    va_list args;
+    va_start(args, fmt);
+    cinux::lib::kvprintf(fmt, args);
+    va_end(args);
+    kprintf("\n");
+
+    if (frame != nullptr) {
+        dump_registers(frame, name, vector);
+        cinux::arch::backtrace_from(frame->rbp);
+    } else {
+        cinux::arch::backtrace();
+    }
+
+    if (auto* t = cinux::proc::Scheduler::current(); t != nullptr) {
+        kprintf("Task: tid=%u pid=%d name='%s'\n", static_cast<unsigned>(t->tid), t->pid,
+                t->name ? t->name : "(null)");
+    }
+    cinux::mm::dump_memory_stats();
+    kprintf("==================================\n");
+    // isa-debug-exit (port 0xf4): terminate QEMU immediately with a code that
+    // names the cause, so CI fails FAST instead of hanging on cli;hlt until the
+    // timeout kills QEMU (the old "PF-killed" 2-minute stall). Encoding:
+    // value = vector + 2 (value 0=success and 1=test-fail are reserved; value 128
+    // also collides with success via (v<<1|1) mod 256, so stay < 128). QEMU exits
+    // (value<<1)|1: #DE(0)->5, #DF(8)->21, #GP(13)->31, #PF(14)->33. No-op on bare
+    // metal / the production `run` target (no isa-debug-exit device there) --
+    // fatal_halt() is the fallback.
+    __asm__ volatile("outl %0, $0xf4" : : "a"(static_cast<uint32_t>(vector + 2)));
+    fatal_halt();
+}
 
 // ============================================================
 // Exception handlers (C-linkage, called from ISR stubs)
@@ -74,205 +158,117 @@ extern "C" {
 
 void handle_db(InterruptFrame* frame) {
     dump_registers(frame, "#DB", 1);
-    kprintf("[EXCEPTION] Debug exception, continuing...\n");
+    klog_warn("Debug exception (#DB), continuing");
 }
 
 void handle_bp(InterruptFrame* frame) {
     dump_registers(frame, "#BP", 3);
-    kprintf("[EXCEPTION] Breakpoint at RIP=%p\n", reinterpret_cast<void*>(frame->rip));
-    kprintf("[EXCEPTION] Continuing...\n");
+    klog_warn("Breakpoint (#BP) at RIP=%p", reinterpret_cast<void*>(frame->rip));
+    klog_warn("Continuing");
 }
 
 void handle_de(InterruptFrame* frame) {
-    dump_registers(frame, "#DE", 0);
-    kprintf("[FATAL] Divide Error -- halting.\n");
-    fatal_halt();
+    // User-mode divide-by-zero -> SIGFPE (task dies, kernel lives).
+    if (user_fault_to_signal(frame, "#DE", cinux::proc::Signal::kSigfpe)) {
+        return;
+    }
+    panic(frame, "#DE", 0, "Divide Error");
 }
 
 void handle_nmi(InterruptFrame* frame) {
-    dump_registers(frame, "NMI", 2);
-    kprintf("[FATAL] Non-maskable Interrupt -- halting.\n");
-    fatal_halt();
+    panic(frame, "NMI", 2, "Non-maskable Interrupt");
 }
 
 void handle_of(InterruptFrame* frame) {
-    dump_registers(frame, "#OF", 4);
-    kprintf("[FATAL] Overflow -- halting.\n");
-    fatal_halt();
+    // User-mode INTO overflow -> SIGFPE.
+    if (user_fault_to_signal(frame, "#OF", cinux::proc::Signal::kSigfpe)) {
+        return;
+    }
+    panic(frame, "#OF", 4, "Overflow");
 }
 
 void handle_br(InterruptFrame* frame) {
-    dump_registers(frame, "#BR", 5);
-    kprintf("[FATAL] BOUND Range Exceeded -- halting.\n");
-    fatal_halt();
+    // User-mode BOUND range exceeded -> SIGSEGV.
+    if (user_fault_to_signal(frame, "#BR", cinux::proc::Signal::kSigsegv)) {
+        return;
+    }
+    panic(frame, "#BR", 5, "BOUND Range Exceeded");
 }
 
 void handle_ud(InterruptFrame* frame) {
-    dump_registers(frame, "#UD", 6);
-    kprintf("[FATAL] Invalid Opcode -- halting.\n");
-    fatal_halt();
+    // User-mode illegal opcode -> SIGILL.  FC29000: a stale page mapped after an
+    // NVMe/ext2 read failure let user code execute garbage; #UD must kill the
+    // task, not the whole kernel.
+    if (user_fault_to_signal(frame, "#UD", cinux::proc::Signal::kSigill)) {
+        return;
+    }
+    panic(frame, "#UD", 6, "Invalid Opcode");
 }
 
 void handle_nm(InterruptFrame* frame) {
-    dump_registers(frame, "#NM", 7);
-    kprintf("[FATAL] Device Not Available -- halting.\n");
-    fatal_halt();
+    panic(frame, "#NM", 7, "Device Not Available");
 }
 
 void handle_df(InterruptFrame* frame) {
-    dump_registers(frame, "#DF", 8);
-    kprintf("[FATAL] Double Fault (error code=%p) -- halting.\n",
-            reinterpret_cast<void*>(frame->error_code));
-    fatal_halt();
+    panic(frame, "#DF", 8, "Double Fault (error code=%p)",
+          reinterpret_cast<void*>(frame->error_code));
 }
 
 void handle_ts(InterruptFrame* frame) {
-    dump_registers(frame, "#TS", 10);
-    kprintf("[FATAL] Invalid TSS (error code=%p) -- halting.\n",
-            reinterpret_cast<void*>(frame->error_code));
-    fatal_halt();
+    panic(frame, "#TS", 10, "Invalid TSS (error code=%p)",
+          reinterpret_cast<void*>(frame->error_code));
 }
 
 void handle_np(InterruptFrame* frame) {
-    dump_registers(frame, "#NP", 11);
-    kprintf("[FATAL] Segment Not Present (error code=%p) -- halting.\n",
-            reinterpret_cast<void*>(frame->error_code));
-    fatal_halt();
+    panic(frame, "#NP", 11, "Segment Not Present (error code=%p)",
+          reinterpret_cast<void*>(frame->error_code));
 }
 
 void handle_ss(InterruptFrame* frame) {
-    dump_registers(frame, "#SS", 12);
-    kprintf("[FATAL] Stack Fault (error code=%p) -- halting.\n",
-            reinterpret_cast<void*>(frame->error_code));
-    fatal_halt();
+    panic(frame, "#SS", 12, "Stack Fault (error code=%p)",
+          reinterpret_cast<void*>(frame->error_code));
 }
 
 void handle_gp(InterruptFrame* frame) {
-    dump_registers(frame, "#GP", 13);
-
-    bool from_user = (frame->cs & 0x03) != 0;
-
+    // F4-M4 M4-2-3 (GOTCHA#25): capture the FIRST faulting frame to debug.log
+    // before panic()/current() can recurse on a corrupt %gs. See capture_first_gp.
+    capture_first_gp(frame);
+    const bool from_user = (frame->cs & 0x03) != 0;
+    auto*      task      = cinux::proc::Scheduler::current();
+    if (from_user && task != nullptr) {
+        // User-mode #GP: an illegal/privileged opcode in ring 3 -- e.g. clang
+        // lowering a user-program UB / unreachable path to `hlt` (a 1-byte trap
+        // that #GP's in ring 3), or a bad segment selector. The offending USER
+        // task must die, NOT the kernel: this aligns with Linux (SIGILL) and the
+        // #PF handler's SIGSEGV path below. signal_send queues kSigill; the ISR
+        // stub's signal_check_deliver_isr (invoked right after handle_gp returns)
+        // delivers it -- to a custom handler if installed, else the default
+        // Terminate (its context_switch() abandons this frame). F-ECO batch 0:
+        // without this, every user program UB that clang lowers to `hlt` would
+        // panic the whole kernel (busybox echo hit this on iter 1).
+        uint64_t cr2;
+        __asm__ volatile("movq %%cr2, %0" : "=r"(cr2));
+        klog_error("#GP user mode: tid=%u '%s' rip=%p cs=%p rsp=%p err=%p cr2=%p -- sending SIGILL",
+                   static_cast<unsigned>(task->tid), task->name ? task->name : "(null)",
+                   reinterpret_cast<void*>(frame->rip), reinterpret_cast<void*>(frame->cs),
+                   reinterpret_cast<void*>(frame->rsp), reinterpret_cast<void*>(frame->error_code),
+                   reinterpret_cast<void*>(cr2));
+        // Force-deliver: a synchronous #GP must terminate the task even if it
+        // blocked SIGILL (gcc does this in its abort path via rt_sigprocmask).
+        // Without force, signal_pick filters SIGILL through sig_blocked, the
+        // signal never delivers, and the faulting task livelocks at the same
+        // rip -- taking the shell/OS down with it.  Mirrors handle_pf's
+        // force_send for #PF; Linux force_sig_info does the same for synchronous
+        // faults (force_send sets sig_forced, which signal_pick merges into
+        // `avail` past sig_blocked).
+        cinux::proc::signal_force_send(task, cinux::proc::Signal::kSigill);
+        return;
+    }
     if (from_user) {
-        kprintf("[EXCEPTION] #GP at RIP=%p from user mode (Ring 3)\n",
-                reinterpret_cast<void*>(frame->rip));
-        kprintf("[EXCEPTION] Privileged instruction executed in Ring 3 -- protection works!\n");
-    } else {
-        kprintf("[FATAL] General Protection Fault in kernel mode (error code=%p)\n",
-                reinterpret_cast<void*>(frame->error_code));
+        panic(frame, "#GP", 13, "General Protection Fault from user mode (no current task)");
     }
-
-    fatal_halt();
-}
-
-void handle_pf(InterruptFrame* frame) {
-    uint64_t fault_addr;
-    __asm__ volatile("movq %%cr2, %0" : "=r"(fault_addr));
-
-    uint64_t err = frame->error_code;
-
-    // ---- Stack guard page detection (scheduler task stacks) ----
-    {
-        auto* cur = cinux::proc::Scheduler::current();
-        if (cur != nullptr && cur->kernel_stack_guard_page != 0) {
-            uint64_t guard_base = cur->kernel_stack_guard_page;
-            uint64_t guard_end  = guard_base + cinux::arch::PAGE_SIZE;
-            if (fault_addr >= guard_base && fault_addr < guard_end) {
-                kprintf("\n");
-                kprintf("========================================================\n");
-                kprintf("  KERNEL STACK OVERFLOW DETECTED\n");
-                kprintf("========================================================\n");
-                kprintf("  Task: tid=%u pid=%d name='%s'\n", cur->tid, cur->pid,
-                        cur->name ? cur->name : "(null)");
-                kprintf("  Fault address (CR2): %p\n", reinterpret_cast<void*>(fault_addr));
-                kprintf("  Guard page range:    [%p, %p)\n", reinterpret_cast<void*>(guard_base),
-                        reinterpret_cast<void*>(guard_end));
-                kprintf("  Stack range:         [%p, %p)\n",
-                        reinterpret_cast<void*>(cur->kernel_stack),
-                        reinterpret_cast<void*>(cur->kernel_stack_top));
-                kprintf("  Current RSP:         %p\n", reinterpret_cast<void*>(frame->rsp));
-                kprintf("  RIP:                 %p\n", reinterpret_cast<void*>(frame->rip));
-                kprintf("========================================================\n");
-                cinux::lib::kpanic(
-                    "kernel stack overflow: task '%s' (tid=%u pid=%d) "
-                    "exceeded stack [%p, %p)",
-                    cur->name ? cur->name : "(null)", cur->tid, cur->pid,
-                    reinterpret_cast<void*>(cur->kernel_stack),
-                    reinterpret_cast<void*>(cur->kernel_stack_top));
-            }
-        }
-
-        // ---- Boot stack overflow detection ----
-        // Tests run on the boot stack (no scheduler task).
-        // Guard pages between __boot_guard_start and __boot_guard_end
-        // are unmapped at test startup.  If the fault address falls in
-        // this range, the boot stack has overflowed.
-        if (cur == nullptr) {
-            uint64_t guard_start = reinterpret_cast<uint64_t>(__boot_guard_start);
-            uint64_t guard_end   = reinterpret_cast<uint64_t>(__boot_guard_end);
-            if (fault_addr >= guard_start && fault_addr < guard_end) {
-                uint64_t boot_stack_top = reinterpret_cast<uint64_t>(__kernel_stack_top);
-                kprintf("\n");
-                kprintf("========================================================\n");
-                kprintf("  BOOT STACK OVERFLOW DETECTED\n");
-                kprintf("========================================================\n");
-                kprintf("  Fault address (CR2): %p\n", reinterpret_cast<void*>(fault_addr));
-                kprintf("  Guard page range:    [%p, %p)\n", reinterpret_cast<void*>(guard_start),
-                        reinterpret_cast<void*>(guard_end));
-                kprintf("  Boot stack range:    [%p, %p)\n", reinterpret_cast<void*>(guard_end),
-                        reinterpret_cast<void*>(boot_stack_top));
-                kprintf("  Current RSP:         %p\n", reinterpret_cast<void*>(frame->rsp));
-                kprintf("  RIP:                 %p\n", reinterpret_cast<void*>(frame->rip));
-                kprintf("========================================================\n");
-                cinux::lib::kpanic(
-                    "boot stack overflow: fault at %p, "
-                    "stack [%p, %p)",
-                    reinterpret_cast<void*>(fault_addr), reinterpret_cast<void*>(guard_end),
-                    reinterpret_cast<void*>(boot_stack_top));
-            }
-        }
-    }
-
-    // Demand-paging: try to allocate a page for not-present faults
-    // Use lock-free allocation paths — the PF handler runs under an
-    // Interrupt gate (IF=0) so no concurrent VMM/PMM access is possible
-    // on this CPU.  Taking locks here would deadlock on recursive faults.
-    if ((err & 0x01) == 0) {
-        uint64_t virt_page = fault_addr & ~0xFFFULL;
-        uint64_t map_flags = cinux::arch::FLAG_PRESENT | cinux::arch::FLAG_WRITABLE;
-        if (cinux::arch::is_user_vaddr(fault_addr)) {
-            map_flags |= cinux::arch::FLAG_USER;
-        }
-        uint64_t phys = cinux::mm::g_pmm.alloc_page_locked();
-        if (phys != 0) {
-            uint64_t cur_cr3 = cinux::arch::read_cr3();
-            bool     ok      = g_vmm.map_nolock(virt_page, phys, map_flags, &cur_cr3);
-            if (ok) {
-                kprintf("[VMM] Demand-paged %p -> phys %p\n", reinterpret_cast<void*>(virt_page),
-                        reinterpret_cast<void*>(phys));
-                return;
-            }
-            cinux::mm::g_pmm.free_page_locked(phys);
-        }
-    }
-
-    // CoW fault: page is present but write-protected (fork marks shared pages CoW)
-    if ((err & 0x01) && (err & 0x02) && (err & 0x04)) {
-        if (cinux::proc::handle_cow_fault(fault_addr)) {
-            return;
-        }
-    }
-
-    const char* present  = (err & 0x01) ? "protection violation" : "page not present";
-    const char* access   = (err & 0x02) ? "write" : "read";
-    const char* mode     = (err & 0x04) ? "user" : "kernel";
-    const char* reserved = (err & 0x08) ? ", reserved bits" : "";
-    const char* fetch    = (err & 0x10) ? ", instruction fetch" : "";
-
-    dump_registers(frame, "#PF", 14);
-    kprintf("[FATAL] Page Fault: %s %s %s%s%s\n", present, access, mode, reserved, fetch);
-    kprintf("[FATAL] Faulting address (CR2) = %p -- halting.\n",
-            reinterpret_cast<void*>(fault_addr));
-    fatal_halt();
+    panic(frame, "#GP", 13, "General Protection Fault in kernel mode (error code=%p)",
+          reinterpret_cast<void*>(frame->error_code));
 }
 
 }  // extern "C"

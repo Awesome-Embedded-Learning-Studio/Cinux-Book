@@ -43,6 +43,26 @@ void write_buf(const char* buf, size_t len) {
     sys_write(1, buf, len);
 }
 
+/// Launch an external program by path (the standard shell fallback when a token
+/// matches no builtin): fork, the child execve()s @p path, the parent
+/// waitpid()s.  Lets the old user/libc shell start real musl binaries (e.g.
+/// typing /hello runs the musl static hello).  Returns the child exit status,
+/// or a negative errno if fork/exec failed.
+int64_t launch_program(const char* path, char** argv) {
+    int64_t pid = sys_fork();
+    if (pid < 0) {
+        return pid;  // fork error
+    }
+    if (pid == 0) {
+        char* child_envp[1] = {nullptr};
+        sys_execve(path, argv, child_envp);  // returns only on failure
+        sys_exit(127);
+    }
+    int     status = 0;
+    int64_t reaped = sys_waitpid(static_cast<int>(pid), &status, 0);
+    return reaped > 0 ? static_cast<int64_t>(status) : reaped;
+}
+
 }  // anonymous namespace
 
 // ============================================================
@@ -140,6 +160,7 @@ size_t tokenize(char* line, char** argv, size_t max_tokens) {
         }
     }
 
+    argv[argc] = nullptr;  // terminate so consumers (launch_program/execve) stop correctly
     return argc;
 }
 
@@ -155,10 +176,10 @@ namespace {
 /// To add a new command: implement cmd_xxx in cmd_xxx.cpp, declare
 /// it in shell.hpp, and add an entry here.
 constexpr CmdEntry builtin_cmds[] = {
-    {"echo", cmd_echo},   {"help", cmd_help},   {"clear", cmd_clear}, {"cat", cmd_cat},
-    {"ls", cmd_ls},       {"touch", cmd_touch}, {"mkdir", cmd_mkdir}, {"rm", cmd_rm},
-    {"rmdir", cmd_rmdir}, {"cd", cmd_cd},       {"pwd", cmd_pwd},     {"stat", cmd_stat},
-    {nullptr, nullptr},
+    {"echo", cmd_echo},   {"help", cmd_help},     {"clear", cmd_clear},       {"cat", cmd_cat},
+    {"ls", cmd_ls},       {"touch", cmd_touch},   {"mkdir", cmd_mkdir},       {"rm", cmd_rm},
+    {"rmdir", cmd_rmdir}, {"cd", cmd_cd},         {"pwd", cmd_pwd},           {"stat", cmd_stat},
+    {"ping", cmd_ping},   {"mkfifo", cmd_mkfifo}, {"fifotest", cmd_fifotest}, {nullptr, nullptr},
 };
 
 }  // anonymous namespace
@@ -169,7 +190,12 @@ constexpr CmdEntry builtin_cmds[] = {
 
 static void shell_main() {
     char  line[MAX_LINE];
-    char* argv[MAX_TOKENS];
+    // MAX_TOKENS + 1 slots: tokenize() fills up to MAX_TOKENS pointers
+    // (argv[0..MAX_TOKENS-1]) then writes a nullptr terminator at argv[argc] --
+    // which lands at argv[MAX_TOKENS] when the line has exactly MAX_TOKENS
+    // tokens. A [MAX_TOKENS] array made that terminator write out of bounds
+    // (-Warray-bounds; a real stack smash under -O2).
+    char* argv[MAX_TOKENS + 1];
 
     write_str("Cinux shell - type 'help' for commands\n");
 
@@ -200,8 +226,18 @@ static void shell_main() {
         }
 
         if (!found) {
-            write_str(argv[0]);
-            write_str(": command not found\n");
+            // No builtin matched -- treat the token as a program path and try
+            // to fork+execve it (the standard shell fallback, like typing
+            // /bin/ls in bash).  A negative result means fork/exec failed; the
+            // launched program's own output (if it ran) already went to stdout.
+            int64_t r = launch_program(argv[0], argv);
+            // launch_program's child does sys_exit(127) when execve fails (the
+            // shell convention for "command not found"); fork/exec errors come
+            // back negative. Both -> print the not-found message.
+            if (r < 0 || r == 127) {
+                write_str(argv[0]);
+                write_str(": command not found\n");
+            }
         }
     }
 }

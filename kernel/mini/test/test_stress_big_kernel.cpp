@@ -71,7 +71,7 @@ bool verify_pattern(uint64_t base, uint64_t size) {
         uint8_t actual   = *reinterpret_cast<volatile uint8_t*>(base + off);
         uint8_t expected = (off == 0) ? 0xFA : static_cast<uint8_t>((off >> 12) & 0xFF);
         if (actual != expected) {
-            kprintf("  MISMATCH at offset 0x%p: expected 0x%02x got 0x%02x\n",
+            kprintf("  MISMATCH at offset %p: expected 0x%02x got 0x%02x\n",
                     reinterpret_cast<const void*>(off), expected, actual);
             return false;
         }
@@ -94,7 +94,7 @@ void test_phase2_load_and_verify() {
 
     uint64_t entry = load_big_kernel_phase2(state, STRESS_KERNEL_LBA);
     TEST_ASSERT(entry != 0);
-    kprintf("  Entry point: 0x%p\n", reinterpret_cast<void*>(entry));
+    kprintf("  Entry point: %p\n", reinterpret_cast<void*>(entry));
     TEST_ASSERT_EQ(entry, BIG_KERNEL_ENTRY_VADDR);
 
     // The synthetic ELF has one PT_LOAD at p_paddr=0x1000000

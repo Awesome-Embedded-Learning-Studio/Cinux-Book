@@ -316,8 +316,9 @@ TEST("pipe_ops: PipeReadOps read delegates to pipe") {
 
     PipeReadOps read_ops(&pipe);
     char        buf[8] = {};
-    int64_t     r      = read_ops.read(nullptr, 0, buf, 8);
-    ASSERT_EQ(r, 3);
+    auto        r      = read_ops.read(nullptr, 0, buf, 8);
+    ASSERT_TRUE(r.ok());
+    ASSERT_EQ(r.value(), 3);
     ASSERT_TRUE(memcmp(buf, "XYZ", 3) == 0);
 }
 
@@ -326,8 +327,7 @@ TEST("pipe_ops: PipeReadOps write returns -1") {
     Pipe        pipe = make_pipe();
     PipeReadOps read_ops(&pipe);
 
-    int64_t w = read_ops.write(nullptr, 0, "data", 4);
-    ASSERT_EQ(w, -1);
+    ASSERT_TRUE(!read_ops.write(nullptr, 0, "data", 4).ok());
 }
 
 // PipeWriteOps::write delegates to Pipe::write.
@@ -335,8 +335,9 @@ TEST("pipe_ops: PipeWriteOps write delegates to pipe") {
     Pipe pipe = make_pipe();
 
     PipeWriteOps write_ops(&pipe);
-    int64_t      w = write_ops.write(nullptr, 0, "HI", 2);
-    ASSERT_EQ(w, 2);
+    auto         w = write_ops.write(nullptr, 0, "HI", 2);
+    ASSERT_TRUE(w.ok());
+    ASSERT_EQ(w.value(), 2);
 
     char buf[8] = {};
     ASSERT_EQ(pipe.read(buf, 2), 2);
@@ -346,32 +347,28 @@ TEST("pipe_ops: PipeWriteOps write delegates to pipe") {
 // PipeWriteOps with nullptr pipe returns -1.
 TEST("pipe_ops: PipeWriteOps nullptr pipe returns -1") {
     PipeWriteOps write_ops(nullptr);
-    int64_t      w = write_ops.write(nullptr, 0, "HI", 2);
-    ASSERT_EQ(w, -1);
+    ASSERT_TRUE(!write_ops.write(nullptr, 0, "HI", 2).ok());
 }
 
 // PipeReadOps with nullptr pipe returns -1.
 TEST("pipe_ops: PipeReadOps nullptr pipe returns -1") {
     PipeReadOps read_ops(nullptr);
     char        buf[8] = {};
-    int64_t     r      = read_ops.read(nullptr, 0, buf, 8);
-    ASSERT_EQ(r, -1);
+    ASSERT_TRUE(!read_ops.read(nullptr, 0, buf, 8).ok());
 }
 
 // PipeWriteOps with nullptr buf returns -1.
 TEST("pipe_ops: PipeWriteOps nullptr buf returns -1") {
     Pipe         pipe = make_pipe();
     PipeWriteOps write_ops(&pipe);
-    int64_t      w = write_ops.write(nullptr, 0, nullptr, 4);
-    ASSERT_EQ(w, -1);
+    ASSERT_TRUE(!write_ops.write(nullptr, 0, nullptr, 4).ok());
 }
 
 // PipeReadOps with nullptr buf returns -1.
 TEST("pipe_ops: PipeReadOps nullptr buf returns -1") {
     Pipe        pipe = make_pipe();
     PipeReadOps read_ops(&pipe);
-    int64_t     r = read_ops.read(nullptr, 0, nullptr, 4);
-    ASSERT_EQ(r, -1);
+    ASSERT_TRUE(!read_ops.read(nullptr, 0, nullptr, 4).ok());
 }
 
 // ============================================================
@@ -457,8 +454,13 @@ TEST("pipe: try_write partial space") {
     memset(src, 'A', sizeof(src));
     ASSERT_EQ(pipe.try_write(src, 4000), 4000);
 
-    // Try to write 200 bytes but only 96 fit
-    int64_t w = pipe.try_write("BBBB", 200);
+    // Try to write 200 bytes but only 96 fit (free space = 4096 - 4000 = 96).
+    // Use a real 200-byte buffer, NOT a short string literal: try_write copies
+    // min(count, free_space)=96 bytes from `data`, so a 5-byte "BBBB" literal
+    // would be read 96 bytes deep -> global-buffer-overflow (DEBT-017).
+    char more[200];
+    memset(more, 'B', sizeof(more));
+    int64_t w = pipe.try_write(more, 200);
     ASSERT_EQ(w, 96);  // 4096 - 4000 = 96
 }
 

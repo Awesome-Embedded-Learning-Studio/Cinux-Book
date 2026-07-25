@@ -72,6 +72,10 @@ class GDT {
 public:
     void init();
 
+    /// Set RSP0 in THIS CPU's TSS (F4-M3 P1-3).  Each CPU has its own GDT/TSS
+    /// in `gdt_blocks[]`; this targets the running CPU's block (looked up via
+    /// `percpu()->cpu_id`), so concurrent context switches on different CPUs no
+    /// longer clobber a shared RSP0.
     static void tss_set_rsp0(uint64_t rsp0);
 
 private:
@@ -107,6 +111,13 @@ private:
     uint64_t                  df_stack_phys_{};
 
     alignas(16) uint8_t df_stack_[DF_STACK_PAGES * 4096]{};
+
+    /// 4 KB stack for IST2 (hardware IRQ). fxsave + ISR push frame land here,
+    /// NOT on the interrupted task's stack -- fixes F13-B Bug ② where an IRQ
+    /// striking mid-render stomped render_frame's stack objects (Surface s,
+    /// Compositor font ref, ...) via the 512 B fxsave area.
+    static constexpr uint64_t IRQ_STACK_PAGES = 1;
+    alignas(16) uint8_t irq_stack_[IRQ_STACK_PAGES * 4096]{};
 
     // Constexpr factory functions
     static constexpr Entry null_entry() { return {0, 0, 0, 0, 0, 0}; }
@@ -156,7 +167,10 @@ private:
     void load();
 };
 
-/// Global GDT instance (zero-initialized in BSS)
-extern GDT g_gdt;
+/// Per-CPU GDT instances (F4-M3 P1-3).  One GDT/TSS per CPU so each core has
+/// its own RSP0/IST.  Defined with size `kMaxCpus` in gdt.cpp; declared here as
+/// an incomplete array so this header need not depend on proc/percpu.  The BSP
+/// uses `gdt_blocks[0]`; APs will use their own index in Phase 2.
+extern GDT gdt_blocks[];
 
 }  // namespace cinux::arch

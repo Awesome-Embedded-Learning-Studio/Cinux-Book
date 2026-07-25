@@ -27,9 +27,10 @@
 
 #include "big_kernel_test.h"
 #include "kernel/drivers/ahci/ahci.hpp"
+#include "kernel/drivers/ahci/ahci_block_device.hpp"
 #include "kernel/drivers/pci/pci.hpp"
 #include "kernel/drivers/pit/pit.hpp"
-#include "kernel/fs/ext2.hpp"
+#include "libs/ext2/ext2.hpp"
 
 using cinux::drivers::pci::PCI;
 using cinux::drivers::pci::PCIDevice;
@@ -44,12 +45,13 @@ using cinux::fs::Inode;
 namespace {
 
 struct AhciExt2Pair {
-    AHCI* ahci;
-    Ext2* ext2;
+    AHCI*                                  ahci;
+    Ext2*                                  ext2;
+    cinux::drivers::ahci::AHCIBlockDevice* blk_dev;
 };
 
 AhciExt2Pair setup_ext2() {
-    AhciExt2Pair result{nullptr, nullptr};
+    AhciExt2Pair result{nullptr, nullptr, nullptr};
 
     PCI pci;
     pci.init();
@@ -65,14 +67,18 @@ AhciExt2Pair setup_ext2() {
         return result;
     }
 
-    result.ext2 = new Ext2(*result.ahci, 1);
-    result.ext2->mount();
+    auto blk = cinux::drivers::ahci::AHCIBlockDevice::create(*result.ahci, 1);
+    result.blk_dev =
+        blk.ok() ? new cinux::drivers::ahci::AHCIBlockDevice(std::move(blk.value())) : nullptr;
+    result.ext2 = new Ext2(result.blk_dev);
+    ASSERT_OK(result.ext2->mount());
 
     return result;
 }
 
 void teardown_ext2(AhciExt2Pair& pair) {
     delete pair.ext2;
+    delete pair.blk_dev;
     delete pair.ahci;
     pair.ext2 = nullptr;
     pair.ahci = nullptr;
@@ -130,7 +136,7 @@ void test_create_and_unlink_file() {
     TEST_ASSERT_EQ(ino->size, 0u);
 
     // Verify we can look up the file
-    Inode* found = pair.ext2->lookup(name);
+    Inode* found = lookup_or_null(pair.ext2, name);
     TEST_ASSERT_NOT_NULL(found);
     TEST_ASSERT_EQ(found->ino, ino->ino);
 
@@ -141,7 +147,7 @@ void test_create_and_unlink_file() {
     TEST_ASSERT_EQ(rc, 0);
 
     // Verify the file is gone
-    Inode* gone = pair.ext2->lookup(name);
+    Inode* gone = lookup_or_null(pair.ext2, name);
     TEST_ASSERT_NULL(gone);
 
     cinux::lib::kprintf("[EXT2_OPS] create+unlink file OK\n");
@@ -175,12 +181,12 @@ void test_write_then_read() {
     const char write_data[] = "Hello from ext2 write!";
     uint32_t   len          = sizeof(write_data) - 1;
 
-    int64_t written = ino->ops->write(ino, 0, write_data, len);
+    int64_t written = write_or_neg1(ino, 0, write_data, len);
     TEST_ASSERT_EQ(written, static_cast<int64_t>(len));
 
     // Read data back
     char    read_buf[64] = {};
-    int64_t read_back    = ino->ops->read(ino, 0, read_buf, len);
+    int64_t read_back    = read_or_neg1(ino, 0, read_buf, len);
     TEST_ASSERT_EQ(read_back, static_cast<int64_t>(len));
 
     // Verify data integrity
@@ -219,12 +225,12 @@ void test_write_cross_block() {
         write_data[i] = static_cast<uint8_t>('A' + i);
     }
 
-    int64_t written = ino->ops->write(ino, bs - 10, write_data, 20);
+    int64_t written = write_or_neg1(ino, bs - 10, write_data, 20);
     TEST_ASSERT_EQ(written, 20);
 
     // Read back
     uint8_t read_buf[20] = {};
-    int64_t read_back    = ino->ops->read(ino, bs - 10, read_buf, 20);
+    int64_t read_back    = read_or_neg1(ino, bs - 10, read_buf, 20);
     TEST_ASSERT_EQ(read_back, 20);
 
     for (int i = 0; i < 20; ++i) {
@@ -263,14 +269,14 @@ void test_recreate_same_name() {
 
     // Write some data
     const char data[] = "version1";
-    file1->ops->write(file1, 0, data, 8);
+    write_or_neg1(file1, 0, data, 8);
 
     // Unlink
     int result = pair.ext2->unlink(2, name, name_len(name));
     TEST_ASSERT_EQ(result, 0);
 
     // Lookup should fail
-    Inode* gone = pair.ext2->lookup(name);
+    Inode* gone = lookup_or_null(pair.ext2, name);
     TEST_ASSERT_NULL(gone);
 
     // Recreate with same name
@@ -315,12 +321,12 @@ void test_full_flow() {
     // 2. Write data
     const char write_data[] = "Cinux ext2 full flow test data!";
     uint32_t   len          = sizeof(write_data) - 1;
-    int64_t    written      = file->ops->write(file, 0, write_data, len);
+    int64_t    written      = write_or_neg1(file, 0, write_data, len);
     TEST_ASSERT_EQ(written, static_cast<int64_t>(len));
 
     // 3. Read data back
     char    read_buf[64] = {};
-    int64_t read_back    = file->ops->read(file, 0, read_buf, len);
+    int64_t read_back    = read_or_neg1(file, 0, read_buf, len);
     TEST_ASSERT_EQ(read_back, static_cast<int64_t>(len));
 
     for (uint32_t i = 0; i < len; ++i) {
@@ -334,7 +340,7 @@ void test_full_flow() {
     TEST_ASSERT_EQ(result, 0);
 
     // 5. Verify the file is gone
-    Inode* gone = pair.ext2->lookup(filename);
+    Inode* gone = lookup_or_null(pair.ext2, filename);
     TEST_ASSERT_NULL(gone);
 
     cinux::lib::kprintf("[EXT2_OPS] Full flow: complete OK\n");
