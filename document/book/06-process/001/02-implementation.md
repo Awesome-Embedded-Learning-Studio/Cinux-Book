@@ -4,7 +4,7 @@ title: 02 · 代码路线:从 CpuContext 到 Scheduler
 
 # 代码路线:从 CpuContext 到 Scheduler
 
-### CpuContext:64 字节的执行流快照
+## CpuContext:64 字节的执行流快照
 
 [process.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/process.hpp) 里,`CpuContext` 的定义极其克制:
 
@@ -24,7 +24,7 @@ static_assert(sizeof(CpuContext) == 64, "CpuContext must be 64 bytes");
 
 `TaskState` 是个简单的枚举:`Running / Ready / Blocked / Dead`。如实说:019 只用到前两个和最后一个——`Ready`(在队列里等着)、`Running`(正占着 CPU)、`Dead`(已退场、待回收)。`Blocked` 这个值在这一章**定义了但没人用**,它是给以后「线程等 I/O / 等锁」留的坑。看到枚举里有它,不代表功能已经在了。
 
-### context_switch.S:换栈,就是切换
+## context_switch.S:换栈,就是切换
 
 这段汇编([context_switch.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/context_switch.S))按 System V 约定拿参数:`%rdi = from`,`%rsi = to`。它分三段。
 
@@ -70,7 +70,7 @@ context_switch:
 
 为什么是 `jmp` 不是 `call`?因为我们已经亲手把 `to->rip` 准备好了,不需要 `call` 再往栈上压返回地址——那条返回地址我们自己管(下面 `TaskBuilder` 会压 `exit_current`)。`jmp *56(%rsi)` 一跳,要么进了一条全新线程的入口,要么落到了某个任务当初存下的 `.restore`——后者会执行 `ret`,干净利落地「返回」到当初调用 `context_switch` 的地方(`yield` / `run_first`),仿佛这个函数刚执行完一样,只是栈和时机都变了。
 
-### TaskBuilder.build:第一次切换,和以后的不一样
+## TaskBuilder.build:第一次切换,和以后的不一样
 
 `context_switch` 跳到 `to->rip`。这就引出一个问题:一个**全新**的任务,它的 `ctx.rip` 该是什么?它的栈上又该有什么?答案藏在 [process.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/process.cpp) 的 `build()` 里——这是 019 最精妙也最容易写错的一段:
 
@@ -99,7 +99,7 @@ Task* TaskBuilder::build() {
 
 同一个 `context_switch`,靠 `to->rip` 里存的是什么,自动区分「第一次启动」和「恢复执行」——这就是 019 上下文切换的二元性。栈底那个 `0xDEADC0DE` 不是装饰:它是栈溢出哨兵,如果某个线程把栈用爆了,这个 magic 会被改写,以后能据此报警。调试现场里你会看到它**另一种**意外出场方式。
 
-### RoundRobin + Scheduler:谁下一个
+## RoundRobin + Scheduler:谁下一个
 
 [scheduler.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/scheduler.cpp) 里,`RoundRobin` 是个定长环形队列(64 槽)。它的 `pick_next` 有个值得看清的细节:
 
@@ -146,7 +146,7 @@ void Scheduler::exit_current() {   // 线程 return 后走到这里
 
 `run_first` 是引导:它拿一个**栈上的临时 `boot_task`**(tid=0,从不入队)当起点,`pick_next` 取出第一个真任务,切过去。从此 CPU 再也不回到这个 `boot_task`——它只是个跳板。
 
-### higher-half 收口:内核该待在高半区
+## higher-half 收口:内核该待在高半区
 
 最后这一块不是「新功能」,是「把上一章埋的雷拆了」。看 [elf_loader.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/elf_loader.cpp) 末尾,019 之前是这么返回入口的:
 

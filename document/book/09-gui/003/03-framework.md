@@ -4,7 +4,7 @@ title: 03 · 渲染框架:Widget + PaintList + Compositor
 
 # 渲染框架:Widget + PaintList + Compositor
 
-### Widget 基类:三个虚 hook + 套娃树
+## Widget 基类:三个虚 hook + 套娃树
 
 要做"窗口里能放不同内容",所有能画、能命中、能收事件的东西得共享一个虚接口。这就是 [`core/widget.hpp`](../../../third_party/Cinux-GUI/core/widget.hpp#L41-L136) 的 `Widget`。它的核心是三个虚 hook:
 
@@ -80,7 +80,7 @@ void Widget::flatten(PaintList& list) const {
 
 这一步看着是个基类,却是整个应用层的地基。没有这套虚接口,WindowManager 就没法"不认识 TerminalWidget 却能把事件送进去、把它的绘制指令收上来"。代价是每个 Widget 多一个 vptr——这点开销可以忽略,换来的解耦值回票价。
 
-### PaintList:绘制指令的有序清单
+## PaintList:绘制指令的有序清单
 
 控件不直接画像素了,那它产出的"我想画什么"住哪儿?就是 [`core/paint_list.hpp`](../../../third_party/Cinux-GUI/core/paint_list.hpp#L109-L138) 的 `PaintList`——一张定长的绘制指令数组:
 
@@ -115,7 +115,7 @@ private:
 
 容量 `kMaxCmds = 4096` 也不是随便取的。头注释明说:一个满载的 80×25 终端 = 2000 条 `text_glyph` cmd(每个非空 cell 一条),加上周围树(窗口标题栏、关闭键、桌面图标……),256 远不够;4096 条 `sizeof(PaintCmd)≈32`,整张清单约 128 KB。它在 `Desktop::render` 里是栈上对象,调用栈不深,无 stack overflow 风险。**溢出策略是 drop**(后续 cmd 丢弃,不 abort)——这守的是 GUI 核心"no exception / never aborts"的铁律:绘制清单爆了最多丢几条指令、画面缺一块,绝不能把整个 host 拖崩。
 
-### Compositor:遍历清单、批量落屏
+## Compositor:遍历清单、批量落屏
 
 有了清单,谁来执行?就是 [`core/compositor.hpp`](../../../third_party/Cinux-GUI/core/compositor.hpp#L40-L78) 的 `Compositor`。它的 `render` 遍历 `PaintList`、逐条 cmd 调对应的处理函数:
 

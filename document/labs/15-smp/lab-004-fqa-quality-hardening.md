@@ -1,8 +1,8 @@
 ---
-title: Lab 005 · F-QA 质量加固验证
+title: Lab 004 · F-QA 质量加固验证
 ---
 
-# Lab 005 · F-QA 质量加固验证
+# Lab 004 · F-QA 质量加固验证
 
 > 对应 `document/book/15-smp/004/`。验证档 **B 档**(构建零警告 + 内核测试绿)。本章是 SMP 真跑后的并发债清算 + 类型安全/可观测加固,验证靠构建门禁 + 内核测试(含新增 refcount/user_ptr/mapcount 用例)+ grep。
 

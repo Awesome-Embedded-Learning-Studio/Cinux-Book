@@ -4,7 +4,7 @@ title: 06 · 接线:terminal-host 接真 shell
 
 # 接线:terminal-host 接真 shell
 
-### terminal-host:把真 shell 接上
+## terminal-host:把真 shell 接上
 
 理论讲完了,看实际怎么把 shell 接到这套 Widget 树上。就是 [`host/terminal_host_main.cpp`](../../../third_party/Cinux-GUI/host/terminal_host_main.cpp)——一个 SDL2 主程序,搭一棵 `WindowManager → Window → TerminalWidget`,spawn `/bin/sh` 在 PTY 里跑,主循环把键盘喂进 PTY、把 PTY 输出喂给 TerminalWidget。看组装部分:
 

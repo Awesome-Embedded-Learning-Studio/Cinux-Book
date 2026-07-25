@@ -4,7 +4,7 @@ title: 02 · VBE 模式与 map_mmio:让显存能访问
 
 # VBE 模式与 map_mmio:让显存能访问
 
-### bootloader 把模式定下来:VBE 0x144 + 线性帧缓冲
+## bootloader 把模式定下来:VBE 0x144 + 线性帧缓冲
 
 屏幕能画东西的前提,是显卡先被切到一个图形模式。这件事发生在 bootloader 还在实模式、能用 BIOS 的阶段,靠的是 VESA VBE(VGA BIOS Extension)那套 `INT 0x10` 调用。
 
@@ -34,7 +34,7 @@ typedef struct {
 
 big kernel 启动后第一件事之一,就是去 `0x7000` 把这份情报读出来。注意 `fb_pitch` 这个字段:它是**每条扫描线的字节数**,不一定等于 `width × 4`——显卡可能为了对齐在每行末尾补几个字节。后面算像素下标时,要用 `pitch` 而不是 `width`,这是新手最容易踩的第一个坑。
 
-### 先得让那块显存能访问:map_mmio 的恒等映射
+## 先得让那块显存能访问:map_mmio 的恒等映射
 
 情报有了,但你现在还**碰不到**那块显存。`fb_addr` 是个物理地址(在 QEMU 的 Bochs VBE 下,这块显存通常位于很高的物理地址,几 GB 开外),而内核跑在虚拟地址空间里。你直接 `(uint32_t*)fb_addr` 去解引用,要么 page fault,要么写到一个毫不相干的地方。
 

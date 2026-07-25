@@ -4,7 +4,7 @@ title: 02 · PS/2 控制器初始化:一板一眼的 init 序
 
 # PS/2 控制器初始化:一板一眼的 init 序
 
-### 先把 PS/2 控制器请起来:一板一眼的 init 序
+## 先把 PS/2 控制器请起来:一板一眼的 init 序
 
 PS/2 控制器(i8042)是个有状态的老硬件,不能上来就用,得按它认的仪式走一遍初始化。[keyboard.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/drivers/keyboard/keyboard.cpp) 的 `Keyboard::init()` 把这个仪式拆成了清楚的几步:
 

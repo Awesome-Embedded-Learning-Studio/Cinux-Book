@@ -4,7 +4,7 @@ title: 03 · 写回:read-modify-write 与唯一的 DMA 缓冲
 
 # 写回:read-modify-write 与唯一的 DMA 缓冲
 
-### 写回的统一姿势:read-modify-write 与那块唯一的 DMA 缓冲
+## 写回的统一姿势:read-modify-write 与那块唯一的 DMA 缓冲
 
 先看最底下的 `write_block`,它是 `read_block` 的镜像:把 DMA 缓冲里的内容按块写回磁盘。
 

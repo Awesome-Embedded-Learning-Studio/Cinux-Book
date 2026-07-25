@@ -4,7 +4,7 @@ title: 03 · 代码路线:串口、kprintf、format、双轨测试
 
 # 代码路线:串口、kprintf、format、双轨测试
 
-### 1. 串口驱动:轮询式 UART
+## 1. 串口驱动:轮询式 UART
 
 最底层的 I/O 原语是两条内联汇编——读/写一个字节到指定端口([io.h](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/driver/io.h)):
 
@@ -45,7 +45,7 @@ void Serial::putc(char c) {
 
 构造函数里还埋了一串 debugcon 面包屑:`init` 前打 `\`、`init` 各步打 `[1 2 3 4`、`init` 后打 `'`。这些是给串口本身还没通时的"调试串口的调试"——万一串口初始化卡在某一步,debugcon 上能看到卡在哪个数字,比黑屏强。
 
-### 2. kprintf:把"格式化"和"输出目的地"解耦
+## 2. kprintf:把"格式化"和"输出目的地"解耦
 
 [kprintf.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/lib/kprintf.cpp) 的核心是一个模板函数,接受一个"吐一个字符"的函数对象:
 
@@ -83,7 +83,7 @@ void kdebugf(const char* fmt, ...) {  // → debugcon 0xE9
 
 支持的格式是 Cinux 自己挑的一套精简版:`%%`、`%c`、`%s`、`%d`、`%u`、`%x`/`%X`、`%p`(带 `0x` 前缀)、还有个 `%b`(二进制,调试位掩码时很顺手),外加 `%N`/`%0N` 的宽度填充。它**不是**完整 printf——没有浮点、没有精度、没有 `%l` 长度修饰。够用就好,内核不需要 `printf("%f", 3.14)`。
 
-### 3. format.cpp 为什么单独抽出来
+## 3. format.cpp 为什么单独抽出来
 
 `vkprintf_impl` 里真正把数字变成字符串的那几个函数——`format_decimal`、`format_hex`、`format_binary`——被放在单独的 [format.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/lib/private/format.cpp),还单独编成一个静态库(`kprintf_private`)。这看似多余,实则是整个可测性设计的命门。
 
@@ -107,7 +107,7 @@ int format_decimal(int64_t value, char* buffer, int buffer_size) {
 
 这就是"纯逻辑单独抽库"的全部回报:凡是和硬件无关的算法,都值得让它能脱离内核、在 host 上被磨。`format_hex` 去前导零、`format_binary` 跳过高位 0,这些也都是同类的纯逻辑,一并放进 host 测试覆盖。
 
-### 4. 双轨测试:host CTest + QEMU 内核测试
+## 4. 双轨测试:host CTest + QEMU 内核测试
 
 两条测试轨道,各管一摊。
 

@@ -4,7 +4,7 @@ title: 04 · 终端控件:TerminalWidget + ANSI + 脏行
 
 # 终端控件:TerminalWidget + ANSI + 脏行
 
-### TerminalWidget:字符网格 + ANSI + 脏行跟踪
+## TerminalWidget:字符网格 + ANSI + 脏行跟踪
 
 回到这一章的主角——[`core/widget/terminal.hpp`](../../../third_party/Cinux-GUI/core/widget/terminal.hpp#L32-L97) 的 `TerminalWidget`。它继承 `Widget`,override 了三个 protected hook:`paint_to_list`(画)、`collect_dirty`(报告脏区)、`clear_dirty`(清脏)。它的全部"内存"就是几张并行数组加一个光标:
 
@@ -65,7 +65,7 @@ private:
 
 **`fg_colors_`/`bg_colors_` 存的是 ANSI 调色板**索引(0..255),不是 XRGB8888 像素值。索引到像素的翻译在 `paint_to_list` 才做——查 [`palette_color`](../../../third_party/Cinux-GUI/core/widget/terminal.cpp#L19-L33):0..15 是 [`colors::kAnsiPalette`](../../../third_party/Cinux-GUI/core/colors.hpp#L10) 的标准 16 色(黑红绿黄蓝品青白 + bright),16..231 是 6×6×6 立方(每通道取 `0` 或 `55+40*v`),232..255 是灰阶(`8+(idx-232)*10`)。这覆盖了 xterm-256color 的全套色,`ls --color`、彩色 prompt、vim/less 的高亮都能出来。**全程纯整数,无浮点**——这是 GUI 核心的一条铁律(swraster 用 Q8.8 定点也是同源)。
 
-### write / put_char_:字节如何落屏
+## write / put_char_:字节如何落屏
 
 `write(bytes)` 是 TerminalWidget 唯一的数据入口。host 从 PTY 读出 shell 输出,就调它喂进来。它逐字节交给 `put_char_`,后者是一个**有状态的 ANSI 状态机**:
 
@@ -150,7 +150,7 @@ void TerminalWidget::newline_() {
 
 注意顺序:先归零 `cur_col_`,再 `++cur_row_`,**越界时先 `scroll_up_()` 把整屏上移一行、再把光标钳到最后一行 `rows_-1`**(代码里的顺序就是 `scroll_up_(); cur_row_ = rows_ - 1;`)。这个"先滚后钳"看起来像光标会短暂指向 `cells_[rows_*kMaxCols + ...]` 越界——其实不会:`scroll_up_` 内部用自己独立的循环变量 `r`(从 1 遍历到 `rows_`),完全不读 `cur_row_`,所以 `cur_row_ == rows_` 时调它一点事没有;钳制语句紧跟在后面把光标拉回 `rows_-1`,越界只存在于这两行之间、不会被任何 cell 访问读到。`scroll_up_` 的实现是朴素的"整体上移一行":把第 1..rows-1 行挪到 0..rows-2,顶行(第 0 行)被覆盖丢弃,末行清空。三张数组(`cells_`/`fg_colors_`/`bg_colors_`)同步挪——只挪 `cells_` 的话,滚后颜色会错位(字上了、色留原行)。这里要诚实说一句:**没有 scrollback**。滚出屏幕的内容永久丢失,没法往上翻——这是这一章的有意简化。
 
-### paint_to_list:把字符网格翻译成绘制指令
+## paint_to_list:把字符网格翻译成绘制指令
 
 字符缓冲是语义层,真正产出绘制指令靠 [`paint_to_list`](../../../third_party/Cinux-GUI/core/widget/terminal.cpp#L390-L418):
 
@@ -193,7 +193,7 @@ void TerminalWidget::paint_to_list(PaintList& list) const {
 
 **光标块是白色实心方块,不是反色。** 简单、可见、不依赖 cell 内容。它盖在当前 cell 上面,所以光标位置的字符会被遮住——这是有意简化(真终端的光标是反色透出字符,实现要画"前景铺满 + 用 bg 重画 glyph"两步,这里不折腾)。光标 always-on,不闪烁——闪烁要定时器 + 额外状态,这一章不做。
 
-### collect_dirty / clear_dirty:只刷真正变化的行
+## collect_dirty / clear_dirty:只刷真正变化的行
 
 保留模式的核心红利就是脏区重绘。TerminalWidget override 了 [`collect_dirty`](../../../third_party/Cinux-GUI/core/widget/terminal.cpp#L349-L379),只报告真正变化的矩形:
 

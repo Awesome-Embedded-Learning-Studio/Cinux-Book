@@ -6,7 +6,7 @@ title: 03 · 代码路线:从第一条指令到 framebuffer 存档
 
 源码主要在四个文件:[mbr.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/mbr.S)、[stage2.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/stage2.S)、[serial.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/common/serial.S),以及把它们组装起来的 [CMakeLists.txt](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/CMakeLists.txt)。我们从"CPU 上电后执行的第一条指令"一路讲到"Stage2 把 framebuffer 信息存好"。
 
-### 1. CPU 一上电,世界从 0x7C00 开始
+## 1. CPU 一上电,世界从 0x7C00 开始
 
 [mbr.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/mbr.S) 的入口是这样的:
 
@@ -39,7 +39,7 @@ real_start:
 
 `movb %dl, boot_drive` 是个保命操作:BIOS 调用 MBR 前会把**启动盘的编号**放进 `dl`(硬盘通常是 `0x80`)。我们要读盘,就得告诉 BIOS 读哪块盘,所以必须趁早把这个 `dl` 存起来——后面 BIOS 中断随时可能把 `dl` 改掉。
 
-### 2. 实模式地址模型:为什么 DS 必须等于 CS
+## 2. 实模式地址模型:为什么 DS 必须等于 CS
 
 实模式的地址翻译是 `物理地址 = 段寄存器 << 4 + 偏移`。也就是说,`DS:SI` 指向哪,完全取决于 `DS` 和 `SI` 两个值合起来的结果。
 
@@ -58,7 +58,7 @@ msg_booting:
 
 如果 `CS` 被归一化成 `0`,而 `DS` 还是 BIOS 留下的某个乱七八糟的值,`DS:SI` 算出来的物理地址就完全不对——`lodsb` 读出来的是垃圾,打印出一串乱码,或者干脆什么也不显示。这就是把 `DS=ES=SS=CS` 全设成同一个值的根本原因:**让"标号算出来的偏移"和"访问用的段"对得上**。这一步省不得,省了就是一屏幕乱码。
 
-### 3. 用 BIOS 读盘:INT 0x13 AH=0x42 与 DAP
+## 3. 用 BIOS 读盘:INT 0x13 AH=0x42 与 DAP
 
 `load_stage2` 是 MBR 最核心的活:让 BIOS 把 Stage2 从磁盘读到内存。它用的是 BIOS 的**扩展读**接口 `INT 0x13 AH=0x42`,参数通过一个叫 **DAP(Disk Address Packet)** 的 16 字节结构传递:
 
@@ -98,7 +98,7 @@ DAP 的布局是 BIOS 定死的,几个关键字段:
 
 > 外部依据:Ralf Brown's Interrupt List 详细记录了 `INT 0x13 AH=0x42` 的 DAP 各字段含义与进位标志约定;OSDev 的 ATA in x86 RealMode (BIOS) 页对这套读盘流程有社区总结。
 
-### 4. 为什么 MBR 自带 print_string_mbr,不复用 common
+## 4. 为什么 MBR 自带 print_string_mbr,不复用 common
 
 你可能注意到,[mbr.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/mbr.S) 里有一个自带的、极其精简的打印函数:
 
@@ -142,7 +142,7 @@ add_executable(stage2
 
 MBR 链接在 `0x7C00`(因为 BIOS 就把它放那),Stage2 链接在 `0x0`(因为它会被放在 `0x8000`,靠"段=0x800"来寻址,下面解释)。链接完用 `objcopy -O binary` 把 ELF 抽成裸二进制,`scripts/build_image.sh` 再把 MBR 写进扇区 0、Stage2 写进扇区 1,拼成 `cinux.img`。
 
-### 5. Stage2:趁还在实模式,把 A20 和图形模式配好
+## 5. Stage2:趁还在实模式,把 A20 和图形模式配好
 
 `ljmp $0x8000 >> 4, $0` 这个远跳把 `CS` 设成 `0x800`、`IP` 设成 `0`,合起来物理地址正好是 `0x8000`,跳进 Stage2 的 `_start`。Stage2 第一件事还是理顺段——因为它链接在 `0x0`,得靠 `DS=CS=0x800` 才能让标号和访问对得上(这就是把 Stage2 链接地址设成 `0x0`、运行时把段设成 `0x800` 的配合):
 

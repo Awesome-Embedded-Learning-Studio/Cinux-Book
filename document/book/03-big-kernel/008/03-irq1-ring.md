@@ -4,7 +4,7 @@ title: 03 · IRQ1 handler、ring buffer 与回显接线
 
 # IRQ1 handler、ring buffer 与回显接线
 
-### IRQ1 handler:从一个字节到一个 KeyEvent
+## IRQ1 handler:从一个字节到一个 KeyEvent
 
 控制器就绪后,每按一次键,中断就会把控制权交给 `Keyboard::irq1_handler`。它的活是:从 `0x60` 把那个字节读出来,翻译成一个结构完整的 `KeyEvent`,塞进队列。
 
@@ -67,7 +67,7 @@ ev.ascii = shift_held_ ? kScToUpper[make_code] : kScToLower[make_code];
 
 把扫描码当数组下标,直接查出 ASCII——`make_code` 是 `0x1E` 就取数组第 `0x1E` 项,正好是 `'a'`(小写表)或 `'A'`(大写表)。两张表分别覆盖「没按 Shift」和「按了 Shift」两种情况(数字键 `1` 在大写表里就是 `!`,`2` 就是 `@`,以此类推)。用查找表而不是 switch,是因为键盘映射本质就是「键码 → 字符」的一张映射表,数组下标就是最快的查法,而且表是 `constexpr`,编译期就生成、进了 `.rodata`,运行时零开销。不可打印的键(功能键、方向键)在表里就是 `0`,自然就不会产生 ASCII。
 
-### ring buffer:ISR 生产、主循环消费
+## ring buffer:ISR 生产、主循环消费
 
 handler 解码出 `KeyEvent` 之后,自己不回显——回显是慢活(I/O、画字),不能待在中断上下文里干。它只做一件事:`enqueue(ev)`,把事件塞进一个环形缓冲区,然后赶紧返回。慢活留给主循环。
 
@@ -92,7 +92,7 @@ bool Keyboard::poll(KeyEvent& out) {
 
 这里有个设计取舍值得点一句:这个 buffer **没有任何锁**。在中断上下文写 `tail_`、在主循环读 `head_`,看起来是经典的竞态。为什么此刻敢不加锁?因为这是单核系统、而且 IRQ1 不会重入(一个 IRQ1 没处理完 EOI,CPU 不会再接受同级中断),「handler 在写」和「主循环在读」在时间上被天然隔开了——它们不会真的同时执行。等以后上了多核、或者允许中断嵌套,这个无锁假设就不成立了,到时候得加锁或用无锁环形队列。把「为什么现在不用锁」想清楚,比无脑加锁更值得。
 
-### 把 handler 挂上 IRQ1,再把回显接上 console
+## 把 handler 挂上 IRQ1,再把回显接上 console
 
 驱动写好了,还得把它接进中断体系,并接到主循环。接线点在 [interrupts.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/interrupts.S),一行之差:
 

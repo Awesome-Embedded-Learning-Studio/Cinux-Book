@@ -4,7 +4,7 @@ title: 02 · 代码路线:时钟驱动抢占与配套地基
 
 # 代码路线:时钟驱动抢占与配套地基
 
-### tick 与 schedule:让时钟来点名
+## tick 与 schedule:让时钟来点名
 
 [pit.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/drivers/pit/pit.cpp) 的 `irq0_handler` 末尾只多了一行(加一个 include),但这一行就是协作→抢占的总开关:
 
@@ -82,7 +82,7 @@ void Scheduler::yield() {
 
 这是一笔重要的简化:从此「谁下一个」的逻辑只有一份(`schedule`),不管触发源是 `yield` 还是 IRQ0。少一条路径,就少一种「两处逻辑不一致」的 bug。
 
-### context_switch.S 的 sti:从中断上下文切出去,必须把中断打开
+## context_switch.S 的 sti:从中断上下文切出去,必须把中断打开
 
 这段是本章的灵魂。[context_switch.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/context_switch.S) 在恢复完 callee-saved、换完栈之后,跳转之前,新加了一条 `sti`:
 
@@ -100,7 +100,7 @@ void Scheduler::yield() {
 
 诚实说一句:这套方案不是完美无瑕。被抢占的任务恢复后,从 `.restore` 一路 `ret` 退到 IRQ0 stub、再到 `IRETQ`,这段退栈路径上 IF 已经被 `sti` 打开了——理论上存在一个极短的窗口,期间可能被嵌套中断命中。笔记 `002` 自己算过:100Hz 时钟间隔 10ms,这段退栈是微秒级,命中概率可忽略,**但不是零**。更精细的做法是把 `RFLAGS` 纳入 `CpuContext`、用 `pushfq`/`popfq` 在切换点显式保存恢复中断状态——那是将来的事,020 没做。本章只交付「一条 `sti` 修掉 IF 丢失」这个最简洁的版本,并保留这层诚实。
 
-### idle 任务:队列空了也有地方歇
+## idle 任务:队列空了也有地方歇
 
 `init()` 用 `TaskBuilder` 造一个 idle 任务,入口只做一件事——死循环 `hlt`:
 
@@ -125,7 +125,7 @@ if (idle_task_ != nullptr)
 
 有了 idle,019 那个「队列空了就 `cli;hlt` 永久停机」的粗暴收尾就被替换掉了:`exit_current` 里真没任务时落 idle 而不是停机,机器保持可响应(还能收键盘中断、还能被时钟唤醒),而不是死掉。
 
-### TSS.RSP0 与 GDT::tss_set_rsp0
+## TSS.RSP0 与 GDT::tss_set_rsp0
 
 [gdt.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/gdt.cpp) 新增一个直写的静态方法:
 
@@ -141,7 +141,7 @@ void GDT::tss_set_rsp0(uint64_t rsp0) {
 
 但必须如实说:020 全程是 ring0 内核线程,不发生任何特权级变化,所以这条 `tss_set_rsp0` **现在其实不会触发硬件换栈**——硬件压根没走到「从 TSS 取栈」那一步。它是个「接口先接上、等将来 ring3 来了再真正生效」的动作。写它、调它,是为了将来有用户进程时这块不用再回来补;不是因为它现在已经在保护什么。
 
-### PerCPU 占位:为多核先挖个坑
+## PerCPU 占位:为多核先挖个坑
 
 [per_cpu.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/per_cpu.hpp) 整个文件就这么点东西:
 
@@ -156,7 +156,7 @@ extern PerCPU g_per_cpu;    // scheduler.cpp 里定义: PerCPU g_per_cpu{nullptr
 
 每次切换,`schedule` / `run_first` / `exit_current` 都同步一句 `g_per_cpu.current = next;`。得诚实讲清楚它**不是**什么:它不是 GS 基址相对寻址的真 per-CPU 区,也不是每 CPU 独立运行队列,就是一个**单核静态全局变量**。020 只有一个 CPU,放它纯粹是为了让「将来 `current` 从全局迁移到 per-CPU」时改动小——先把读取入口统一到 `g_per_cpu.current`,将来换成 GS 相对寻址时,只动这一个定义,调用点不用大改。别把它说成 SMP 地基,它现在连第二份实例都没有。
 
-### sync.hpp:Spinlock 原语,先定义着
+## sync.hpp:Spinlock 原语,先定义着
 
 [sync.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/sync.hpp) 的 `Spinlock` 三件套:
 

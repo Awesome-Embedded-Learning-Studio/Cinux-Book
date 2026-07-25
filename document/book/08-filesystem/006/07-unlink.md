@@ -4,7 +4,7 @@ title: 07 · 删除与目录项增删:unlink 释放、split rec_len
 
 # 删除与目录项增删:unlink 释放、split rec_len
 
-### 删除:unlink 释放数据块(能删的,写不出)
+## 删除:unlink 释放数据块(能删的,写不出)
 
 `unlink` 负责删除。它的核心逻辑是:从父目录移除目录项,把目标 inode 的链接数减一;如果链接数归零,就把它的数据块和 inode 本身都还回去。
 
@@ -52,7 +52,7 @@ int Ext2::unlink(uint32_t parent_ino, const char* name, uint32_t name_len) {
 
 还有一处真实的小妥协:`target_disk.i_dtime = 0;` 旁边跟着一行注释 `// TODO: use real timestamp when available`。ext2 规范里 `i_dtime` 是「删除时间」,但 Cinux 这会儿还没有实时时钟(RTC),所有时间戳(`i_atime`/`i_ctime`/`i_mtime` 也一样)都是 0。我们老实地留了个 TODO,而不是随便填个数假装有时间。
 
-### 目录项增删:split rec_len 与留空洞
+## 目录项增删:split rec_len 与留空洞
 
 建文件、建目录都要往父目录里加一项,删除要移掉一项。这两个操作(`add_dir_entry`/`remove_dir_entry`)处理的,是 ext2 那种「变长、靠 `rec_len` 串联」的目录项布局(005 讲过)。这里的关键是**怎么在一个变长链表里塞进去、抠出来**。
 

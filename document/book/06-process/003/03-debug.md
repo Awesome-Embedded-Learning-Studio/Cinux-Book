@@ -6,7 +6,7 @@ title: 03 · 调试现场
 
 这一章只有一条真实笔记,但它是个典型的「改一处不相关的代码、炸一处完全不相关的检查」,值得当案例。
 
-### 案例:加 sync.cpp 让大内核进不去——mov rsp 的两种编码
+## 案例:加 sync.cpp 让大内核进不去——mov rsp 的两种编码
 
 症状挺唬人:`make run-kernel-test` 跑 mini kernel 测试,一路绿,打印 `=== MINI KERNEL TESTS PASSED ===`,然后突然冒出一行 `=== Loaded ELF is not a real kernel, exiting ===`,big kernel 测试**根本没执行**就退出了。mini 全过、big 没进,中间断在一个「入口魔数检查」上。
 

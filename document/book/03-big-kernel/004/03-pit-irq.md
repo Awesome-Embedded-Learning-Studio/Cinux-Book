@@ -4,7 +4,7 @@ title: 03 · IRQ 路由与 PIT:让时钟嘀嗒起来
 
 # IRQ 路由与 PIT:让时钟嘀嗒起来
 
-### IRQ 路由表:data-driven 注册 0x20-0x2F
+## IRQ 路由表:data-driven 注册 0x20-0x2F
 
 IDT 在 010 已经建好了,现在要往 0x20-0x2F 这 16 个 gate 里塞 handler。和 010 处理异常一个思路,这里也用一张表代替 16 段重复:
 
@@ -37,7 +37,7 @@ ISR_NOERRCODE irq1_stub,  irq_default_handler   /* IRQ1(0x21): Keyboard */
 
 宏的逻辑上一篇讲过:压个假 error code 凑齐布局、保存通用寄存器、把栈指针当 `frame` 传给 C handler、回来后恢复、`iretq`。IRQ 不带硬件 error code,所以 16 个全是 `ISR_NOERRCODE`。
 
-### 默认 handler:为什么只发 master EOI 就够(暂时)
+## 默认 handler:为什么只发 master EOI 就够(暂时)
 
 `irq_handlers.cpp` 里,除 IRQ0 外的 15 条线全指向同一个 `irq_default_handler`:
 
@@ -53,7 +53,7 @@ void irq_default_handler(InterruptFrame* /*frame*/) {
 
 但它有个明确的局限:如果响的是从片上的线(IRQ8-15),只发主片 EOI 解不开从片的锁。真到了键盘、串口、磁盘这些从片中断成批上来的时候,这个 default handler 就不够用了——到时候每条线会有自己的真 handler,按真实 IRQ 号发正确的双 EOI。这个边界我们记着,但不在这一章解决。
 
-### PIT:用 0x36 命令字把时钟接上 IRQ0
+## PIT:用 0x36 命令字把时钟接上 IRQ0
 
 8254 PIT 的 channel 0 出厂就连在 IRQ0 上,我们要做的是告诉它「以多快的频率嘀嗒」。一块命令字 + 一个 16 位除数搞定:
 
@@ -90,7 +90,7 @@ void PIT::irq0_handler(InterruptFrame* /*frame*/) {
 
 `send_eoi(0)` 放在最后,确保打印这一秒的日志时,PIC 还锁着,不会被自己嵌套打断——又一个手动 EOI 的好处。
 
-### 串起来:main 的 9 步,以及 sti 终于解禁
+## 串起来:main 的 9 步,以及 sti 终于解禁
 
 最后看 main 把这些点成一条线。顺序是死的,错一步要么不嘀嗒、要么直接重启:
 

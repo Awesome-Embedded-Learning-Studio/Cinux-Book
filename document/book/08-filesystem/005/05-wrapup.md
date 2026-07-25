@@ -10,7 +10,7 @@ title: 05 · 收尾:下一站与参考
 
 ---
 
-### 参考
+## 参考
 
 - ext2 规范 — *The Second Extended Filesystem*([ext2_types.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/fs/ext2_types.hpp) 头注释已引):超块字段与 magic `0xEF53`、块组与块组描述符、inode 的 `i_block[15]`(12 直接 + 单/双/三间接)、inode 号 1-based、根目录 inode=2、变长目录项(`rec_len`/`name_len`/`file_type`)、稀疏文件。权威格式依据。社区速查可参考 [OSDev — ext2](https://wiki.osdev.org/Ext2)。
 - 003 章 · [给文件一个统一接口:VFS 内核层](../003/):ext2 实现的就是 003 定义的 `FileSystem`(mount/lookup)和 InodeOps,挂进同一套 VFS——本章是 003 抽象的第一个「真」后端。

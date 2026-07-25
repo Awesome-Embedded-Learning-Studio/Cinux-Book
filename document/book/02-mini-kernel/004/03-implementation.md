@@ -4,7 +4,7 @@ title: 03 · 代码路线:ATA PIO、ELF 解析、load_elf、loader、demo
 
 # 代码路线:ATA PIO、ELF 解析、load_elf、loader、demo
 
-### 1. ATA PIO:轮询式读盘
+## 1. ATA PIO:轮询式读盘
 
 [ata.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/driver/ata.cpp) 直接对 ATA 控制器的 I/O 端口下命令。主通道基址 `0x1F0`,控制口 `0x3F6`,各寄存器按偏移区分(`ata.hpp` 里全列了):
 
@@ -24,13 +24,13 @@ constexpr uint8_t ATA_CMD_READ_PIO_EXT = 0x24;  // LBA48 读
 
 这里有两个 ATA 特有的讲究。一是 **400ns 延时**:ATA 规范要求下命令后、轮询状态前等 400 纳秒,否则可能读到命令还没生效时的旧状态。Cinux 的做法是读 4 次控制口(每次约 100ns),既满足延时、又不碰状态寄存器(读状态寄存器会清掉某些中断位)。二是 `inw` 读的是 **16 位**:ATA 数据端口一次吐 2 字节,所以一个 512 字节扇区是 256 次 `inw`,不是 512 次 `inb`——这点写错,数据要么读一半、要么错位。
 
-### 2. ELF64:解析头部、定位 PT_LOAD 段
+## 2. ELF64:解析头部、定位 PT_LOAD 段
 
 [elf_loader.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/elf_loader.hpp) 把 ELF64 的标准结构搬进来。文件头 `Elf64_Ehdr`(64 字节)里有 magic、类型(`ET_EXEC`)、架构(`EM_X86_64`)、入口地址 `e_entry`、程序头表偏移 `e_phoff`;程序头 `Elf64_Phdr`(56 字节)描述一个段:类型 `p_type`、文件偏移 `p_offset`、目标地址 `p_paddr`、文件大小 `p_filesz`、内存大小 `p_memsz`。
 
 `parse_elf_header` 做最基本的校验:开头四个字节是不是 `0x7F 'E' 'L' 'F'`(magic)、是不是 64 位(`ELF_CLASS_64`)、小端、目标架构 x86-64、类型是不是可执行。这几项任一不对就返回 false。这个函数正是 008 两个 demo 之一要调的——拿 mini kernel 的 LBA 16 头几个字节去验,预期失败(它是裸二进制不是 ELF),用来证明"解析器能正确认出非 ELF"。
 
-### 3. load_elf:拷 filesz、零填 BSS、返回 entry
+## 3. load_elf:拷 filesz、零填 BSS、返回 entry
 
 真正的加载在 `load_elf` 里。它遍历程序头表,对每个 `PT_LOAD` 段做两件事:
 
@@ -43,7 +43,7 @@ constexpr uint8_t ATA_CMD_READ_PIO_EXT = 0x24;  // LBA48 读
 
 这里有个安全细节:`load_elf` 带 `staging_size` 参数,用来校验"段数据 (`p_offset + p_filesz`) 没超出我们实际从磁盘读进来的字节数"。因为我们读盘是按 `BIG_KERNEL_MAX_SECTORS`(256KB 上界)读的,真实内核可能更小,不做这个边界检查就可能从缓冲区外读到垃圾。
 
-### 4. big_kernel_loader:把 ATA + ELF 串成一条流水线
+## 4. big_kernel_loader:把 ATA + ELF 串成一条流水线
 
 [big_kernel_loader.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/big_kernel_loader.cpp) 就是把上面两节拼起来,逻辑非常直:
 
@@ -60,7 +60,7 @@ uint64_t load_big_kernel(uint64_t disk_lba) {
 
 再说一遍那个重要的边界:这个函数**写好了、但 008 的 main 没有调用它**。因为现在盘上 LBA 848 之后还没有真正的 big kernel,调了也是读到一堆零或垃圾、magic 校验失败。它要等 009 big kernel 真正被编出来、写进磁盘,才会被真正调用、真正完成接力。
 
-### 5. main 的两个 demo:诚实说明 big kernel 未到
+## 5. main 的两个 demo:诚实说明 big kernel 未到
 
 [main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/main.cpp) 在 GDT/IDT/PMM/`int $3` 这些(沿用 006/007)之后,做这两步演示。第一步读 MBR:
 

@@ -6,7 +6,7 @@ title: 03 · 代码路线:GDT、lgdt、CR0.PE、远跳、pm_entry
 
 源码主要在 [stage2.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/stage2.S)(VESA 之后的 PM 切换序列 + GDT 定义)和 [CMakeLists.txt](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/CMakeLists.txt)(链接地址的改动)。
 
-### 1. GDT:用一张扁平表取代段式寻址
+## 1. GDT:用一张扁平表取代段式寻址
 
 GDT 定义在 [stage2.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/stage2.S) 末尾,单独放在 `.section .gdt` 里、`.align 8` 对齐:
 
@@ -49,7 +49,7 @@ gdt_ptr:
 
 `gdt_end - gdt - 1 = 23`(3 项 × 8 − 1),`gdt` 这个标号经链接后是它在 `0x8000` 之后的绝对地址。
 
-### 2. lgdt 与"为什么实模式要先 DS=0"
+## 2. lgdt 与"为什么实模式要先 DS=0"
 
 切模式的序幕是这样开的:
 
@@ -68,7 +68,7 @@ lgdt gdt_ptr           # 装载 GDTR
 
 > 外部依据:Intel SDM Vol.3A §3.4.4(LGDT/GDTR 结构)、§9.9.1(切换到 PM 前的 GDTR 装载)。`lgdt` 本身只搬运那 6 个字节,**不校验 GDT 内容合法性**——合法性要到后续真正用某个段选择子时才查,这点很容易踩(见"调试现场")。
 
-### 3. CR0.PE:拨动那一个开关
+## 3. CR0.PE:拨动那一个开关
 
 ```asm
 movl %cr0, %eax
@@ -80,7 +80,7 @@ movl %eax, %cr0        # 写回 CR0
 
 全程 `cli` 不是可有可无。我们此刻**没有 IDT**(那是后面 big kernel 的事),一旦允许中断,任何异步中断(比如 PIT 定时器)进来找不到处理程序,直接三重故障重启。所以从 `cli` 到 `pm_entry` 之间,中断必须一直关着。
 
-### 4. 远跳:不刷新 CS 就不算真正进入 PM
+## 4. 远跳:不刷新 CS 就不算真正进入 PM
 
 ```asm
 ljmp $0x08, $pm_entry
@@ -98,7 +98,7 @@ pm_entry:
 
 > 外部依据:Intel SDM Vol.3A §9.9.2 明确:进入 PM 后的第一件事必须是远跳(或等价的远调用)来加载一个新的代码段选择子,以"冲掉"实模式遗留的 `CS`。
 
-### 5. pm_entry:新的段、新的栈,还有 0xE9 debugcon
+## 5. pm_entry:新的段、新的栈,还有 0xE9 debugcon
 
 进了 `pm_entry`,我们已经站在 32 位保护模式里。`CS` 已经被远跳设好了,但 `DS/ES/FS/GS/SS` 还带着实模式留下的脏值,得手动刷成数据段选择子 `0x10`,再换个新栈:
 

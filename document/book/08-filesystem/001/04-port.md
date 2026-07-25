@@ -4,7 +4,7 @@ title: 04 · AHCI:从 BAR5 映射到发出读命令
 
 # AHCI:从 BAR5 映射到发出读命令
 
-### AHCI:把 BAR5 这块寄存器窗映射进来
+## AHCI:把 BAR5 这块寄存器窗映射进来
 
 拿到 BAR5 物理地址了,AHCI 的活从 `init` 开始。第一件事不是碰寄存器,而是先让 PCI 允许这块卡干两件事:当总线主设备(能发起 DMA)、暴露内存空间(允许 MMIO 访问)。这是往 PCI 的 COMMAND 寄存器写两位:
 
@@ -49,7 +49,7 @@ hba_mem_->ghc |= GhcBits::INT_ENABLE;
 
 `reset_hba` 置 `GHC.HR` 后死循环轮询它被硬件清零(硬件复位完会自己清)。注意复位**会把 `AE` 一起清掉**,所以复位后必须重新置 `AE`——这是规范要求,顺序反了或漏了,AHCI 模式没真正生效,后面端口全不听话。
 
-### 端口起步:停机 → 分配 Command List/FIS → 起机
+## 端口起步:停机 → 分配 Command List/FIS → 起机
 
 `init` 最后按 `pi`(Port Implemented,端口实现位图)逐个端口探测。每个端口先看 SATA 状态寄存器的 `DET` 字段,`0x03` 才表示「物理连了设备、链路已通」:
 
@@ -106,7 +106,7 @@ void start_port(HBAPort* port) {
 
 停机要先停命令引擎(ST→等 CR)、再停 FIS 接收(FRE→等 FR);起机反过来,先开 FRE、再开 ST。顺序反了,控制器拒绝配合或直接卡住——这是 AHCI 规范里写死的端口控制顺序。
 
-### 发一条读命令:CFIS + PRDT + 轮询 CI
+## 发一条读命令:CFIS + PRDT + 轮询 CI
 
 端口搭好了,`read`/`write` 就是在 slot 0 上发一条命令。AHCI 命令分三块:命令头(在命令列表里,指向命令表)、命令表(放 FIS 和 PRDT)、FIS(告诉设备具体干嘛)。`execute_command` 把它们拼起来:
 

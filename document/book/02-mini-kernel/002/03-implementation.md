@@ -4,7 +4,7 @@ title: 03 · 代码路线:模型、init、链接器符号、alloc/free
 
 # 代码路线:模型、init、链接器符号、alloc/free
 
-### 1. 模型:一位一页,128KB 管 4GB
+## 1. 模型:一位一页,128KB 管 4GB
 
 常量都集中在 [pmm.h](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/mm/pmm.h),而且用了 001 引入的内存字面量让它一目了然:
 
@@ -28,7 +28,7 @@ void set_bit(uint64_t index) {
 
 `clear_bit`、`test_bit` 同理。找空闲页 `find_first_free` 有个小优化:先按字节扫,只对 `!= 0xFF` 的字节(说明里面有 0 bit)再逐位找,比一位一位扫快 8 倍。
 
-### 2. init:先全占用,再从 E820 carve,再保护内核
+## 2. init:先全占用,再从 E820 carve,再保护内核
 
 [pmm.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/mm/pmm.cpp) 的 `init` 严格按设计图的四步走。第一步把位图全置 `0xFF`——所有页默认占用。
 
@@ -59,7 +59,7 @@ for (uint32_t i = 0; i < info->mmap_count; i++) {
 
 第三、四步把内核自己和 bootloader 区域标回占用。这里需要知道"内核有多大"——这就引出下一个关键技术点。
 
-### 3. 链接器符号 &__kernel_size:为什么内核大小要问链接器
+## 3. 链接器符号 &__kernel_size:为什么内核大小要问链接器
 
 内核运行时怎么知道自己镜像有多大?源码里有这么几行,看着别扭:
 
@@ -78,7 +78,7 @@ uint64_t kernel_size = reinterpret_cast<uint64_t>(&__kernel_size);
 
 这个"符号即地址、取址即取值"的把戏,是内核开发里反复出现的模式:获取 `.bss` 起止、内核起止、各种段大小,全靠链接脚本打符号、C 里 `&symbol` 取值。它绕不开,但第一次写的人十有八九会写成不带 `&` 的版本,然后纳闷"为什么内核大小是 0x55 之类的怪值"。这正是这一章的一个经典坑(见调试现场)。
 
-### 4. alloc/free:first-fit 与 0 哨兵
+## 4. alloc/free:first-fit 与 0 哨兵
 
 有了位图,分配就是 [pmm.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/mm/pmm.cpp) 里这么几行:
 

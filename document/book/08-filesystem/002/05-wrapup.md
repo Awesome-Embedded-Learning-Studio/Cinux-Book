@@ -10,7 +10,7 @@ title: 05 · 收尾:下一站与参考
 
 ---
 
-### 参考
+## 参考
 
 - POSIX.1-1988 "ustar" 交换格式(`[ramdisk_config.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/fs/ramdisk_config.hpp)` 头注释已引):512 字节定长头布局、字段偏移(name@0、size@124、typeflag@156、magic@257)、数字字段的八进制 ASCII 编码、typeflag 字符含义(`'0'` 文件 / `'5'` 目录 / `'7'` 连续)、`"ustar\0"` magic、末尾两个全零块收尾。权威格式依据。
 - Wikipedia — [tar (computing)](https://en.wikipedia.org/wiki/Tar_(computing)):ustar/POSIX 头布局与历史演变的社区参考,字段速查方便。

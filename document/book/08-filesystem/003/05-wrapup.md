@@ -10,7 +10,7 @@ title: 05 · 收尾:下一站与参考
 
 ---
 
-### 参考
+## 参考
 
 - Linux VFS 设计(`Documentation/filesystems/vfs.txt`、内核源码 `fs/*.c`):inode / 超级块 / file_operations / dentry 这套抽象是「inode + 操作表 + 挂载」思路的成熟形态,本章是它的最小化对照——用来理解设计取舍,**不**代表 Cinux 实现了 Linux 那套(dentry cache、inode cache、page cache 本章都没有)。
 - 002 章 · [内核第一次认识「文件」:嵌入式 initrd ramdisk](../002/):本章 ramdisk 在 002 的「解析 ustar」基础上,加了 FileSystem 接口、条目表和 inode,两章是文件系统卷的前两阶。

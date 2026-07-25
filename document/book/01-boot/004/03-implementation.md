@@ -4,7 +4,7 @@ title: 03 · 代码路线:E820、ELF、BootInfo、高半映射、内核入口、
 
 # 代码路线:E820、ELF、BootInfo、高半映射、内核入口、C++ 运行时
 
-### 1. 实模式收尾:查 E820 内存图、把内核 ELF 读进内存
+## 1. 实模式收尾:查 E820 内存图、把内核 ELF 读进内存
 
 趁还在实模式、BIOS 还能用,Stage2 在配完 VESA 之后多调两个函数(都在 [boot.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/common/boot.S)):
 
@@ -19,7 +19,7 @@ call load_kernel_from_disk   # 把内核 ELF 从 LBA 16 读到物理 0x20000
 
 > 这里有个源码注释的噪声要提醒:`stage2.S` 里 `load_kernel_from_disk` 那行注释同时写了 "→0x20000" 和 "to 0x88000",看着矛盾,其实说的是两件事:`0x20000` 是载入**起点**、`0x88000` 是载入区**上界**——内核最大占 `0x88000 − 0x20000 = 0x68000 = 416KB`,正好顶到 `0x90000` 的栈之前(见 [build_image.sh](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/scripts/build_image.sh))。所以载入起点是 `0x20000`,以 `linker.ld` 的 `AT(0x20000)`、bootloader 的 `movq $0x20000`、以及 `boot.S` 里 `.set MINI_KERNEL_LOAD_PHYS, 0x20000` 这几处**代码值**为准。顺带一提,`boot_info.h` 和 `boot.S` 的注释里还残留着旧的 `0x10000`,那才是过时噪声,别被它带偏——以代码为准,别以注释为准。
 
-### 2. BootInfo:bootloader 和内核的"交接单"
+## 2. BootInfo:bootloader 和内核的"交接单"
 
 跳进内核之前,bootloader 得把自己辛苦收集的信息(帧缓冲在哪、内存图长啥样、内核入口是哪)交给内核。Cinux 的做法是定义一个两边共用的结构 [boot_info.h](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/boot_info.h):
 
@@ -54,7 +54,7 @@ jmp *0xFFFFFFFF80020000            # 跳进内核
 
 最后那两行是交接的核心:`rdi = 0x7000`,然后跳转。为什么是 `rdi`?因为 **System V AMD64 ABI 规定函数第一个整型参数走 `%rdi`**。我们把 `BootInfo*` 放进 `rdi` 再跳,内核入口(也按这套 ABI)就能直接拿到它,跟普通函数传参一模一样。
 
-### 3. 高半内核:为什么链接在 0xFFFFFFFF80020000
+## 3. 高半内核:为什么链接在 0xFFFFFFFF80020000
 
 看内核链接脚本 [linker.ld](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/linker.ld):
 
@@ -85,7 +85,7 @@ movl %eax, 0x2000 + (510 * 8)
 
 它的妙处在于复用同一张 PD:低地址(恒等)和高半(0xFFFFFFFF80020000)最终都指向那张记录了物理 0x20000 附近 2MB 页的 PD。于是同一块物理内存,在低地址和高半两个虚拟地址都能访问到——bootloader 用低地址填 BootInfo、读内核;跳过去之后内核用高半地址运行。两边是同一块物理页,只是两扇不同的门。
 
-### 4. 内核入口 boot.S:清 BSS、跑全局构造、调 main
+## 4. 内核入口 boot.S:清 BSS、跑全局构造、调 main
 
 跳进 `0xFFFFFFFF80020000`,落到内核的 [boot.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/arch/x86_64/boot.S) 的 `_start`:
 
@@ -108,7 +108,7 @@ _start:
 
 这几行里其实藏着后面要讲的大坑(见"调试现场")。最要命的是第 ③ 步把 `BootInfo*` 存进 `__boot_info_ptr`,而这个变量放在 `.data` 段、不是 `.bss`——这点很关键,因为 `.bss` 紧接着会被清零,要是存进了 `.bss`,清零动作会把刚存的指针抹掉,后面 main 读到的就是 0,这正是"boot_info 损坏"的根因。另一个顺序约束是清 BSS 必须在跑全局构造之前:`.bss` 里是未初始化的全局/静态变量,C/C++ 语义要求它们启动时为 0,不清零全局对象的状态就是随机的。而全局构造(`_init_global_ctors`)本身又必须在 `main` 之前跑完——C++ 的全局对象(比如 `main.cpp` 里的 `global_counter`)的构造函数得在 `main` 之前执行,这是 C++ 运行时的规矩。
 
-### 5. crt_stub.cpp:裸机 C++ 要自己带哪些运行时
+## 5. crt_stub.cpp:裸机 C++ 要自己带哪些运行时
 
 普通 C++ 程序里,清 BSS、跑全局构造、`__cxa_pure_virtual`、`operator new/delete` 这些都由 libc/libstdc++ 的启动代码(crt0 等)和运行时库包办。我们用 `-nostdlib -ffreestanding` 编译内核,这些全没了,得自己补——这就是 [crt_stub.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/arch/x86_64/crt_stub.cpp) 的职责:
 
@@ -132,7 +132,7 @@ void operator delete(void*) noexcept    { while(1) asm("cli;hlt"); }
 
 `operator new/delete` 之所以写成"调到就 `hlt`":这一章**还没有堆**,但 C++ 的某些特性(比如带虚析构的类)会让链接器需要这些符号。我们提供"调到就死"的桩,既满足链接器,又确保谁要是真去 new 一个对象,立刻原地停下暴露问题,而不是悄悄跑飞。
 
-### 6. main.cpp:用一组 C++ 冒烟测试自证运行时正常
+## 6. main.cpp:用一组 C++ 冒烟测试自证运行时正常
 
 内核的 `main`——[main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/main.cpp) 的 `mini_kernel_main`——这一章不做什么"内核服务",而是用一组 C++ 测试来证明上面的运行时都对了:
 

@@ -47,7 +47,7 @@ void PIC::init(uint8_t master_offset, uint8_t slave_offset) {
 
 这里有个容易被注释带偏的细节,值得停下来讲。`pic.hpp` 的文档说「After init, all IRQs are masked」——读完会以为 `init()` 顺手把所有中断关了。但你看实现,它干的是「存旧 mask → 配 ICW → 把旧 mask 写回去」。也就是说,`init()` **不改变**哪些 IRQ 被屏蔽,它把屏蔽状态原样保留了。真正决定开不开某条线的,是后面那几次 `mask`/`unmask` 调用。措辞和实现的这点出入,记在心里,等下看 main 的时候就明白为什么那里要单独 `PIC::unmask(0)` 了。
 
-### io_wait:为什么 ICW 之间要插一脚 0x80
+## io_wait:为什么 ICW 之间要插一脚 0x80
 
 上面每两条 `io_outb` 之间都夹了一个 `io_wait()`。它的实现朴素到让人怀疑人生:
 
@@ -59,7 +59,7 @@ inline void io_wait() {
 
 port 0x80 是主板上的一个诊断口,写它没有任何有意义的副作用,但它要花掉大约 1 微秒的 I/O 周期。8259A datasheet 要求对同一片 PIC 连续写命令时,两次写之间得留够时间,老式 ISA 总线上芯片反应慢,写太快会丢字节。真实硬件上这步不能省;QEMU 上其实无所谓,但写上是正确的习惯,免得哪天搬到真机上调到怀疑人生。
 
-### send_eoi:slave 中断为什么要发两枪
+## send_eoi:slave 中断为什么要发两枪
 
 EOI(End-Of-Interrupt)是这章最容易踩、也最该讲透的概念。PIC 收到一个中断后会「锁住」这条线,不再投递同优先级及更低的中断,**直到你告诉它「我处理完了」**。这个「告诉」的动作就是发 EOI:往命令口写 `0x20`。
 
@@ -80,7 +80,7 @@ void PIC::send_eoi(uint8_t irq) {
 
 我们刻意**没用** auto-EOI(ICW4 里有 `ICW4_AUTO_EOI` 这个位)。auto-EOI 让 PIC 在中断一被接受就自动 EOI,省一行代码,但代价是你失去了对「什么时候算处理完」的控制——handler 还没跑完,PIC 就已经放行下一个同优先级中断了,重入风险全压到你自己头上。手动 EOI 麻烦一点,但什么时候放开完全由 handler 说了算,可控得多。
 
-### mask/unmask:一张 IMR 位图的读改写
+## mask/unmask:一张 IMR 位图的读改写
 
 开关节点的开关在 IMR(Interrupt Mask Register)里,每个 bit 对应一条 IRQ:置 1 屏蔽,清 0 放行。`mask`/`unmask` 都是「读出来、改一个 bit、写回去」:
 

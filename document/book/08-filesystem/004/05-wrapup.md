@@ -10,7 +10,7 @@ title: 05 · 收尾:下一站与参考
 
 ---
 
-### 参考
+## 参考
 
 - Linux man-pages — [`open(2)`](https://man7.org/linux/man-pages/man2/open.2.html)、[`read(2)`](https://man7.org/linux/man-pages/man2/read.2.html)、[`getdents(2)`](https://man7.org/linux/man-pages/man2/getdents.2.html):系统调用语义对照。Cinux 这版是简化形态(如 getdents 一次一条、open 的 flags 只有 RDONLY/WRONLY/RDWR),POSIX 的完整语义(创建、权限、一次多条结构体)本章没实现,别拔高。
 - Intel SDM Vol.1 — Canonical Address:x86-64 虚拟地址的「规范形」规则(bit 47 决定用户/内核半区,bit 48–63 必须与 bit 47 一致),这是 sys_open 等做地址合法性检查的硬件依据。本地 PDF `document/reference/intel/SDM-Vol3A-*.pdf`,可搜 "Canonical" 复核。

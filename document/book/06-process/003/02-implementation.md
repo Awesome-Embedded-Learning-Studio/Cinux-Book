@@ -4,7 +4,7 @@ title: 02 · 代码路线:Spinlock / Mutex / Semaphore / 生产者-消费者
 
 # 代码路线:Spinlock / Mutex / Semaphore / 生产者-消费者
 
-### Spinlock:为什么从内联搬出来,以及内存序
+## Spinlock:为什么从内联搬出来,以及内存序
 
 020 的 [sync.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/sync.hpp) 里,`Spinlock` 整个类——包括 `acquire` / `release` 的函数体——都直接写在头文件里。这在「没人用它」时无所谓;可 021 要让 `Mutex` / `Semaphore` 各自持有一把 `Spinlock` 作为内部成员,如果 `Spinlock` 还是 inline 定义,那么每多一个翻译单元 include `sync.hpp`,这套原子操作就被复制一份,符号也满天飞。所以第一步,把 `acquire` / `release` 搬进新建的 [sync.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/sync.cpp),头文件里只留声明:
 
@@ -27,7 +27,7 @@ void Spinlock::release() {
 
 定性再强调一遍:`Spinlock` 在本章只保护几行元数据——`Mutex` 的 `owner_`/`wait_head_`、`Semaphore` 的 `count_`/`wait_head_`,**绝不跨阻塞持有**。任何 `Spinlock` 的持有区间里,都不能出现 `Scheduler::block`、`schedule`、`yield` 这类会切走的调用。为什么?因为切走后下一个任务要是也想拿这把自旋锁,就死等一个「正在睡觉、根本没在跑」的持锁者——死锁。这条纪律是后面 `Mutex::lock()` 那个「先 release 再 block」铁律的源头。
 
-### Task::wait_next:免堆分配的侵入式等待队列
+## Task::wait_next:免堆分配的侵入式等待队列
 
 Mutex 和 Semaphore 的等待队列,都不额外分配链表节点,而是直接借 `Task` 身上的一个指针字段。看 [process.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/process.hpp) 里 `Task` 新增的最后一行:
 
@@ -68,7 +68,7 @@ Task* Mutex::dequeue_waiter() {
 
 这里有个必须诚实说清的细节:`TaskBuilder::build()` 并**没有**显式把 `wait_next` 置零。机内测试 [test_sync.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/test/test_sync.cpp) 的 `test_wait_next_null_after_build` 注释写明了这一点——它依赖的是**底层堆分配会清零**(`new`/`knew` 给出的内存是零初始化的),所以新建出来的 `Task::wait_next` 恰好是 `nullptr`。这是个隐含约定,不是显式保证:哪天换了不清零的分配器,这条就塌了。机内测试专门断言 `task->wait_next == nullptr`,就是为了把这个隐含约定钉住——它一旦不成立,所有等待队列都会拿到野指针乱指。
 
-### Mutex:阻塞式互斥与所有权交接
+## Mutex:阻塞式互斥与所有权交接
 
 [sync.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/sync.cpp) 里 `Mutex::lock()` 是五步,前面设计图画过,这里看真身:
 
@@ -122,7 +122,7 @@ bool Mutex::try_lock() {
 
 RAII 这块和 020 的 `Spinlock::Guard` 一个模子:`[[nodiscard]] auto guard() { return Guard(this); }`,构造时 `lock()`、析构时 `unlock()`,标记 `[[nodiscard]]` 是防止写出 `m.guard();` 漏接、临时对象立刻析构等于没加锁。
 
-### Semaphore:计数信号量,负 count 即等待者数
+## Semaphore:计数信号量,负 count 即等待者数
 
 `Semaphore` 的字段比 Mutex 多一个 `count_`,队列逻辑同构。构造函数给初值(默认 0):
 
@@ -181,7 +181,7 @@ bool Semaphore::try_wait() {
 
 对比一下 POSIX `sem_post(3)`:POSIX 的 `sem_post` 也是「自增,若结果 > 0 则唤醒一个阻塞的 `sem_wait`」,语义和我们的 `post()` 同源。但 POSIX 还附带一堆本章没实现、也不该假装有的性质——`SEM_VALUE_MAX` 上限(我们 `count_` 无界)、`EOVERFLOW` 错误码、async-signal-safe(可在信号 handler 里安全调用,我们的实现**没**这个保证,拿自旋锁进信号 handler 是另一套麻烦)。所以 `post()` 只在「自增 + 条件唤醒」这条核心语义上对齐 POSIX,边界差异要分清。
 
-### 生产者-消费者:把三件套拼起来
+## 生产者-消费者:把三件套拼起来
 
 [main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/main.cpp) 把 020 的「六个线程空转」demo 换成了生产者-消费者。全局三件套:
 

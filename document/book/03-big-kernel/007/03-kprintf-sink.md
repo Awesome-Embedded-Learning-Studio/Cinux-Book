@@ -4,7 +4,7 @@ title: 03 · kprintf 多路 sink 与装配顺序
 
 # kprintf 多路 sink 与装配顺序
 
-### kprintf 多路 sink:引擎不动,只换分派
+## kprintf 多路 sink:引擎不动,只换分派
 
 现在到了这一章的核心:kprintf 怎么从「只走串口」变成「串口 + 屏幕」。
 
@@ -69,7 +69,7 @@ void kprintf_init() {
 
 所以 `kprintf_init` 之后,kprintf 已经能走串口了(和 012 行为一致)。屏幕这一路,要等 main 里 Console 建好之后再注册——这就引出下一节的装配顺序。
 
-### 装配顺序为什么不能乱
+## 装配顺序为什么不能乱
 
 把 fb、font、console、kprintf 这些东西在 `kernel_main` 里拼起来,顺序很重要。看 [main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/main.cpp) 这一段(省略前面的 GDT/IDT/PIC/PIT):
 
@@ -108,7 +108,7 @@ cinux::lib::kprintf("[BIG] Console initialised -- dual output active.\n");
 
 注册完 console sink 之后,那句 `[BIG] Console initialised -- dual output active.` 就会**同时**出现在串口和屏幕上——因为 kprintf 的 fan-out 已经把每个字符发给两路 sink 了。从这一刻起,内核说的每一句话都有两个出口。
 
-### 顺手把 drivers 目录理顺
+## 顺手把 drivers 目录理顺
 
 这一章还有一笔「家务事」:把驱动目录理一理。在这之前,`pit.cpp`、`serial.cpp` 都直接堆在 `kernel/drivers/` 根下:
 

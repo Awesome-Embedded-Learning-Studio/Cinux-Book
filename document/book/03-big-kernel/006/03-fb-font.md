@@ -4,7 +4,7 @@ title: 03 · Framebuffer 与 PSF2 字体:画像素、画字
 
 # Framebuffer 与 PSF2 字体:画像素、画字
 
-### Framebuffer:一块能随机写的显存
+## Framebuffer:一块能随机写的显存
 
 映射好了,[framebuffer.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/drivers/video/framebuffer.cpp) 这层反而简单——它就是把这块显存当成一个 `uint32_t` 数组来用:
 
@@ -52,7 +52,7 @@ void Framebuffer::scroll_up(uint32_t lines, uint32_t line_height, uint32_t bg) {
 
 它把整块显存当**字节**数组,把第 `lines` 行以后的内容整体往上搬 `lines` 行,再 `fill_rect` 把底部露出来的空带清成背景色。这里按字节搬而不是按像素搬,是因为「行」这个概念只在文本层有意义,对裸显存来说它就是一段连续字节,字节级搬运最直接。代价是 O(显存大小) 的拷贝——对一个控制台来说完全可接受。
 
-### PSF2 字体:从 .py 生成到 .incbin 嵌进内核
+## PSF2 字体:从 .py 生成到 .incbin 嵌进内核
 
 能画点了,但点不等于字。要把 `'A'` 画出来,得有一张「字符 → 点阵」的表,也就是字体。Cinux 用的是 PSF2(PC Screen Font v2)格式,一个 8×16、256 个字形的小字体。
 

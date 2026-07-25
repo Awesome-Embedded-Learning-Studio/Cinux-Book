@@ -4,7 +4,7 @@ title: 08 · 接上用户态:sys_creat 与 sys_rmdir
 
 # 接上用户态:sys_creat 与 sys_rmdir
 
-### 接上用户态:sys_creat 的链路与 sys_rmdir 的空目录检查
+## 接上用户态:sys_creat 的链路与 sys_rmdir 的空目录检查
 
 底层都齐了,最后看 syscall 怎么把用户态的路径接到底层。`sys_creat` 是个范本,`sys_mkdir`/`sys_unlink` 结构几乎一样:
 

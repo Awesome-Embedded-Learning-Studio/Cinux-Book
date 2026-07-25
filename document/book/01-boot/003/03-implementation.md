@@ -6,11 +6,11 @@ title: 03 · 代码路线:setup_page_tables、enter_long_mode、扩展 GDT
 
 源码主要在新增的 [long_mode.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/common/long_mode.S)(`setup_page_tables` 和 `enter_long_mode`)以及 [stage2.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/stage2.S) 末尾接上的 `.code64 long_mode_entry` 和扩展 GDT。
 
-### 1. 为什么长模式必须先有分页
+## 1. 为什么长模式必须先有分页
 
 (上面"为什么现在需要它"已经讲了原因,这里补一个实操上的关键点。)我们待会儿要 `lgdt`、要远跳、要读内存里的页表本身——这些地址翻译,在分页开启后全部要走我们搭的这套页表。所以**页表必须先搭好、并且正确**,否则 `CR0.PG` 一置位,CPU 连下一条指令的地址都翻译不出来,当场三重故障。这就是为什么 `setup_page_tables` 是第一件事,而且要做成恒等映射:让"搭页表的代码所在的地址"在分页前后都指向同一处,避免"开了分页反而找不到自己"的尴尬。
 
-### 2. setup_page_tables:三张表 + 4 个 2MB 大页
+## 2. setup_page_tables:三张表 + 4 个 2MB 大页
 
 [long_mode.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/common/long_mode.S) 里,先把三张表清零(页表项未用的位必须是 0,否则 CPU 当成有效项去查,会出问题):
 
@@ -62,7 +62,7 @@ setup_page_tables:
 
 每个页表项 8 字节(64 位),但因为我们只用到低 32 位(地址都在 4GB 以内),代码里用 32 位写(`movl`)只写了低 4 字节,高 4 字节是前面清零留下的 0——对低地址映射来说够了。
 
-### 3. enter_long_mode:顺序即一切
+## 3. enter_long_mode:顺序即一切
 
 [long_mode.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/common/long_mode.S) 的 `enter_long_mode` 就是上面设计图里那串状态机的直译,顺序一个都不能动:
 
@@ -91,7 +91,7 @@ enter_long_mode:
 
 这里有四处必须留意,逐个过一遍。`EFER` 是个 MSR(Model-Specific Register),地址 `0xC0000080`,不能用 `mov`,得用 `rdmsr`/`wrmsr`——读时结果落在 `edx:eax`、写时也从 `edx:eax`,操作前把地址放进 `ecx`,而 `LME` 是 bit 8,即 `0x100`。顺序则是死的:PAE(`CR4`)必须在 `EFER.LME` 之前、`EFER.LME` 必须在 `CR0.PG` 之前,`CR0.PG` 置位那一拍长模式才真正激活,这就是 Intel 的固定序列(详见 SDM §9.8.1.1)。`CR0 |= 0x80000001` 这步同时置 PG(bit 31)和保留 PE(bit 0),注意用 `orl` 而非 `movl`——`CR0` 里还有别的控制位(比如 cache 相关),直接 `movl $...` 会把它们清掉,这和 002 置 PE 时用 `orb` 是一个道理。最后还是那条远跳:`CR0.PG` 置位后 CPU 已在长模式,可 `CS` 还指向 32 位段,和 002 进 PM 时一样,必须一条远跳带着新的 64 位代码段选择子(`0x18`)去刷新 `CS`,而紧跟的 `.code64` 则告诉汇编器从 `long_mode_entry` 起按 64 位编码。
 
-### 4. 扩展 GDT:64 位代码段的关键是 L 位
+## 4. 扩展 GDT:64 位代码段的关键是 L 位
 
 长模式需要一个 **L 位 = 1** 的代码段描述符。我们在 [stage2.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/stage2.S) 的 GDT 里,在 002 那三项(null/code32/data32)后面又加了两项:
 
@@ -113,7 +113,7 @@ gdt_data64:
 
 > 还是要提醒:这张 5 项 GDT 仍是 **bootloader 的**。后面 big kernel(010)会建它自己完整的 GDT(带 TSS、带用户段)。两者的选择子数值虽然部分重合(都有 0x08/0x10),但不是同一张表。读到这里别把它们混为一谈。
 
-### 5. long_mode_entry:64 位段、64 位栈,debugcon 打 'L'
+## 5. long_mode_entry:64 位段、64 位栈,debugcon 打 'L'
 
 ```asm
 .code64

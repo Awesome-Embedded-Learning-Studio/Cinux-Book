@@ -6,7 +6,7 @@ title: 02 · 代码路线:scoped enum 与 7 个 entry
 
 源码主要在 [gdt.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/gdt.hpp) 和 [gdt.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/gdt.cpp)。从"怎么描述一个段"讲到"怎么把整张表加载进 CPU"。
 
-### 1. 用 scoped enum 描述段属性,而不是裸位操作
+## 1. 用 scoped enum 描述段属性,而不是裸位操作
 
 最朴素的写法是直接拿 `uint8_t` 拼位:写个 `0x9A` 代表内核代码段。能用,但有两个毛病——**写的人得记住每一位的含义,读的人更惨;而且拼错了编译器不会吱声**,要等到运行时某个莫名其妙的 #GP 才暴露。
 
@@ -47,7 +47,7 @@ constexpr uint16_t GDT_USER_DATA   = 0x23;
 constexpr uint16_t GDT_TSS         = 0x28;
 ```
 
-### 2. 7 个 entry 怎么填
+## 2. 7 个 entry 怎么填
 
 [gdt.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/gdt.cpp) 的 `init()` 一口气把表填好。我们把内核代码段那行拎出来算一遍:
 
@@ -77,7 +77,7 @@ entries_[6] = tss_high_entry(tss_addr);
 
 > 为什么 TSS 恰好 104 字节?Intel SDM Vol.3A 的 64 位 TSS 布局图(Figure 8-11,64-Bit TSS Format)定义了它的字段:1 个保留 + 3 个 RSP(给 ring 0/1/2)+ 7 个 IST + I/O 位图基址等。顺带一提,源码注释里把它写成 "Table 8-2",但 8-2 其实是 32 位 TSS 的图(Figure 8-2),64 位 TSS 的正确编号是 Figure 8-11——这是写文档时拿本地 SDM 核实出来的一个源码注释笔误。
 
-### 3. load():lgdt、远跳、ltr
+## 3. load():lgdt、远跳、ltr
 
 表填好了,但 CPU 还不知道它在哪。`load()` 干三件事:
 

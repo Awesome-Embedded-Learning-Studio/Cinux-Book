@@ -6,7 +6,7 @@ title: 04 · 设计现场:cd /.. 与 set_current 的顺序
 
 007 没有崩溃调试的 note,但有两个写在代码里的真实隐患,值得拿出来讲——它们都是「要是漏了这一步,功能就错或者炸」的点。
 
-### cd /.. 不能越过根:canonicalize 的根目录保护
+## cd /.. 不能越过根:canonicalize 的根目录保护
 
 `path_canonicalize` 处理 `..` 的那几行,有个不起眼但关键的保护:
 
@@ -25,7 +25,7 @@ if (comp_len == 2 && ... '..' ...) {
 
 POSIX 对此有明确规定:路径解析时,根目录的 `..` 仍是根,你不能「.. 出根」。如果漏了这个保护,`out_pos` 会被减到 0 甚至下溢,`out[]` 缓冲就会被越界写——轻则路径乱掉,重则写穿栈。这是个典型的「边界条件漏一个就崩」的隐患,代码里用一行 `if` 守住了。
 
-### resolve_user_path 依赖 current,所以必须先 set_current
+## resolve_user_path 依赖 current,所以必须先 set_current
 
 第二个隐患是上面已经埋下的伏笔。`resolve_user_path` 里有这么一句:
 

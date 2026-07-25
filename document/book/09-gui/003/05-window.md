@@ -4,7 +4,7 @@ title: 05 · 窗口层:Window + WindowManager + Desktop
 
 # 窗口层:Window + WindowManager + Desktop
 
-### Window:复合控件,自画标题栏 + 持一个 content
+## Window:复合控件,自画标题栏 + 持一个 content
 
 Window 也是 Widget,但它是个**复合控件**——自己画标题栏 + body,还持一个 content 子控件(终端就挂这儿)。看 [`core/widget/window.hpp`](../../../third_party/Cinux-GUI/core/widget/window.hpp#L43-L123):
 
@@ -84,7 +84,7 @@ void Window::move_to_(int32_t x, int32_t y) {
 
 窗口移走了,旧位置那块矩形原来盖着的是别的窗口或桌面背景,现在露出来了——这块必须标脏,否则合成器不会重画它,屏幕上会留下窗口的"残影"。即时模式下全屏重画自动解决;保留模式必须显式标 old。这是从即时模式切到保留模式最容易漏的点。
 
-### WindowManager:桌面根,自管 windows_ 数组
+## WindowManager:桌面根,自管 windows_ 数组
 
 WindowManager 也是 Widget,作桌面根。但它**不用 Widget 框架的 `children_`**——它自己管一个 `windows_[]` 数组。原因在 [`window_manager.hpp`](../../../third_party/Cinux-GUI/core/widget/window_manager.hpp#L11-L20) 的头注释里说得很直白:框架的 `flatten` 是 self→children 顺序,无法表达"光标画在所有窗口之上"(`paint_to_list` 在 children 之前跑)。所以 WM 自管数组、在 `paint_to_list` 里手动按正确顺序画:
 
@@ -135,7 +135,7 @@ void WindowManager::clear_dirty() {
 
 `process_pointer` 是 WM 的事件入口,自带 press capture(拖拽用):down 时 hit-test 找到目标窗口、`raise` 把它顶到最前(click-to-raise)、投事件给它、记 press_target;move 时投给 press_target(保持拖拽即使光标离开窗口);up 时投给 press_target(可能触发 on_close → remove_window)然后清掉。键盘事件不走 WM——`Desktop::dispatch_key` 把它投给 focus widget(就是上次 click 命中的那个)。
 
-### Desktop:把树驱动起来
+## Desktop:把树驱动起来
 
 最后是把这一切串起来的 [`Desktop`](../../../third_party/Cinux-GUI/core/widget.hpp#L147-L172)。它持根指针、一个 Compositor、一张 PaintList,驱动 `dispatch_pointer` / `dispatch_key` / `render`:
 
