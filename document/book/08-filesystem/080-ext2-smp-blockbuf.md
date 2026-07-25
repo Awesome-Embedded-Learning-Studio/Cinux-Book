@@ -214,7 +214,7 @@ child_ptrs[idx2] = data_blk;
 if (!write_block(child_blk, child_buf.get())) { ... }
 ```
 
-([ext2_inode.cpp:449-455](libs/ext2/ext2_inode.cpp#L449))。源码注释把这点写得很直白([ext2_inode.cpp:378-384](libs/ext2/ext2_inode.cpp#L378)):「the old shared-block_buf_ code had to re-read the parent each time because zeroing the child clobbered the only buffer」。迁完之后 double-indirect 的两层 walk 各自一块 `KmBuf`(`di_buf` / `child_buf`),互不踩。
+([ext2_inode.cpp:446-453](libs/ext2/ext2_inode.cpp#L446))。源码注释把这点写得很直白([ext2_inode.cpp:376-381](libs/ext2/ext2_inode.cpp#L376)):「the old shared-block_buf_ code had to re-read the parent each time because zeroing the child clobbered the only buffer」。迁完之后 double-indirect 的两层 walk 各自一块 `KmBuf`(`di_buf` / `child_buf`),互不踩。
 
 **`read_disk_inode` / `write_disk_inode`——各自 `KmBuf`,顺手把 `locate_inode_block` 改成「只算术不读」**。这俩是 RMW 风格(读 inode 所在块、patch inode 槽、写回),原来共用 `block_buf_`,现在各自一块:
 
@@ -322,7 +322,7 @@ if (read_block(di_blk, unlink_ptr_buf_)) {
 }
 ```
 
-([ext2_directory.cpp:429-457](libs/ext2/ext2_directory.cpp#L429))
+([ext2_directory.cpp:426-457](libs/ext2/ext2_directory.cpp#L426))
 
 这里要诚实说一个**还没收尾的口子**。`unlink_ptr_buf_` / `unlink_child_buf_` 这两块快照是**实例级共享**的——它和 `block_buf_` 同病。快照治的是「同一次 unlink 内部,free 数据块的过程会 clobber 正在遍历的 indirect 数组」这一层 clobber(这是本章关心的、已经治住的那一类);但它**不治**「两个 CPU 同时对同一 ext2 实例上不同路径的文件并发 unlink」这一层——核对 `sys_unlink.cpp`,从 `parent->ops->unlink(...)` 进来到 `Ext2::unlink` 遍历 indirect,全程没有 per-inode / per-fs 的锁把 unlink 串行化;`Ext2::unlink` 自身在遍历这两块快照时也不持 `inode_cache_lock_` 或 `block_alloc_lock_`(`block_alloc_lock_` 只在 `free_block` 内部保护 bitmap RMW,覆盖不到快照缓冲)。也就是说:跨 inode 的并发 unlink 会让两个 CPU 同时读写这两块实例级快照,留下一个真实的残留 race。
 
@@ -448,15 +448,359 @@ void PageCache::invalidate_range(cinux::fs::Inode* inode, uint64_t file_off, uin
 
 这两个为什么是 ext2 的依赖而非独立 feature?因为新 ext2 的行为(`O_TRUNC` 走 `truncate`、write 直写盘)需要它们做前提,不补 ext2 就跑不对。补到 parity 是搬家的连带账,不是另外的功能扩展。
 
+## 主线八:host PAL——让 ext2 在 host 上脱开 QEMU,上 TSAN 抓 race
+
+主线一开头咱们说过:QEMU forensics 漏掉的那一类 race,真正能秒抓的是 **TSAN**——它直接报「这块内存在线程 A 读、线程 B 写」。可上 TSAN 的前提是 ext2 能在 **host 上脱开 QEMU 直接跑**。搬家到 `libs/ext2/` 是表,让这一层成为可能才是底。这一节就把这条动机回环讲完:host PAL 怎么 mock 掉内核依赖、host 单测怎么验真逻辑、host 并发压测怎么让 TSAN 把 `block_buf_` race 喊出来。
+
+### 为什么 ext2 能在 host 上跑——PAL 切了哪几刀
+
+ext2 的源码(`libs/ext2/ext2_*.cpp`)在内核里编一份(`-mcmodel=kernel`),现在又**在 host 上编第二份**——直接用 host 的 codegen,跟 `net_tcp` 那条 host 测试同一个路子。可 ext2 调了几个只有内核才有的符号,host 上没有:
+
+- `cinux::lib::kprintf` / `kvprintf` / `kpanic`:内核版走 serial + x86 inline asm(`outl` / `cli` / `hlt`),host 上没串口;
+- `cinux::mm::kmalloc` / `kfree`:内核版路由到 PMM/buddy slab,host 上没有那套页管理。
+
+host PAL 的活就是给这几个符号提供**libc 后端**,让 ext2 链得过、跑得动。`test/unit/ext2_host_pal.cpp` 是这块 PAL 的全部:
+
+```cpp
+namespace cinux::lib {
+
+void kprintf(const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    vprintf(fmt, args);  // host: route to stdout
+    va_end(args);
+}
+
+void kvprintf(const char* fmt, va_list args) {
+    vprintf(fmt, args);
+}
+
+[[noreturn]] void kpanic(const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(stderr, fmt, args);
+    va_end(args);
+    abort();
+}
+
+// Sink registration is a kernel multi-backend concept (serial + framebuffer +
+// QEMU debugconsole). The host PAL has a single implicit stdout sink (the
+// vprintf above), so these are no-ops.
+void kprintf_register_sink(OutputSink /*fn*/, void* /*ctx*/) {}
+void kprintf_set_sink_enabled(OutputSink /*fn*/, void* /*ctx*/, bool /*enabled*/) {}
+void kprintf_enable_all_sinks() {}
+void kprintf_init() {}
+
+}  // namespace cinux::lib
+```
+
+([ext2_host_pal.cpp:29-58](test/unit/ext2_host_pal.cpp#L29))`kprintf` 在 host 上就是 `vprintf` 往 stdout,kpanic 直接 `abort`。sink 注册那一套是内核的多后端(serial + framebuffer + debugconsole)概念,host 只有一个隐式 stdout sink,所以全是 no-op。
+
+`kmalloc` / `kfree` 同理走 libc,但有一个**对齐 + 清零契约**要守:
+
+```cpp
+void* kmalloc(size_t size, size_t align) {
+    if (size == 0) return nullptr;
+    if (align < sizeof(void*)) align = sizeof(void*);
+    // aligned_alloc requires size to be a multiple of alignment.
+    size_t rounded = (size + align - 1) & ~(align - 1);
+    void* p = aligned_alloc(align, rounded);
+    // Match the kernel slab contract: returned memory is zeroed (no stale-data
+    // leak), which ext2 scratch buffers (KmBuf) and the allocator paths assume.
+    if (p != nullptr) {
+        memset(p, 0, rounded);
+    }
+    return p;
+}
+
+void kfree(void* ptr) {
+    free(ptr);
+}
+```
+
+([ext2_host_pal.cpp:60-80](test/unit/ext2_host_pal.cpp#L60))。注意那个 `memset(p, 0, rounded)`——内核 slab 返回的内存是清零的(无 stale-data 泄漏),ext2 的 `KmBuf` scratch buffer 和分配路径都依赖这点。host PAL 必须守这条契约,不然 host 上跑出来的行为跟内核里不一致,测出来的就没意义。
+
+剩下两个符号来自别处、但同一个 target 里:`cinux::proc::Spinlock` 由 `host_spinlock.cpp` 提供(用 libc 的 `pthread_mutex` 实现 `Spinlock::guard`),`inode_ref` / `inode_unref` 由 `kernel/fs/file.cpp` 直接链进来(这俩是纯逻辑、host-safe,跟 devfs 测试一个先例)。这三个 PAL + 一个 ext2 库 = host 上能跑真 ext2 的全部材料。
+
+### host 单测:真逻辑往返读写 + 硬链接
+
+PAL 备齐,先验 ext2 在 host 上跑得对——`test/unit/test_ext2_host.cpp` 挂一张预构的 64 KiB ext2 镜像(`test/data/ext2_test.img`,由 `mke2fs -d` 预填 `/etc/motd` + `/hello.txt`)进一个 `RAMBlockDevice`,然后走**完整 VFS 路径**:
+
+```cpp
+Ext2 ext2(&dev);
+ASSERT_OK(ext2.mount());
+
+// --- readdir "/" : expect etc/ and hello.txt (index 0/1 are "." / "..") ---
+auto root_r = ext2.lookup("/");
+...
+for (uint64_t i = 2; i < 64; ++i) {
+    char nm[256];
+    auto r = root->ops->readdir(root, i, nm, 255);
+    ASSERT_TRUE(r.ok());
+    if (*r == 0) break;  // end of directory
+    if (std::strcmp(nm, "etc") == 0) found_etc = true;
+    if (std::strcmp(nm, "hello.txt") == 0) found_hello = true;
+}
+ASSERT_TRUE(found_etc);
+ASSERT_TRUE(found_hello);
+
+// --- multi-level lookup + read /etc/motd ---
+auto motd_r = ext2.lookup("/etc/motd");
+...
+    char buf[64];
+    auto rd = motd->ops->read(motd, 0, buf, sizeof(buf) - 1);
+    ASSERT_TRUE(rd.ok());
+    ASSERT_GT(*rd, 0);
+    buf[*rd] = '\0';
+    ASSERT_TRUE(std::strstr(buf, "hello ext2 motd") != nullptr);
+```
+
+([test_ext2_host.cpp:58-88](test/unit/test_ext2_host.cpp#L58))。注意它走的不是某个 mock 出来的接口,而是**真 ext2 的真 `Ext2::lookup` / 真 `InodeOps::read`**——`RAMBlockDevice` 只是替 NVMe/AHCI 把盘字节握在内存里,I/O 路径上别的逻辑全真的。这条测下来绿,说明 ext2 在 host 上跑得对:挂载、多层 lookup、readdir、read 都对得上镜像内容。
+
+写路径也压——create + write + read-back + unlink 一条往返:
+
+```cpp
+// --- create /newfile + write + read-back (exercises block allocator) ---
+auto newf_r = root->ops->create(root, "newfile", 7);
+...
+const char  payload[] = "hello-write";
+const auto  plen = static_cast<int64_t>(sizeof(payload) - 1);
+auto        wr = newf->ops->write(newf, 0, payload, static_cast<uint64_t>(plen));
+ASSERT_TRUE(wr.ok());
+ASSERT_EQ(*wr, plen);
+
+char  rb[32];
+auto  rb_r = newf->ops->read(newf, 0, rb, sizeof(rb) - 1);
+ASSERT_TRUE(rb_r.ok());
+ASSERT_EQ(*rb_r, plen);
+rb[*rb_r] = '\0';
+ASSERT_TRUE(std::strstr(rb, "hello-write") != nullptr);
+```
+
+([test_ext2_host.cpp:90-107](test/unit/test_ext2_host.cpp#L90))。这一段最关键的是它**走了块分配器**——`create` 要分一个新 inode、`write` 要分一个新数据块,正是 `block_alloc_lock_` 要保护的那条 RMW 路径。在 host 上能跑通,说明新 ext2 的写+分配逻辑跟读路径一样,脱开 QEMU 也是对的。它跑在 ASAN 下,UAF / OOB / leak 都在毫秒级冒出来——这是 QEMU forensics 想要但抓不到的确定性。
+
+> 这一节顺带说一个**先验链接**的测试:`test_ext2_host_link.cpp` 不验语义,只验「host PAL 备齐了」——构造一个 `Ext2` over `RAMBlockDevice`、调 `mount()`(零填充盘 → superblock magic 校验失败 → 返回 not ok)、析构。它链得过来、不崩,PAL 覆盖就完整了。这是 host 测试基建的「make-or-break」门槛,真语义留给上面那条 host 测。详见 [test_ext2_host_link.cpp:37-47](test/unit/test_ext2_host_link.cpp#L37)。
+
+### host 并发压测:TSAN 秒抓 `block_buf_` race
+
+PAL 备齐、单线程真逻辑验对,接下来才是这条搬家绳真正的 payoff——**让 TSAN 把 `block_buf_` 这一类 race 喊出来**。`test/unit/test_ext2_concurrent.cpp` 起两个 stressor,每个都 N 线程压**同一个** `Ext2` + `RAMBlockDevice`:
+
+**Stressor 1:并行 `alloc_block` / `free_block`,压 `block_alloc_lock_`**:
+
+```cpp
+// N threads each perform 100 alloc/free cycles on the SAME Ext2 instance. All
+// bitmap / superblock / BGDT updates run under block_alloc_lock_; a missing
+// guard shows up as a TSan data-race report on the bitmap bytes or free-count
+// fields.
+TEST("ext2_concurrent: parallel alloc_block / free_block (TSAN)") {
+    ...
+    constexpr int kThreads = 4;
+    constexpr int kIters   = 100;
+    std::thread   threads[kThreads];
+    for (int t = 0; t < kThreads; ++t) {
+        threads[t] = std::thread([&ext2]() {
+            for (int i = 0; i < kIters; ++i) {
+                uint32_t b = ext2.alloc_block();
+                if (b != 0) {
+                    ext2.free_block(b);
+                }
+            }
+        });
+    }
+    for (auto& th : threads) {
+        th.join();
+    }
+}
+```
+
+([test_ext2_concurrent.cpp:51-83](test/unit/test_ext2_concurrent.cpp#L51))。4 线程 × 100 次循环,每次都进 bitmap RMW。如果 `block_alloc_lock_` 漏了某处,TSAN 在几毫秒内就会报「bitmap 字节被线程 A 写、线程 B 读」——这就是主线六那把锁要拦的东西。
+
+**Stressor 2:并行 `lookup("/etc/motd")`,压 `block_buf_` + `inode_cache_lock_`**:
+
+```cpp
+// Regression for the shared block_buf_ race found by the original M6 TSan run:
+// lookup_in_dir() now owns one KmBuf per call and reuses it across directory
+// blocks, so concurrent path resolution never shares scratch storage.
+TEST("ext2_concurrent: parallel lookup (TSAN)") {
+    ...
+    constexpr int    kThreads = 4;
+    constexpr int    kIters   = 200;
+    std::atomic<int> failures{0};
+    std::thread      threads[kThreads];
+    for (int t = 0; t < kThreads; ++t) {
+        threads[t] = std::thread([&ext2, &failures]() {
+            for (int i = 0; i < kIters; ++i) {
+                auto result = ext2.lookup("/etc/motd");
+                if (!result.ok() || result.value() == nullptr) {
+                    failures.fetch_add(1, std::memory_order_relaxed);
+                    continue;
+                }
+                inode_unref(result.value());
+            }
+        });
+    }
+    for (auto& th : threads) {
+        th.join();
+    }
+
+    ASSERT_EQ(failures.load(std::memory_order_relaxed), 0);
+}
+```
+
+([test_ext2_concurrent.cpp:88-125](test/unit/test_ext2_concurrent.cpp#L88))。这条是**直接回归 `block_buf_` race 的**——4 线程 × 200 次并发 `lookup`,每次 lookup 进 `lookup_in_dir` 都要 `read_block` 目录块。注释里写得很直白:「`lookup_in_dir()` now owns one KmBuf per call and reuses it across directory blocks, so concurrent path resolution never shares scratch storage」——也就是说,如果哪天有人把 `KmBuf` 改回共享 `block_buf_`,这条测在 TSAN 下会立刻报「`block_buf_` 在线程 A 读、线程 B 写」,正是主线一描述的那种 wild 块号 race 的根。这一条是 `block_buf_` 治理的**确定性回归证据**,不是 `run-kernel-test` 跑全绿那种概率证据。
+
+构建开关也讲清:`-DCINUX_HOST_TSAN=ON` 给所有 host 测试加 `-fsanitize=thread`,跟 ASAN 互斥(见 `test/CMakeLists.txt:38-41`);`test_ext2_concurrent` 显式链 `-pthread`(`test/CMakeLists.txt:327`)。镜像路径由 CMake 注入:`EXT2_TEST_IMG_PATH="${CMAKE_SOURCE_DIR}/test/data/ext2_test.img"`([test/CMakeLists.txt:325-326](test/CMakeLists.txt#L325))。
+
+> **TSAN 和 lockdep 的分工**。内核里有 lockdep,但它只做 lock-order(锁序)检查,看不见「两个线程摸同一个字段、却没加锁」这种 race。TSAN 正好补这一块——它不需要你声明「这块内存归哪把锁管」,它直接看内存访问。所以 host 上跑 TSAN,是把内核 lockdep 看不见的那一类 race,在 host 上用确定性工具捞出来。这正是这一节存在的意义。
+
+## 主线九:ext4 extent 读路径——挂在 `resolve_disk_block_` 前面的另一条解析器
+
+搬进 `libs/ext2/` 的除了 ext2 自己,还有一段 ext4 的读路径——extent tree 解析器(`libs/ext2/ext2_extent.cpp`)。它不是这章 race 绳的一部分,可它**接在 `resolve_disk_block_` 的入口**,跟前面讲的「读 indirect 指针」是同一条解析链上的岔路,得讲清它怎么岔、为什么这么接。
+
+### extent 是什么:把 60 字节的 `i_block` 当成树根
+
+经典 ext2 的 `i_block[0..14]` 是**块指针数组**:12 个直接指针 + 1 个 indirect + 1 个 double-indirect + 1 个 triple(本驱动不支持 triple)。ext4 给这个区域换了一种解释——如果 inode 的 `i_flags` 里设了 `EXT4_EXTENTS_FL`,这 60 字节就不再是块指针,而是一棵 **extent tree 的根**:一段 12 字节的头,后面跟一组 extent(叶)或一组 index(指向下一层)。
+
+```cpp
+/// Superblock incompatible-feature bit: filesystem uses per-inode extent trees
+static constexpr uint32_t EXT4_FEATURE_INCOMPAT_EXTENTS = 0x40;
+
+/// Inode flag: i_block[0..14] holds an extent tree (not classic block pointers)
+static constexpr uint32_t EXT4_EXTENTS_FL = 0x80000;
+
+/// Magic value stored in Ext4ExtentHeader::eh_magic
+static constexpr uint16_t EXT4_EXTENT_MAGIC = 0xF30A;
+```
+
+([ext2_types.hpp:354-361](libs/ext2/ext2_types.hpp#L354))。一个**叶 extent** 就是一条「连续的逻辑块 → 连续的物理块」映射:
+
+```cpp
+/**
+ * @brief ext4 leaf extent (depth 0): a contiguous logical→physical block run
+ *
+ * A leaf node is eh_max Ext4Extent entries (12 bytes each) immediately after
+ * the Ext4ExtentHeader.  Covers logical blocks [ee_block, ee_block + len).
+ */
+struct [[gnu::packed]] Ext4Extent {
+    uint32_t ee_block;     ///< First logical block this extent covers
+    uint16_t ee_len;       ///< Block count (>32768 ⇒ uninitialized, len = ee_len-32768)
+    uint16_t ee_start_hi;  ///< High 16 bits of physical start block
+    uint32_t ee_start_lo;  ///< Low 32 bits of physical start block
+};
+```
+
+([ext2_types.hpp:384-397](libs/ext2/ext2_types.hpp#L384))。意思是「从逻辑块 `ee_block` 起、连续 `ee_len` 个块,对应的物理块从 `(ee_start_hi << 32) | ee_start_lo` 开始」。一条 extent 就能覆盖一大段连续数据(比如一个 1 MiB 的文件,1 KB 块就是 1024 个块,一条 extent 搞定),比 indirect 指针数组(每个块号都得占 4 字节、还得读一个 indirect 块)省盘、省 I/O。
+
+### depth-0 leaf:直接给块号,不读盘
+
+`extent_lookup_block` 干的活就是:拿着 file 的逻辑块号,在这棵 depth-0 的 tree 里找覆盖它的那条 extent,算出物理块号。整段**不读盘**——extent tree 的根就在 inode 的 `i_block` 里,已经在内存了:
+
+```cpp
+ExtentLookupResult extent_lookup_block(const Ext2Inode& disk, uint32_t file_block,
+                                       uint32_t& out_block) {
+    // The extent tree root occupies the full 60-byte i_block[0..14] region.
+    auto* tree = reinterpret_cast<const uint8_t*>(disk.i_block);
+    auto* hdr  = reinterpret_cast<const Ext4ExtentHeader*>(tree);
+
+    if (hdr->eh_magic != EXT4_EXTENT_MAGIC) {
+        // Flagged extent-based but the header is absent/corrupt: do not guess.
+        return ExtentLookupResult::Unsupported;
+    }
+    if (hdr->eh_depth != 0) {
+        // Index nodes (depth > 0) need a follow-up reader; bail honestly.
+        return ExtentLookupResult::Unsupported;
+    }
+
+    auto*    extents = reinterpret_cast<const Ext4Extent*>(tree + sizeof(Ext4ExtentHeader));
+    uint16_t count   = hdr->eh_entries;
+
+    for (uint16_t i = 0; i < count; ++i) {
+        const Ext4Extent& e      = extents[i];
+        uint32_t          log    = e.ee_block;
+        uint16_t          raw    = e.ee_len;
+        bool              uninit = raw > EXT4_EXTENT_INIT_LEN_MAX;
+        // Uninitialized extents encode real length as ee_len - 32768.
+        uint32_t len = uninit ? static_cast<uint32_t>(raw - EXT4_EXTENT_INIT_LEN_MAX) : raw;
+
+        if (file_block >= log && file_block < log + len) {
+            if (uninit) {
+                // Preallocated-but-unwritten region: reads return zeros.
+                return ExtentLookupResult::Hole;
+            }
+            uint64_t phys_start = (static_cast<uint64_t>(e.ee_start_hi) << 32) | e.ee_start_lo;
+            out_block           = static_cast<uint32_t>(phys_start + (file_block - log));
+            return ExtentLookupResult::Mapped;
+        }
+    }
+
+    // No extent covers this logical block: a hole (sparse file) → zero-fill.
+    return ExtentLookupResult::Hole;
+}
+```
+
+([ext2_extent.cpp:18-57](libs/ext2/ext2_extent.cpp#L18))。三个 outcome 得分清(枚举在 [ext2_extent.hpp:31-35](libs/ext2/ext2_extent.hpp#L31)):
+
+- `Mapped`——找到了覆盖的 extent,`out_block` 里是物理块号,调用方去读;
+- `Hole`——逻辑块没被任何 extent 覆盖(稀疏文件的洞),或者命中了一条 **uninitialized extent**(`ee_len > 32768`,意思是这块盘空间预分配了但没写,read 该返回零);
+- `Unsupported`——magic 不对(标了 extent flag 但 header 损坏),或者 `eh_depth > 0`(树还有 index 层,本驱动不读)。这俩都**诚实地 bail**,不猜——`return 0` 让上层停读,而不是瞎给个块号去 I/O。
+
+`ee_len > EXT4_EXTENT_INIT_LEN_MAX`(32768)那条是 ext4 uninitialized extent 的编码:真实长度 = `ee_len - 32768`,读这块逻辑块该返回零。代码把它判成 `Hole`(zero-fill),逻辑等价——洞和未写区域对 read 的语义都是「全零」。
+
+### 接进 `resolve_disk_block_`:extent 在前、indirect 在后
+
+extent 解析器是**挂在 `resolve_disk_block_` 的入口**的,不是平行分支。它得在前:
+
+```cpp
+uint32_t Ext2FileOps::resolve_disk_block_(const Ext2Inode& disk, uint64_t file_block,
+                                          uint64_t block_ptrs_per_block, uint8_t* scratch) {
+    const uint32_t blocks_count = ext2_.blocks_count();
+    if (inode_has_extent_tree(disk)) {
+        uint32_t           extent_block = 0;
+        ExtentLookupResult r =
+            extent_lookup_block(disk, static_cast<uint32_t>(file_block), extent_block);
+        uint32_t blk = (r == ExtentLookupResult::Mapped) ? extent_block : 0;
+        ext2_trace_wild_blk(blk, file_block, disk, blocks_count);
+        return blk;
+    }
+    if (file_block < EXT2_DIRECT_BLOCKS) {
+        uint32_t blk = disk.i_block[file_block];
+        ...
+```
+
+([ext2_common.cpp:196-211](libs/ext2/ext2_common.cpp#L196))。`inode_has_extent_tree(disk)` 就是查 `i_flags & EXT4_EXTENTS_FL`([ext2_extent.hpp:26-28](libs/ext2/ext2_extent.hpp#L26))——一个 inline 谓词,不读盘。如果 inode 是 extent-mapped 的,**整段 indirect 路径都不走**(`i_block` 已经被重解释成 extent tree 了,再当块指针读就是垃圾),直接调 `extent_lookup_block` 拿块号;否则才回退到经典的 direct/indirect/double-indirect 解析。
+
+注意 extent 这条岔路**不碰 `scratch`**——depth-0 的 extent tree 根在 inode 里、不读盘,所以不需要中间 buffer。这是 extent 跟 indirect 在 SMP 上的一个本质区别:indirect 要 `read_block` 一个 indirect 块、所以必须有自己的 `KmBuf`(主线四讲过);extent depth-0 leaf 是纯算术,无 I/O,无 buffer,自然也就没有 `block_buf_` race 那一层。当然,如果 extent 树是 `depth > 0`(有 index 节点),那就要读 index 块,又会引入 buffer 问题——但这一层本驱动 `Unsupported`,不在这次治理范围里。
+
+### 怎么验:QEMU in-kernel 测一个真 ext4 卷
+
+extent 这条路径没法靠 host 测验(预构镜像是 ext2 的),它在 QEMU 里跑一张专门的 ext4 镜像——`kernel/test/test_ext4_extents.cpp` 挂 AHCI port 2 上那张 ext4 盘(由 `scripts/create_ext4_disk.sh` 构造),验三件事:
+
+1. **挂载能识别 ext4 extents 特性**:卷的 superblock 设了 `EXT4_FEATURE_INCOMPAT_EXTENTS`,`has_ext4_extents_feature()` 返回真([test_ext4_extents.cpp:96-105](kernel/test/test_ext4_extents.cpp#L96));
+2. **大文件(1 MiB)走 extent 且读回字节精确**:`/big.bin` 是 1 MiB、一条 depth-0 leaf extent(1024 块 @ 1 KB),整段读回验 `byte[i] == i & 0xFF`([test_ext4_extents.cpp:131-172](kernel/test/test_ext4_extents.cpp#L131)),还专门测一段跨块边界的读([test_ext4_extents.cpp:174-191](kernel/test/test_ext4_extents.cpp#L174))——验 extent 解析的块内偏移算术;
+3. **小文件(单块 extent)也能读**:`/small.txt` 单块 extent,读回 `"ext4 extents small file\n"`([test_ext4_extents.cpp:201-217](kernel/test/test_ext4_extents.cpp#L201))。
+
+这条测的关键是它**先验 inode 真的是 extent-mapped**(`cached->disk_inode.i_flags & EXT4_EXTENTS_FL`),再读——不然读对了也可能是走了 indirect 路径的巧合:
+
+```cpp
+// The inode must actually be extent-mapped -- otherwise the read below would
+// fall through to the (wrong) indirect-block path.
+auto* cached = static_cast<const Ext2CachedInode*>(ino->fs_private);
+TEST_ASSERT_TRUE((cached->disk_inode.i_flags & EXT4_EXTENTS_FL) != 0);
+```
+
+([test_ext4_extents.cpp:124-126](kernel/test/test_ext4_extents.cpp#L124))。这层前置断言把「extent 路径真的被走到了」钉死,避免误判。
+
+> **目录扫描走 `inode_read_block`,不是 `resolve_disk_block_`**。extent 解析还有个共用入口 `inode_read_block`([ext2_extent.cpp:59-71](libs/ext2/ext2_extent.cpp#L59)),它先判 extent,否则回退到 direct(`i_block[0..11]`)。`lookup_in_dir` / `readdir` 这种目录扫描用这个——目录通常很小,只在 direct 区,`inode_read_block` 一行就解析了。而常规文件读走 `resolve_disk_block_` 那条带 indirect/extent 双岔路的完整解析。两个入口共用 `extent_lookup_block`,分工看场景。
+
 ## 范围与边界(诚实说)
 
 这一章的 race 治理有几条没收尾的口子,摊开讲清,别让读者读完以为「ext2 已 SMP-safe」。
 
-- **没搭 host 上的确定性竞态回归(TSAN)**。能在 host 上脱开 QEMU 直接跑 ext2 的真逻辑、再上 TSAN——也就是给 ext2 配一层 host mock I/O、外加一个能并发压它的测试——是这类 `block_buf_` race 的**确定性回归工具**:TSAN 能秒级报「线程 A 读、线程 B 写同一块内存」,这正是 QEMU forensics 漏掉的那一类 race。可这次没做。原因是 host test 基建有预存债:跑 `cmake --build build --target test_ext2_ops` 会直接报 `fatal error: fs/ext2/ext2_types.hpp: No such file or directory`——这个测试的 `#include "fs/ext2/ext2_types.hpp"` 还指向搬家前的旧路径(`kernel/fs/ext2/` → `libs/ext2/` 这次搬家把 include 打断了),mock 层也因此连不上。在破损基座上盖一层 host mock I/O 风险大,所以这次 race 修复**只靠 `run-kernel-test` 跑全绿验证,没有 host TSAN 的确定性回归**。直说:`block_buf_` race 在这里是「逻辑上根治(每个 SMP 路径都换了 per-call `KmBuf`、grep 无残留)、回归上未确定性验证」。这是真实的测试缺口,不能因为 `run-kernel-test` 绿就当成了事——等 host test 债清完(include 路径修顺)再补这一层。
+- **host PAL + TSAN 确定性回归已到位**(原「没搭 host TSAN」那条 deferred,现已收)。主线八讲完:host PAL(`test/unit/ext2_host_pal.cpp`)mock 掉 `kprintf` / `kmalloc` 让 ext2 在 host 上跑真逻辑;`test_ext2_host.cpp` 走完整 VFS 往返(readdir + read + create/write/read-back + unlink);`test_ext2_concurrent.cpp` 4 线程压同一个 `Ext2`,`-DCINUX_HOST_TSAN=ON` 秒级抓 `block_buf_` race。`block_buf_` 治理现在是「逻辑根治 + 回归确定性验证」双重闭环,不再只是 `run-kernel-test` 全绿的概率证据。
 - **`unlink` 的跨并发快照缓冲还没治**。主线五末尾已经诚实标注:`unlink_ptr_buf_` / `unlink_child_buf_` 治的是「单次 unlink 内部 free 过程的 clobber」,不治「两个 CPU 并发 unlink 同一 ext2 实例」那层共享快照 race——那层需要一把 per-instance `unlink_lock_`,留 follow-up。这章不假装它已 SMP-safe。
 - **truncate 是 shrink-only,孤儿块不回收**。主线七已说,`O_TRUNC` 截断掉的孤儿数据块不释放,是已知 leak(hobby-os 式)。read 不超过 `i_size` 所以非正确性问题,只浪费磁盘;完整的孤儿块回收留 follow-up。
-- **只讲「搬独立库 + 治 `block_buf_` 成 SMP-safe」这一根绳**。host 上的 mock I/O / TSAN 测试基座不教怎么搭(等 host test 债清完是独立章);`ext2_dirops.cpp` 这种「搬家顺带的结构整理」也只一句话带过,不教拆分方法论。
-- **ext4 extent 读路径不展开**:`ext2_extent.cpp` 已经接进来了(`resolve_disk_block_` 里 `inode_has_extent_tree(disk)` 走 extent 公共解析器,depth-0 leaf 直接给块号),本章点到「它接进来了」即可。extent tree 的语义、树遍历是后续章的内容,不是这根 race 绳的一部分。
+- **只讲「搬独立库 + 治 `block_buf_` 成 SMP-safe」这一根绳**。host PAL 的搭法主线八给了概貌(`kprintf` / `kmalloc` 走 libc + 守 slab 清零契约),但 PAL 设计的完整动机、ASAN/TSAN 开关的取舍不展开;`ext2_dirops.cpp` 这种「搬家顺带的结构整理」也只一句话带过,不教拆分方法论。
+- **ext4 extent 读路径只到 depth-0 leaf**。主线九已讲:`resolve_disk_block_` 入口先判 `EXT4_EXTENTS_FL`,extent-mapped 的 inode 走 `extent_lookup_block` 那条 depth-0 leaf 解析(纯算术、不读盘、不碰 buffer,所以不在 `block_buf_` race 的范围内)。但 `eh_depth > 0` 的 index 节点(很大或很碎的文件才会用)`Unsupported`,本驱动 bail 不读——那一层会引入 index 块的 I/O、又得 `KmBuf`,留后续章。
 - **目录读写路径(`lookup_in_dir` / symlink readlink 等)的 per-call `KmBuf`**已随这次搬家一起到位,本章按合并态讲,不展开每条目录路径的迁移细节。
 
-> 这一章的 race 修复,`run-kernel-test` 跑全绿是验证证据(不是战绩)。它站得住的真正理由,是每条 SMP 路径都换了 per-call `KmBuf`、`grep` 确认 `block_buf_` 不再出现在并发路径上、配套的 `block_alloc_lock_` 串行了 bitmap RMW、unlink 的 indirect 快照隔离了 free 过程的 clobber——这一套逻辑是闭环的。host 上 TSAN 的确定性回归是缺的最后一公里,债认了,等基座补齐再收。
+> 这一章的 race 修复,`run-kernel-test` 跑全绿是验证证据(不是战绩)。它站得住的真正理由,是每条 SMP 路径都换了 per-call `KmBuf`、`grep` 确认 `block_buf_` 不再出现在并发路径上、配套的 `block_alloc_lock_` 串行了 bitmap RMW、unlink 的 indirect 快照隔离了 free 过程的 clobber——这一套逻辑是闭环的。再加上 host PAL 让 ext2 在 host 上跑真逻辑、`test_ext2_concurrent` 在 TSAN 下并发压 lookup(主线八),`block_buf_` race 有了确定性回归,不再只靠 QEMU 全绿。剩下没收的口子(unlink 跨并发快照、truncate 孤儿块、extent depth>0)都摊在上面,各自留了明确的 follow-up。
