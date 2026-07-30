@@ -52,6 +52,14 @@ class DevDirOps : public InodeOps {      // /dev 目录本身:readdir 遍历节�
 
 > 这一步的关键纪律:**`InodeOps` 基类的虚函数签名一行不动,只加子类**。这不是洁癖,是能并行的前提——device inode 子类、ext2 的子类、还有别的改动,全都给 `InodeOps` 加子类,只要不动基类接口,各加各的,merge 时不撞。要是改了基类签名(比如给 `Inode` 加个 `st_rdev` 字段),所有子类都得跟着改,并行就炸了。把「设备号」收进 ops 子类的 `stat()` override、而不是 `Inode` 字段,就是为这个。「加新东西靠子类、不动基类」是这一卷反复出现的套路(上一卷加 UDP 靠 L4 表,一个道理)。
 
+### 对照 Linux:cdev、设备号,与「字符设备的对象模型」
+
+Cinux 的 device inode(`Inode` + `InodeOps` 子类)在 Linux 里有个更专门的载体——`struct cdev`。Linux 把字符设备单独抽成一个内核对象,围绕它有一套分工清楚的三件套:设备号(major:minor)是**接线口**、cdev 是**设备对象**、`file_operations`(fops)是**行为**。`cdev_init` 把一个 cdev 跟一套 fops(驱动的 read/write/ioctl 回调)绑上,`cdev_add` 再按设备号把它登记进全局的「设备号 → cdev」表;用户 `open("/dev/null")` 时,VFS 从 inode 里的设备号出发查这张表找到 cdev,再调它的 fops。
+
+Cinux 没抽这层:设备行为直接绑在 inode 的 `InodeOps` 上,device inode **本身就是**设备对象,设备号只在 `stat()` 时填进 `st_rdev` 给用户态看,不参与内核派发——派发靠 inode 的 ops 指针,不查设备号表。这不是图省事漏了一层,是个有意的取舍:Linux 那套「设备号注册表 + cdev + fops」是为了支持运行时加载驱动、动态分配设备号、同一主设备号下挂多个从设备;Cinux 的设备在 boot 时固定建好,这些需求都没有,这层间接就是纯负担,砍掉。
+
+Linux 那边还有两样咱们也没有,顺带点一下:sysfs(把设备/驱动/总线的拓扑暴露成 `/sys` 下的设备树)和 devtmpfs(`/dev` 默认靠它,驱动注册设备时内核自动 mknod)。Cinux 的虚拟 FS 借了「DevFS」这个名,但实现是 boot 时固定建几个节点,既不是 sysfs 的设备模型,也不做 devtmpfs 的动态 mknod——`/dev` 里有什么,完全由 `mount()` 里写死的节点表决定。
+
 ## CharSink:让设备逻辑能在 host 上单测
 
 `ConsoleDevOps` 的 write 要打到串口,可 `Serial` 是内核硬件的东西,host 单测链不了。要是 devfs.cpp 直接 `#include "Serial.h"` 调串口,host 一链就 undefined。

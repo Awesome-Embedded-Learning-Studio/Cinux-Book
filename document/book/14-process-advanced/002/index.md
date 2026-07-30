@@ -8,4 +8,5 @@ title: 002 · clone / futex / TLS
 
 ## 本章路线
 
-- [01 · 从复制进程到按需共享:clone、futex 与线程](01-clone.md)
+- [01 · futex:线程怎么在共享内存上高效同步](01-futex.md)
+- [02 · 从复制进程到按需共享:clone、futex 与线程](02-clone.md)

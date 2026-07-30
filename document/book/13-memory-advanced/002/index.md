@@ -8,4 +8,5 @@ title: 002 · 连续的堆,和文件映射背后的真内容:brk 与 Page Cache
 
 ## 本章路线
 
-- [01 · 连续的堆,和文件映射背后的真内容:brk 与 Page Cache](01-brk-page-cache.md)
+- [01 · Page Cache:读过的文件内容,凭什么要留在内存里](01-page-cache.md)
+- [02 · 连续的堆,和文件映射背后的真内容:brk 与 Page Cache](02-brk-page-cache.md)

@@ -76,3 +76,7 @@ refcount_inc(phys);   // 缓存拥有
 这样即使所有映射都拆了(`pte_count` 到 0,联动减了地址空间的 refcount),缓存的那个 `refcount` 还在(>0),页不会被释放——下次命中还能用。缓存驱逐时,`CachePhysRef` 析构 `refcount_dec_and_test`,到 0 才真释放。
 
 **幻影 +1 不需要了**:缓存拥有走的是 `refcount`(类型化、RAII 管理、不会忘配对),不再靠在 `pte_count` 上偷 `+1` 兜底。旧的腐蚀路径(幻影算错 → 页被提前释放)从类型层消失。
+
+### Linux 也是 `_mapcount` + `_refcount` 两本
+
+这套「映射维度、所有权维度分开记」不是 Cinux 的发明。Linux 的 `struct page` 里一直是两本独立计数:`_mapcount`(几个用户 PTE 映射这页)和 `_refcount`(整体引用计数:page cache、页表、驱动各持一份),页的最终回收由 `_refcount` 经 `put_page` 驱动,`_mapcount` 只管映射维度。Cinux 旧的 `mapcount` 把这两本混成一本,才逼出页缓存的幻影 `+1` 兜底;这一章拆账,是把混在一起的两个维度重新分开,回到各管一摊的常规做法。再往前一步,用 `PhysRef<Tag>` 把「缓存拥有」从运行时约定提升成类型保证(下一节)。

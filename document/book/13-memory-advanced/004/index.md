@@ -8,4 +8,6 @@ title: 004 · 物理分配器升伙伴,小对象交给 Slab,Heap 退役
 
 ## 本章路线
 
-- [01 · 物理分配器升伙伴,小对象交给 Slab,Heap 退役](01-buddy-slab.md)
+- [01 · 内存碎片化:为什么空闲够却拿不出一大块](01-fragmentation.md)
+- [02 · 伙伴分配器:靠"伙伴"关系自动合并](02-buddy.md)
+- [03 · 物理分配器升伙伴,小对象交给 Slab,Heap 退役](03-buddy-slab.md)

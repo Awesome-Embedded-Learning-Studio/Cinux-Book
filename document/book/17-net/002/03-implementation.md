@@ -1,5 +1,5 @@
 ---
-title: 02 · 三件套、loopback 试验台与 e1000 接通
+title: 03 · 三件套、loopback 试验台与 e1000 接通
 ---
 
 # 三件套、loopback 试验台与 e1000 接通
@@ -13,6 +13,19 @@ title: 02 · 三件套、loopback 试验台与 e1000 接通
 - **IcmpModule**:收到 echo-request 就生成 echo-reply(整包 copy、type 改成 0、重算 ICMP 校验和、源/目的 IP 对调);收到 echo-reply 就记下 `reply_count`/`last_id`/`last_seq`(ping 发起方据此知道往返成了)。
 
 这三个组合起来是单向的:ICMP 的回包要通过 IPv4 发,但这个回引是**逐调用**传 `Ipv4Module&`(作为 handler 的形参),不存成员——所以没有构造环。
+
+### 校验和落地,与 Linux 的拆法对照
+
+上一篇刚把反码和的算法(累加 + 进位回卷 + 最后取反)讲透,这里看它怎么落进三件套——IPv4 头、ICMP 都用它算校验和。Cinux 的实现在 `checksum.cpp` 里,核心是 `finalize_checksum` 那个折叠循环:
+
+```cpp
+while (partial_sum >> 16)
+    partial_sum = (partial_sum & 0xFFFF) + (partial_sum >> 16);
+```
+
+这个循环干的正是上一篇说的「进位回卷」:只要部分和还溢出 16 位,就把溢出的高位折回低位加进去,直到塞得进 16 位为止。
+
+同一套算法在 Linux 里被拆成了几个分开的原语,而且每个架构有自己的汇编实现——网络是热路径,值得为它单独手写:`csum_partial(buf, len, seed)` 返回一个 32 位未折叠的部分和,`csum_fold` 把它折叠成最终的 16 位值,`ip_fast_csum` 是 IPv4 头的快路径,`csum_tcpudp_magic` 把伪首部跟 payload 的部分和合并成 TCP/UDP 的校验和。Cinux 这边用一份通用 C++ 把「累加 + 折叠」合一,不分原语:正确性相同,工程力度不同。Linux 那套拆分不只是为性能——它还用 `__wsum`(部分和,可继续合并)和 `__sum16`(最终值,已折叠)两个类型,在编译期把「还能再合并」和「已经折叠完」两个阶段分开,让「把已折叠的值又当部分和去合并」这种误用编不过。Cinux 没要这层静态保护,靠人盯。
 
 ## loopback:确定性的软件试验台
 

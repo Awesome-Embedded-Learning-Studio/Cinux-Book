@@ -9,5 +9,6 @@ title: 002 · IPv4 / ICMP / ping:先在 loopback 上把栈证明对,再接真网
 ## 本章路线
 
 - [01 · 导引:底子优先与两条接缝](01-intro.md)
-- [02 · 三件套、loopback 试验台与 e1000 接通](02-implementation.md)
-- [03 · 诚实的边界](03-wrapup.md)
+- [02 · 反码和:网络包怎么自己证明自己没坏](02-checksum.md)
+- [03 · 三件套、loopback 试验台与 e1000 接通](03-implementation.md)
+- [04 · 诚实的边界](04-wrapup.md)

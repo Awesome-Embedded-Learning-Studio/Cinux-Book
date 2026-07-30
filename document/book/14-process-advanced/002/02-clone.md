@@ -1,5 +1,5 @@
 ---
-title: 01 · 从"复制进程"到"按需共享":clone、futex 与线程
+title: 02 · 从"复制进程"到"按需共享":clone、futex 与线程
 ---
 
 # 从"复制进程"到"按需共享":clone、futex 与线程
@@ -29,14 +29,16 @@ int64_t sys_clone(uint64_t flags, uint64_t stack, uint64_t parent_tid, uint64_t 
 
 ## futex:线程同步的底
 
-线程共享内存,就需要**同步**——锁、条件变量。`futex`(fast userspace mutex)是 Linux 的同步原语底座:
+上一篇把 futex 的设计思想(用户态快速路径 + 内核慢路径、等待队列靠"键"匹配)讲透了,这里看 Cinux 怎么落地。`futex` 的系统调用长这样:
 
 ```cpp
 // kernel/syscall/sys_futex.hpp
 int64_t sys_futex(uint64_t uaddr, uint64_t op, uint64_t val, ...);
 ```
 
-思路是"用户态快速路径 + 内核慢路径":锁没竞争时,纯用户态原子操作搞定(不进内核);冲突了才 `futex` 系统调用——`FUTEX_WAIT` 在 `*uaddr==val` 时把当前线程挂起、`FUTEX_WAKE` 唤醒等者。内核侧维护一个"按 uaddr(用户地址)的等待队列"。pthread 的 mutex / condvar 都建在它上面。
+`FUTEX_WAIT` 在 `*uaddr == val` 时把当前线程挂起、`FUTEX_WAKE` 唤醒等者。内核侧维护一张按键哈希的等待队列——Cinux 这版的键,选的是概念节里"键的选择"那档最便宜的:**裸的虚拟地址 uaddr**。具体是 `sys_futex.cpp` 里 256 个桶,`bucket_for(uaddr) = (uaddr >> 2) & 255`,wait / wake 都按 uaddr 匹配。
+
+上一篇讲过,拿虚拟地址当键,代价是只能管同一个地址空间里的同步。所以 Cinux 的 `FUTEX_PRIVATE_FLAG`(在 `sys_futex.hpp` 里定义了值 `0x80`)**直接忽略**——因为键本来就是裸 uaddr,没有任何"跨进程解析"的路径,相当于把所有 futex 都当私有处理。结果是:**Cinux 的 futex 只在线程间有效(即 `CLONE_VM`)**;跨进程同步(两个进程通过共享内存映射的同一个字做 futex)这版做不了——不同进程的同一个 uaddr 指向不同物理页,键对不上。Linux 那堆进阶机制咱们也没碰:futex 重排(`FUTEX_REQUEUE`,把等待者从一个 futex 搬到另一个避免惊群)、优先级继承(`FUTEX_LOCK_PI`,治优先级反转)、robust list(线程异常退出时自动放锁)。够线程库用的内核底座,这章齐了;跨进程同步和那些进阶机制,留后续。
 
 ## cleartid:`pthread_join` 的内核侧
 

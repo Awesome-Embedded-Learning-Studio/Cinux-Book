@@ -1,5 +1,5 @@
 ---
-title: 01 · 物理分配器升伙伴,小对象交给 Slab,Heap 退役
+title: 03 · 物理分配器升伙伴,小对象交给 Slab,Heap 退役
 ---
 
 # 物理分配器升伙伴,小对象交给 Slab,Heap 退役
@@ -25,6 +25,35 @@ buddy 第一版图省事,把 `next` 指针直接写进空闲页的头部(经 dir
 ### 坑二:direct-map 区不能再 `map`
 
 buddy 接 direct-map 后,还连带修了 037 那条纪律的一个违反:`DmaPool` 给 direct-map 区分配时顺手调了 `vmm.map`——可 direct-map 区用的是 1GB 大页表项,`vmm.map` 的页表遍历撞上大页项触发"大页拆分",**破坏了全局 direct-map**。修法是删掉那个 `map`——direct-map 已经被加载器永久映射了,根本不用再 map。这条 037 提过,这里再确认:**direct-map 的页表项是永久对照表,map 可以,unmap/重 map 绝对不行。**
+
+### 对照 Linux:struct page、MAX_ORDER 与三件取舍
+
+咱们这套 buddy 跟 Linux 的物理页分配器是同一种算法(二叉伙伴),但有三处结构取舍值得点明——读懂它们,就知道 Cinux 哪里是"精简"、哪里是"换法子绕坑"。
+
+**一、没有 `struct page`,用平铺数组代替。** Linux 给每个物理页配一个 `struct page`(x86-64 上典型 64 字节),里面塞了 `_refcount`(整体引用计数)、`_mapcount`(有多少用户 PTE 映射它)、flags、LRU 链表节点……一整套。这套元数据本身要吃掉物理内存的 1.5% 上下(TB 级内存的机器上就是十几个 GB),所以内核社区一直有"给 struct page 瘦身"的讨论。
+
+Cinux 不养这个对象,而是把每页需要的三样元数据拆成三个平铺数组,挨个排在内核镜像后面(`pmm.hpp` 里 `order_storage_` / `pte_count_storage_` / `refcount_storage_` 三个私有指针):
+
+| 数组 | 每页占 | 存什么 | 对应 Linux |
+|---|---|---|---|
+| `order_storage_` | 1 字节 | 该页是不是某块的 head、是几阶 | Linux 记在 `struct page` 里 |
+| `pte_count_storage_` | 2 字节 | 多少用户 PTE 映射此页 | `_mapcount` |
+| `refcount_storage_` | 2 字节 | 所有权引用计数 | `_refcount` |
+
+`pte_count` 和 `refcount` 这两本账,几乎就是 Linux `_mapcount` + `_refcount` 的翻版(下一章会展开讲为什么要拆成两本)。区别只在容器:Linux 把它们装进每页一个的 `struct page`,Cinux 平铺成三个并行数组。省内存,代价是拿一个页的元数据要查三次数组,而不是解引用一次 `struct page`。
+
+**二、`MAX_ORDER` 的同名陷阱。** 看常量值,两边都是 11——`buddy.hpp` 里 `kMaxOrder = 11`,Linux 也常被说成 `MAX_ORDER = 11`。但语义不一样,直接看最大块就明白了:
+
+- Linux:`MAX_ORDER` 历史上指 free_area 数组的**档数**(11 档,order 0..10),最大块 2^10 = 1024 页 = **4 MiB**;较新内核(如 v6.6)把它重定义成"最大 order 值" 10,另起一个 `NR_PAGE_ORDERS = 11` 当档数——换汤不换药,最大块仍是 4 MiB。
+- Cinux:`kMaxOrder = 11` 直接是"最大 order **值**"(`free_bitmap_[kMaxOrder + 1]` 才是档数,12 档,order 0..11),最大块 2^11 = 2048 页 = **8 MiB**。
+
+别被"都是 11"骗了:Cinux 的最大 buddy 块是 Linux 的两倍。这不是谁对谁错,只是两边给同一个名字塞了不同语义——读别人的代码,常量值一样不代表意思一样。
+
+**三、没有 zone。** Linux 按地址和 DMA 约束把物理内存切成几区(`ZONE_DMA` / `ZONE_DMA32` / `ZONE_NORMAL`……),每个 zone 自己挂一套 `free_area[]`,分配时还有 fallback 顺序(NORMAL 用完退 DMA32、再退 DMA)。根子是历史包袱:老 ISA DMA 设备只能寻址低 16 MB,得专门留 `ZONE_DMA` 把这些页圈起来只给 DMA 用。Cinux 的 `BuddyAllocator` 单枪匹马管所有 usable RAM,不分 zone——驱动里没有这种"只能摸到低地址"的老设备,整个 zone 抽象对咱们是纯负担,砍掉。
+
+**回扣坑一:为什么 Linux 的侵入式 free-list 不撞 nested-KVM。** 现在能讲透了。Linux 的空闲链表(`struct free_area` 里的 `free_list`,字段就是 `struct list_head free_list[MIGRATE_TYPES]` 外加一个 `nr_free` 计数)是链表,节点物理上住在**每个页的 `struct page` 里**——而 `struct page` 是独立分配的元数据区,不是空闲页本身的内存。读写它,碰不到"在 direct-map 的大页窗口里写一个子页"那道坎。
+
+Cinux 没有 `struct page` 这个容器,第一版图省事把 `next` 指针直接写进空闲页头部(就是写 direct-map 的物理页),这才撞上嵌套 KVM 的 EPT 子页写不可见,改成 per-order bitmap 存元数据区。**有没有一个独立的、常驻的页元数据容器,决定了空闲页链表能不能"住进页里"**——这是 Cinux 砍掉 `struct page` 之后,得另外买单的地方。
 
 ## slab:小对象的分层缓存
 
