@@ -10,4 +10,5 @@ title: 002 · RingBuffer / 内核日志 / DMA 池
 
 - [01 · 导引:三件事,同一个毛病](01-intro.md)
 - [02 · 环形缓冲归一 + 内核日志补记忆](02-ringbuffer-klog.md)
-- [03 · DMA 池:收编散装 DMA 与 direct-map 那个坑](03-dma-pool.md)
+- [03 · DMA:让设备自己搬数据,把 CPU 从苦力活里解放出来](03-dma.md)
+- [04 · DMA 池:收编散装 DMA 与 direct-map 那个坑](04-dma-pool.md)
