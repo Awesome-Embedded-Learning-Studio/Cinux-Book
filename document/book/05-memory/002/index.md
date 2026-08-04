@@ -8,6 +8,7 @@ title: 002 · 把物理页挂进虚拟地址:虚拟内存管理器
 
 ## 本章路线
 
-- [01 · 点亮什么、为什么、设计图](01-intro.md)
-- [02 · 代码路线:paging_config / PageEntry / walk / demand paging](02-implementation.md)
-- [03 · 调试现场与收尾](03-debug.md)
+- [01 · 虚拟地址:为什么 CPU 看到的内存,不是内存条上真正的内存](01-virtual-address.md)
+- [02 · 点亮什么、为什么、设计图](02-intro.md)
+- [03 · 代码路线:paging_config / PageEntry / walk / demand paging](03-implementation.md)
+- [04 · 调试现场与收尾](04-debug.md)

@@ -1,5 +1,5 @@
 ---
-title: 03 · DMA 池:收编散装 DMA 与 direct-map 那个坑
+title: 04 · DMA 池:收编散装 DMA 与 direct-map 那个坑
 ---
 
 # DMA 池:收编散装 DMA 与 direct-map 那个坑
