@@ -6,7 +6,7 @@ title: 03 · 渲染框架:Widget + PaintList + Compositor
 
 ## Widget 基类:三个虚 hook + 套娃树
 
-要做"窗口里能放不同内容",所有能画、能命中、能收事件的东西得共享一个虚接口。这就是 [`core/widget.hpp`](../../../third_party/Cinux-GUI/core/widget.hpp#L41-L136) 的 `Widget`。它的核心是三个虚 hook:
+要做"窗口里能放不同内容",所有能画、能命中、能收事件的东西得共享一个虚接口。这就是 [`core/widget.hpp`](../../../libs/gui/core/widget.hpp#L41-L136) 的 `Widget`。它的核心是三个虚 hook:
 
 ```cpp
 class Widget {
@@ -54,7 +54,7 @@ protected:
 
 这里有几个设计决定值得点破。
 
-**`flatten` 是非虚的框架入口,`paint_to_list` 才是子类填的虚 hook。** 这样 clip push/pop 和递归子控件由框架统一管,子类只管"画我自己",不用操心"我的祖先矩形是啥""我的孩子要不要递归"。看 [`core/widget.cpp`](../../../third_party/Cinux-GUI/core/widget.cpp#L33-L43) 的实现就一目了然:
+**`flatten` 是非虚的框架入口,`paint_to_list` 才是子类填的虚 hook。** 这样 clip push/pop 和递归子控件由框架统一管,子类只管"画我自己",不用操心"我的祖先矩形是啥""我的孩子要不要递归"。看 [`core/widget.cpp`](../../../libs/gui/core/widget.cpp#L33-L43) 的实现就一目了然:
 
 ```cpp
 void Widget::flatten(PaintList& list) const {
@@ -72,9 +72,9 @@ void Widget::flatten(PaintList& list) const {
 
 `clip_push` 把自己的矩形推进合成器的裁剪栈,`clip_pop` 弹出——合成器执行 cmd 时,每条 `fill_rect`/`text_glyph` 都会跟栈顶矩形求交,超出部分直接跳过。这就是"控件画不出祖先矩形外"的双层防御之一(另一层是 `collect_dirty` 只收自己的脏区)。
 
-**`hit_test` 默认按"子控件后画的在上、先命中"递归。** 看 [`widget.cpp`](../../../third_party/Cinux-GUI/core/widget.cpp#L45-L56):children 从后往前(last-to-first)递归,因为后 add 的 child 画在上面、应该先被点中;都不命中才轮到自己。子类可以 override 成非矩形的命中形状(比如圆角按钮),或者像 Window 那样自定义命中逻辑(标题栏、关闭键、内容区各走各的)。
+**`hit_test` 默认按"子控件后画的在上、先命中"递归。** 看 [`widget.cpp`](../../../libs/gui/core/widget.cpp#L45-L56):children 从后往前(last-to-first)递归,因为后 add 的 child 画在上面、应该先被点中;都不命中才轮到自己。子类可以 override 成非矩形的命中形状(比如圆角按钮),或者像 Window 那样自定义命中逻辑(标题栏、关闭键、内容区各走各的)。
 
-**`on_pointer`/`on_key` 默认 noop。** 老的、不需要响应输入的控件照样能跑;新控件 override 掉就自动接管了对应事件。注意键盘事件 `on_key` 收的是 [`KeycodePayload`](../../../third_party/Cinux-GUI/core/event_payload.hpp#L41-L45)(ascii + scancode + modifiers 三字节),不是 030 那种 `KeyEvent`——这是因为事件要跨进程传输(087 的 `/dev/event0` 走的就是这套 wire layout),payload 必须 packed、定长。
+**`on_pointer`/`on_key` 默认 noop。** 老的、不需要响应输入的控件照样能跑;新控件 override 掉就自动接管了对应事件。注意键盘事件 `on_key` 收的是 [`KeycodePayload`](../../../libs/gui/core/event_payload.hpp#L41-L45)(ascii + scancode + modifiers 三字节),不是 030 那种 `KeyEvent`——这是因为事件要跨进程传输(087 的 `/dev/event0` 走的就是这套 wire layout),payload 必须 packed、定长。
 
 **`invalidate` 是保留模式的"标脏"入口。** 控件改了状态(写了字、按了按钮、拖了窗口),不主动画,只调 `invalidate(Rect)` 把那块矩形 union 进自己的 `dirty_rect_`。真正的画在帧边界由根统一做。`dirty_self_` 初值是 `true`——控件构造时还没画过,首帧必画;之后 `clear_dirty` 把它清掉,空闲时就不再重画(idle → 0 flush)。
 
@@ -82,7 +82,7 @@ void Widget::flatten(PaintList& list) const {
 
 ## PaintList:绘制指令的有序清单
 
-控件不直接画像素了,那它产出的"我想画什么"住哪儿?就是 [`core/paint_list.hpp`](../../../third_party/Cinux-GUI/core/paint_list.hpp#L109-L138) 的 `PaintList`——一张定长的绘制指令数组:
+控件不直接画像素了,那它产出的"我想画什么"住哪儿?就是 [`core/paint_list.hpp`](../../../libs/gui/core/paint_list.hpp#L109-L138) 的 `PaintList`——一张定长的绘制指令数组:
 
 ```cpp
 class PaintList {
@@ -117,7 +117,7 @@ private:
 
 ## Compositor:遍历清单、批量落屏
 
-有了清单,谁来执行?就是 [`core/compositor.hpp`](../../../third_party/Cinux-GUI/core/compositor.hpp#L40-L78) 的 `Compositor`。它的 `render` 遍历 `PaintList`、逐条 cmd 调对应的处理函数:
+有了清单,谁来执行?就是 [`core/compositor.hpp`](../../../libs/gui/core/compositor.hpp#L40-L78) 的 `Compositor`。它的 `render` 遍历 `PaintList`、逐条 cmd 调对应的处理函数:
 
 ```cpp
 void Compositor::render(Surface& staging, const PaintList& list, const PsfFont& font,

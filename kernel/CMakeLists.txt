@@ -34,8 +34,8 @@ set(BIG_KERNEL_COMPILE_OPTIONS
     -mno-red-zone
     -Wall
     -Wextra
-    # F-INFRA I-3 (R2): bring the kernel body up to the Cinux-Base submodule's
-    # warning discipline (the submodule already enforces -Wshadow/-Wold-style-cast
+    # F-INFRA I-3 (R2): bring the kernel body up to the Cinux-Base library's
+    # warning discipline (its own build still enforces -Wshadow/-Wold-style-cast
     #/-Wnon-virtual-dtor). -Wconversion/-Wpedantic stay OUT here (kernel uses GNU
     # inline-asm extensions; -Wconversion is too noisy — see follow-up G6).
     # -Werror=return-type is a near-zero-noise correctness check (already clean).
@@ -110,7 +110,7 @@ target_include_directories(big_kernel_common PUBLIC
 )
 
 # Third-party libraries (Cinux-Base etc.)
-add_subdirectory(${CMAKE_SOURCE_DIR}/third_party ${CMAKE_BINARY_DIR}/third_party)
+add_subdirectory(${CMAKE_SOURCE_DIR}/libs ${CMAKE_BINARY_DIR}/libs)
 
 # Sub-modules (each adds its sources to big_kernel_common)
 add_subdirectory(arch)
@@ -187,7 +187,7 @@ add_executable(big_kernel
 
 target_sources(big_kernel PRIVATE $<TARGET_OBJECTS:big_kernel_common>)
 target_link_libraries(big_kernel PRIVATE big_kernel_common)
-# F13 cinux::gui: link the host-neutral core (third_party/Cinux-GUI/, GUI only).
+# F13 cinux::gui: link the host-neutral core (libs/gui/, GUI only).
 if(CINUX_GUI)
     target_link_libraries(big_kernel PRIVATE cinux-gui)
 endif()

@@ -1,6 +1,6 @@
 name: Setup Cinux build
 description: >-
-  Shared CI precondition for Cinux jobs: checkout (submodules) + apt install
+  Shared CI precondition for Cinux jobs: checkout + apt install
   (ccache always on) + ccache cache + optional musl/busybox cache + compiler
   version + cmake configure (ccache launchers wired in) + dump the CINUX_ switch
   state to the log. Build/run/artifact stay in the calling job (they vary most).
@@ -31,7 +31,6 @@ runs:
     - uses: actions/checkout@v4
       with:
         ref: ${{ github.head_ref || github.ref_name }}
-        submodules: recursive
 
     - name: Install dependencies
       shell: bash
@@ -49,7 +48,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: ~/.ccache
-        key: ccache-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'cmake/toolchain-x86_64.cmake', 'cmake/options.cmake', 'kernel/CMakeLists.txt', 'third_party/Cinux-Base') }}
+        key: ccache-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'cmake/toolchain-x86_64.cmake', 'cmake/options.cmake', 'kernel/CMakeLists.txt', 'libs/base') }}
         restore-keys: |
           ccache-${{ runner.os }}-
 

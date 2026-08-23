@@ -54,7 +54,7 @@ grep -rn 'to_errno' kernel/syscall/ | head
 
 `ErrorOr::value()` 在失败路径上会 `assert`。想亲眼看一眼的话,在某个 syscall handler 里**临时**把 `if (!result.ok())` 检查去掉、直接调 `result.value()`,然后构造一个失败场景跑一遍:
 
-- **期望**:内核 panic/assert 在 `third_party/Cinux-Base/include/cinux/expected.hpp` 的 `value()` 里,栈回溯直指「你在失败路径上取了值」。
+- **期望**:内核 panic/assert 在 `libs/base/include/cinux/expected.hpp` 的 `value()` 里,栈回溯直指「你在失败路径上取了值」。
 - 这就是「错误变成类型」的兜底回报:你忘了检查错误,它当场炸给你看,而不是把垃圾值一路传进文件系统深处。**看完记得改回来。**
 
 ## 验收清单

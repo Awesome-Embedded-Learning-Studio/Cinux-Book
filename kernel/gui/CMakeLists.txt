@@ -16,7 +16,7 @@
 #                        + handoff_framebuffer_to_gui (§14 interface, non-GUI
 #                        counterpart in proc/)
 # The host-neutral core (widget tree + Compositor + GuiCore + swraster + region)
-# lives at third_party/Cinux-GUI/ and is built as the cinux-gui STATIC lib
+# lives at libs/gui/ and is built as the cinux-gui STATIC lib
 # (linked into the userspace host ELF; kernel no longer needs it).
 #
 

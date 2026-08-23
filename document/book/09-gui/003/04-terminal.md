@@ -6,7 +6,7 @@ title: 04 · 终端控件:TerminalWidget + ANSI + 脏行
 
 ## TerminalWidget:字符网格 + ANSI + 脏行跟踪
 
-回到这一章的主角——[`core/widget/terminal.hpp`](../../../third_party/Cinux-GUI/core/widget/terminal.hpp#L32-L97) 的 `TerminalWidget`。它继承 `Widget`,override 了三个 protected hook:`paint_to_list`(画)、`collect_dirty`(报告脏区)、`clear_dirty`(清脏)。它的全部"内存"就是几张并行数组加一个光标:
+回到这一章的主角——[`core/widget/terminal.hpp`](../../../libs/gui/core/widget/terminal.hpp#L32-L97) 的 `TerminalWidget`。它继承 `Widget`,override 了三个 protected hook:`paint_to_list`(画)、`collect_dirty`(报告脏区)、`clear_dirty`(清脏)。它的全部"内存"就是几张并行数组加一个光标:
 
 ```cpp
 class TerminalWidget : public Widget {
@@ -63,7 +63,7 @@ private:
 
 **stride 固定是 `kMaxCols=120`,跟 `cols_` 解耦。** 默认 80 列,可窗口拉宽到 100 列就 `set_cols_rows(100, 25)`——`cols_` 变了,但 cells_ 的内存布局不变(还是 120 一行),只是末尾 20 列不用。这避免了 resize 时重布局的开销,代价是末尾未用的格子占一点内存:每个 cell 位置在三张并行数组里各 1 字节(`char` + `uint8_t fg` + `uint8_t bg` = 3 字节)× 50 行 × 20 列 ≈ 3 KB,无所谓。
 
-**`fg_colors_`/`bg_colors_` 存的是 ANSI 调色板**索引(0..255),不是 XRGB8888 像素值。索引到像素的翻译在 `paint_to_list` 才做——查 [`palette_color`](../../../third_party/Cinux-GUI/core/widget/terminal.cpp#L19-L33):0..15 是 [`colors::kAnsiPalette`](../../../third_party/Cinux-GUI/core/colors.hpp#L10) 的标准 16 色(黑红绿黄蓝品青白 + bright),16..231 是 6×6×6 立方(每通道取 `0` 或 `55+40*v`),232..255 是灰阶(`8+(idx-232)*10`)。这覆盖了 xterm-256color 的全套色,`ls --color`、彩色 prompt、vim/less 的高亮都能出来。**全程纯整数,无浮点**——这是 GUI 核心的一条铁律(swraster 用 Q8.8 定点也是同源)。
+**`fg_colors_`/`bg_colors_` 存的是 ANSI 调色板**索引(0..255),不是 XRGB8888 像素值。索引到像素的翻译在 `paint_to_list` 才做——查 [`palette_color`](../../../libs/gui/core/widget/terminal.cpp#L19-L33):0..15 是 [`colors::kAnsiPalette`](../../../libs/gui/core/colors.hpp#L10) 的标准 16 色(黑红绿黄蓝品青白 + bright),16..231 是 6×6×6 立方(每通道取 `0` 或 `55+40*v`),232..255 是灰阶(`8+(idx-232)*10`)。这覆盖了 xterm-256color 的全套色,`ls --color`、彩色 prompt、vim/less 的高亮都能出来。**全程纯整数,无浮点**——这是 GUI 核心的一条铁律(swraster 用 Q8.8 定点也是同源)。
 
 ## write / put_char_:字节如何落屏
 
@@ -133,7 +133,7 @@ void TerminalWidget::put_char_(char ch) {
 
 `dispatch_csi_` 支持的 final byte 是一个克制过的子集:`m`(SGR 设颜色)、`H`/`f`(光标定位)、`J`(擦屏)、`A`/`B`/`C`/`D`(光标上下左右一格)。为什么不做全?因为 shell 实际需要的就是这几样——`ls --color` 用 SGR、`clear` 用 `ESC[2J` + `ESC[H`、行编辑用光标移动。其他 CSI(擦行 `K`、滚屏 `S`/`T`、多参数定位)都是过度设计,明确不做。解析失败或不认识的序列,`dispatch_csi_` 走 `default: break`,`csi_len_` 已经被推进到序列末尾,不会把转义字节当普通字符画成乱码。
 
-SGR(`m`)是最复杂的一个,因为它支持多 code 序列(`38;5;N` 256 色、`1;31` 加粗红)。看 [`apply_sgr_`](../../../third_party/Cinux-GUI/core/widget/terminal.cpp#L104-L148) 的实现:它先把 `csi_param_` 按 `;` 切成一个 `codes[16]` 数组,**然后遍历**,这样可以前瞻——`38;5;N` 需要看后面两个 code 才能定颜色,遍历到 `38` 就 `i+=2` 跳过 `5;N`。支持的 code 也是子集:`0`/`39` 同时重置 fg 到默认白(7)和 bg 到默认黑(0)、`49` 单独重置 bg、`30-37`/`90-97` 设 fg、`40-47`/`100-107` 设 bg、`38;5;N`/`48;5;N` 设 256 色。bold(1)、italic、truecolor(38;2;r;g;b)忽略——不是没用,是优先级低,真彩色需要 24-bit per cell,内存翻倍,先不做。
+SGR(`m`)是最复杂的一个,因为它支持多 code 序列(`38;5;N` 256 色、`1;31` 加粗红)。看 [`apply_sgr_`](../../../libs/gui/core/widget/terminal.cpp#L104-L148) 的实现:它先把 `csi_param_` 按 `;` 切成一个 `codes[16]` 数组,**然后遍历**,这样可以前瞻——`38;5;N` 需要看后面两个 code 才能定颜色,遍历到 `38` 就 `i+=2` 跳过 `5;N`。支持的 code 也是子集:`0`/`39` 同时重置 fg 到默认白(7)和 bg 到默认黑(0)、`49` 单独重置 bg、`30-37`/`90-97` 设 fg、`40-47`/`100-107` 设 bg、`38;5;N`/`48;5;N` 设 256 色。bold(1)、italic、truecolor(38;2;r;g;b)忽略——不是没用,是优先级低,真彩色需要 24-bit per cell,内存翻倍,先不做。
 
 换行和触底滚动收口在 `newline_`:
 
@@ -152,7 +152,7 @@ void TerminalWidget::newline_() {
 
 ## paint_to_list:把字符网格翻译成绘制指令
 
-字符缓冲是语义层,真正产出绘制指令靠 [`paint_to_list`](../../../third_party/Cinux-GUI/core/widget/terminal.cpp#L390-L418):
+字符缓冲是语义层,真正产出绘制指令靠 [`paint_to_list`](../../../libs/gui/core/widget/terminal.cpp#L390-L418):
 
 ```cpp
 void TerminalWidget::paint_to_list(PaintList& list) const {
@@ -195,7 +195,7 @@ void TerminalWidget::paint_to_list(PaintList& list) const {
 
 ## collect_dirty / clear_dirty:只刷真正变化的行
 
-保留模式的核心红利就是脏区重绘。TerminalWidget override 了 [`collect_dirty`](../../../third_party/Cinux-GUI/core/widget/terminal.cpp#L349-L379),只报告真正变化的矩形:
+保留模式的核心红利就是脏区重绘。TerminalWidget override 了 [`collect_dirty`](../../../libs/gui/core/widget/terminal.cpp#L349-L379),只报告真正变化的矩形:
 
 ```cpp
 void TerminalWidget::collect_dirty(Region& sink) const {

@@ -53,7 +53,7 @@ grep -n 'class ConsoleInput\|ConsoleTtyInput\|console_tty_ioctl' kernel/fs/devfs
 # devfs.hpp 抽 ConsoleInput 纯接口;devfs_init.cpp 注入 ConsoleTtyInput;console_tty.cpp 抽共享 console_tty_ioctl
 
 # (e) Error::Fault(EFAULT)
-grep -n 'Fault' third_party/Cinux-Base/include/cinux/expected.hpp kernel/drivers/tty/console_tty.cpp
+grep -n 'Fault' libs/base/include/cinux/expected.hpp kernel/drivers/tty/console_tty.cpp
 # 枚举加 Fault;console_tty_ioctl copy 失败返 Error::Fault
 ```
 

@@ -50,7 +50,7 @@ host.ctx                 = &st;
 auto* core = new GuiCore(&host, info.width, info.height, PixelFormat::kXrgb8888);
 ```
 
-（[`main.cpp:558`](../../../user/cinux_gui_host/main.cpp#L558)。)看清楚:除了 `desktop` 填 `nullptr`(host 自己会起 shell,用不到 core 替它 spawn),其他每个回调都指向这个文件里实现的 `host_*` 函数。`GuiCore` 构造时拿到了 staging 缓冲的所有权——它会按 `width*height*4` 分配一块内存(看 [`gui_core.cpp:32`](../../../third_party/Cinux-GUI/core/gui_core.cpp#L32) 的 `new uint8_t[...]`),以后每帧 host 就往这块内存上画。
+（[`main.cpp:558`](../../../user/cinux_gui_host/main.cpp#L558)。)看清楚:除了 `desktop` 填 `nullptr`(host 自己会起 shell,用不到 core 替它 spawn),其他每个回调都指向这个文件里实现的 `host_*` 函数。`GuiCore` 构造时拿到了 staging 缓冲的所有权——它会按 `width*height*4` 分配一块内存(看 [`gui_core.cpp:32`](../../../libs/gui/core/gui_core.cpp#L32) 的 `new uint8_t[...]`),以后每帧 host 就往这块内存上画。
 
 **第二段,主循环**(就这两行,[`main.cpp:573`](../../../user/cinux_gui_host/main.cpp#L573)):
 
@@ -180,7 +180,7 @@ void host_render_frame(void* ctx, Frame* frame) {
 }
 ```
 
-这一段就是前面说的「已知遗留」:host 现在每帧都报一个全屏脏矩形,把 `pump()` 第 2 步尾部那个 idle 跳过和第 3 步的 Region 收拢实际短路掉了。**这件事的来龙去脉值得说清楚**——它不是「core 还没修」的现况,而是一条**遗留的防御性 workaround**:当年 core 的 `WindowManager::remove_window` 关窗时不标脏,host 只能每帧全屏 flush 兜底(否则关掉的窗口会在屏幕上留残影,直到光标划过那块区域才被覆盖)。但那个 core bug **早已修掉**——现在的 `remove_window` 在 unlink 之前先存下关窗足迹 `stale`,然后 `invalidate(stale)`（[`window_manager.cpp:39`](../../../third_party/Cinux-GUI/core/widget/window_manager.cpp#L39)),连 `add_window`/`add_icon`/光标移动/Z-order 变化也都各自 invalidate。源码注释自己也写:「This was a core bug -- hosts worked around it with a full-screen dirty flush each frame, but the proper fix is invalidating here, mirroring add_window()」。
+这一段就是前面说的「已知遗留」:host 现在每帧都报一个全屏脏矩形,把 `pump()` 第 2 步尾部那个 idle 跳过和第 3 步的 Region 收拢实际短路掉了。**这件事的来龙去脉值得说清楚**——它不是「core 还没修」的现况,而是一条**遗留的防御性 workaround**:当年 core 的 `WindowManager::remove_window` 关窗时不标脏,host 只能每帧全屏 flush 兜底(否则关掉的窗口会在屏幕上留残影,直到光标划过那块区域才被覆盖)。但那个 core bug **早已修掉**——现在的 `remove_window` 在 unlink 之前先存下关窗足迹 `stale`,然后 `invalidate(stale)`（[`window_manager.cpp:39`](../../../libs/gui/core/widget/window_manager.cpp#L39)),连 `add_window`/`add_icon`/光标移动/Z-order 变化也都各自 invalidate。源码注释自己也写:「This was a core bug -- hosts worked around it with a full-screen dirty flush each frame, but the proper fix is invalidating here, mirroring add_window()」。
 
 也就是说:**core 这一侧已经能正确报告脏区了**,host 全屏 flush 在原理上已经不再必要。但 host 那条 `frame->count = 1` 的全屏分支留着没拆,因为拆它需要实跑验证「关一个窗口、看屏幕真不留残影」,这一步本章没做,留到后面(见「这章没做的」)。读者看到这里别以为脏矩形机制没用上:几何代数(Region、半开区间 Rect、`remove_window` 的 `invalidate`)是 core 真的在跑的,只是 host 这一侧目前故意报全屏——把它拆回报真脏区,是个范围明确的收尾活,不是设计缺陷。
 

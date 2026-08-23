@@ -11,7 +11,7 @@ title: 08 · 收尾:验证 + 没做的 + 小结
 **第一层:host 单元测试。** 字符缓冲、ANSI、脏区这些纯逻辑不碰真硬件,在 host 上用 ctest 测。终端相关的测试套覆盖了:`test_terminal.cpp`(写字符 / `\n` 换行 / `\r` 覆盖 / 滚动 / `\b` 回退 / flatten 含 kFillRect + kTextGlyph)、`test_terminal_ansi.cpp`(SGR fg 31 红 / 32 绿、reset 0/39、bright 91→9、光标 `[1;1H` 覆盖、`[2J` 清屏)、`test_terminal_bg256.cpp`(bg SGR 41/42、256 色 38;5;200、reset 48;5;100→0、cursor block flatten 含 ≥2 个 fill)。跑法:
 
 ```bash
-cmake -S third_party/Cinux-GUI -B build -DCMAKE_BUILD_TYPE=Release
+cmake -S libs/gui -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 ctest --test-dir build -R "terminal|window|widget|dirty|cursor" --output-on-failure
 ```
@@ -21,7 +21,7 @@ ctest --test-dir build -R "terminal|window|widget|dirty|cursor" --output-on-fail
 **第二层:ASAN 干净。** host 单测在 push 前开 ASAN 自验,确保虚析构链、new[]/delete[]、借用指针(text cmd 的 `const char*`)都没漏:
 
 ```bash
-cmake -S third_party/Cinux-GUI -B build-asan -DCMAKE_BUILD_TYPE=Release \
+cmake -S libs/gui -B build-asan -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_CXX_FLAGS="-fsanitize=address" \
       -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address"
 cmake --build build-asan -j$(nproc)
@@ -33,7 +33,7 @@ ctest --test-dir build-asan --output-on-failure
 **第三层:真 shell 手动冒烟。** 想亲眼看一个跑着 shell 的终端:
 
 ```bash
-cmake -S third_party/Cinux-GUI -B build -DCINUX_HOST_TERMINAL=ON
+cmake -S libs/gui -B build -DCINUX_HOST_TERMINAL=ON
 cmake --build build -- terminal-host
 ./build/terminal-host          # WSL2: 经 WSLg 显示;敲 shell 命令
 ```
@@ -84,6 +84,6 @@ cmake --build build -- terminal-host
 ## 参考
 
 - ECMA-48 — Control Functions for Coded Character Sets,5th edition(1991 年 6 月)。CSI 序列:`ESC[m` SGR 设色、`ESC[H` CUP 光标定位、`ESC[J` ED 擦屏、`ESC[A/B/C/D` 光标移动。38;5;N / 48;5;N 的 256 色扩展见 xterm 的 `ctlseqs`:https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
-- xterm 256 色 palette(0-15 标准 16 色、16-231 的 6×6×6 立方、232-255 灰阶),支撑 [`palette_color`](../../../third_party/Cinux-GUI/core/widget/terminal.cpp#L19-L33) 的颜色翻译算式:https://github.com/termstandard/colors
+- xterm 256 色 palette(0-15 标准 16 色、16-231 的 6×6×6 立方、232-255 灰阶),支撑 [`palette_color`](../../../libs/gui/core/widget/terminal.cpp#L19-L33) 的颜色翻译算式:https://github.com/termstandard/colors
 - Retained-mode vs immediate-mode GUI(保留模式 vs 即时模式的概念框架,支撑本章 PaintList 保留模式 vs 029 Canvas 即时模式的对比):https://en.wikipedia.org/wiki/Graphical_user_interface#Modes
-- Linux `forkpty(3)` / PTY(控制终端、行编辑、curses,支撑 [`linux_spawn`](../../../third_party/Cinux-GUI/host/posix_spawn.cpp#L16-L40) 用 PTY 而非裸 pipe 的选择):https://man7.org/linux/man-pages/man3/forkpty.3.html
+- Linux `forkpty(3)` / PTY(控制终端、行编辑、curses,支撑 [`linux_spawn`](../../../libs/gui/host/posix_spawn.cpp#L16-L40) 用 PTY 而非裸 pipe 的选择):https://man7.org/linux/man-pages/man3/forkpty.3.html

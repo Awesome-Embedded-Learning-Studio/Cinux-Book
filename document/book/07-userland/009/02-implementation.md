@@ -158,7 +158,7 @@ cinux::lib::ErrorOr<int64_t> console_tty_ioctl(uint32_t request, uint64_t arg) {
 
 过去 `copy_from/to_user` 拿到坏用户指针,只能返 `InvalidArgument`(≈ `EINVAL`)凑合当成 `EFAULT`。**大多数地方没事**——比如 PTY 路径,没有专门验 `-EFAULT` 的测试,凑合就凑合了。**可 console 这条路上有**:`test_syscall` 里专门有 `tcgets_unmapped`(传未映射地址)、`tiocspgrp_kernel_addr`(传内核地址)这种 EFAULT 闸。你返 `-EINVAL`,闸就红了。
 
-所以给 [expected.hpp](../../../third_party/Cinux-Base/include/cinux/expected.hpp) 的 `Error` 枚举补一个 `Fault`,语义就是"坏地址(EFAULT):用户指针被 `access_ok` 拒了或 copy 时 fault":
+所以给 [expected.hpp](../../../libs/base/include/cinux/expected.hpp) 的 `Error` 枚举补一个 `Fault`,语义就是"坏地址(EFAULT):用户指针被 `access_ok` 拒了或 copy 时 fault":
 
 ```cpp
 enum class Error : uint32_t {

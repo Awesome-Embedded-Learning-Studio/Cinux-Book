@@ -121,6 +121,6 @@ cmake --build build --target run-kernel-test-all 2>&1 | grep -E "Tests: 9[0-9][0
 - **别**指望用户态程序真跑在 PTY 里——全闭环要 `sys_dup2`(把 slave 重定向成子进程 stdio,**当前未实现**)+ 真 session + 一个会 `open("/dev/ptmx")` 的 shell。这一章把 PTY **机制**做全了,「真程序跑 PTY」留 CFBox。ring0 测试也不能调带 user 指针的 syscall(`access_ok` 拒内核址),所以纯 ring0 syscall smoke 做不了。
 - **别**以为 slave read 会阻塞——现在非阻塞(0 = 无数据,EOF 经 `take_eof` 分)。真 shell 读 stdin 要阻塞(睡等行),要 reader Task + 唤醒,留 follow-up。
 - **别**以为 close 会释放 PTY——现在没 close→release 钩子(槽位靠测试显式 release)。生产用要补。
-- **别**纠结 errno 不完全对齐 Linux——copy 失败返 EINVAL(Linux EFAULT)、TIOCSCTTY 拒绝返 EACCES(Linux EPERM)。Cinux-Base 的 Error 枚举所限(子模块边界不擅改),行为对、errno 近似,已登记。
+- **别**纠结 errno 不完全对齐 Linux——copy 失败返 EINVAL(Linux EFAULT)、TIOCSCTTY 拒绝返 EACCES(Linux EPERM)。Cinux-Base 的 Error 枚举所限(彼时子模块边界不擅改,现已并回 `libs/base`),行为对、errno 近似,已登记。
 - **别**以为能开无限多 PTY——固定 8 槽(`kMaxPtys`)。够当前用,动态扩展留后。
 - **别**把 fd≤2 也当成走 inode 派发——0/1/2 是 console 特殊路径(不是真 FDTable 项),跟 fd>2 的 PTY 派发是两条路。统一它们要连带改 sys_read/sys_write,爆炸半径大,不做。

@@ -52,5 +52,5 @@ title: 02 · 设计图
    满行: newline_() → 触底 scroll_up_() 把整屏上移一行,顶行丢弃
 ```
 
-先维护语义层(字符 + 颜色索引),只在 `paint_to_list` 那一步翻译成绘制指令,这样换行、退格、清屏、滚动全都只是在廉价的字符数组上挪数据,代价极低。颜色用的是 ANSI 调色板索引(0..15 标准 16 色、16..231 的 6×6×6 立方、232..255 灰阶),`paint_to_list` 时再查 [`palette_color`](../../../third_party/Cinux-GUI/core/widget/terminal.cpp#L19-L33) 翻成 XRGB8888 像素值。`cols_`/`rows_` 默认 80×25,但 cells_ 的 stride 固定是 `kMaxCols=120`——这样 `set_cols_rows` 把网格变小时不用重布局,只是少用几列。
+先维护语义层(字符 + 颜色索引),只在 `paint_to_list` 那一步翻译成绘制指令,这样换行、退格、清屏、滚动全都只是在廉价的字符数组上挪数据,代价极低。颜色用的是 ANSI 调色板索引(0..15 标准 16 色、16..231 的 6×6×6 立方、232..255 灰阶),`paint_to_list` 时再查 [`palette_color`](../../../libs/gui/core/widget/terminal.cpp#L19-L33) 翻成 XRGB8888 像素值。`cols_`/`rows_` 默认 80×25,但 cells_ 的 stride 固定是 `kMaxCols=120`——这样 `set_cols_rows` 把网格变小时不用重布局,只是少用几列。
 

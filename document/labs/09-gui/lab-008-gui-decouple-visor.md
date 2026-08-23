@@ -10,7 +10,7 @@ title: Lab 008 · GUI 解耦与 visor 验证
 
 确认五件事:
 
-1. `cinux-gui` 的 core(`third_party/Cinux-GUI/core/`)**零内核 include**,是 host-neutral;
+1. `cinux-gui` 的 core(`libs/gui/core/`)**零内核 include**,是 host-neutral;
 2. core 能**脱离内核独立编译**并跑通 smoke 测试(`cinux-gui-smoke`,不需要 QEMU);
 3. 内核侧只有**一个** host adapter TU(`host_cinux.cpp`)在填 Host 表;
 4. GUI 刷新由 `gui_worker` 线程的 `pump()` 驱动,PIT 回调已退役(`set_tick_callback` 无人调用);
@@ -21,7 +21,7 @@ title: Lab 008 · GUI 解耦与 visor 验证
 ### 1. core 不碰内核(host-neutral 的硬证据)
 
 ```bash
-grep -rn '#include' third_party/Cinux-GUI/core/ \
+grep -rn '#include' libs/gui/core/ \
   | grep -vE '<stdint|<stddef|<stdbool|<string\.h>' \
   | grep -vE '"(event|event_payload|host|region|swraster|pump|pixel|frame|abi)'
 ```
@@ -35,7 +35,7 @@ grep -rn '#include' third_party/Cinux-GUI/core/ \
 `cinux-gui` 的 `CMakeLists.txt` 有双身份:作为子目录时只提供静态库;作为顶层 root 时自带一个 `cinux-gui-smoke` 冒烟程序(手填一张假 Host 表跑 `pump()`)。后一种就是 host-neutral 的活证据:
 
 ```bash
-cmake -S third_party/Cinux-GUI -B /tmp/cgui-build && \
+cmake -S libs/gui -B /tmp/cgui-build && \
 cmake --build /tmp/cgui-build -j$(nproc) && \
 (cd /tmp/cgui-build && ctest --output-on-failure)
 ```
@@ -76,7 +76,7 @@ cmake --build build --target run-kernel-test 2>&1 | tail -3
 
 ## 验收清单
 
-- [ ] core(`third_party/Cinux-GUI/core/`)零内核 include,grep 无输出。
+- [ ] core(`libs/gui/core/`)零内核 include,grep 无输出。
 - [ ] `cinux-gui` 能脱离内核独立编译,`ctest` 100% passed(`cinux-gui-smoke`)。
 - [ ] 内核侧仅 `host_cinux.cpp` 填 Host 表;`cinux_host_init` 把每个回调指向内核设施。
 - [ ] `gui_worker_thread` = `while { pump(); yield(); }`;`set_tick_callback` 全树无人调用(退役)。

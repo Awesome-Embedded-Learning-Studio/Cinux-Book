@@ -8,7 +8,7 @@ title: 03 · 收尾:验证、已知局限、下一站
 
 ```bash
 # 加固产物都在
-grep -rn 'RefCount\|UserPtr\|mapcount\|irq_guard\|Spinlock' kernel/ third_party/Cinux-Base/include/cinux/ | grep -vE '\.o:' | head
+grep -rn 'RefCount\|UserPtr\|mapcount\|irq_guard\|Spinlock' kernel/ libs/base/include/cinux/ | grep -vE '\.o:' | head
 grep -n 'Werror\|-Wimplicit-fallthrough\|CINUX_HOST_ASAN' kernel/CMakeLists.txt test/CMakeLists.txt | head
 ```
 

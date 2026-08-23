@@ -30,7 +30,7 @@ cmake -B build -S . -DCINUX_BUILD_TESTS=ON && cmake --build build --target big_k
 ### 2. 加固产物 grep
 
 ```bash
-grep -rn 'RefCount\|UserPtr' kernel/ third_party/Cinux-Base/include/cinux/ | grep -vE '\.o:' | head
+grep -rn 'RefCount\|UserPtr' kernel/ libs/base/include/cinux/ | grep -vE '\.o:' | head
 grep -rn 'mapcount_inc\|mapcount_dec\|irq_guard\|Spinlock' kernel/mm/ kernel/proc/ | grep -vE '\.o:' | head
 grep -n 'Werror\|-Wimplicit-fallthrough\|CINUX_HOST_ASAN' kernel/CMakeLists.txt test/CMakeLists.txt | head
 ```

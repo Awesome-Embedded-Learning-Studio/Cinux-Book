@@ -99,7 +99,7 @@ cmake --build build --target run-big-kernel-test
 
 它会跑 `run_mouse_event_tests`(鼠标事件流:PS/2 包 → EventQueue → MouseEvent)、`run_window_tests`、`run_window_manager_tests`(create/destroy/raise/拖拽的端到端)、`run_gui_integration_tests`(`gui_init` 接线、键盘双路分发、PIT 滴答回调、鼠标事件经 EventQueue 流到窗口管理器)。这是把前面「镜像测」验证过的逻辑,放到真实的内核 + QEMU + PS/2 模拟器里再验一遍整条管线。
 
-> **tag-bound 说明**:`main_test.cpp` 注册这四个套是 030 当时的机内测布局。visor 解耦后,`Window` / `WindowManager` / GUI 集成测试随整个 GUI 外置到 `third_party/Cinux-GUI/test/`,改用 standalone ctest 跑(`test_window.cpp` + `test_window_manager.cpp` 等,不再是 kernel 内 `main_test` 注册的套);`main_test.cpp` 里现存的 GUI 套只剩 `run_mouse_event_tests`(main_test.cpp:105/1198)。本章的机内测叙述按 tag 030 当时布局。
+> **tag-bound 说明**:`main_test.cpp` 注册这四个套是 030 当时的机内测布局。visor 解耦后,`Window` / `WindowManager` / GUI 集成测试随整个 GUI 外置到 `libs/gui/test/`,改用 standalone ctest 跑(`test_window.cpp` + `test_window_manager.cpp` 等,不再是 kernel 内 `main_test` 注册的套);`main_test.cpp` 里现存的 GUI 套只剩 `run_mouse_event_tests`(main_test.cpp:105/1198)。本章的机内测叙述按 tag 030 当时布局。
 
 **第三层:视觉效果。** 想亲眼看到三个窗口、亲手拖一下:
 

@@ -2,7 +2,7 @@
  * @file test/unit/test_cinux_base_types.cpp
  * @brief Smoke test: prove Cinux-Base types compile & work under the kernel include path
  *
- * Cinux-Base (third_party/Cinux-Base/) is the header-only cinux::lib type library
+ * Cinux-Base (libs/base/) is the header-only cinux::lib type library
  * the kernel was just wired into. Before migrating any kernel code onto it, this
  * test verifies that the leaf types (ErrorOr / StringView / Span / Buffer) are
  * usable from the host test build. Only header-only types are exercised here so

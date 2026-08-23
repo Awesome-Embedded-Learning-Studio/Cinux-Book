@@ -53,7 +53,7 @@ INCLUDE_RE = re.compile(r'^\s*#\s*include\s*<([a-z0-9_]+)>', re.MULTILINE)
 # <memory> for std::unique_ptr (RAII over raw new/delete).  unique_ptr compiles
 # fine under -fno-exceptions (no hosted runtime needed; see the memory note
 # `kernel-can-use-std-smart-ptr`), and DIRECTIVES A's <memory> ban scopes to the
-# Cinux-Base *submodule*, not kernel/.  Each entry is reviewed individually so
+# Cinux-Base *library* (libs/base, in-tree), not kernel/.  Each entry is reviewed individually so
 # the check still catches shared_ptr/make_shared/container misuse elsewhere;
 # think twice before adding one.
 EXEMPT = {
