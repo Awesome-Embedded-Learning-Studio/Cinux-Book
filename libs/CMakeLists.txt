@@ -7,7 +7,7 @@
 # (-Wpedantic -Werror -Wold-style-cast -Wshadow) leaking into
 # big_kernel_common and breaking existing kernel code.
 
-set(CINUX_BASE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Cinux-Base)
+set(CINUX_BASE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/base)
 
 # Allow kernel code to write: #include <cinux/expected.hpp> etc.
 target_include_directories(big_kernel_common PUBLIC

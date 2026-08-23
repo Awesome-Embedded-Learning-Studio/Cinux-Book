@@ -187,7 +187,7 @@ add_executable(big_kernel
 
 target_sources(big_kernel PRIVATE $<TARGET_OBJECTS:big_kernel_common>)
 target_link_libraries(big_kernel PRIVATE big_kernel_common)
-# F13 cinux::gui: link the host-neutral core (libs/Cinux-GUI/, GUI only).
+# F13 cinux::gui: link the host-neutral core (libs/gui/, GUI only).
 if(CINUX_GUI)
     target_link_libraries(big_kernel PRIVATE cinux-gui)
 endif()

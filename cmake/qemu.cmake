@@ -125,27 +125,27 @@ set(CINUX_GUI_HOST_SRCS
     ${CINUX_GUI_HOST_SCRIPT}
     ${CMAKE_SOURCE_DIR}/user/cinux_gui_host/main.cpp
     ${CMAKE_SOURCE_DIR}/user/cinux_gui_host/crt_stub.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/compositor.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/font.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/gui_core.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/paint_list.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/region.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/swraster.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/theme.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/widget.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/widget/button.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/widget/container.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/widget/label.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/widget/slider.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/widget/window.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/widget/window_manager.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/widget/desktop_icon.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/widget/terminal.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/widget/textbox.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/widget/checkbox.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/widget/radio.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/widget/dropdown.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-GUI/core/abi_check.cpp)
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/compositor.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/font.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/gui_core.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/paint_list.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/region.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/swraster.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/theme.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/widget.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/widget/button.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/widget/container.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/widget/label.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/widget/slider.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/widget/window.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/widget/window_manager.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/widget/desktop_icon.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/widget/terminal.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/widget/textbox.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/widget/checkbox.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/widget/radio.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/widget/dropdown.cpp
+    ${CMAKE_SOURCE_DIR}/libs/gui/core/abi_check.cpp)
 add_custom_command(
     OUTPUT ${CINUX_GUI_HOST_ELF}
     COMMAND ${CINUX_GUI_HOST_SCRIPT} ${CINUX_GUI_HOST_ELF}

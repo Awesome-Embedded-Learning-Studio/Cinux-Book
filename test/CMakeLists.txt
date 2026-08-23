@@ -47,7 +47,7 @@ set(TEST_INCLUDE_DIRS
     ${CMAKE_SOURCE_DIR}/test/framework
     ${CMAKE_SOURCE_DIR}/kernel
     ${CMAKE_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-Base/include
+    ${CMAKE_SOURCE_DIR}/libs/base/include
 )
 
 enable_testing()
@@ -79,7 +79,7 @@ function(add_cinux_integration_test name)
         ${CMAKE_SOURCE_DIR}/test/framework
         ${CMAKE_SOURCE_DIR}/kernel
         ${CMAKE_SOURCE_DIR}
-        ${CMAKE_SOURCE_DIR}/libs/Cinux-Base/include
+        ${CMAKE_SOURCE_DIR}/libs/base/include
     )
     add_test(NAME ${name} COMMAND test_${name})
     set_tests_properties(${name} PROPERTIES LABELS "${name}")
@@ -149,7 +149,7 @@ add_cinux_test(event_queue)
 # path is added here so Cinux-Base's compile flags never leak into other tests.
 add_cinux_test(cinux_base_types)
 target_include_directories(test_cinux_base_types PRIVATE
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-Base/include
+    ${CMAKE_SOURCE_DIR}/libs/base/include
 )
 
 # F-QA Q4a-1: RefCount (saturating atomic refcount, Linux refcount_t semantics).
@@ -172,7 +172,7 @@ add_cinux_test(net_arp_cache)
 add_cinux_test(net_buffer)
 add_cinux_integration_test(net_checksum
     unit/test_net_checksum.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-Base/src/checksum.cpp
+    ${CMAKE_SOURCE_DIR}/libs/base/src/checksum.cpp
 )
 # F7 L1: ArpModule (request->reply, reply->cache, resolve_l3 miss->request).  Mock
 # Ethernet device; links the real arp.cpp + net_stack.cpp.
@@ -191,7 +191,7 @@ add_cinux_integration_test(net_udp
     ${CMAKE_SOURCE_DIR}/kernel/net/icmp.cpp
     ${CMAKE_SOURCE_DIR}/kernel/net/arp.cpp
     ${CMAKE_SOURCE_DIR}/kernel/net/net_stack.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-Base/src/checksum.cpp
+    ${CMAKE_SOURCE_DIR}/libs/base/src/checksum.cpp
 )
 
 # F7-M5 batch 1: TCP wire layer + the inbound pseudo-header checksum gate.
@@ -204,7 +204,7 @@ add_cinux_integration_test(net_tcp
     ${CMAKE_SOURCE_DIR}/kernel/net/icmp.cpp
     ${CMAKE_SOURCE_DIR}/kernel/net/arp.cpp
     ${CMAKE_SOURCE_DIR}/kernel/net/net_stack.cpp
-    ${CMAKE_SOURCE_DIR}/libs/Cinux-Base/src/checksum.cpp
+    ${CMAKE_SOURCE_DIR}/libs/base/src/checksum.cpp
 )
 
 # ============================================================

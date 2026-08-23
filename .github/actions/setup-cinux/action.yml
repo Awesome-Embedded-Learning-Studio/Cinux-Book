@@ -49,7 +49,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: ~/.ccache
-        key: ccache-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'cmake/toolchain-x86_64.cmake', 'cmake/options.cmake', 'kernel/CMakeLists.txt', 'libs/Cinux-Base') }}
+        key: ccache-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'cmake/toolchain-x86_64.cmake', 'cmake/options.cmake', 'kernel/CMakeLists.txt', 'libs/base') }}
         restore-keys: |
           ccache-${{ runner.os }}-
 

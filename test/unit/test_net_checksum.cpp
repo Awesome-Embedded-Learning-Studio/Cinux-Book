@@ -6,7 +6,7 @@
  * (SLIRP drops bad-checksum ICMP).  Hand-verified known vectors anchor the
  * implementation; an IPv4-header round-trip proves verify_internet_checksum.
  *
- * Links libs/Cinux-Base/src/checksum.cpp (the real implementation -- not
+ * Links libs/base/src/checksum.cpp (the real implementation -- not
  * a re-derivation).
  *
  * Compile condition: -DCINUX_HOST_TEST

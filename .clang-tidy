@@ -3,8 +3,8 @@
 #
 # Curated allowlist for a freestanding C++17 kernel: high-signal checks only.
 # Hosted/RTTI/exception/STL-library assumptions are DISABLED (the kernel is
-# freestanding with no <vector>/<memory>/exceptions/RTTI). Cinux-Base submodule
-# headers are excluded via HeaderFilterRegex (they are already -Wpedantic -Werror).
+# freestanding with no <vector>/<memory>/exceptions/RTTI). Cinux-Base library
+# headers (libs/base, in-tree) are excluded via HeaderFilterRegex (they are already -Wpedantic -Werror).
 #
 # Run locally:
 #   run-clang-tidy -p build -j$(nproc)
