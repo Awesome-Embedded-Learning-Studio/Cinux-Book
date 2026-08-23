@@ -288,7 +288,7 @@ TEST("测试名称") {
 | [Awesome-Embedded](https://github.com/Awesome-Embedded-Learning-Studio/Awesome-Embedded) | 组织总导航与项目索引 | 想了解整个组织的学习路线 |
 | [Cinux-Book](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book) | 稳定教学版 x86_64 OS 课程 | 想系统学习从 MBR 到 GUI 的 OS 实现 |
 | [Cinux](https://github.com/Awesome-Embedded-Learning-Studio/Cinux) | 更前沿的 Cinux 开发线 | 想跟进新功能和实验性方向 |
-| [Cinux-Base](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Base) | Cinux 基础组件沉淀 | 想关注可复用底层组件 |
+| [Cinux-Base](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Base) | Cinux 基础组件沉淀(已并回本仓 `libs/base`,上游仓转为只读归档) | 想考古组件的独立演化史 |
 | [PenguinLab](https://github.com/Awesome-Embedded-Learning-Studio/PenguinLab) | Linux/Embedded Linux 内核到用户态实验 | 想学习 Linux 体系内部机制 |
 
 ---

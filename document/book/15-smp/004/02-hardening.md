@@ -10,7 +10,7 @@ title: 02 · 质量加固:饱和引用计数、用户指针、并发债、CoW、
 
 **普通原子计数器会 wrap**。假设有个 bug 让 `release()` 多调了一次,计数从 0 减到 -1,再减就 wrap 成一个很大的正数(无符号)或继续往负数走(有符号)。于是一个**本该被释放的对象,计数看起来还很大**,后续 `acquire()` 觉得它还活着——use-after-free;或者 wrap 回 0 触发**重复释放**。plain atomic 的计数一旦越过 0,就再也救不回来。
 
-解法是**饱和**(saturation):计数到一个特殊的饱和值就**不再动**(`RefCount` in `third_party/Cinux-Base/include/cinux/refcount.hpp`)。`release()` 减到 0 就停在那里(标记"已释放,别再碰"),`acquire()` 加到饱和值也停。这样越界不会 wrap 成假活,只会"卡在已死状态",bug 表现成卡死/明确报错,而不是隐蔽的 UAF。这正是 Linux 内核 `refcount_t` 的设计(`include/linux/refcount.h`)。
+解法是**饱和**(saturation):计数到一个特殊的饱和值就**不再动**(`RefCount` in `libs/base/include/cinux/refcount.hpp`)。`release()` 减到 0 就停在那里(标记"已释放,别再碰"),`acquire()` 加到饱和值也停。这样越界不会 wrap 成假活,只会"卡在已死状态",bug 表现成卡死/明确报错,而不是隐蔽的 UAF。这正是 Linux 内核 `refcount_t` 的设计(`include/linux/refcount.h`)。
 
 饱和值选 `INT_MIN/2`(不是 `INT_MIN`):让它离 0 和 `INT_MAX` 都大致等距,把"取值与饱和钳位之间那个短暂非原子窗口"里、并发 acquire/release 把计数漂移到危险区的概率压到最小。
 

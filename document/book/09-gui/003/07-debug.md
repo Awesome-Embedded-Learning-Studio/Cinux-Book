@@ -14,7 +14,7 @@ title: 07 · 调试现场 + 保留模式 vs 即时模式
 
 **根因。** ANSI 的 BS(`\b` 0x08)语义只移光标、不擦字符;真正删字是 DEL(0x7f)。可早期版本的 TerminalWidget 把 BS 当退格擦字用——`put_char_` 见到 `\b` 就 `--cur_col_` **并擦掉那一格的 cell`**。shell 行编辑发左箭头是 `\x1b[D`(光标左移,纯移不删),可有些 shell 把 Backspace 映射成 `\b`——一旦 BS 被实现成"移 + 擦",每收到一个 `\b` 就吃一个字。
 
-**解法**。源码现在的实现严格分开:BS 只 `--cur_col_`,DEL 才 `--cur_col_` + 清 cell。注释里写得很清楚:`ANSI BS only moves the cursor; ash line-edit shifts the cursor with \b, so erasing here wiped every glyph it passed`。源码见 [`terminal.cpp`](../../../third_party/Cinux-GUI/core/widget/terminal.cpp#L286-L304)。这个判据要带走:**控制字符的语义不能靠猜,得查 ANSI/VT100 规范——BS 移、DEL 擦,是两件事**。
+**解法**。源码现在的实现严格分开:BS 只 `--cur_col_`,DEL 才 `--cur_col_` + 清 cell。注释里写得很清楚:`ANSI BS only moves the cursor; ash line-edit shifts the cursor with \b, so erasing here wiped every glyph it passed`。源码见 [`terminal.cpp`](../../../libs/gui/core/widget/terminal.cpp#L286-L304)。这个判据要带走:**控制字符的语义不能靠猜,得查 ANSI/VT100 规范——BS 移、DEL 擦,是两件事**。
 
 ### 光标移动留拖影:dirty 没覆盖旧光标行
 
@@ -35,7 +35,7 @@ for (uint32_t i = 0u; i < 2u; ++i) {
 }
 ```
 
-`clear_dirty` 里把 `prev_cursor_row_` 更新成这一帧的 `cur_row_`,下一帧 `collect` 就能找到"光标刚离开的那一行"。源码见 [`terminal.cpp`](../../../third_party/Cinux-GUI/core/widget/terminal.cpp#L366-L379)。这个判据也通用:**任何"位置会移动的可视元素"都要把旧位置 + 新位置都标脏,否则旧位置必然留残影**——光标如此、拖动窗口如此(`move_to_` 标 old + new)、鼠标指针也如此(`process_pointer` 里 `invalidate` old footprint + new footprint)。
+`clear_dirty` 里把 `prev_cursor_row_` 更新成这一帧的 `cur_row_`,下一帧 `collect` 就能找到"光标刚离开的那一行"。源码见 [`terminal.cpp`](../../../libs/gui/core/widget/terminal.cpp#L366-L379)。这个判据也通用:**任何"位置会移动的可视元素"都要把旧位置 + 新位置都标脏,否则旧位置必然留残影**——光标如此、拖动窗口如此(`move_to_` 标 old + new)、鼠标指针也如此(`process_pointer` 里 `invalidate` old footprint + new footprint)。
 
 ### 关窗留残影:remove_window 漏标 stale footprint
 
@@ -61,7 +61,7 @@ void WindowManager::remove_window(Window* w) {
 }
 ```
 
-源码见 [`window_manager.cpp`](../../../third_party/Cinux-GUI/core/widget/window_manager.cpp#L39-L62)。这跟 Window 的 `move_to_` 标 old footprint 是同一类问题:**保留模式下,"一个会消失/会移动的东西让出来的那块"必须有人显式标脏**——即时模式全屏重画自动解决、保留模式必须显式。这判据在本章里已经是第三次出现了(光标拖影、窗口移动、窗口关闭),值得记死。
+源码见 [`window_manager.cpp`](../../../libs/gui/core/widget/window_manager.cpp#L39-L62)。这跟 Window 的 `move_to_` 标 old footprint 是同一类问题:**保留模式下,"一个会消失/会移动的东西让出来的那块"必须有人显式标脏**——即时模式全屏重画自动解决、保留模式必须显式。这判据在本章里已经是第三次出现了(光标拖影、窗口移动、窗口关闭),值得记死。
 
 ## 保留模式 vs 即时模式:为什么换
 

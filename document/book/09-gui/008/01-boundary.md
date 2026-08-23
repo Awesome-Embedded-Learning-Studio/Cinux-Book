@@ -33,13 +33,13 @@ title: 01 · 问题与边界:被焊死的桌面 + host-neutral core
 
 拔出来的办法,是给 GUI 立一道**硬边界**:边界这边是「host-neutral core」——只懂 GUI 的事(矩形代数、事件泵、光栅化、控件树),不认识 framebuffer、不认识 IRQ、不认识进程结构、不认识 syscall;边界那边是「宿主」——今天是 Cinux 的 userspace host 进程,明天可能是 SDL 模拟器,后天可能是个 offscreen 测试驱动。两边之间**只通过一张表**说话。
 
-这张边界在文件层就看得见。core 全部住在 [`third_party/Cinux-GUI/core/`](../../../third_party/Cinux-GUI/core/gui_core.hpp),它的核心会话类 `GuiCore` 的源文件 [`gui_core.cpp`](../../../third_party/Cinux-GUI/core/gui_core.cpp) 顶部写得很直白:
+这张边界在文件层就看得见。core 全部住在 [`libs/gui/core/`](../../../libs/gui/core/gui_core.hpp),它的核心会话类 `GuiCore` 的源文件 [`gui_core.cpp`](../../../libs/gui/core/gui_core.cpp) 顶部写得很直白:
 
 > Host-neutral: ZERO host includes. Owns the staging buffer; render_frame paints into it; region algebra collects the dirty rects; flush pushes each to the host. See gui_core.hpp for the flush-display-model contract.
 >
-> ([`gui_core.cpp:5`](../../../third_party/Cinux-GUI/core/gui_core.cpp#L5))
+> ([`gui_core.cpp:5`](../../../libs/gui/core/gui_core.cpp#L5))
 
-注意这句 "ZERO host includes" 不是修辞。看 [`core/`](../../../third_party/Cinux-GUI/core/) 下任何 `.cpp` 的 `#include` 段,出现的全是 `<stdint.h>` + 同目录的兄弟头(`host.hpp`/`region.hpp`/`event.hpp`)——**没有一个内核头,也没有一个 Linux 头**。`core/` 因此能用普通的 g++/clang++ 直接编,跑 ctest,完全不需要把内核起来。
+注意这句 "ZERO host includes" 不是修辞。看 [`core/`](../../../libs/gui/core/) 下任何 `.cpp` 的 `#include` 段,出现的全是 `<stdint.h>` + 同目录的兄弟头(`host.hpp`/`region.hpp`/`event.hpp`)——**没有一个内核头,也没有一个 Linux 头**。`core/` 因此能用普通的 g++/clang++ 直接编,跑 ctest,完全不需要把内核起来。
 
-怎么证明它真的 host-neutral?子模块里带了好几个**零目标平台**的 host 程序,每个都是一份独立的表填充:[`host/widgets_host_main.cpp`](../../../third_party/Cinux-GUI/host/widgets_host_main.cpp) 把控件树渲一帧到 malloc 的缓冲里、dump 成 PPM;[`host/fake_host_main.cpp`](../../../third_party/Cinux-GUI/host/fake_host_main.cpp) 手填一张假表(`fake_poll_event` 永远返回 false、`fake_flush` 记调用次数),照样调 `pump()`;[`host/sdl_host_main.cpp`](../../../third_party/Cinux-GUI/host/sdl_host_main.cpp) 在一个 SDL 窗口里跑同样的控件树;[`host/linux_fbdev_main.cpp`](../../../third_party/Cinux-GUI/host/linux_fbdev_main.cpp) 直接 mmap `/dev/fb0` + 读 `/dev/input/event*`。**同一份 core 驱动 SDL 窗口、Linux framebuffer、offscreen dump、Cinux 用户态进程,只靠换一张表的填充**——这就是 host-neutral 的可证伪证据。
+怎么证明它真的 host-neutral?子模块里带了好几个**零目标平台**的 host 程序,每个都是一份独立的表填充:[`host/widgets_host_main.cpp`](../../../libs/gui/host/widgets_host_main.cpp) 把控件树渲一帧到 malloc 的缓冲里、dump 成 PPM;[`host/fake_host_main.cpp`](../../../libs/gui/host/fake_host_main.cpp) 手填一张假表(`fake_poll_event` 永远返回 false、`fake_flush` 记调用次数),照样调 `pump()`;[`host/sdl_host_main.cpp`](../../../libs/gui/host/sdl_host_main.cpp) 在一个 SDL 窗口里跑同样的控件树;[`host/linux_fbdev_main.cpp`](../../../libs/gui/host/linux_fbdev_main.cpp) 直接 mmap `/dev/fb0` + 读 `/dev/input/event*`。**同一份 core 驱动 SDL 窗口、Linux framebuffer、offscreen dump、Cinux 用户态进程,只靠换一张表的填充**——这就是 host-neutral 的可证伪证据。
 

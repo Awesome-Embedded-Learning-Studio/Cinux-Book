@@ -6,7 +6,7 @@ title: 06 · 接线:terminal-host 接真 shell
 
 ## terminal-host:把真 shell 接上
 
-理论讲完了,看实际怎么把 shell 接到这套 Widget 树上。就是 [`host/terminal_host_main.cpp`](../../../third_party/Cinux-GUI/host/terminal_host_main.cpp)——一个 SDL2 主程序,搭一棵 `WindowManager → Window → TerminalWidget`,spawn `/bin/sh` 在 PTY 里跑,主循环把键盘喂进 PTY、把 PTY 输出喂给 TerminalWidget。看组装部分:
+理论讲完了,看实际怎么把 shell 接到这套 Widget 树上。就是 [`host/terminal_host_main.cpp`](../../../libs/gui/host/terminal_host_main.cpp)——一个 SDL2 主程序,搭一棵 `WindowManager → Window → TerminalWidget`,spawn `/bin/sh` 在 PTY 里跑,主循环把键盘喂进 PTY、把 PTY 输出喂给 TerminalWidget。看组装部分:
 
 ```cpp
 WindowManager wm;
@@ -47,7 +47,7 @@ const int pid    = linux_spawn(nullptr, "/bin/sh", argv, &in_fd, &out_fd);
 fcntl(out_fd, F_SETFL, O_NONBLOCK);           // 非阻塞 drain
 ```
 
-`linux_spawn` 的实现在 [`host/posix_spawn.cpp`](../../../third_party/Cinux-GUI/host/posix_spawn.cpp#L16-L40),用的是 `forkpty`——它 fork 出一个子进程、把子的 stdio 挂到一个 PTY 对上、父进程拿到 **master fd**(双向:write 进 shell stdin、read 出 shell stdout)。`*stdin_fd = *stdout_fd = master`——签名跟 pipe 一样(两个 fd),内部其实是 PTY。为什么用 PTY 而不是裸 pipe?因为 PTY 给 shell 一个**控制终端**,行编辑(左箭头、Home、历史)和 curses 程序(vim/less)才能用。裸 pipe 够 ls/echo,但 curses 会烂。`setenv("TERM", "xterm-256color")` 是配套——shell 判断"要不要发彩色"不只看是不是 tty,还看 `$TERM` 是不是色采的;设成 `xterm-256color` 让 `ls --color` 发 256 色 SGR。
+`linux_spawn` 的实现在 [`host/posix_spawn.cpp`](../../../libs/gui/host/posix_spawn.cpp#L16-L40),用的是 `forkpty`——它 fork 出一个子进程、把子的 stdio 挂到一个 PTY 对上、父进程拿到 **master fd**(双向:write 进 shell stdin、read 出 shell stdout)。`*stdin_fd = *stdout_fd = master`——签名跟 pipe 一样(两个 fd),内部其实是 PTY。为什么用 PTY 而不是裸 pipe?因为 PTY 给 shell 一个**控制终端**,行编辑(左箭头、Home、历史)和 curses 程序(vim/less)才能用。裸 pipe 够 ls/echo,但 curses 会烂。`setenv("TERM", "xterm-256color")` 是配套——shell 判断"要不要发彩色"不只看是不是 tty,还看 `$TERM` 是不是色采的;设成 `xterm-256color` 让 `ls --color` 发 256 色 SGR。
 
 主循环把键盘和 PTY 接通:
 

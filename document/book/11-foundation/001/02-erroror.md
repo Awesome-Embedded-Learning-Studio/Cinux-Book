@@ -6,7 +6,7 @@ title: 02 · ErrorOr:让错误变成类型,并在 syscall 关口翻译
 
 ## ErrorOr:让错误变成类型
 
-解法是给错误一个类型。`ErrorOr<T>`(`third_party/Cinux-Base/include/cinux/expected.hpp`)——一个**值或错**的判别联合体:要么持有一个 `T`(成功),要么持有一个 `Error`(失败),用一个内部标志区分。核心长这样:
+解法是给错误一个类型。`ErrorOr<T>`(`libs/base/include/cinux/expected.hpp`)——一个**值或错**的判别联合体:要么持有一个 `T`(成功),要么持有一个 `Error`(失败),用一个内部标志区分。核心长这样:
 
 ```cpp
 // expected.hpp

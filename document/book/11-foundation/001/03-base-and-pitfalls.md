@@ -6,7 +6,7 @@ title: 03 · Cinux-Base 收公共类型,加两个真坑与验证
 
 ## Cinux-Base:公共类型的家
 
-第二个病:公共类型各处重复。在 `ErrorOr` 之前,`StringView`、`Span`、`RingBuffer` 这些东西在内核里东一处西一处地各写一份,口径还不一样。这一章把它们收进一个独立的共享库 `Cinux-Base`(`third_party/Cinux-Base`),21 个头文件,大致四家:
+第二个病:公共类型各处重复。在 `ErrorOr` 之前,`StringView`、`Span`、`RingBuffer` 这些东西在内核里东一处西一处地各写一份,口径还不一样。这一章把它们收进一个独立的共享库 `Cinux-Base`(`libs/base`),21 个头文件,大致四家:
 
 | 家 | 例子 | 干什么 |
 |---|---|---|
@@ -19,7 +19,7 @@ title: 03 · Cinux-Base 收公共类型,加两个真坑与验证
 
 ### 引入一个"严纪律"的库:别让它替你的代码定纪律
 
-引入 `Cinux-Base` 时有个**特别值得讲**的工程细节。这个库自带一份很严的编译开关(`-Wpedantic -Werror -Wold-style-cast -Wshadow` 之类)。最直觉的接法是 `add_subdirectory(Cinux-Base)`,把它当一个普通子项目链进来——**但偏偏不这么干**。看 `third_party/CMakeLists.txt`:
+引入 `Cinux-Base` 时有个**特别值得讲**的工程细节。这个库自带一份很严的编译开关(`-Wpedantic -Werror -Wold-style-cast -Wshadow` 之类)。最直觉的接法是 `add_subdirectory(Cinux-Base)`,把它当一个普通子项目链进来——**但偏偏不这么干**。看 `libs/CMakeLists.txt`:
 
 ```cmake
 # 只取 include 路径和 .cpp 源文件,不 add_subdirectory(Cinux-Base)——
