@@ -58,10 +58,10 @@ enable_testing()
 
 add_subdirectory(boot)
 add_subdirectory(user)
-# F13 cinux-gui: host-neutral core is now a git submodule (third_party/Cinux-GUI),
+# F13 cinux-gui: host-neutral core is now a git submodule (libs/Cinux-GUI),
 # added BEFORE kernel/ so the cinux-gui target exists when the kernel links it.
 if(CINUX_GUI)
-    add_subdirectory(third_party/Cinux-GUI)
+    add_subdirectory(libs/Cinux-GUI)
     # F13/PF-gate: cinux-gui is added BEFORE kernel/, so it does NOT inherit
     # kernel/CMakeLists.txt's -mstack-protector-guard=global. Without this the
     # core's canary reads fs:0x28 (TLS default), which faults in the kernel

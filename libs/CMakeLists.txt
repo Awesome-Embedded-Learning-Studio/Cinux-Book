@@ -1,6 +1,6 @@
-# third_party/CMakeLists.txt
+# libs/CMakeLists.txt
 #
-# @brief Integrate Cinux-Base as a submodule dependency.
+# @brief Integrate Cinux-Base (in-tree library under libs/) into the kernel build.
 #
 # Exposes only the include path and .cpp sources — does NOT call
 # add_subdirectory(Cinux-Base) to avoid its INTERFACE compile flags

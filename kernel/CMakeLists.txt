@@ -110,7 +110,7 @@ target_include_directories(big_kernel_common PUBLIC
 )
 
 # Third-party libraries (Cinux-Base etc.)
-add_subdirectory(${CMAKE_SOURCE_DIR}/third_party ${CMAKE_BINARY_DIR}/third_party)
+add_subdirectory(${CMAKE_SOURCE_DIR}/libs ${CMAKE_BINARY_DIR}/libs)
 
 # Sub-modules (each adds its sources to big_kernel_common)
 add_subdirectory(arch)
@@ -187,7 +187,7 @@ add_executable(big_kernel
 
 target_sources(big_kernel PRIVATE $<TARGET_OBJECTS:big_kernel_common>)
 target_link_libraries(big_kernel PRIVATE big_kernel_common)
-# F13 cinux::gui: link the host-neutral core (third_party/Cinux-GUI/, GUI only).
+# F13 cinux::gui: link the host-neutral core (libs/Cinux-GUI/, GUI only).
 if(CINUX_GUI)
     target_link_libraries(big_kernel PRIVATE cinux-gui)
 endif()

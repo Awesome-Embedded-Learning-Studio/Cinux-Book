@@ -3,7 +3,7 @@
 # build-cinux-gui-host.sh — compile the Cinux userspace GUI host (F-GUI-USERSPACE b3a).
 #
 # Links the Cinux-GUI host-neutral core (21 freestanding C++ sources under
-# third_party/Cinux-GUI/core) + the Cinux host adapter (user/cinux_gui_host/)
+# libs/Cinux-GUI/core) + the Cinux host adapter (user/cinux_gui_host/)
 # into a static musl ELF the kernel smoke harness fork+execve's at
 # /cinux_gui_host. g++ -ffreestanding -fno-rtti -fno-exceptions: core has ZERO
 # libstdc++ deps (audited), so operator-new/delete stubs (crt_stub.cpp) +
@@ -16,7 +16,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
 SYSROOT="${MUSL_SYSROOT:-$REPO/build/musl-sysroot}"
-GUI_DIR="$REPO/third_party/Cinux-GUI"
+GUI_DIR="$REPO/libs/Cinux-GUI"
 OUT="${1:-$REPO/build/musl/cinux_gui_host}"
 
 if [ ! -f "$SYSROOT/lib/libc.a" ]; then
@@ -28,7 +28,7 @@ CB="$(g++ -print-file-name=crtbeginS.o)"
 CE="$(g++ -print-file-name=crtendS.o)"
 mkdir -p "$(dirname "$OUT")"
 
-# Core source list mirrors third_party/Cinux-GUI/CMakeLists.txt add_library(cinux-gui).
+# Core source list mirrors libs/Cinux-GUI/CMakeLists.txt add_library(cinux-gui).
 CORE_SRCS=(
     "$GUI_DIR/core/compositor.cpp"
     "$GUI_DIR/core/font.cpp"
