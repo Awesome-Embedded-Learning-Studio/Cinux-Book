@@ -9,8 +9,8 @@
  * defence that justifies RefCount over a plain atomic).
  *
  * Header-only Cinux-Base type; covered by the host test build because the
- * submodule's own test/ is never built by the main repo (third_party/
- * CMakeLists.txt does not add_subdirectory(Cinux-Base)).
+ * library's own test/ is never built by the main repo (libs/
+ * CMakeLists.txt does not add_subdirectory(base)).
  *
  * Compile condition: -DCINUX_HOST_TEST
  */

@@ -7,7 +7,7 @@ title: 01 · 导引:点亮什么与为什么
 ::: tip tag-bound(本章源码见 tag 033_gui_desktop / e96fff2)
 本章描述的是 **整体外置前的内核内 GUI** —— 那时 `desktop_icon.hpp` / `window_manager.hpp` / `window_manager.cpp` / `gui_init.cpp` 都还在 `kernel/gui/` 下,`DesktopIcon` 是带 `IconAction` 枚举的 POD,Window Manager 用"意图槽 `pending_icon_action_` + tick 消费"的两段式点击模型。
 
-主线在后来的 visor 解耦把 GUI 整体外置到用户态 `libs/gui/` 重写为 Widget 版:`DesktopIcon` 变成 `cinux::gui::DesktopIcon` Widget(`set_bitmap` / `set_label` / `set_on_activate`),点击改用 down+up press capture + `on_activate` 回调,不再有"槽 + 消费"语义;`draw_desktop_icons` / `composite` / `flip` 改成 `WindowManager::paint_to_list(PaintList&)` 三层(PaintList)由 Compositor flush。
+主线在后来的 visor 解耦把 GUI 整体外置到用户态 Cinux-GUI 库(当时是 third_party/Cinux-GUI 子模块,现已并回 `libs/gui/`)重写为 Widget 版:`DesktopIcon` 变成 `cinux::gui::DesktopIcon` Widget(`set_bitmap` / `set_label` / `set_on_activate`),点击改用 down+up press capture + `on_activate` 回调,不再有"槽 + 消费"语义;`draw_desktop_icons` / `composite` / `flip` 改成 `WindowManager::paint_to_list(PaintList&)` 三层(PaintList)由 Compositor flush。
 
 读这一章请按 **tag `033_gui_desktop`** 的快照读源码,而不是当前主线 `main`。下面所有源码链接(`kernel/gui/...`)指向的是该 tag 的历史路径。
 :::

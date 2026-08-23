@@ -64,7 +64,7 @@ delete c;
 
 (`tmpfs.cpp:256-288`,有删节。)
 
-> **非空目录删除返 EIO,不是 ENOTEMPTY**。Cinux-Base 子模块的 `Error` 枚举没有 `DirectoryNotEmpty` 这一项,所以 `unlink` 一个非空目录返 `Error::IOError`(`tmpfs.cpp:277-279`),syscall 边界映射成 `kEio`。代码注释明说这是已知缺口。**契约层满足**(操作失败,调用方拿到的就是「这事儿干不成」),但 errno 值跟 Linux 不一致——Linux 是 `ENOTEMPTY`。这带来一个测试纪律:测试和教程只能断言「op 失败」(返回非零),**不能断言具体 errno 等于 `ENOTEMPTY`**。这是 ABI/契约分层的一个好教学点:子模块的枚举缺项,会让一个语义清晰的失败,落成一个语义模糊的 errno。留给子模块加枚举项后修。
+> **非空目录删除返 EIO,不是 ENOTEMPTY**。Cinux-Base(彼时子模块,现已并回 `libs/base`)的 `Error` 枚举没有 `DirectoryNotEmpty` 这一项,所以 `unlink` 一个非空目录返 `Error::IOError`(`tmpfs.cpp:277-279`),syscall 边界映射成 `kEio`。代码注释明说这是已知缺口。**契约层满足**(操作失败,调用方拿到的就是「这事儿干不成」),但 errno 值跟 Linux 不一致——Linux 是 `ENOTEMPTY`。这带来一个测试纪律:测试和教程只能断言「op 失败」(返回非零),**不能断言具体 errno 等于 `ENOTEMPTY`**。这是 ABI/契约分层的一个好教学点:契约库的枚举缺项,会让一个语义清晰的失败,落成一个语义模糊的 errno。留给 Cinux-Base 补枚举项后修(并回后可就地加)。
 
 `lookup`(`tmpfs.cpp:405-453`)是 tmpfs 比 DevFS/ProcFS 多出来的东西——**真正的多段 walk**。DevFS/ProcFS 是扁平的(根下一层就到底),不需要逐段走;tmpfs 有真实嵌套子目录(`/tmp/build/foo.o`),必须逐段 `find_child`:
 

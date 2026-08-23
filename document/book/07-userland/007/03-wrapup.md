@@ -23,7 +23,7 @@ title: 03 · 收尾:验证、没做的与小结
 - **fork+execve-under-PTY 全闭环**:真用户程序跑在 PTY 里要 `sys_dup2`(把 slave 重定向成子进程 stdio——**当前未实现**)+ 真 session + 一个会 `open("/dev/ptmx")` 的 shell。这一章没合成 ring3 PTY smoke,留 CFBox 那条线(它本就需要 dup2,是 PTY 的天然消费者)。另:ring0 测试 harness 不能调带 user 指针的 syscall(`access_ok` 拒内核址),所以纯 ring0 syscall smoke 也做不了——验证靠内核侧白盒测 + host 纯逻辑测。
 - **blocking slave read**:现在 slave read 非阻塞(0 = 无数据,EOF 经 `take_eof` 分)。真 shell 读 stdin 要阻塞(像 console_tty 那样睡等行),要 reader Task + 唤醒机制,留 follow-up。
 - **PTY close → release**:close master/slave fd 时该 `pty_release(index)` 释放槽位。现在没 close 钩子(槽位靠测试显式 release),生产用要补。
-- **errno 近似**(Cinux-Base 的 Error 枚举所限,子模块边界不擅改):copy 失败 → EINVAL(Linux 会 EFAULT);TIOCSCTTY 拒绝 → EACCES(Linux EPERM)。行为对,errno 近似。
+- **errno 近似**(Cinux-Base 的 Error 枚举所限,彼时子模块边界不擅改,现已并回 `libs/base`):copy 失败 → EINVAL(Linux 会 EFAULT);TIOCSCTTY 拒绝 → EACCES(Linux EPERM)。行为对,errno 近似。
 - **PTY 限 8 对**(`kMaxPtys`);动态扩展留后。
 
 ## 小结

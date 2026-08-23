@@ -107,7 +107,7 @@ struct Event {
 
 [window.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/030_gui_wm_basic/kernel/gui/window.hpp) 定义的 `Window`,核心思路是**双缓冲**:每个窗口自己拥有一块离屏 `Canvas`(就是前面那个不挂 framebuffer 的版本),标题栏和内容都先画在这块离屏画布上,合成时再 `blit_to` 到屏幕:
 
-> **tag-bound 说明**:这一章讲的 `Window`(`x_/y_/w_/h_` + `title_[64]` + `canvas_` + 静态 `TITLE_BAR_HEIGHT=20` / `CLOSE_BUTTON_SIZE=14` + `next_id_`)是 030 当时**内核内**的简版。后续的 visor 解耦把整个 GUI 整体外置到 `libs/gui/`,在那里 `window.hpp` 被重写成基于 `Widget` 的复合控件(字段变成 `kTitleBarHeight` / `kCloseButtonSize=20` / `theme_` / `content_` / `on_close_` / `drag_px_` 等,和这一章的简版不再是一回事)。本章一律按 tag 030 当时的内核源码叙述,链接也指向该 tag 的 blob。
+> **tag-bound 说明**:这一章讲的 `Window`(`x_/y_/w_/h_` + `title_[64]` + `canvas_` + 静态 `TITLE_BAR_HEIGHT=20` / `CLOSE_BUTTON_SIZE=14` + `next_id_`)是 030 当时**内核内**的简版。后续的 visor 解耦把整个 GUI 整体外置到独立的 Cinux-GUI 库(当时是 third_party/Cinux-GUI 子模块,现已并回 `libs/gui/`),在那里 `window.hpp` 被重写成基于 `Widget` 的复合控件(字段变成 `kTitleBarHeight` / `kCloseButtonSize=20` / `theme_` / `content_` / `on_close_` / `drag_px_` 等,和这一章的简版不再是一回事)。本章一律按 tag 030 当时的内核源码叙述,链接也指向该 tag 的 blob。
 
 ```cpp
 class Window {
@@ -130,7 +130,7 @@ class Window {
 
 [window_manager.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/030_gui_wm_basic/kernel/gui/window_manager.cpp) 是这一章的重头戏。先看它怎么存窗口:
 
-> 同样是 tag-bound:030 当时这个 `WindowManager` 有 `MAX_WINDOWS=64` 的 `windows_[]` 数组、`composite()` / `hit_test(int32_t,int32_t)` / `handle_mouse()` / `draw_cursor()` / `instance()` 单例等成员。visor 解耦后外置到 `libs/gui/core/widget/window_manager.cpp`,新版自己继承 `Widget`,API 改成 `add_window` / `remove_window` / `raise` / `window_at` / `topmost` / `on_pointer` / `paint_to_list`,这些标签下的成员全都不复存在。本章一律按 tag 030 当时的实现叙述。
+> 同样是 tag-bound:030 当时这个 `WindowManager` 有 `MAX_WINDOWS=64` 的 `windows_[]` 数组、`composite()` / `hit_test(int32_t,int32_t)` / `handle_mouse()` / `draw_cursor()` / `instance()` 单例等成员。visor 解耦后外置到 Cinux-GUI 库(现已并回主仓 `libs/gui/core/widget/window_manager.cpp`),新版自己继承 `Widget`,API 改成 `add_window` / `remove_window` / `raise` / `window_at` / `topmost` / `on_pointer` / `paint_to_list`,这些标签下的成员全都不复存在。本章一律按 tag 030 当时的实现叙述。
 
 ```cpp
 static constexpr uint32_t MAX_WINDOWS = 64;

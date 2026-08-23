@@ -144,7 +144,7 @@ add_cinux_test(canvas)
 add_cinux_test(mouse)
 add_cinux_test(event_queue)
 
-# Cinux-Base leaf types (header-only) — proves the submodule is usable from the
+# Cinux-Base leaf types (header-only) — proves the library is usable from the
 # host test build before any kernel migration relies on it. Only the include
 # path is added here so Cinux-Base's compile flags never leak into other tests.
 add_cinux_test(cinux_base_types)
@@ -153,8 +153,8 @@ target_include_directories(test_cinux_base_types PRIVATE
 )
 
 # F-QA Q4a-1: RefCount (saturating atomic refcount, Linux refcount_t semantics).
-# Header-only Cinux-Base type. The submodule's own test/ is never built by the
-# main repo (libs/CMakeLists.txt does not add_subdirectory(Cinux-Base)),
+# Header-only Cinux-Base type. Cinux-Base's own test/ is never built by the
+# main repo (libs/CMakeLists.txt does not add_subdirectory(base)),
 # so coverage must live here; add_cinux_test already adds the Cinux-Base include
 # path via TEST_INCLUDE_DIRS.
 add_cinux_test(refcount)

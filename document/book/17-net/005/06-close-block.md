@@ -122,7 +122,7 @@ if (need_block) {
 
 这套模板的来历在 071 章——那里把 pipe 阻塞从 `sti`/`hlt` 自旋改成 `prepare_to_wait` + `schedule_blocked`,根因是 `sti`-in-syscall 的 `#DF` 隐患(059 sys_ping 首发现同一族):syscall 里 `sti` → LAPIC 时钟中断抢 `%gs:0` 栈陷阱帧 → sysretq 弹花 → `#DF`,而且 harness 的「假绿」盖着这条坑。071 给的修法就是真调度等待队列,`AF_UNIX` 这里**直接复用**同一个模板——`unix_socket.cpp:5-9` + `:20-21` 的注释明说 mirrors `pipe.cpp`/`tcp_socket.cpp`、NO `sti`/`hlt`。
 
-EINTR 的处理也跟 071 同款:`recv`/`accept` 睡回来后检查 `signal_deliverable_pending`,若有信号挂起,返一个 sentinel(`recv` 返 `-1`、`accept` 返 `-1`-cast-to-`Socket*`),由 `sys_recvfrom`/`do_accept` 映射成 `-EINTR`(`sys_socket.cpp:336-338` / `:188-190`)。这两个 sentinel 是一个真实字节数/指针取不到的值,用来在 `ErrorOr` 不能扩展 `lib::Error`(那是 Cinux-Base 子模块)的前提下把 EINTR 传过协议层。
+EINTR 的处理也跟 071 同款:`recv`/`accept` 睡回来后检查 `signal_deliverable_pending`,若有信号挂起,返一个 sentinel(`recv` 返 `-1`、`accept` 返 `-1`-cast-to-`Socket*`),由 `sys_recvfrom`/`do_accept` 映射成 `-EINTR`(`sys_socket.cpp:336-338` / `:188-190`)。这两个 sentinel 是一个真实字节数/指针取不到的值,用来在 `ErrorOr` 不能扩展 `lib::Error`(那是 Cinux-Base,彼时子模块现已并回 `libs/base`)的前提下把 EINTR 传过协议层。
 
 ### host 单测把阻塞编译掉
 

@@ -8,7 +8,7 @@ title: 04 · 验证 + 没做的 + 小结
 
 这一章的验证不靠 QEMU 截图,而是靠两层互锁的证据:
 
-**第一层,core 真的能脱离内核编。** 进 [`libs/gui/`](../../../libs/gui/) 子模块,跑它自己的 standalone ctest:`cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j$(nproc) && ctest --test-dir build --output-on-failure`。绿就证明 core 在没有任何内核参与的情况下能编能跑,host-neutral 不是嘴上说的。host 单测想更严,push 前自验开 ASAN:`-DCMAKE_CXX_FLAGS="-fsanitize=address" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address"`(本地默认 ctest 不开 ASAN 会漏判)。
+**第一层,core 真的能脱离内核编。** 进 [`libs/gui/`](../../../libs/gui/) 目录(并回的 Cinux-GUI 库),跑它自己的 standalone ctest:`cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j$(nproc) && ctest --test-dir build --output-on-failure`。绿就证明 core 在没有任何内核参与的情况下能编能跑,host-neutral 不是嘴上说的。host 单测想更严,push 前自验开 ASAN:`-DCMAKE_CXX_FLAGS="-fsanitize=address" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address"`(本地默认 ctest 不开 ASAN 会漏判)。
 
 **第二层,host 进程能起来 + 屏幕真有像素。** 跑构建脚本 [`tools/musl/build-cinux-gui-host.sh`](../../../tools/musl/build-cinux-gui-host.sh) 出静态 musl ELF,塞进 initramfs,内核起来后看串口应该有这两行(都来自源码 kprintf):
 

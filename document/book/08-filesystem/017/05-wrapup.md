@@ -19,7 +19,7 @@ title: 05 · 收尾:验证、没做的、小结
 ## 这章没做的
 
 - **无 inode 级 last-close 语义**。`unlink` 摘链后直接 `delete[] data + delete node`,完全不查 inode 的 refcount。内核里其实有个 open-description 引用计数(`Inode.refcount`,`inode_ref`/`inode_unref` 在 `file.cpp`),open fd 持一份。Linux 真语义是「`unlink` 时仍有 open fd 则延迟到 last close 释放」;Cinux 的 tmpfs 不看它,所以**「先 open 再 unlink」会有 use-after-free 风险**。这是诚实简化,依赖 close-before-unlink(GCC 临时文件模式正是如此),真 last-close 语义留 follow-up。
-- **非空目录删除返 EIO 而非 ENOTEMPTY**。`Error` 枚举(Cinux-Base 子模块)无 `DirectoryNotEmpty` 项,`unlink` 非空目录返 `Error::IOError` → syscall 边界 `kEio`。契约层满足,errno 不精确,留子模块加枚举项后修。
+- **非空目录删除返 EIO 而非 ENOTEMPTY**。`Error` 枚举(Cinux-Base,彼时子模块现已并回 `libs/base`)无 `DirectoryNotEmpty` 项,`unlink` 非空目录返 `Error::IOError` → syscall 边界 `kEio`。契约层满足,errno 不精确,留 Cinux-Base 补枚举项后修(并回后可就地加)。
 - **symlink / hardlink / rename 未实现**。`InodeOps` 基类有 `symlink`/`link`/`rename` 这三个虚函数(`inode.cpp:86-97`),默认返 `Error::NotImplemented`;tmpfs 的 `TmpFileOps`/`TmpDirOps` 一个都没覆写,所以落到基类就是 `NotImplemented` → syscall 边界 `kEnosys`。busybox `ln -s /tmp/a /tmp/b`、`mv /tmp/a /tmp/b` 在 `/tmp` 下都会失败。GCC 编译中间产物模式不太依赖这些(rename 原子换名用得少),所以这章先不做,留 follow-up——这是 tmpfs 相对 Linux 的一个明显行为缺口,跟「非空目录返 EIO」是同类已知简化。
 - **单 per-FS Spinlock 粗粒度**。一个 `Spinlock`(`tmpfs.hpp:102`)串行化所有树变更 + 内容 I/O。`/tmp` 专用低竞争场景够用,/tmp 上 GCC 多进程高并发未做并发压测。刻意不给 per-node 锁——是为了避开父/子嵌套加锁的 AB-BA 死锁。per-node 锁 / RCU 留 follow-up。
 - **无内存上限 / 无 swap 支撑**。tmpfs 理论上可吃光全部堆,本实现无 `size=`/`mode=` 挂载选项、无 `max_blocks` 配额。Linux tmpfs 有 `size=` 挂载选项,Cinux 的没有。`write` 里 `new uint8_t[newcap]` 失败会抛(无 nothrow),kernel 端 new 失败的语义本章不覆盖。swap 回收、oom-kill 全无。

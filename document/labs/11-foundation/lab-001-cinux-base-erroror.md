@@ -21,7 +21,7 @@ title: Lab 001 · Cinux-Base 与 ErrorOr 验证
 
 ```bash
 git checkout 001_foundation_cinux_base     # 切到本 tag 的源码状态
-git submodule update --init libs/base
+git submodule update --init third_party/Cinux-Base
 cmake -B build -S . && cmake --build build -j$(nproc)
 ```
 

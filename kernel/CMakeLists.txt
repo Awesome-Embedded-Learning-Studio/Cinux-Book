@@ -34,8 +34,8 @@ set(BIG_KERNEL_COMPILE_OPTIONS
     -mno-red-zone
     -Wall
     -Wextra
-    # F-INFRA I-3 (R2): bring the kernel body up to the Cinux-Base submodule's
-    # warning discipline (the submodule already enforces -Wshadow/-Wold-style-cast
+    # F-INFRA I-3 (R2): bring the kernel body up to the Cinux-Base library's
+    # warning discipline (its own build still enforces -Wshadow/-Wold-style-cast
     #/-Wnon-virtual-dtor). -Wconversion/-Wpedantic stay OUT here (kernel uses GNU
     # inline-asm extensions; -Wconversion is too noisy — see follow-up G6).
     # -Werror=return-type is a near-zero-noise correctness check (already clean).

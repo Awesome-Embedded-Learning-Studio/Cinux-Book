@@ -104,7 +104,7 @@ void Canvas::draw_bitmap(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
 
 ### icon_data.hpp:用 constexpr 把字符画编译成像素
 
-> **tag-bound 提示:** 这一章讲的是 032 当时的内核内 GUI。后续的 visor 解耦把 `kernel/gui/` 的窗口/图标管理类外置到 `libs/gui/` 重写为 Widget 版;但 `kernel/gui/data/icon_data.hpp` 这个**纯数据头**留在了原地,因为它是 freestanding、零依赖,谁都能 include。下面所有路径仍指向 032 当时的内核内位置。
+> **tag-bound 提示:** 这一章讲的是 032 当时的内核内 GUI。后续的 visor 解耦把 `kernel/gui/` 的窗口/图标管理类外置到独立的 Cinux-GUI 库(当时是 third_party/Cinux-GUI 子模块,现已并回 `libs/gui/`)重写为 Widget 版;但 `kernel/gui/data/icon_data.hpp` 这个**纯数据头**留在了原地,因为它是 freestanding、零依赖,谁都能 include。下面所有路径仍指向 032 当时的内核内位置。
 
 [icon_data.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/gui/data/icon_data.hpp) 把图标数据(尺寸常量、调色板、字符画、编译期图标工厂)都装在一个 `cinux::gui::icons::data` 命名空间里。标准尺寸是写死的:
 
@@ -172,7 +172,7 @@ constexpr IconBitmap build_icon(
 
 ### desktop_icon.hpp:图标的「身份」与命中框
 
-> **tag-bound 提示(重要):** 这一节讲的 `DesktopIcon`(POD struct + 显式 `x`/`y`/`width`/`height` 字段 + `IconAction` 枚举 + 内联 `contains()` 命中框)是 **032 当时的内核内设计**。后续的 visor 解耦把它外置到 [libs/gui/core/widget/desktop_icon.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/libs/gui/core/widget/desktop_icon.hpp) **彻底重写**为 `class DesktopIcon : public Widget`:不再有公开坐标字段(位置走 Widget 树)、不再有 `contains()`(命中走 Widget clip stack)、`IconAction` 枚举被 `set_on_activate(ActivateFn, ctx)` **回调**取代、位图改由 `set_bitmap(pixels, mask, w, h)` + 1-bpp alpha mask 驱动 blit。下面这段 POD + `IconAction` + 半开区间命中框的教学,是 **032 当时的源码真相**——读者按 tag 切到 032 读源码即可,新设计在 Cinux-GUI 文档里另述。半开区间命中框作为图形 hit-test 的通用惯例依然值得学,只是它在 032 之后由 Widget 框架代管了。
+> **tag-bound 提示(重要):** 这一节讲的 `DesktopIcon`(POD struct + 显式 `x`/`y`/`width`/`height` 字段 + `IconAction` 枚举 + 内联 `contains()` 命中框)是 **032 当时的内核内设计**。后续的 visor 解耦把它外置到 Cinux-GUI 库(现已并回主仓)的 [libs/gui/core/widget/desktop_icon.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/libs/gui/core/widget/desktop_icon.hpp) **彻底重写**为 `class DesktopIcon : public Widget`:不再有公开坐标字段(位置走 Widget 树)、不再有 `contains()`(命中走 Widget clip stack)、`IconAction` 枚举被 `set_on_activate(ActivateFn, ctx)` **回调**取代、位图改由 `set_bitmap(pixels, mask, w, h)` + 1-bpp alpha mask 驱动 blit。下面这段 POD + `IconAction` + 半开区间命中框的教学,是 **032 当时的源码真相**——读者按 tag 切到 032 读源码即可,新设计在 Cinux-GUI 文档里另述。半开区间命中框作为图形 hit-test 的通用惯例依然值得学,只是它在 032 之后由 Widget 框架代管了。
 
 光能画还不够。一个桌面图标得知道自己**在哪儿**、**点它该干嘛**。[desktop_icon.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/gui/desktop_icon.hpp) 把这些打包进 `DesktopIcon`:
 
@@ -209,7 +209,7 @@ struct DesktopIcon {
 
 ### window_manager.hpp:那个名不副实的光标常量
 
-> **tag-bound 提示:** 这一节描述的是 032 当时的内核内 `kernel/gui/window_manager.hpp`。后续的 visor 解耦把窗口管理器外置到 [libs/gui/core/widget/window_manager.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/libs/gui/core/widget/window_manager.hpp) 重写为 Widget 版,光标也改由 `Compositor` 统一绘制(`window_manager.cpp` 注释明说「cursor is now painted by the Compositor」)。下面这两个名实不符的常量是 **032 当时**的源码事实,**已随重构删除**,在新代码里 grep 不到——读这一节时按 tag 切回去看就对了。
+> **tag-bound 提示:** 这一节描述的是 032 当时的内核内 `kernel/gui/window_manager.hpp`。后续的 visor 解耦把窗口管理器外置到 Cinux-GUI 库(现已并回主仓)的 [libs/gui/core/widget/window_manager.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/libs/gui/core/widget/window_manager.hpp) 重写为 Widget 版,光标也改由 `Compositor` 统一绘制(`window_manager.cpp` 注释明说「cursor is now painted by the Compositor」)。下面这两个名实不符的常量是 **032 当时**的源码事实,**已随重构删除**,在新代码里 grep 不到——读这一节时按 tag 切回去看就对了。
 
 这一章顺手还改了 [window_manager.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/gui/window_manager.hpp) 里两个光标常量,值得诚实记一笔:
 
@@ -259,7 +259,7 @@ constexpr uint32_t DARK_BLACK  = 0x00101010;  // Near-black (opaque)
 
 ## 验证
 
-> **tag-bound 提示:** 下面这套测试组织——host 侧 `test/unit/test_bitmap_icon.cpp`、机内 `kernel/test/test_bitmap_icon.cpp`、`test/CMakeLists.txt` 里的 `add_test(NAME bitmap_icon ...)`、`main_test.cpp` 里的 `run_bitmap_icon_tests()`——是 **032 当时的布局**。后续的 visor 解耦把内核内 GUI 测试一并外置到 `libs/gui/test/`,并按 `core/`/`host/` 重新拆分,旧的两个测试文件已删、`bitmap_icon` 这个 ctest 名也已不存在。下面给的文件路径、用例计数(23 / 17)、stub 退化串(`[BITMAP_ICON] CLI mode`)都是 **032 当时的事实**,读者按 tag 切源码即可。新测试布局见 Cinux-GUI 文档。
+> **tag-bound 提示:** 下面这套测试组织——host 侧 `test/unit/test_bitmap_icon.cpp`、机内 `kernel/test/test_bitmap_icon.cpp`、`test/CMakeLists.txt` 里的 `add_test(NAME bitmap_icon ...)`、`main_test.cpp` 里的 `run_bitmap_icon_tests()`——是 **032 当时的布局**。后续的 visor 解耦把内核内 GUI 测试一并外置到 Cinux-GUI 库的 `test/`(库现已并回 `libs/gui/`),并按 `core/`/`host/` 重新拆分,旧的两个测试文件已删、`bitmap_icon` 这个 ctest 名也已不存在。下面给的文件路径、用例计数(23 / 17)、stub 退化串(`[BITMAP_ICON] CLI mode`)都是 **032 当时的事实**,读者按 tag 切源码即可。新测试布局见 Cinux-GUI 文档。
 
 按上一节说的,测试天然分两层。
 

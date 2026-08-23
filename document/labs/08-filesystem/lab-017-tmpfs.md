@@ -181,7 +181,7 @@ cmake --build build --target run-kernel-test-all 2>&1 | grep -E "Tests: [0-9]+ p
 
 **题一:last-close 语义缺口**。写个小 userland 程序:`open("/tmp/foo", O_CREAT|O_WRONLY)` 写点东西进去,**不 close**,直接 `unlink("/tmp/foo")`,然后从那个还开着的 fd `read`(或者 `write` 再 `read`)。观察发生了什么——返回值、是否崩、读到的内容。对照章节「这章没做的」里「无 inode 级 last-close 语义」那一条,理解为什么 Linux 的 unlink-with-open-fd 需要 inode refcount,以及为什么本章把它留作 follow-up。你的观察结论写不写出来都行,关键是亲手踩到这个简化。
 
-**题二:非空目录 errno 缺口**。写个小 userland 调 `mkdir("/tmp/d")` → `touch /tmp/d/x` → `rmdir("/tmp/d")`(或 `unlink` 目录),然后 `perror` 看 errno。再在 Linux 上跑同样程序对比 errno 值。观察两边 errno 差在哪。对照章节「非空目录删除返 EIO 而非 ENOTEMPTY」那一条,理解「契约满足(op 确实失败了)但 ABI 不精确」是什么滋味——以及为什么子模块的 `Error` 枚举缺项会让一个语义清晰的失败落成语义模糊的 errno。
+**题二:非空目录 errno 缺口**。写个小 userland 调 `mkdir("/tmp/d")` → `touch /tmp/d/x` → `rmdir("/tmp/d")`(或 `unlink` 目录),然后 `perror` 看 errno。再在 Linux 上跑同样程序对比 errno 值。观察两边 errno 差在哪。对照章节「非空目录删除返 EIO 而非 ENOTEMPTY」那一条,理解「契约满足(op 确实失败了)但 ABI 不精确」是什么滋味——以及为什么 Cinux-Base(彼时子模块)的 `Error` 枚举缺项会让一个语义清晰的失败落成语义模糊的 errno。
 
 ## 验收清单
 
