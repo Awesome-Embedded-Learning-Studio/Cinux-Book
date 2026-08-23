@@ -1,0 +1,25 @@
+---
+# Cinux-GUI mechanical style. CODING-TASTE §4 is the prose authority; this file
+# is the tool authority. Google base widened to 4-space indent / 100 cols /
+# left-glued pointers / flush-left access modifiers / aligned consecutive
+# declarations, matching the existing core/ + host/ code.
+BasedOnStyle: Google
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+
+# Pointers/references glue LEFT (T* p, const Surface& s) -- the house style.
+PointerAlignment: Left
+DerivePointerAlignment: false
+
+# Access modifiers sit flush left (public:/private: at column 0, members +4).
+NamespaceIndentation: None
+AccessModifierOffset: -4
+
+# Consecutive assignments / declarations / macros align their tokens (CODING-
+# TASTE §4: "continuous assign/decl/macro aligned (tool-driven)").
+AlignConsecutiveAssignments: Consecutive
+AlignConsecutiveDeclarations: Consecutive
+AlignConsecutiveMacros: Consecutive
