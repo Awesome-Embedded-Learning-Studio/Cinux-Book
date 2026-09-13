@@ -8,9 +8,9 @@ title: 03 · /dev/event0
 
 ### 角色定位:不解码,只桥接
 
-`/dev/event0` mirror 的是 Linux 的 evdev(`/dev/input/event*`)。它**不解码硬件**——解码在 `mouse.cpp`(PS/2 三字节包 → `MouseEvent`)和 `keyboard.cpp`(scancode → `KeyEvent`),014 讲过的不重讲。它干的活只有一件:**在解码完之后双写一行 `push_event`,把内核的 `Event` 桥到用户态 fd**。这是「内核到用户态的 input 投递边界」——evdev 的全部角色。
+`/dev/event0` mirror 的是 Linux 的 evdev(`/dev/input/event*`)。它**不解码硬件**——解码在 `mouse.cpp`(PS/2 三字节包 → `MouseEvent`)和 `keyboard.cpp`(scancode → `KeyEvent`),`03-big-kernel/008` 讲过的不重讲。它干的活只有一件:**在解码完之后双写一行 `push_event`,把内核的 `Event` 桥到用户态 fd**。这是「内核到用户态的 input 投递边界」——evdev 的全部角色。
 
-看 [mouse.cpp](../../../kernel/drivers/mouse/mouse.cpp#L281),鼠标在 `update_absolute` 里 7 个事件分支(move + 3 个 down + 3 个 up,分布在 `281/292/301/310/321/330/339`),每个 `g_event_queue_.enqueue(ev)` 后面跟一行:
+看 `kernel/drivers/mouse/mouse.cpp:281`,鼠标在 `update_absolute` 里 7 个事件分支(move + 3 个 down + 3 个 up,分布在 `281/292/301/310/321/330/339`),每个 `g_event_queue_.enqueue(ev)` 后面跟一行:
 
 ```cpp
 g_event_queue_.enqueue(ev);
@@ -19,7 +19,7 @@ g_event_queue_.enqueue(ev);
 cinux::input::InputEventDevice::instance().push_event(ev);
 ```
 
-键盘走的是另一条路:`gui_init.cpp` 里 `on_key_event` listener 双写,见 [gui_init.cpp](../../../kernel/gui/gui_init.cpp#L29-L43)。
+键盘走的是另一条路:`gui_init.cpp` 里 `on_key_event` listener 双写,见 `kernel/gui/gui_init.cpp:29-43`。
 
 ```cpp
 void on_key_event(const cinux::drivers::KeyEvent& ev) {
@@ -36,7 +36,7 @@ void on_key_event(const cinux::drivers::KeyEvent& ev) {
 
 ### 为什么不能复用 GUI 的 SPSC 队列
 
-GUI 那把 `EventQueue` 是 lock-free SPSC——头注释自陈「假设 IRQ handler 唯一生产者 + WM 唯一消费者,靠 `InterruptGuard` 即可,无需额外同步」,见 [event.hpp](../../../kernel/gui/event.hpp#L100-L110)。但 `/dev/event0` 的生产者**不止一个**:
+GUI 那把 `EventQueue` 是 lock-free SPSC——头注释自陈「假设 IRQ handler 唯一生产者 + WM 唯一消费者,靠 `InterruptGuard` 即可,无需额外同步」,见 `kernel/gui/event.hpp:100-110`。但 `/dev/event0` 的生产者**不止一个**:
 
 - mouse 的 IRQ12 处理(mouse.cpp)
 - keyboard 的 listener(`on_key_event`,被 keyboard ISR 链调)
@@ -51,7 +51,7 @@ class InputEventDevice {
 };
 ```
 
-见 [input_event_device.hpp](../../../kernel/drivers/input/input_event_device.hpp#L44-L72)。头注释自陈这个 MPSC 设计决策:
+见 `kernel/drivers/input/input_event_device.hpp:44-72`。头注释自陈这个 MPSC 设计决策:
 
 > MPSC safety: there are two producers (mouse IRQ12 + keyboard via the GUI listener), so the lock-free SPSC EventQueue used by the GUI cannot be shared here (it assumes a single consumer as well). This device therefore keeps its own RingBuffer guarded by a Spinlock -- the irq_guard also makes the prepare_to_wait() in read() atomic vs a concurrent push_event(), closing the lost-wakeup window the way PTY/pipe reads do.
 
@@ -59,7 +59,7 @@ class InputEventDevice {
 
 ### push_event:ISR 上下文的铁律
 
-入队逻辑见 [input_event_device.cpp](../../../kernel/drivers/input/input_event_device.cpp#L35-L46):
+入队逻辑见 `kernel/drivers/input/input_event_device.cpp:35-46`:
 
 ```cpp
 void InputEventDevice::push_event(const cinux::gui::Event& ev) {
@@ -75,11 +75,11 @@ void InputEventDevice::push_event(const cinux::gui::Event& ev) {
 
 1. **`irq_guard`**:同时关中断 + 持 `Spinlock`。生产者(两个 ISR)互斥,跟读者也互斥(下面会看到 read 路径在同一把锁里 `prepare_to_wait`)。
 2. **满了静默丢**:`events_.full()` 就 drop,不阻塞、不报错——跟 GUI EventQueue 一致策略。设备事件流不该因为用户态 read 慢就卡住整个中断链。
-3. **`wake_all` 只 unblock,不 inline `schedule`**:这是 ISR 铁律。`Scheduler::unblock` 只把 waiter 置 `Ready`、塞回 run-queue,**绝不**在 ISR 里调 `schedule()` 切走——`sti`-in-syscall 会撞上 LAPIC tick,内核栈被 trap 出 #DF,sysret 路径就烂了(071/084 都点过这条纪律)。唤醒是「标记可运行」,真正切走等中断返回时调度器自己来。
+3. **`wake_all` 只 unblock,不 inline `schedule`**:这是 ISR 铁律。`Scheduler::unblock` 只把 waiter 置 `Ready`、塞回 run-queue,**绝不**在 ISR 里调 `schedule()` 切走——`sti`-in-syscall 会撞上 LAPIC tick,内核栈被 trap 出 #DF,sysret 路径就烂了(`14-process-advanced/005`/`14-process-advanced/007` 都点过这条纪律)。唤醒是「标记可运行」,真正切走等中断返回时调度器自己来。
 
 ### read 路径:三个要点
 
-read 全文见 [input_event_device.cpp](../../../kernel/drivers/input/input_event_device.cpp#L52-L90),三个要点挨个拆:
+read 全文见 `kernel/drivers/input/input_event_device.cpp:52-90`,三个要点挨个拆:
 
 ```cpp
 cinux::lib::ErrorOr<int64_t> InputEventDeviceOps::read(const cinux::fs::Inode*, uint64_t,
@@ -114,7 +114,7 @@ cinux::lib::ErrorOr<int64_t> InputEventDeviceOps::read(const cinux::fs::Inode*, 
 
 **(1) evdev 语义**。`count < sizeof(Event)` 直接 `EINVAL`——mirror Linux `/dev/input/eventN` 的规矩:read 至少得能装下一个完整事件,否则不给半个。`sizeof(cinux::gui::Event)` 是多少要看 `Event` 的字节布局,用户态 struct 必须 mirror(下一节调试现场会展开)。一个数值上的巧合:`cinux::gui::Event` 的 sizeof 跟 Linux `struct input_event` 一样是 24(虽然字段完全不同),所以「最小 read 字节数」门槛数值上对齐——但别因此以为字段能共用。
 
-**(2) 阻塞读闭合 lost-wakeup**。这是 071/084 反复点过的 prepare-to-wait 范式,见 [scheduler.hpp](../../../kernel/proc/scheduler.hpp#L180-L207)。经典「先检查、后阻塞」的死穴:检查队列空 → 释放锁 → 阻塞,这三步之间如果有个生产者 `push_event`+`wake_all` 插进来,wakeup 就丢了,读者永远睡死。解法是「在**同一把锁内**自标 `Blocked`」:
+**(2) 阻塞读闭合 lost-wakeup**。这是 `14-process-advanced/005`/`14-process-advanced/007` 反复点过的 prepare-to-wait 范式,见 `kernel/proc/scheduler.hpp:180-207`。经典「先检查、后阻塞」的死穴:检查队列空 → 释放锁 → 阻塞,这三步之间如果有个生产者 `push_event`+`wake_all` 插进来,wakeup 就丢了,读者永远睡死。解法是「在**同一把锁内**自标 `Blocked`」:
 
 - `prepare_to_wait(self)` 在 `irq_guard` 内,把 self 状态置 `Blocked`——这一步原子,生产者的 `wake_all` 看到的要么是还没睡的 `Ready`(那就直接跳过),要么是已标 `Blocked` 的(那就 unblock 它),不会出现「检查时空、阻塞前被唤醒、再阻塞」的中间态。
 - `schedule_blocked()` 在锁**外**调,真正切走。
@@ -127,7 +127,7 @@ cinux::lib::ErrorOr<int64_t> InputEventDeviceOps::read(const cinux::fs::Inode*, 
 
 ### poll 路径:报就绪 + 挂 waiter 原子
 
-poll 见 [input_event_device.cpp](../../../kernel/drivers/input/input_event_device.cpp#L92-L110):
+poll 见 `kernel/drivers/input/input_event_device.cpp:92-110`:
 
 ```cpp
 uint32_t InputEventDeviceOps::poll_events(const cinux::fs::Inode*, cinux::proc::Task* waiter,
@@ -148,7 +148,7 @@ uint32_t InputEventDeviceOps::poll_events(const cinux::fs::Inode*, cinux::proc::
 }
 ```
 
-全 pipe 范式(084 讲过):「检查队列非空报 `kPollIn`」+「`wait_enqueue` 挂 waiter」**在同一把锁内原子完成**。要是拆开(先检查报 ready,再挂 waiter),中间 `push_event`+`wake_all` 插进来,waiter 还没挂上,wakeup 就丢了——经典 lost-wakeup。同一把锁闭合它,跟 read 路径同款思路。`poll_detach_waiter` 反向摘 waiter,不展开。
+全 pipe 范式(`14-process-advanced/007` 讲过):「检查队列非空报 `kPollIn`」+「`wait_enqueue` 挂 waiter」**在同一把锁内原子完成**。要是拆开(先检查报 ready,再挂 waiter),中间 `push_event`+`wake_all` 插进来,waiter 还没挂上,wakeup 就丢了——经典 lost-wakeup。同一把锁闭合它,跟 read 路径同款思路。`poll_detach_waiter` 反向摘 waiter,不展开。
 
 诚实说一句:**poll 路径在本机没实跑过**。dev note 明记「poll path 未跑机制测(smoke 只 read);用户态 host 用 poll 时再验」。本章把设计讲透了,「真在 QEMU 里跑过」的章只盖到 `read` 路径——`poll` 等 ring3 GUI host 真用上时再盖章。这是诚实的「只设计、未实跑」。
 

@@ -45,7 +45,7 @@ cmake --build build --target run-kernel-test
 cmake --build build --target run
 ```
 
-串口上先是 mini kernel 一路走完它 005–008 的所有输出,然后加载器的 Phase 1 打印 `[LOADER] Phase 1: Reading ... sectors from LBA ...`、`[LOADER] ELF file: ... bytes (... sectors)`;Phase 2 打印 `Mapping physical memory up to ...`、内存布局表 `[OK] No overlaps detected.`、`[LOADER] Phase 2: Reading ... sectors from disk...`、`[LOADER] Big kernel loaded successfully.`、`[LOADER] Entry point: 0x1000000`。紧接着 mini kernel 跳转,big kernel 的串口出现那行决定性的 **`[BIG] Big kernel running @ 0x1000000`**,然后安静停下。这一行,就是 009 的通过信号,也是整个 mini-kernel 卷的句号。
+串口上先是 mini kernel 一路走完它 `02-mini-kernel/001-004` 的所有输出,然后加载器的 Phase 1 打印 `[LOADER] Phase 1: Reading ... sectors from LBA ...`、`[LOADER] ELF file: ... bytes (... sectors)`;Phase 2 打印 `Mapping physical memory up to ...`、内存布局表 `[OK] No overlaps detected.`、`[LOADER] Phase 2: Reading ... sectors from disk...`、`[LOADER] Big kernel loaded successfully.`、`[LOADER] Entry point: 0x1000000`。紧接着 mini kernel 跳转,big kernel 的串口出现那行决定性的 **`[BIG] Big kernel running @ 0x1000000`**,然后安静停下。这一行,就是 `03-big-kernel/001` 的通过信号,也是整个 mini-kernel 卷的句号。
 
 ## 下一站
 

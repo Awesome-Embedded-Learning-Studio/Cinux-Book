@@ -47,7 +47,7 @@ title: Lab 002 · 进入保护模式
 - **选择子**:代码 `0x08`(第 1 项)、数据 `0x10`(第 2 项),RPL=0。
 - **描述符字节**:access 代码 `0x9A`、数据 `0x92`;flags+limit高 `0xCF`(G=1、D=1、limit19:16=0xF);base 三段全是 0(扁平模型,**不是**源码注释里写的 0x8000——核一下你写的 base 是不是 0)。
 - **CR0.PE**:bit 0,用 `orb $0x1` 而不是 `movl $1`(后者会把 CR0 其它位清零,后果不可预期)。
-- **链接地址**:Stage2 必须 `. = 0x8000`(=载入地址),这是绝对寻址/lgdt 的前提。从 001 的 `. = 0x0` 改过来。
+- **链接地址**:Stage2 必须 `. = 0x8000`(=载入地址),这是绝对寻址/lgdt 的前提。从 `01-boot/001` 的 `. = 0x0` 改过来。
 - **全程 `cli`**:从 `lgdt` 到 `pm_entry` 之间不许 `sti`——没有 IDT,开中断必三重故障。
 - **段宽度**:实模式段一律 `pushw`/`popw`,别混 `pushl`;16 位 `call`/`ret`。
 - **0xE9**:是 QEMU debugcon(写进 `build/debug.log`),不是串口。
@@ -63,7 +63,7 @@ cmake --build build -j$(nproc)
 
 **第二道:QEMU 两段看。** `cmake --build build --target run`:
 
-- 切 PM 前:QEMU 窗口里 001 那几行文本照常出现,屏幕切图形(和 001 一样)。
+- 切 PM 前:QEMU 窗口里 `01-boot/001` 那几行文本照常出现,屏幕切图形(和 `01-boot/001` 一样)。
 - 切 PM 后:屏幕/串口都没输出,去看 `build/debug.log`:
 
 ```bash
@@ -100,6 +100,6 @@ cat build/debug.log    # 期望有个 'P'
 ## 通过标准
 
 - `cmake --build build` 成功,`stage2.bin` 产出。
-- `make run` 后:QEMU 窗口先显示 001 的文本、切图形;`build/debug.log` 里出现 `P`。
+- `make run` 后:QEMU 窗口先显示 `01-boot/001` 的文本、切图形;`build/debug.log` 里出现 `P`。
 - GDB 能断在 `pm_entry`、寄存器变 32 位。
 - 全程没有 `sti`、没有 IDT、没有碰任何 paging/PAE/EFER——那是 [Lab 003](lab-003-long-mode.md) 的事。

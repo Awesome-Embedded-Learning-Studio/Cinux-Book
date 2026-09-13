@@ -6,13 +6,13 @@ title: 03 · 调试现场、验证与下一站
 
 ## 调试现场
 
-这一段本该放真实的踩坑笔记,但 010 这个 tag 留下的 notes 是空的。好在源码注释里藏着一句非常实在的话,我们直接拿来用——main 在 `int $3` 之前有这么一句提醒:
+这一段本该放真实的踩坑笔记,但 `010b` 这个 tag 留下的 notes 是空的。好在源码注释里藏着一句非常实在的话,我们直接拿来用——main 在 `int $3` 之前有这么一句提醒:
 
 > Note: do NOT enable interrupts (sti) yet -- we have no IRQ handlers and a pending PIT timer would cause a Double Fault via unhandled IRQ.
 
 翻译过来就是:现在千万别 sti。我们还没有任何 IRQ handler,可一旦 sti,PIT 定时器的中断就会到来,没人接它,结果就是 Double Fault,直接重启。
 
-这句话重要,不只因为它本身是个坑——它正好点明了这一章的边界。010 装的是"异常"安全网,接的是 CPU 自己抛的 #BP、#PF;可"硬件中断"(时钟、键盘)是另一回事,那需要 8259 PIC 和一套 IRQ handler,是下一个 tag 的活。所以这里不 sti 不是疏忽,是刻意的:在 IRQ 体系建好之前,sti 就是自找麻烦。
+这句话重要,不只因为它本身是个坑——它正好点明了这一章的边界。`03-big-kernel/003` 装的是"异常"安全网,接的是 CPU 自己抛的 #BP、#PF;可"硬件中断"(时钟、键盘)是另一回事,那需要 8259 PIC 和一套 IRQ handler,是下一个 tag 的活。所以这里不 sti 不是疏忽,是刻意的:在 IRQ 体系建好之前,sti 就是自找麻烦。
 
 ## 验证
 

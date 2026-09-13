@@ -6,7 +6,7 @@ title: 05 · 验证、下一站与参考
 
 ## 验证
 
-第一道闸是构建。和 001 一样,002 没有 host 侧自动化测试,构建本身就是冒烟:
+第一道闸是构建。和 `01-boot/001` 一样,`01-boot/002` 没有 host 侧自动化测试,构建本身就是冒烟:
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release -S .
@@ -17,7 +17,7 @@ cmake --build build -j$(nproc)
 
 第二道闸是跑起来分两段看。`cmake --build build --target run`:
 
-- **切 PM 之前**(还在实模式):看 QEMU 窗口,001 那几行文本(`Stage2 OK`、`Mode info OK, switching...`)照常出现,屏幕切进图形模式。这段和 001 完全一样。
+- **切 PM 之前**(还在实模式):看 QEMU 窗口,`01-boot/001` 那几行文本(`Stage2 OK`、`Mode info OK, switching...`)照常出现,屏幕切进图形模式。这段和 `01-boot/001` 完全一样。
 - **切 PM 之后**(没 BIOS、屏幕是图形):没有任何屏幕/串口输出。这时候去看 **`build/debug.log`**——里面应该有一个 `P`(我们 `outb` 到 `0xE9` 的)。有 `P`,就证明 `pm_entry` 执行到了,保护模式切换成功。
 
 ```bash

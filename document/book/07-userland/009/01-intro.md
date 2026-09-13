@@ -4,7 +4,7 @@ title: 01 · busybox 当 PID1:init 不是 fork 出来的
 
 # busybox 当 PID1:init 不是 fork 出来的
 
-> 073 把静态 busybox 跑起来了,可它是在测试内核里被一次性 `execve` 起来的——跑完就退。一个真系统不是这样的:**PID 1 永远活着,它是所有孤儿进程的归宿,是 `init`**。这一章的 punchline 是:**让 busybox 的 `init` applet 当 PID 1**,按 `/etc/inittab` respawn `/bin/sh`,顺带把"PID 1 为什么永远是 1"这件最基础的 Unix 事讲透。
+> `07-userland/008` 把静态 busybox 跑起来了,可它是在测试内核里被一次性 `execve` 起来的——跑完就退。一个真系统不是这样的:**PID 1 永远活着,它是所有孤儿进程的归宿,是 `init`**。这一章的 punchline 是:**让 busybox 的 `init` applet 当 PID 1**,按 `/etc/inittab` respawn `/bin/sh`,顺带把"PID 1 为什么永远是 1"这件最基础的 Unix 事讲透。
 >
 > 这章有两个反直觉的坑值得专程来一趟。第一个:**PID 1 不是 `fork` 出来的**——内核 init 线程在入口处直接从 PID 分配器里领走 1 号,`execve` 又不换 pid,所以 busybox init 天然继承 PID 1。第二个:**`rt_sigtimedwait` 不能真阻塞**——busybox init 的主循环靠它的返回值驱动 respawn,一旦真睡死,`/bin/sh` 永远不会被 fork 出来,整个系统死锁。
 >

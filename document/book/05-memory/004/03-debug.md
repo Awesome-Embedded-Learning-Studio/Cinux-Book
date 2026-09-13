@@ -34,17 +34,17 @@ cmake --build build --target run-big-kernel-test
 
 ## 下一站
 
-内存子系统至此收口:PMM 管物理页,VMM 管虚拟↔物理映射(还给了 demand paging),堆在页上做细粒度分配,`AddressSpace` 把「虚拟地址空间」抽象成可创建/切换/销毁的对象。`0xFFFF800000000000` 的谜底解开了——它是 PML4[256],内核半区的入口,所以天然在所有地址空间里可见。016 留的 `pml4` 参数,也终于有了 `AddressSpace` 这个正经调用者。
+内存子系统至此收口:PMM 管物理页,VMM 管虚拟↔物理映射(还给了 demand paging),堆在页上做细粒度分配,`AddressSpace` 把「虚拟地址空间」抽象成可创建/切换/销毁的对象。`0xFFFF800000000000` 的谜底解开了——它是 PML4[256],内核半区的入口,所以天然在所有地址空间里可见。`05-memory/002` 留的 `pml4` 参数,也终于有了 `AddressSpace` 这个正经调用者。
 
 但你会发现:`AddressSpace` 在生产路径里只做了 `init_kernel` 一件事,一个实例都没造。它是一块铺好、测好、却还没人住的地基。谁来住?——进程。一个进程需要自己的地址空间、自己的执行流、能在多个进程间切换。
 
-下一站(019)就是把它接上:进程结构、调度器、上下文切换。`AddressSpace` 会在那里第一次被真正「用起来」——每个进程挂一个自己的地址空间,调度器在切换进程时 `activate` 对应的空间。不过那是下一章的事,我们先享受一下「内核有了地址空间抽象」这个里程碑。
+下一站(`06-process/001`)就是把它接上:进程结构、调度器、上下文切换。`AddressSpace` 会在那里第一次被真正「用起来」——每个进程挂一个自己的地址空间,调度器在切换进程时 `activate` 对应的空间。不过那是下一章的事,我们先享受一下「内核有了地址空间抽象」这个里程碑。
 
 ---
 
 ### 参考
 
 - Intel SDM Vol.3(System Programming):4 级分页(PML4→PDPT→PD→PT)、`CR3`(PML4 物理基址)、**规范地址(canonical address)**——bit 47 为低/高半区分界、高位须符号扩展,这正是「PML4[256] 为内核半区入口」的由来。本地 PDF `document/reference/intel/SDM-Vol3A-*.pdf`,可用 `pdf-reader` 搜 "canonical" / "4-Level Paging" 复核。
-- 016 章 · [把物理页挂进虚拟地址:VMM](../002/):`AddressSpace` 的 map/unmap/translate 透传的就是 VMM 的 `pml4` 参数,`phys_to_virt` 自举换算也来自这一章。
-- 017 章 · [在页上切块:内核堆分配器](../003/):堆基址 `0xFFFF800000000000`(= PML4[256])的来历,这一章给出了它「为什么」的答案。
+- `05-memory/002` 章 · [把物理页挂进虚拟地址:VMM](../002/):`AddressSpace` 的 map/unmap/translate 透传的就是 VMM 的 `pml4` 参数,`phys_to_virt` 自举换算也来自这一章。
+- `05-memory/003` 章 · [在页上切块:内核堆分配器](../003/):堆基址 `0xFFFF800000000000`(= PML4[256])的来历,这一章给出了它「为什么」的答案。
 - 本 tag 源码:[address_space.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mm/address_space.hpp) / [address_space.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mm/address_space.cpp)、[main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/main.cpp)(Step 9 `AddressSpace::init_kernel()`,生产路径只此一句);测试 [test_address_space.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/test/unit/test_address_space.cpp)(host 镜像,MockPMM + TestVMM)、[test_address_space.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/test/test_address_space.cpp)(QEMU 11 场景,含跨空间隔离与 CR3 切换)。

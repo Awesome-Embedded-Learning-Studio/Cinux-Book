@@ -4,11 +4,11 @@ title: Lab 005 · AF_UNIX loopback echo:把 send/accept/recv 串成 round-trip
 
 # Lab 005 · AF_UNIX loopback echo:把 send/accept/recv 串成 round-trip
 
-> 005 章把 `AF_UNIX` 的源码过了一遍:`bind_path`/`connect_path` 加法虚函数、`UnixSocket` 两角色一类、`UnixRegistry` 内存命名空间、立即建连无握手。这个 lab 不发答案,只给路径——咱们按「读 → 改 → 跑」三步,亲手让 loopback echo round-trip 在 Book 工作树上端到端跑通,顺手验证几条 005 章声明的边界(send-before-accept、close 撤名、负路径错误码)。所有断言挂在 `kernel/test/test_socket.cpp` 现有测试上,不需要新写测试文件。
+> `17-net/005` 章把 `AF_UNIX` 的源码过了一遍:`bind_path`/`connect_path` 加法虚函数、`UnixSocket` 两角色一类、`UnixRegistry` 内存命名空间、立即建连无握手。这个 lab 不发答案,只给路径——咱们按「读 → 改 → 跑」三步,亲手让 loopback echo round-trip 在 Book 工作树上端到端跑通,顺手验证几条 `17-net/005` 章声明的边界(send-before-accept、close 撤名、负路径错误码)。所有断言挂在 `kernel/test/test_socket.cpp` 现有测试上,不需要新写测试文件。
 
 ## 你要确认的事
 
-开始之前,先在 Book 工作树(`/home/charliechen/Cinux`)上核这几样源码都在、行号对得上 005 章:
+开始之前,先在 Book 工作树(`/home/charliechen/Cinux`)上核这几样源码都在、行号对得上 `17-net/005` 章:
 
 1. `kernel/net/unix_socket.{cpp,hpp}` 存在,`UnixSocket` 类声明在 `unix_socket.hpp:109-182`。
 2. `kernel/net/unix_registry.cpp` 存在(注意:**没有** `unix_registry.hpp`,`UnixRegistry` 类声明在 `unix_socket.hpp:72-99`)。
@@ -22,11 +22,11 @@ ls kernel/syscall/sys_socket.cpp
 grep -n "test_unix_socket_loopback_echo" kernel/test/test_socket.cpp
 ```
 
-如果上面四样有对不上的(比如 `unix_registry.hpp` 不存在是正常的、`sys_socket.cpp` 不在 `sys/` 下),先回头核路径——005 章的链接全是 `kernel/syscall/sys_socket.cpp`,别被旧 dev note 误导。
+如果上面四样有对不上的(比如 `unix_registry.hpp` 不存在是正常的、`sys_socket.cpp` 不在 `sys/` 下),先回头核路径——`17-net/005` 章的链接全是 `kernel/syscall/sys_socket.cpp`,别被旧 dev note 误导。
 
 ## 第一步:读懂 loopback echo 的时序
 
-`test_unix_socket_loopback_echo`(`test_socket.cpp:294-344`)是 005 章的 punchline。先读一遍,搞清四方向的时序:
+`test_unix_socket_loopback_echo`(`test_socket.cpp:294-344`)是 `17-net/005` 章的 punchline。先读一遍,搞清四方向的时序:
 
 ```bash
 sed -n '294,344p' kernel/test/test_socket.cpp
@@ -35,14 +35,14 @@ sed -n '294,344p' kernel/test/test_socket.cpp
 重点看三处时序:
 
 - `client.connect_path("/unix_echo")` 在 `:302`,`accept` 在 `:313` —— connect 先、accept 后。
-- `client.send(msg, ...)` 在 `:308`,**在 accept 之前**。这是 005 章声明的「立即建连,send 可先于 accept」卖点。字节缓冲在 child 的 4 KB RX 环里,等 accept 把 child 取走。
+- `client.send(msg, ...)` 在 `:308`,**在 accept 之前**。这是 `17-net/005` 章声明的「立即建连,send 可先于 accept」卖点。字节缓冲在 child 的 4 KB RX 环里,等 accept 把 child 取走。
 - echo 回程 `child->send(rbuf, ...)` 在 `:330`,`client.recv(cbuf, ...)` 在 `:334` —— 反方向同一条 send→recv 链路。
 
 **思考题**(自己答,别往下翻答案):如果 `connect_path` 不是立即建连、而是像 TCP 那样阻塞到 accept,这个 send-before-accept 还能成立吗?为什么?(提示:child 此刻还没被 wire 出来。)
 
 ## 第二步:把 send-before-accept 这条边界亲手验证一次
 
-005 章声明「立即建连,send 可先于 accept」——别光信书,自己改一次测试看会不会破。**临时**改 `test_unix_socket_loopback_echo`,把 send 挪到 accept **之后**:
+`17-net/005` 章声明「立即建连,send 可先于 accept」——别光信书,自己改一次测试看会不会破。**临时**改 `test_unix_socket_loopback_echo`,把 send 挪到 accept **之后**:
 
 ```bash
 # 临时改动:把 :308 的 send 挪到 :313 的 accept 之后
@@ -57,7 +57,7 @@ sed -n '294,344p' kernel/test/test_socket.cpp
 # 看一眼 kernel/test/Makefile 或 README 找入口
 ```
 
-预期:测试**仍然过**——send-before-accept 只是 005 章强调的卖点(立即建连让 send 能先发),不是 round-trip 的必要条件。把 send 挪到 accept 之后,child 已经被取出来了,send 拷进 child 的环、recv 立刻取走,round-trip 一样通。这反过来证明 `AF_UNIX` 的连接模型比 TCP 宽松——TCP 得先 accept 才能 send,`AF_UNIX` 两个顺序都行。
+预期:测试**仍然过**——send-before-accept 只是 `17-net/005` 章强调的卖点(立即建连让 send 能先发),不是 round-trip 的必要条件。把 send 挪到 accept 之后,child 已经被取出来了,send 拷进 child 的环、recv 立刻取走,round-trip 一样通。这反过来证明 `AF_UNIX` 的连接模型比 TCP 宽松——TCP 得先 accept 才能 send,`AF_UNIX` 两个顺序都行。
 
 验完**务必还原**:
 
@@ -65,11 +65,11 @@ sed -n '294,344p' kernel/test/test_socket.cpp
 git checkout kernel/test/test_socket.cpp
 ```
 
-如果你忘了还原,后面跑全量测试会发现这个文件脏——005 章的源码真值是 send-before-accept,别把临时的验证改动留下来。
+如果你忘了还原,后面跑全量测试会发现这个文件脏——`17-net/005` 章的源码真值是 send-before-accept,别把临时的验证改动留下来。
 
 ## 第三步:验证 close 撤名这条链路
 
-005 章有一节专门澄清「早期 dev note 说 close 无 release 钩子 → 不撤名,这条对当前 Book 源码已过期」。release 钩子补上了(`socket.cpp:148-156`)→ `UnixSocket::close()`(`unix_socket.cpp:295-328`)真做 `UnixRegistry::unregister(path_)`(`:325`)。咱们验证一次「close 后重 bind 同名能成功」。
+`17-net/005` 章有一节专门澄清「早期 dev note 说 close 无 release 钩子 → 不撤名,这条对当前 Book 源码已过期」。release 钩子补上了(`socket.cpp:148-156`)→ `UnixSocket::close()`(`unix_socket.cpp:295-328`)真做 `UnixRegistry::unregister(path_)`(`:325`)。咱们验证一次「close 后重 bind 同名能成功」。
 
 但 `test_socket.cpp` 现有的测试没直接覆盖这条链路(`test_unix_socket_bind_duplicate` 只测同名 bind 失败,没测 close 后重 bind)。所以这个验证靠**读源码 + 推理**,不写新测试:
 
@@ -98,7 +98,7 @@ sed -n '346,360p' kernel/test/test_socket.cpp
 
 ## 第五步:核对 copy_from_user 的 陷阱
 
-005 章有一节讲 ring0 测试内核喂不了用户地址给 `sys_bind`,所以 echo 测试走 `UnixSocket` 直接方法。亲手核一遍这个 陷阱 的根源:
+`17-net/005` 章有一节讲 ring0 测试内核喂不了用户地址给 `sys_bind`,所以 echo 测试走 `UnixSocket` 直接方法。亲手核一遍这个 陷阱 的根源:
 
 ```bash
 sed -n '60,62p' kernel/arch/x86_64/paging_config.hpp
@@ -115,9 +115,9 @@ sed -n '66,79p' kernel/arch/x86_64/user_access.hpp
 
 ## 收尾:把 005 章的声明逐条对上
 
-跑完上面五步,回头逐条核 005 章的「咱们要点亮什么」七条,每条都能在源码或测试里找到证据:
+跑完上面五步,回头逐条核 `17-net/005` 章的「咱们要点亮什么」七条,每条都能在源码或测试里找到证据:
 
-| 005 章声明 | 证据位置 |
+| `17-net/005` 章声明 | 证据位置 |
 |---|---|
 | 加法非破坏:`bind_path`/`connect_path` 默认 NotImplemented | `socket.hpp:118-119` 声明、`socket.cpp:33-38` 默认实现 |
 | 两角色一类:listening/connected bool 切换 | `unix_socket.hpp:159-163` 状态字段 |
@@ -127,12 +127,12 @@ sed -n '66,79p' kernel/arch/x86_64/user_access.hpp
 | 阻塞抄 prepare_to_wait | `unix_socket.cpp:268-280`(recv 段)、`:174-187`(accept 段) |
 | 加锁顺序无 AB-BA | `unix_socket.cpp:57-58`(bind 不嵌套)、`:79-87`(connect 先查 registry 放掉) |
 
-七条全对上,005 章的「教程即验证」才算闭环。如果某条对不上(比如 grep 不到 `prepare_to_wait`、或者 `bind_path` 的行号偏了),回头读 005 章对应小节,看是源码演进了还是章节写错了——教程是 tag-bound 的,以当前工作树的源码真值为准。
+七条全对上,`17-net/005` 章的「教程即验证」才算闭环。如果某条对不上(比如 grep 不到 `prepare_to_wait`、或者 `bind_path` 的行号偏了),回头读 `17-net/005` 章对应小节,看是源码演进了还是章节写错了——教程是 tag-bound 的,以当前工作树的源码真值为准。
 
 ### 进一步的折腾(可选)
 
 - 把 `kRxSize`(`unix_socket.hpp:155`)从 4096 改成 8,跑 echo 测试——4 字节消息还是能过,但 echo 回程 + 任何稍大的 payload 就会撞环满的 `WouldBlock` 路径(`unix_socket.cpp:227-233`)。这能让你亲手触发 send 侧流控的 follow-up 边界。
 - 读 `test_socketpair_roundtrip`(`test_socket.cpp:500-524`)和 `pair_with`(`unix_socket.cpp:370-385`),对比 `pair_with` 和 `connect_path` 的差别——`pair_with` 是 connect_path 的 peer wiring 减掉 registry/accept 队列那两步,因为 socketpair 两端是同时造的、没有 server/listener。
-- 读 `poll_events`(`unix_socket.cpp:391-429`),对比 listening 和 connected 两种角色报的就绪掩码差别(listening 看 accept 队列、connected 看 RX 环 + `POLLHUP`)。这跟 004 `TcpSocket` 的 poll 是镜像。
+- 读 `poll_events`(`unix_socket.cpp:391-429`),对比 listening 和 connected 两种角色报的就绪掩码差别(listening 看 accept 队列、connected 看 RX 环 + `POLLHUP`)。这跟 `17-net/004` `TcpSocket` 的 poll 是镜像。
 
-这些折腾不要求做完,挑一个顺眼的深挖。005 章主线是 bind/connect/echo round-trip,这几个延伸是「顺手吃下的扩展 ABI」的入口。
+这些折腾不要求做完,挑一个顺眼的深挖。`17-net/005` 章主线是 bind/connect/echo round-trip,这几个延伸是「顺手吃下的扩展 ABI」的入口。

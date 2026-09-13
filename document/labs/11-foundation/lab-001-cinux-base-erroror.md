@@ -48,7 +48,7 @@ grep -rn 'to_errno' kernel/syscall/ | head
 - 在内核测试里(`kernel/test/`)加一条 `mkdir("/no/such/dir/child", ...)`,或者直接在 shell 里 `mkdir` 一个父目录不存在的路径;
 - 观察串口日志:你应该看到 `[SYS_MKDIR] Parent directory not found ...`,然后 syscall 返回 `-to_errno(Error::NotFound)` 即 `-ENOENT`。
 
-**对照**:在 035(本弧之前)做同样的事,你只能看到一句含糊的失败和 `-1`;现在错误有了名字(`NotFound`),并且用户态收到的是标准 `-ENOENT`,`strerror(errno)` 能直接说出 "No such file or directory"。
+**对照**:在 `10-multitasking/003`(本弧之前)做同样的事,你只能看到一句含糊的失败和 `-1`;现在错误有了名字(`NotFound`),并且用户态收到的是标准 `-ENOENT`,`strerror(errno)` 能直接说出 "No such file or directory"。
 
 ### 4.(可选)体会 `value()` 的 assert
 

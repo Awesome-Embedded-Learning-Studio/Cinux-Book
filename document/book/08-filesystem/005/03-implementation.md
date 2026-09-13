@@ -39,7 +39,7 @@ bool Ext2::read_block(uint32_t block_num) {
 }
 ```
 
-`ensure_dma_buffer` 懒分配:第一次用时从 PMM 要一页、用 VMM 映射到固定的 `EXT2_DMA_VIRT_BASE`、清零。之后每次 `read_block` 都把目标块 DMA 进**这同一页**,内核再用 `dma_buf_virt_` 读它。`block_num`(ext2 块号)换算成 LBA:一块 = `sectors_per_block_` 个扇区(块 1KB = 2 扇区,4KB = 8 扇区)。然后调 001 的 `ahci.read(port, lba, sectors, phys)`——这一章的块 I/O 全靠它。
+`ensure_dma_buffer` 懒分配:第一次用时从 PMM 要一页、用 VMM 映射到固定的 `EXT2_DMA_VIRT_BASE`、清零。之后每次 `read_block` 都把目标块 DMA 进**这同一页**,内核再用 `dma_buf_virt_` 读它。`block_num`(ext2 块号)换算成 LBA:一块 = `sectors_per_block_` 个扇区(块 1KB = 2 扇区,4KB = 8 扇区)。然后调 `08-filesystem/001` 的 `ahci.read(port, lba, sectors, phys)`——这一章的块 I/O 全靠它。
 
 这个「单缓冲」设计有个必须时刻记住的约束:**缓冲里一次只有一块**。你读块 A 拿到一个指针表,然后读块 B,块 A 的内容就没了。所以单间接块的读法是「读间接块 → 立刻从缓冲里取出目标块号 → 再读目标块」,中间不能假定缓冲还留着间接块。调试现场会专门讲这个。
 
@@ -94,7 +94,7 @@ bool Ext2::read_disk_inode(uint32_t ino, Ext2Inode& out) {
 
 三个关键约定:inode 号是 **1-based**(所以 `ino-1`);`bg_inode_table` 给的是这组 inode 表的**起始块**;一个 inode 可能横跨块边界(`within_block + sizeof(Inode) > block_size`),代码里做了边界检查拒绝跨块(实际 inode 128B、块 ≥1KB,基本不跨,但防一手)。这道数学是 ext2 的「地址翻译」核心,host 单测专门验它。
 
-inode 读出来后,要么直接用(如 lookup 中间步骤),要么进缓存。`get_cached_inode` 维护一个 64 槽的 inode 缓存:命中直接返回、未命中读盘并填、满了按简单 FIFO 驱逐(slot 0 永远留给根)。`populate_vfs_inode` 把磁盘 inode 翻译成 003 的 VFS inode:按 `i_mode` 的类型位决定 `InodeType`、挂上对应的 InodeOps(目录挂 `ext2_dir_ops`、文件挂 `ext2_file_ops`),`fs_private` 指回缓存条目(这样 InodeOps 回调能找回磁盘 inode)。这个缓存很简陋——线性搜、FIFO 驱逐,**不是** Linux 的 inode/dentry cache,别拔高。
+inode 读出来后,要么直接用(如 lookup 中间步骤),要么进缓存。`get_cached_inode` 维护一个 64 槽的 inode 缓存:命中直接返回、未命中读盘并填、满了按简单 FIFO 驱逐(slot 0 永远留给根)。`populate_vfs_inode` 把磁盘 inode 翻译成 `08-filesystem/003` 的 VFS inode:按 `i_mode` 的类型位决定 `InodeType`、挂上对应的 InodeOps(目录挂 `ext2_dir_ops`、文件挂 `ext2_file_ops`),`fs_private` 指回缓存条目(这样 InodeOps 回调能找回磁盘 inode)。这个缓存很简陋——线性搜、FIFO 驱逐,**不是** Linux 的 inode/dentry cache,别拔高。
 
 ### 找文件:逐分量遍历 + 目录项扫描
 
@@ -116,7 +116,7 @@ Inode* Ext2::lookup(const char* path) {
 }
 ```
 
-这和 003 ramdisk 的「扁平 lookup」完全不同——ext2 的 lookup 是**真正的多级目录遍历**,每钻一级调一次 `lookup_in_dir`。`lookup_in_dir` 在一个目录的数据块里扫目录项找名字:
+这和 `08-filesystem/003` ramdisk 的「扁平 lookup」完全不同——ext2 的 lookup 是**真正的多级目录遍历**,每钻一级调一次 `lookup_in_dir`。`lookup_in_dir` 在一个目录的数据块里扫目录项找名字:
 
 ```cpp
 uint32_t Ext2::lookup_in_dir(uint32_t dir_ino, const char* name, uint32_t name_len) {
@@ -168,6 +168,6 @@ int64_t ext2_file_read(const Inode* inode, uint64_t offset, void* buf, uint64_t 
 
 三个细节。第一,**file_block → disk_block 的翻译**:前 12 块直接查 `i_block[]`;第 13 块起要走单间接——先读 `i_block[12]` 这块(它本身是一堆块指针),从中取第 `idx` 项才是真正的数据块号。这正是「单缓冲」约束发挥作用的地方:读间接块拿到指针表后,必须**立刻**取出目标块号(因为紧接着的 `read_block(disk_block)` 会覆盖缓冲)。第二,**稀疏文件**:`disk_block == 0` 表示这块是「洞」(文件里没分配的块),ext2 规定读洞返回零,代码里老老实实填零。第三,双间接、三间接**没实现**(注释明说「small disks」)——4MB 测试盘上的小文件用不到,但这是个诚实的能力边界,别拔成支持大文件。
 
-`ext2_dir_readdir`(列目录的 InodeOps)逻辑类似:index 0/1 返回 `.`/`..`,之后扫目录数据块、按 `rec_len` 步进数到第 `index-2` 个真实条目,把名字拷出来——和 003 ramdisk 的 readdir 同一套「靠 offset 当下标、一条条吐」的接口。
+`ext2_dir_readdir`(列目录的 InodeOps)逻辑类似:index 0/1 返回 `.`/`..`,之后扫目录数据块、按 `rec_len` 步进数到第 `index-2` 个真实条目,把名字拷出来——和 `08-filesystem/003` ramdisk 的 readdir 同一套「靠 offset 当下标、一条条吐」的接口。
 
 ## 调试现场

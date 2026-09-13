@@ -89,11 +89,11 @@ enter_long_mode:
     ljmp $0x18, $long_mode_entry # ⑥ 远跳到 64 位代码段
 ```
 
-这里有四处必须留意,逐个过一遍。`EFER` 是个 MSR(Model-Specific Register),地址 `0xC0000080`,不能用 `mov`,得用 `rdmsr`/`wrmsr`——读时结果落在 `edx:eax`、写时也从 `edx:eax`,操作前把地址放进 `ecx`,而 `LME` 是 bit 8,即 `0x100`。顺序则是死的:PAE(`CR4`)必须在 `EFER.LME` 之前、`EFER.LME` 必须在 `CR0.PG` 之前,`CR0.PG` 置位那一拍长模式才真正激活,这就是 Intel 的固定序列(详见 SDM §9.8.1.1)。`CR0 |= 0x80000001` 这步同时置 PG(bit 31)和保留 PE(bit 0),注意用 `orl` 而非 `movl`——`CR0` 里还有别的控制位(比如 cache 相关),直接 `movl $...` 会把它们清掉,这和 002 置 PE 时用 `orb` 是一个道理。最后还是那条远跳:`CR0.PG` 置位后 CPU 已在长模式,可 `CS` 还指向 32 位段,和 002 进 PM 时一样,必须一条远跳带着新的 64 位代码段选择子(`0x18`)去刷新 `CS`,而紧跟的 `.code64` 则告诉汇编器从 `long_mode_entry` 起按 64 位编码。
+这里有四处必须留意,逐个过一遍。`EFER` 是个 MSR(Model-Specific Register),地址 `0xC0000080`,不能用 `mov`,得用 `rdmsr`/`wrmsr`——读时结果落在 `edx:eax`、写时也从 `edx:eax`,操作前把地址放进 `ecx`,而 `LME` 是 bit 8,即 `0x100`。顺序则是死的:PAE(`CR4`)必须在 `EFER.LME` 之前、`EFER.LME` 必须在 `CR0.PG` 之前,`CR0.PG` 置位那一拍长模式才真正激活,这就是 Intel 的固定序列(详见 SDM §9.8.1.1)。`CR0 |= 0x80000001` 这步同时置 PG(bit 31)和保留 PE(bit 0),注意用 `orl` 而非 `movl`——`CR0` 里还有别的控制位(比如 cache 相关),直接 `movl $...` 会把它们清掉,这和 `01-boot/002` 置 PE 时用 `orb` 是一个道理。最后还是那条远跳:`CR0.PG` 置位后 CPU 已在长模式,可 `CS` 还指向 32 位段,和 `01-boot/002` 进 PM 时一样,必须一条远跳带着新的 64 位代码段选择子(`0x18`)去刷新 `CS`,而紧跟的 `.code64` 则告诉汇编器从 `long_mode_entry` 起按 64 位编码。
 
 ## 4. 扩展 GDT:64 位代码段的关键是 L 位
 
-长模式需要一个 **L 位 = 1** 的代码段描述符。我们在 [stage2.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/stage2.S) 的 GDT 里,在 002 那三项(null/code32/data32)后面又加了两项:
+长模式需要一个 **L 位 = 1** 的代码段描述符。我们在 [stage2.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/stage2.S) 的 GDT 里,在 `01-boot/002` 那三项(null/code32/data32)后面又加了两项:
 
 ```asm
 gdt_code64:
@@ -107,11 +107,11 @@ gdt_data64:
 - `access = 0x9A`(`1001 1010`):P=1、DPL=0、S=1、code/exec/read——和 32 位代码段一样。
 - `byte[6] = 0xAF`:高 4 位是 flags `1010`——**G=1、D/B=0、L=1**。这里的 `L=1` 就是"长模式代码段"的标志;同时 `D=0`(在 L=1 时 D 必须为 0,这是 Intel 的规定,否则触发 #GP)。低 4 位 `0xF` 是 limit 19:16。
 
-选择子也相应扩出来:`0x08`/`0x10` 还是 32 位那两个(002 已用),新增 `0x18` = 64 位代码、`0x20` = 64 位数据。GDT 从 3 项变 5 项。
+选择子也相应扩出来:`0x08`/`0x10` 还是 32 位那两个(`01-boot/002` 已用),新增 `0x18` = 64 位代码、`0x20` = 64 位数据。GDT 从 3 项变 5 项。
 
 `gdt64_ptr` 是给长模式 reload 用的 GDTR。这里有个 ELF 的小坑:Stage2 是按 32 位 ELF(`elf_i386`)链接的,如果直接用 `.quad gdt` 写 64 位 base,会触发一个 32 位 ELF 不支持的 64 位重定位。所以代码用 `.long gdt` + `.long 0` 两段拼出 64 位 base——GDT 在低地址,高 32 位是 0,这样既绕开了重定位,又给出了正确的 64 位基址。
 
-> 还是要提醒:这张 5 项 GDT 仍是 **bootloader 的**。后面 big kernel(010)会建它自己完整的 GDT(带 TSS、带用户段)。两者的选择子数值虽然部分重合(都有 0x08/0x10),但不是同一张表。读到这里别把它们混为一谈。
+> 还是要提醒:这张 5 项 GDT 仍是 **bootloader 的**。后面 big kernel(`03-big-kernel/002`)会建它自己完整的 GDT(带 TSS、带用户段)。两者的选择子数值虽然部分重合(都有 0x08/0x10),但不是同一张表。读到这里别把它们混为一谈。
 
 ## 5. long_mode_entry:64 位段、64 位栈,debugcon 打 'L'
 
@@ -130,4 +130,4 @@ long_mode_entry:
     jmp .lm_halt
 ```
 
-进了长模式,段寄存器重新刷成 `0x20`(其实长模式下数据段的 base/limit 基本被忽略,但 `SS` 必须是有效段,否则压栈会 #GP)。`rsp` 用 `movabsq` 装一个 64 位立即数(长模式栈用 64 位 `rsp`,不是 32 位的 `esp`)。最后往 `0xE9` 吐一个 `'L'`——和 002 的 `'P'` 用的是同一个 debugcon 机制。
+进了长模式,段寄存器重新刷成 `0x20`(其实长模式下数据段的 base/limit 基本被忽略,但 `SS` 必须是有效段,否则压栈会 #GP)。`rsp` 用 `movabsq` 装一个 64 位立即数(长模式栈用 64 位 `rsp`,不是 32 位的 `esp`)。最后往 `0xE9` 吐一个 `'L'`——和 `01-boot/002` 的 `'P'` 用的是同一个 debugcon 机制。

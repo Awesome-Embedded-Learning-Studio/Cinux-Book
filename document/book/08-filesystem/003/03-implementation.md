@@ -138,7 +138,7 @@ int FDTable::alloc(Inode* inode, OpenFlags flags) {
 }
 ```
 
-0/1/2 留给 stdin/stdout/stderr——这是 Unix 的老规矩,shell 那边(004)会用到。这一章还只有一张**全局**的 FDTable(`g_global_fd_table()`),不是每进程一张;头文件注释明说了「later per-process」——等进程隔离成熟了再拆。如实说,别拔高成每进程独立。
+0/1/2 留给 stdin/stdout/stderr——这是 Unix 的老规矩,shell 那边(`08-filesystem/004`)会用到。这一章还只有一张**全局**的 FDTable(`g_global_fd_table()`),不是每进程一张;头文件注释明说了「later per-process」——等进程隔离成熟了再拆。如实说,别拔高成每进程独立。
 
 ### ramdisk 变成一个真正的文件系统
 
@@ -185,6 +185,6 @@ Inode* Ramdisk::lookup(const char* path) {
 }
 ```
 
-注意这里的诚实边界:lookup 是**扁平**的线性搜,把整个 ramdisk 当成一个目录——它不解析多级路径(没有「进 etc/ 再找 passwd」的逐级遍历,而是直接拿 `etc/passwd` 这种带 `/` 的名字整体比)。`readdir` 也一样:它把整盘当一个目录,先吐 `.`、`..`,再依次吐所有文件条目。这对「initrd 就是一堆平铺文件」够用,但别拔成层级目录树——那要等 005 真文件系统。
+注意这里的诚实边界:lookup 是**扁平**的线性搜,把整个 ramdisk 当成一个目录——它不解析多级路径(没有「进 etc/ 再找 passwd」的逐级遍历,而是直接拿 `etc/passwd` 这种带 `/` 的名字整体比)。`readdir` 也一样:它把整盘当一个目录,先吐 `.`、`..`,再依次吐所有文件条目。这对「initrd 就是一堆平铺文件」够用,但别拔成层级目录树——那要等 `08-filesystem/005` 真文件系统。
 
 ## 调试现场

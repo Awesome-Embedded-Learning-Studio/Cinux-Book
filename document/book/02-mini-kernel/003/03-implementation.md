@@ -6,7 +6,7 @@ title: 03 · 代码路线:GDT、IDT、ISR stub、伪错误码、C handler、门�
 
 ## 1. 内核自己的 GDT:换掉 bootloader 的临时表
 
-[gdt.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/arch/x86_64/gdt.cpp) 建一张三项的扁平 GDT——空段、64 位代码段、64 位数据段,和 003 进长模式那张是同一种"扁平模型",只是现在由内核自己拥有:
+[gdt.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/arch/x86_64/gdt.cpp) 建一张三项的扁平 GDT——空段、64 位代码段、64 位数据段,和 `01-boot/003` 进长模式那张是同一种"扁平模型",只是现在由内核自己拥有:
 
 ```cpp
 s_gdt[GDT_NULL_INDEX]  = make_gdt_entry(0, 0,       0,    0);     // 空
@@ -16,7 +16,7 @@ s_gdt[GDT_DATA64_INDEX]= make_gdt_entry(0, 0xFFFFF, 0x92, 0x0C);   // 数据:acc
 
 `0x9A` 是"present + ring0 + 代码段 + 可读",`0x0A` 的高位 flags 是 `G=1, D=0, L=1`(L 位=1 才是 64 位代码段);数据段把"可执行"去掉得 `0x92`。base 全 0、limit 全 1——扁平,段透明。选择子 `SEGMENT_CODE64 = 1*8 = 0x08`、`SEGMENT_DATA64 = 2*8 = 0x10`。
 
-`gdt_init` 把表填好后,`lgdt` 加载,然后用 002 那套"压目标 CS + 压返回地址 + `lretq`"的远返回把 `CS` 切到 `0x08`,再 `mov` 重载 `DS/ES/FS/GS/SS`。这套刷新流程 002 讲过原因(长模式不能 `mov cs`),这里只是内核在自己的地址空间里重做一遍。
+`gdt_init` 把表填好后,`lgdt` 加载,然后用 `01-boot/002` 那套"压目标 CS + 压返回地址 + `lretq`"的远返回把 `CS` 切到 `0x08`,再 `mov` 重载 `DS/ES/FS/GS/SS`。这套刷新流程 `01-boot/002` 讲过原因(长模式不能 `mov cs`),这里只是内核在自己的地址空间里重做一遍。
 
 ## 2. IDT:给异常一个"入口地址表"
 

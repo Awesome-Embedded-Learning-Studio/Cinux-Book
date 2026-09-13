@@ -4,7 +4,7 @@ title: 01 · 导引:点亮什么 + 还掉 L4 分派的债
 
 # 导引:点亮什么 + 还掉 L4 分派的债
 
-> 上一章(058)把协议栈立到了 `ping` 能通——以太网、ARP、IPv4、ICMP 全跑起来了。可那一章末尾留了句诚实话:「这一步只到 ICMP,TCP、UDP、socket API 都还没有」。不止没有——IPv4 收到一个包之后,**L4 分派是硬编码的**:`if (ip.proto == ICMP) icmp.handle(...)`,旁边还挂着一句 TODO「proto→handler table for UDP/TCP」。这一章加 UDP,顺手把这笔债还了:把 IPv4 的 L4 分派从「写死 ICMP」升级成一张 **proto→handler 表**(ICMP 自动迁进去,UDP 挂在同一个机制上),再立 UDP 这个协议——封装、伪首部校验和、端口多路复用。沿用上一章那套「底子优先」:先在 loopback 上把 UDP round-trip 端到端证明对,再去真 e1000 上发一发。
+> 上一章(`17-net/002`)把协议栈立到了 `ping` 能通——以太网、ARP、IPv4、ICMP 全跑起来了。可那一章末尾留了句诚实话:「这一步只到 ICMP,TCP、UDP、socket API 都还没有」。不止没有——IPv4 收到一个包之后,**L4 分派是硬编码的**:`if (ip.proto == ICMP) icmp.handle(...)`,旁边还挂着一句 TODO「proto→handler table for UDP/TCP」。这一章加 UDP,顺手把这笔债还了:把 IPv4 的 L4 分派从「写死 ICMP」升级成一张 **proto→handler 表**(ICMP 自动迁进去,UDP 挂在同一个机制上),再立 UDP 这个协议——封装、伪首部校验和、端口多路复用。沿用上一章那套「底子优先」:先在 loopback 上把 UDP round-trip 端到端证明对,再去真 e1000 上发一发。
 >
 > punchline 是 UDP 数据报真的能往返——loopback 上一个 listener 收到 `send` 出去的包、校验和过、端口对、payload 对;e1000 上能把 UDP 包发到 QEMU 的 SLIRP 网关。一条诚实的边界先说在前头:这一章的 UDP 还**没有 socket API**(`socket`/`bind`/`recvfrom` 那一套留到后面)——验证靠内核侧的测试接口和 host 单测,不是用户态能 `socket()` 发 UDP。真 socket 留下一章的事;这一章把协议层做对。
 

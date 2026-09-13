@@ -16,7 +16,7 @@ title: Lab 002 · 窗口管理器:鼠标、事件队列与那条 #GP
 
 ## 前置条件
 
-- 001 通过;理解 PS/2 键盘(014)、PIT(011)、双缓冲画布(001)、heap/VMM。
+- 001 通过;理解 PS/2 键盘(`03-big-kernel/008`)、PIT(011)、双缓冲画布(001)、heap/VMM。
 - 能用 `CINUX_GUI=ON` 构建:`cmake -B build -DCINUX_GUI=ON && cmake --build build`。
 - 读完主书 [002 · 窗口管理器](../../book/09-gui/002/) 的「代码路线」和「调试现场」两节。`#GP` 排错任务的真因和修法都在那两节里,本 lab 只做推理演练,不抄答案。
 
@@ -54,7 +54,7 @@ P5:  b0=0x09  b1=0x00  b2=0x00      (左键按下,无位移)
 `EventQueue` 是 128 容量的环形缓冲,`head_/tail_` 两个游标,生产端是输入 IRQ,消费端是 PIT 滴答回调。回答:
 
 - 满了怎么办?为什么选择「静默丢」而不是阻塞或报错?(提示:生产端在中断上下文里,绝不能阻塞。)
-- 为什么要一个统一排空点?鼠标和键盘原本各管各的,窗口管理器为什么不想关心「事件是谁来的」?这个「生产/消费分离」和 014 的键盘 ring buffer 是什么关系?
+- 为什么要一个统一排空点?鼠标和键盘原本各管各的,窗口管理器为什么不想关心「事件是谁来的」?这个「生产/消费分离」和 `03-big-kernel/008` 的键盘 ring buffer 是什么关系?
 - 较真点。头文件注释把 `EventQueue` 称作 single-producer / single-consumer。但生产站点明明有两个:IRQ1(键盘双路分发)和 IRQ12(鼠标)。它凭什么还能安全工作?请说清楚:它靠的不是无锁原子操作,而是「生产端和消费端都发生在中断上下文、靠中断处理的串行化」换来的简化。这是个够用的简化,但别把它当成可以随便放宽的硬并发保证——这正是主书「事件队列」一节特意点破的地方。
 
 > 对应 host 测:`test/unit/test_event_queue.cpp` 的 `"event_queue: full buffer drops event"`、`"event_queue: wrap-around fill-drain-refill"`、`"event_queue: FIFO preserved across wrap-around"`。
@@ -101,7 +101,7 @@ P5:  b0=0x09  b1=0x00  b2=0x00      (左键按下,无位移)
   RSP   = 0xFFFF800008047EF8   ...
 ```
 
-诡异的是:崩溃点不在鼠标代码里,而在键盘的 IRQ1 handler。我们这一章动的是鼠标,键盘 014 就写好了、一直好好的。`CINUX_GUI=OFF` 基线全过。
+诡异的是:崩溃点不在鼠标代码里,而在键盘的 IRQ1 handler。我们这一章动的是鼠标,键盘 `03-big-kernel/008` 就写好了、一直好好的。`CINUX_GUI=OFF` 基线全过。
 
 请你独立写出**至少三条**排查假设,每条配验证手段,并指出真因。重点要把这笔**栈账**算清楚:
 
@@ -118,7 +118,7 @@ call handler 压入返回地址:                                8 字节
 - `176 ≡ ? (mod 16)`。System V AMD64 ABI 要求进入函数的瞬间 `RSP ≡ 8 (mod 16)`(即 `(RSP+8)` 是 16 的倍数)。176 这个数满足吗?(不满足:176 是 16 的倍数,意味着 handler 入口 `RSP ≡ 0`,差了 8 字节。)
 - handler 内部 `push %rbx; sub $0x20,%rsp` 后,落到那条 `movaps %xmm0,(%rsp)` 时地址对不对齐?`movaps` 要求 16 字节对齐,不对齐就 `#GP`。
 - 要补多少?上面那笔账算到 **176**(修复前,`≡ 0 (mod 16)`,就是错的);在压完 GPR 后、`call` 前 `push $0` 垫 8 字节 padding,账变成 40 + 128 + 8(padding) + 8(call) = **184**(修复后),`184 ≡ 8 (mod 16)` ✓。这 8 字节从哪进、`InterruptFrame*` 指针为什么要 `leaq 8(%rsp)` 跳过它、恢复时为什么要先 `addq $8` 再 pop GPR——主书「调试现场」有完整修法,这里只要求你算对账、说清为什么。
-- 为什么现在才炸?这个 bug 一直在那,为什么 014 写键盘时没炸?(提示:以前的 IRQ handler 没让编译器生成 `movaps`;直到这一章给键盘 handler 塞了 GUI 双路分发、触发了 SSE 优化,才把潜伏的对齐问题顶出来。)为什么是鼠标 `init()` 操作 PS/2 控制器触发了键盘的 IRQ1?(8042 命令的副作用产生虚假 IRQ1。)
+- 为什么现在才炸?这个 bug 一直在那,为什么 `03-big-kernel/008` 写键盘时没炸?(提示:以前的 IRQ handler 没让编译器生成 `movaps`;直到这一章给键盘 handler 塞了 GUI 双路分发、触发了 SSE 优化,才把潜伏的对齐问题顶出来。)为什么是鼠标 `init()` 操作 PS/2 控制器触发了键盘的 IRQ1?(8042 命令的副作用产生虚假 IRQ1。)
 
 <details>
 <summary>参考方向(自己先写再看)</summary>

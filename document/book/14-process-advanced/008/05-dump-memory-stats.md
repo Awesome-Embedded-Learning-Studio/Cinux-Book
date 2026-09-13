@@ -4,7 +4,7 @@ title: 05 · dump_memory_stats:四条正交维度 + PF delta(rate 而非 total)
 
 # dump_memory_stats:四条正交维度 + PF delta(rate 而非 total)
 
-`dump_memory_stats`([diagnostics.cpp:26](../../../kernel/mm/diagnostics.cpp#L26))把「内存压力」拆成 PMM/slab/PageCache/#PF 四条正交数据维度(timestamp 行只是时间轴不算数据维度),每次同步报全,后来追加第 5 条 ext2 I/O,一条串口日志就是曲线上的一个点:
+`dump_memory_stats`(`kernel/mm/diagnostics.cpp:26`)把「内存压力」拆成 PMM/slab/PageCache/#PF 四条正交数据维度(timestamp 行只是时间轴不算数据维度),每次同步报全,后来追加第 5 条 ext2 I/O,一条串口日志就是曲线上的一个点:
 
 ```cpp
 // kernel/mm/diagnostics.cpp:26-74(节选关键行)
@@ -43,14 +43,14 @@ void dump_memory_stats() {
 - **`[MEM] PMM: free/total pages`**:物理内存余量。看是不是快 OOM。
 - **`[MEM] Slab: total_slab_pages`**:内核对象分配器占页。看是不是泄漏膨胀。
 - **`[MEM] PageCache: cached_pages + hit/miss`**:文件页缓存占用与命中率。grow-only bug 在这里显形。
-- **`[MEM] #PF: 累计缺页数 + (+Δ since last dump)`**:这是关键设计——用 `static uint64_t last_pf`([diagnostics.cpp:53](../../../kernel/mm/diagnostics.cpp#L53))跨调用算 delta。
+- **`[MEM] #PF: 累计缺页数 + (+Δ since last dump)`**:这是关键设计——用 `static uint64_t last_pf`(`kernel/mm/diagnostics.cpp:53`)跨调用算 delta。
 - **`[MEM] I/O: ext2 read 累计 reads/bytes/ms + delta`**:后来追加的第 5 行,把「内存压力」扩展到「I/O 时间归属」——卡顿到底是 demand-paging 的 I/O 时间,还是 syscall/TCG 翻译开销。
 
 ## profiling 靠趋势不靠单点——static last_pf 是核心设计
 
 #PF 用 delta 而不是单调总量,是这套设施的灵魂。dev note 那条 31s g++ 编译曲线里,PF 累计 31117 是个无意义的总数——「累计缺页 31117 次」告诉你什么?什么都没告诉你。但 sec 20 的 **+18272** 一眼定位到 cc1plus 加载 libstdc++ 的 demand paging 爆发——「这一秒发生了 18272 次缺页」才是诊断信号。单点采样只能告诉你「现在多少」,趋势采样才能告诉你「**这一秒发生了什么**」。
 
-这条铁律:**任何 ad-hoc profiling 设施的 counter 必须配 delta**,否则曲线是平的、读不出工作负载阶段。注释([diagnostics.cpp:50-52](../../../kernel/mm/diagnostics.cpp#L50))把这个 static 的不变量写得很清楚:
+这条铁律:**任何 ad-hoc profiling 设施的 counter 必须配 delta**,否则曲线是平的、读不出工作负载阶段。注释(`kernel/mm/diagnostics.cpp:50`)把这个 static 的不变量写得很清楚:
 
 > Delta vs the previous dump so the periodic stats thread's log shows a PF rate, not just a monotonic total. static: dump_memory_stats has no concurrent callers in practice (panic once + the single stats thread).
 
@@ -58,7 +58,7 @@ void dump_memory_stats() {
 
 ## PF 计数器本身:多核下原子是底线
 
-PF 计数器在 [page_fault.cpp:62](../../../kernel/arch/x86_64/page_fault.cpp#L62):
+PF 计数器在 `kernel/arch/x86_64/page_fault.cpp:62`:
 
 ```cpp
 // kernel/arch/x86_64/page_fault.cpp:59-75

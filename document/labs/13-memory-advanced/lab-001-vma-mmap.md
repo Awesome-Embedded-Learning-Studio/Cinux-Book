@@ -13,7 +13,7 @@ title: Lab 001 · VMA 与 mmap 验证
 1. `AddressSpace` 有 VMA 账本(`LinkedListVMAStore`),`vmas()` 可访问;
 2. `mmap`/`munmap`/`mprotect` 三个 syscall 在(6 参,注册到 syscall 表);
 3. execve 段 + 用户栈都注册了 VMA(`init.cpp` 的 `kStackVma`);
-4. run-kernel-test 从 039 的 705 涨到 721。
+4. run-kernel-test 从 `12-storage/001` 的 705 涨到 721。
 
 ## 步骤
 

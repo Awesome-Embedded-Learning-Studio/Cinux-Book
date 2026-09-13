@@ -14,7 +14,7 @@ title: 03 · AT&T↔Intel 速查表与 GAS 实战
 
 1. **全要素对照表**——寄存器、立即数、内存、寻址、伪指令、宏,每行配 Cinux 真实例子。重点啃透那张 GDT 描述符 `.quad 0x00AF9A000000FFFF` 是怎么从一个 access byte `0x9A` + flags `0xAF` 拼出来的。
 2. **最小编译回路**——照着 `boot/CMakeLists.txt` 的真实写法,把一条 `.S` 变成可链接的 `.o`、再变成裸 `.bin`。顺带把两个最常见的报错(`suffix disagreement` / `relocation truncated`)的根因讲清楚。
-3. **读 `mbr.S` 收官**——用对照表逐行解释前半段。`mbr.S` 里 BIOS 怎么跳进来、段怎么理顺、怎么读盘,细节正文 [001 · 实模式引导](../../book/01-boot/001-boot-real-mode.md) 已讲透,这里只做"对照表实战"的演示。
+3. **读 `mbr.S` 收官**——用对照表逐行解释前半段。`mbr.S` 里 BIOS 怎么跳进来、段怎么理顺、怎么读盘,细节正文 [001 · 实模式引导](../../book/01-boot/001/) 已讲透,这里只做"对照表实战"的演示。
 
 ## 一、AT&T ↔ Intel 全要素对照表
 
@@ -54,7 +54,7 @@ title: 03 · AT&T↔Intel 速查表与 GAS 实战
 
 ### 啃透那张 GDT 描述符:`.quad 0x00AF9A000000FFFF`
 
-对照表里有一行特别值得展开,因为它把"位运算 + 字段布局 + 两种语法"全揉在了一个 64 位数里——这正是正文 [002 · 进入保护模式](../../book/01-boot/002-boot-gdt-protected.md) 要建 GDT 时绕不开的东西。
+对照表里有一行特别值得展开,因为它把"位运算 + 字段布局 + 两种语法"全揉在了一个 64 位数里——这正是正文 [002 · 进入保护模式](../../book/01-boot/002/) 要建 GDT 时绕不开的东西。
 
 在 [stage2.S:339-340](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/stage2.S) 有这么一行:
 
@@ -116,7 +116,7 @@ gdt_code:
 
 > 外部依据:Intel SDM Vol.3A §3.4.5「Segment Descriptors」(本仓库本地 PDF `document/reference/intel/SDM-Vol3A-...Part1.pdf` 第 3-9 ~ 3-11 页,Figure 3-8 描述符布局图)逐字段定义了 Base/Limit/Type/S/DPL/P/G/D-B/L 各位的含义与编码;§3.4.5 里明确写出 "L — 64-bit code segment (IA-32e mode only)" 且 `L=1` 时 `D/B` 必须为 0。OSDev 的 [GDT Tutorial](https://wiki.osdev.org/GDT_Tutorial) 有社区整理的 access byte / flags 速查表。
 
-这些字段的**运行时含义**(P/DPL/Type 怎么被 CPU 检查、`lgdt` 怎么加载、为什么 64 位模式下多数段寄存器被忽略)详见正文 [002](../../book/01-boot/002-boot-gdt-protected.md);这里只管"这张表怎么手算出来"。
+这些字段的**运行时含义**(P/DPL/Type 怎么被 CPU 检查、`lgdt` 怎么加载、为什么 64 位模式下多数段寄存器被忽略)详见正文 [002](../../book/01-boot/002/);这里只管"这张表怎么手算出来"。
 
 ## 二、最小编译回路:从 `.S` 到 `.bin`
 
@@ -233,11 +233,11 @@ gdt64_ptr:
     .long 0                // 高 32 位(GDT 在低地址,这里就是 0)
 ```
 
-如果这里写成 `.quad gdt`,链接器在 32 位 ELF(`elf_i386`)里没有 64 位重定位类型可用,就会报 `relocation truncated`。拆成两个 `.long` 就绕开了——GDT 反正在低地址,高 32 位恒为 0,写成常量 0 没问题。这是个**只有手写汇编才会踩**的坑,正文 [002](../../book/01-boot/002-boot-gdt-protected.md) 切到长模式时还会再提。
+如果这里写成 `.quad gdt`,链接器在 32 位 ELF(`elf_i386`)里没有 64 位重定位类型可用,就会报 `relocation truncated`。拆成两个 `.long` 就绕开了——GDT 反正在低地址,高 32 位恒为 0,写成常量 0 没问题。这是个**只有手写汇编才会踩**的坑,正文 [002](../../book/01-boot/002/) 切到长模式时还会再提。
 
 ## 三、收官:用对照表读 `mbr.S` 前半段
 
-把前两节的工具用起来,逐行读 [mbr.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/mbr.S) 从入口到读盘。细节(为什么 CS 要归零、DAP 各字段、为什么栈放 `0x7000`)正文 [001](../../book/01-boot/001-boot-real-mode.md) 已讲透,**这里只用对照表做翻译演示**,不重复。
+把前两节的工具用起来,逐行读 [mbr.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/mbr.S) 从入口到读盘。细节(为什么 CS 要归零、DAP 各字段、为什么栈放 `0x7000`)正文 [001](../../book/01-boot/001/) 已讲透,**这里只用对照表做翻译演示**,不重复。
 
 开头一堆 `.set`([mbr.S:20-27](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/mbr.S))是 NASM `equ` 的 AT&T 版——给常量起名字,后续 `movw $STAGE2_LBA, 8(%si)` 里就能用符号而不是裸数字。`.section .text` / `.code16` / `.global _start` 是第 1 章讲过的伪指令,把后续代码放进 16 位代码段、并把 `_start` 导出给链接器当入口。
 
@@ -301,7 +301,7 @@ load_stage2:
 
 读盘成功,Stage2 就躺在 `0x8000`,MBR 的使命完成,远跳过去。到这一步,我们用对照表读懂了 Cinux 第一段代码的每一行——这正是模块 2 的收官:**看到任何一行 AT&T 都能秒翻成 Intel、反之亦然,且知道它在编译回路里走到哪一步**。
 
-> `mbr.S` 的完整业务逻辑(BIOS 跳转约定、DAP 字段含义、`0x7C00`/`0x8000` 内存布局、栈为什么放 `0x7000`)在正文 [001 · 实模式引导](../../book/01-boot/001-boot-real-mode.md) 逐节讲透,这里不重复。下一章我们离开汇编、进入模块 3 的 C/C++ 内核视角。
+> `mbr.S` 的完整业务逻辑(BIOS 跳转约定、DAP 字段含义、`0x7C00`/`0x8000` 内存布局、栈为什么放 `0x7000`)在正文 [001 · 实模式引导](../../book/01-boot/001/) 逐节讲透,这里不重复。下一章我们离开汇编、进入模块 3 的 C/C++ 内核视角。
 
 ---
 

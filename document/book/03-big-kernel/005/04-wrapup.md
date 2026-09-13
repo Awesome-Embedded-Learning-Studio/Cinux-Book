@@ -32,9 +32,9 @@ cmake --build build-release --target run-kernel-test
 
 ## 下一站
 
-地基夯实了,该往上盖了。到现在为止,内核所有的输出还只走串口一条路——你得开着 QEMU 的串口窗口才看得见它在说什么。下一个 tag 013 终于要把 framebuffer 接上,让内核能直接在屏幕上画字: framebuffer 驱动、字体、console。到那时,这一章给 kprintf 抽出来的那个回调式引擎,会迎来它的第二个输出后端——屏幕。我们早就为这一天留好了接口。
+地基夯实了,该往上盖了。到现在为止,内核所有的输出还只走串口一条路——你得开着 QEMU 的串口窗口才看得见它在说什么。下一个 tag `013` 终于要把 framebuffer 接上,让内核能直接在屏幕上画字: framebuffer 驱动、字体、console。到那时,这一章给 kprintf 抽出来的那个回调式引擎,会迎来它的第二个输出后端——屏幕。我们早就为这一天留好了接口。
 
-顺带,013 还会把 drivers 目录理一理(serial、pit 各自挪进自己的子目录),那个一直被 tag 名挂着、却没在这一章出现的「serial driver 化」,到那时才算真正落地。
+顺带,`013` 还会把 drivers 目录理一理(serial、pit 各自挪进自己的子目录),那个一直被 tag 名挂着、却没在这一章出现的「serial driver 化」,到那时才算真正落地。
 
 ---
 

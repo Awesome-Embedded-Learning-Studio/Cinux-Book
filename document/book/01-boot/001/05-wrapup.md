@@ -6,7 +6,7 @@ title: 05 · 验证、下一站与参考
 
 ## 验证
 
-先说清楚:**001 没有 host 侧的自动化测试**。这一阶段的 fact-lock 里,所谓"测试"只有 `boot/CMakeLists.txt` 本身——也就是说,**能构建出 `mbr.bin` / `stage2.bin` / `cinux.img`,就算汇编、链接、objcopy、磁盘拼装这一路全过了**。这是第一道闸:
+先说清楚:**`01-boot/001` 没有 host 侧的自动化测试**。这一阶段的 fact-lock 里,所谓"测试"只有 `boot/CMakeLists.txt` 本身——也就是说,**能构建出 `mbr.bin` / `stage2.bin` / `cinux.img`,就算汇编、链接、objcopy、磁盘拼装这一路全过了**。这是第一道闸:
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release -S .
@@ -21,7 +21,7 @@ cmake --build build -j$(nproc)
 cmake --build build --target run     # 或 cd build && make run
 ```
 
-这里有个**容易误判**的地方:001 里所有打印都走 `INT 0x10 AH=0x0E`(VGA teletype),它写到的是 **VGA 文本模式**——也就是 QEMU 的图形**窗口**里,而**不是** `-serial stdio` 那个串口终端。所以别盯着命令行的 stdout 看,那里什么都没有;去 QEMU 弹出的窗口里看。正常你会按顺序看到:
+这里有个**容易误判**的地方:`01-boot/001` 里所有打印都走 `INT 0x10 AH=0x0E`(VGA teletype),它写到的是 **VGA 文本模式**——也就是 QEMU 的图形**窗口**里,而**不是** `-serial stdio` 那个串口终端。所以别盯着命令行的 stdout 看,那里什么都没有;去 QEMU 弹出的窗口里看。正常你会按顺序看到:
 
 ```text
 Cinux Booting...
@@ -29,7 +29,7 @@ Stage2 OK
 Mode info OK, switching...
 ```
 
-然后屏幕"啪"地一切——VESA 设模式成功,文本模式没了,窗口变黑(因为还没人往 framebuffer 画东西),机器安静停住。看到这个,001 就成了。
+然后屏幕"啪"地一切——VESA 设模式成功,文本模式没了,窗口变黑(因为还没人往 framebuffer 画东西),机器安静停住。看到这个,`01-boot/001` 就成了。
 
 要是 VESA 三步里有一步 BIOS 返回失败(`AL != 0x4F`),代码会 `jmp panic` 打印对应的错误串(`VESA: Controller info failed!` 之类)然后 `hlt`——这能帮你定位是哪一步挂了。
 

@@ -40,7 +40,7 @@ RUN_TEST(test_mount::test_mount_ext2_from_block_device);   // /dev/sda → Ext2 
 - `[VFS] ext2 mounted at /`(`init.cpp:124`)——根 FS 挂上
 - `[DEVFS] mounted at /dev (...)`(`devfs_init.cpp:178`)——DevFS 挂上,括号里是节点数
 - `[PROCFS] mounted at /proc`(`procfs_init.cpp:43`)——ProcFS 挂上
-- `[TMPFS] mounted at /tmp`(`tmpfs_init.cpp:48`)——tmpfs 挂上(017 章验过)
+- `[TMPFS] mounted at /tmp`(`tmpfs_init.cpp:48`)——tmpfs 挂上(`08-filesystem/017` 章验过)
 
 进 shell 后用 busybox 做一组 mount/umount 冒烟(具体命令在 lab 里):`mount -t tmpfs none /mnt/tmp` 真挂一个、`touch` 文件、`umount /mnt/tmp`、再 `mount` 同路径确认文件没了(owned 真回收)。这是用户态可见的端到端证据。
 
@@ -63,8 +63,8 @@ RUN_TEST(test_mount::test_mount_ext2_from_block_device);   // /dev/sda → Ext2 
 
 - **mount factory 是 fstype 驱动的工厂**——`do_mount_kernel` 按 `fstype` 字符串走路由,四类分支对应四种 FS 与后端关系:tmpfs 堆 new、proc/devfs 取 boot 单例、ext2/ext4 走块设备链、未知返 `ENODEV`。`sys_mount` 只看 fstype 字符串,不关心后端怎么造。
 - **块设备挂载链是三层解析**——source 字符串 → `vfs_lookup(NoFollow)` 拿 `Inode` → `block_device()` 虚方法抽 `IBlockDevice` → `new Ext2(dev)`。`InodeOps::block_device()` 是「设备身份」槽,默认 `nullptr`,只有 DevFS 的 `BlockDevOps` override 返 `dev_`——这是「加虚方法却不破坏派生类」的标准范例。
-- **`owned` bool 统一三类生命周期**(承 017)——堆 `owned=true` / 单例 `owned=false` / 未知 `ENODEV`,在 `MountPoint.owned` 一个 bool 上收敛,默认 false 兼容所有旧 2-arg 调用。`vfs_mount_remove` 一个 `if (owned) delete fs` 就是全部分叉。
+- **`owned` bool 统一三类生命周期**(承 `08-filesystem/017`)——堆 `owned=true` / 单例 `owned=false` / 未知 `ENODEV`,在 `MountPoint.owned` 一个 bool 上收敛,默认 false 兼容所有旧 2-arg 调用。`vfs_mount_remove` 一个 `if (owned) delete fs` 就是全部分叉。
 - **四个 errno 精确分工**——`EINVAL`(参数缺)/ `ENOENT`(source 路径不存在)/ `ENXIO`(source 解析得通但不是块设备)/ `ENODEV`(未知 fstype 或单例未 init)。写测试断言别用错。
 - **诚实边界**——`MS_*`/`MNT_*` flags accepted but ignored、无 `/proc/mounts`、忙挂载不返 `EBUSY`、`BlockDevOps` 不支持裸读裸写、mount options 字符串未解析、无 bind mount / namespace / propagation。这些是工程折中,不是漏——一个能 mount 的内核,第一步是「接受调用不让它崩」,真正的 flag 建模留到后续。
 
-至此 VFS 的「挂载侧」全貌齐了:017 讲了 tmpfs 那一行怎么填进表,本章讲了表的填充侧全四类 + 块设备链;015 讲的是表的消费侧(`vfs_resolve` 跨挂载点 + flock + dentry cache)。三章合起来,VFS 的 finale 才算完整——`sys_mount` 接进来,`vfs_resolve` 走出去,中间那张挂载表就是它俩的握手协议。
+至此 VFS 的「挂载侧」全貌齐了:`08-filesystem/017` 讲了 tmpfs 那一行怎么填进表,本章讲了表的填充侧全四类 + 块设备链;`08-filesystem/015` 讲的是表的消费侧(`vfs_resolve` 跨挂载点 + flock + dentry cache)。三章合起来,VFS 的 finale 才算完整——`sys_mount` 接进来,`vfs_resolve` 走出去,中间那张挂载表就是它俩的握手协议。

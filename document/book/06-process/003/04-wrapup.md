@@ -32,17 +32,17 @@ cmake --build build --target run
 
 ## 下一站
 
-021 让任务「睡得下去、醒得过来」,内核线程第一次有了真正的同步原语。可这套原语的所有前提都还停在内核态、单核、不关中断:`Spinlock` 的 `acquire` 没有关中断,正确性靠「自旋锁绝不跨阻塞持有」加单核抢占时机;`Mutex`/`Semaphore` 的 `block` 走的是 020 那条软件调度路径,和中断使能无关;`Task::addr_space` 在 demo 里压根没填,所有线程共享内核地址空间。
+`06-process/003` 让任务「睡得下去、醒得过来」,内核线程第一次有了真正的同步原语。可这套原语的所有前提都还停在内核态、单核、不关中断:`Spinlock` 的 `acquire` 没有关中断,正确性靠「自旋锁绝不跨阻塞持有」加单核抢占时机;`Mutex`/`Semaphore` 的 `block` 走的是 `06-process/002` 那条软件调度路径,和中断使能无关;`Task::addr_space` 在 demo 里压根没填,所有线程共享内核地址空间。
 
-下一站(022)要跨出这一步:进 ring3,造用户态进程、系统调用,于是 SFMASK、MSR、中断门改 IF 这些会被重新审视——那一章会反过来拷问本章的同步原语:「在用户态可被打断、在中断里可能重入的世界里,这把自旋锁还安全吗?」本章留下的多核/IRQ 安全缺口,要往真正的可抢占方向推,就得先把 ring0 内核线程和 ring3 用户进程的边界划清楚。021 的 Spinlock/Mutex/Semaphore 是那条边界上一旦跨过去就要重新加固的地基——原语先立住,边界后划清。
+下一站(`07-userland/001`)要跨出这一步:进 ring3,造用户态进程、系统调用,于是 SFMASK、MSR、中断门改 IF 这些会被重新审视——那一章会反过来拷问本章的同步原语:「在用户态可被打断、在中断里可能重入的世界里,这把自旋锁还安全吗?」本章留下的多核/IRQ 安全缺口,要往真正的可抢占方向推,就得先把 ring0 内核线程和 ring3 用户进程的边界划清楚。`06-process/003` 的 Spinlock/Mutex/Semaphore 是那条边界上一旦跨过去就要重新加固的地基——原语先立住,边界后划清。
 
 ---
 
 ### 参考
 
-- **GCC `__atomic` Builtins**(`https://gcc.gnu.org/onlinedocs/gcc/_005f_005fatomic-Builtins.html`,在线 200):`__atomic_test_and_set`(原子置 1 并返回旧值)、`__atomic_clear`(原子清 0)、`__ATOMIC_ACQUIRE`/`__ATOMIC_RELEASE` 的 happens-before 语义。支撑本章 `Spinlock::acquire`/`release` 的实现与内存序配对,延续 020 章已核引用。
+- **GCC `__atomic` Builtins**(`https://gcc.gnu.org/onlinedocs/gcc/_005f_005fatomic-Builtins.html`,在线 200):`__atomic_test_and_set`(原子置 1 并返回旧值)、`__atomic_clear`(原子清 0)、`__ATOMIC_ACQUIRE`/`__ATOMIC_RELEASE` 的 happens-before 语义。支撑本章 `Spinlock::acquire`/`release` 的实现与内存序配对,延续 `06-process/002` 章已核引用。
 - **POSIX `sem_post(3)`**(`https://man7.org/linux/man-pages/man3/sem_post.3.html`,man-pages 6.18,已读正文):「increments (unlocks) the semaphore;若结果 > 0 则唤醒一个 `sem_wait` 阻塞者」、`MT-Safe`、`async-signal-safe`。支撑 `Semaphore::post()` 的设计锚点,以及正文「`SEM_VALUE_MAX`/async-signal-safe 本章未实现」的边界对比。
 - **Intel SDM Vol.2B `PAUSE` 条目**(本地 `document/reference/intel/SDM-Vol2B-Instruction-Reference-M-U.pdf`):`pause` 作为 Spin-Wait Hint 的概念性依据;手册内具体页未在本地 PDF 定位到,故正文仅作概念描述、不引页码。
 - **OSDev Wiki "Spinlock" / "Semaphore"**(`https://wiki.osdev.org/Spinlock`、`https://wiki.osdev.org/Semaphore`):test-and-set + `PAUSE` 朴素自旋锁、计数信号量 + 有界缓冲生产者-消费者的社区路径,概念性对照(域名 403 反爬,无法抓正文,仅作方向引用)。
-- **002 章 · [时钟到点,该换人了:抢占式调度](../002/)**:`Scheduler::block(Task*, const char*)` / `unblock(Task*)`、`g_per_cpu.current`、`Spinlock` 原语与「自旋锁只定义、没人用」的现状——本章直接接续并落地。
+- **`06-process/002` 章 · [时钟到点,该换人了:抢占式调度](../002/)**:`Scheduler::block(Task*, const char*)` / `unblock(Task*)`、`g_per_cpu.current`、`Spinlock` 原语与「自旋锁只定义、没人用」的现状——本章直接接续并落地。
 - 本 tag 源码:[sync.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/sync.hpp) / [sync.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/sync.cpp)、[process.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/process.hpp)(`Task::wait_next`)、[scheduler.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/scheduler.hpp) / [scheduler.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/scheduler.cpp)(`block`/`unblock`)、[per_cpu.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/per_cpu.hpp)、[main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/main.cpp)(生产者-消费者 demo)、[main_test.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/test/main_test.cpp)(魔数检查双编码);测试 [test_sync.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/test/unit/test_sync.cpp)(host 镜像)、[test_sync.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/test/test_sync.cpp)(QEMU 机内,节名 `Sync Tests (021)`)。

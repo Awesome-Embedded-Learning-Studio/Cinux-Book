@@ -45,7 +45,7 @@ void Heap::init(uint64_t virt_base, uint64_t initial_size) {
 }
 ```
 
-五步,每步都有它存在的理由。第一步页对齐,因为后面是按页映射的,`initial_size` 不是页的整数倍没法直接切。第二步把每个虚拟页挂上一个真实物理页——这里就显出了堆对 PMM + VMM 的依赖:它不自己造内存,只向 `g_pmm` 借物理页、让 `g_vmm` 挂到虚拟地址上。第三步**整块清零**——和 016 章「新建页表必须清零」同一个道理:不清零,残留字节会被当成上一个主人留下的数据,`BlockHeader` 里的 `magic` 就可能是任意值。第四步摆一个覆盖整段的初始 free 块,这块的 `size` 是 `整段 - 头`。第五步记账。
+五步,每步都有它存在的理由。第一步页对齐,因为后面是按页映射的,`initial_size` 不是页的整数倍没法直接切。第二步把每个虚拟页挂上一个真实物理页——这里就显出了堆对 PMM + VMM 的依赖:它不自己造内存,只向 `g_pmm` 借物理页、让 `g_vmm` 挂到虚拟地址上。第三步**整块清零**——和 `05-memory/002` 章「新建页表必须清零」同一个道理:不清零,残留字节会被当成上一个主人留下的数据,`BlockHeader` 里的 `magic` 就可能是任意值。第四步摆一个覆盖整段的初始 free 块,这块的 `size` 是 `整段 - 头`。第五步记账。
 
 注意 `PAGE_FLAGS = 0x03`,即 present(bit0)+ writable(bit1)——堆区既要能访问又要能写,但**没有** user 位,它是内核私有的。
 
@@ -57,9 +57,9 @@ constexpr uint64_t HEAP_INITIAL_SIZE  = 64 * 1024;          // 64 KB
 cinux::mm::g_heap.init(HEAP_VIRT_BASE, HEAP_INITIAL_SIZE);
 ```
 
-`0xFFFF800000000000` 是 x86-64 虚拟地址空间里一个有讲究的数:它是「规范高半区(canonical high half)」的起点——bit 47 为 1、往高位全 1 的区域,内核传统上把内核自己的数据摆在高半区。这一章我们只是「把堆映射到这个地址」,并没有一套「地址空间」的抽象;把这个基址正式化、和别的区域一起管理,是下一章(018)的事,这里不展开。先记住:堆在高半区起点,初始 64 KB。
+`0xFFFF800000000000` 是 x86-64 虚拟地址空间里一个有讲究的数:它是「规范高半区(canonical high half)」的起点——bit 47 为 1、往高位全 1 的区域,内核传统上把内核自己的数据摆在高半区。这一章我们只是「把堆映射到这个地址」,并没有一套「地址空间」的抽象;把这个基址正式化、和别的区域一起管理,是下一章(`05-memory/004`)的事,这里不展开。先记住:堆在高半区起点,初始 64 KB。
 
-(题外话但不该漏:测试 harness [main_test.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/test/main_test.cpp) 里 `g_heap.init` 用的基址是 `0xFFFFFFFF80100000`——靠近内核镜像、和 016 的 `KERNEL_VMA` 一脉相承的那片,和生产 `main.cpp` 的 `0xFFFF800000000000` **不是同一个**。生产路径和测试路径各选了各自方便的虚拟地址,这是正常的,别在读源码时把它们当成同一个数。)
+(题外话但不该漏:测试 harness [main_test.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/test/main_test.cpp) 里 `g_heap.init` 用的基址是 `0xFFFFFFFF80100000`——靠近内核镜像、和 `05-memory/002` 的 `KERNEL_VMA` 一脉相承的那片,和生产 `main.cpp` 的 `0xFFFF800000000000` **不是同一个**。生产路径和测试路径各选了各自方便的虚拟地址,这是正常的,别在读源码时把它们当成同一个数。)
 
 ## alloc:first-fit + 对齐 + 分裂
 

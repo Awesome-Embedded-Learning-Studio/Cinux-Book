@@ -4,7 +4,7 @@ title: 006 · SMP 竞态——从发现到根治
 
 # 006 · SMP 竞态——从发现到根治
 
-> 053 把「调度迁移写花 ctx」这个最显眼的雷扫了,可 SMP 上会写花状态的地方远不止 runqueue。这一章把 SMP 上「抓竞态」这件事拧成一条红线,贯穿四个阶段:造跨核交错报警器(race-detect)、拿 ext2 inode_cache 当靶子验证、给病灶上锁并清旧债、推导出 deferred CoW 范式。
+> `15-smp/005` 把「调度迁移写花 ctx」这个最显眼的雷扫了,可 SMP 上会写花状态的地方远不止 runqueue。这一章把 SMP 上「抓竞态」这件事拧成一条红线,贯穿四个阶段:造跨核交错报警器(race-detect)、拿 ext2 inode_cache 当靶子验证、给病灶上锁并清旧债、推导出 deferred CoW 范式。
 
 ## 本章路线
 

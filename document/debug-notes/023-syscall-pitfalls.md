@@ -5,7 +5,7 @@ tag: 023_syscall
 
 # 调试档案 023 · 用户态 movaps 炸 #GP、boot.S 字节序列被改、以及 sys_exit 走了 halt
 
-> 从 `document/notes/023/fpu_sse_debug_notes.md`、`design_notes.md` 提炼并补全「定位 / 防复发」,配套主书 [023 · 让用户态会说话:SYSCALL/SYSRET 系统调用](../book/07-userland/023-syscall.md)。023 把 Ring 3 从「只会 `cli` 撞 `#GP`」升级成「用户 `syscall` 请求内核、内核 `sysretq` 送回」,顺带为了让用户态 C++ 能用 SSE,把 FPU/SSE 支持也打通了。这条路上一共有三个坑最典型:一个是「用户程序第一条 SSE 指令就 `#GP`」,先误判是 FPU 没开、开了还炸,最后才挖到是栈没满足 SysV ABI 对齐;一个是「boot.S 加了几行 FPU 初始化,大内核测试一个都不跑」,根因藏在小内核验真内核用的那 3 个魔法字节里;还有一个「看着像 bug、其实是设计」——`sys_exit` 没切到下一个进程,而是 `cli;hlt` 死循环。最后这条是跨里程碑解耦留下的隐形契约,当下不炸、024 启了调度器才显出意义。
+> 从 `document/notes/023/fpu_sse_debug_notes.md`、`design_notes.md` 提炼并补全「定位 / 防复发」,配套主书 [`07-userland/002` · 让用户态会说话:SYSCALL/SYSRET 系统调用](../book/07-userland/002/)。`07-userland/002` 把 Ring 3 从「只会 `cli` 撞 `#GP`」升级成「用户 `syscall` 请求内核、内核 `sysretq` 送回」,顺带为了让用户态 C++ 能用 SSE,把 FPU/SSE 支持也打通了。这条路上一共有三个坑最典型:一个是「用户程序第一条 SSE 指令就 `#GP`」,先误判是 FPU 没开、开了还炸,最后才挖到是栈没满足 SysV ABI 对齐;一个是「boot.S 加了几行 FPU 初始化,大内核测试一个都不跑」,根因藏在小内核验真内核用的那 3 个魔法字节里;还有一个「看着像 bug、其实是设计」——`sys_exit` 没切到下一个进程,而是 `cli;hlt` 死循环。最后这条是跨里程碑解耦留下的隐形契约,当下不炸、`07-userland/003` 启了调度器才显出意义。
 
 ## 案例一:用户态 `movaps` 第一条就 `#GP`——根因有两层,栈对齐才是真凶
 
@@ -103,7 +103,7 @@ tag: 023_syscall
   [SYSCALL] sys_exit: no scheduler, halting.
   ```
 
-  然后整机就 `cli;hlt` 挂住了。看着像 `sys_exit` 没实现完——毕竟 milestone 020 就有调度器了,exit 理应收尾后 `yield` 给下一个任务。
+  然后整机就 `cli;hlt` 挂住了。看着像 `sys_exit` 没实现完——毕竟 milestone `06-process/002` 就有调度器了,exit 理应收尾后 `yield` 给下一个任务。
 
 - **根因**:这其实是预期行为,根因在「谁初始化了什么」。`sys_exit` 的实现里有个**防御性双分支**:
 
@@ -118,18 +118,18 @@ tag: 023_syscall
   }
   ```
 
-  本 tag 的 `kernel_main` 在调 `launch_first_user()` **之前并没有启动调度器**——020 写了调度器,但 023 这条用户态测试路径没把它接进启动序。于是 `is_initialized()` 返回 false,`sys_exit` 走的是 halt 分支。对 023 的目标(验证 SYSCALL/SYSRET 这条机制本身能跑通)来说,单任务测试足够,程序跑完一句、干净停住,就算达标。
+  本 tag 的 `kernel_main` 在调 `launch_first_user()` **之前并没有启动调度器**——`06-process/002` 写了调度器,但 `07-userland/002` 这条用户态测试路径没把它接进启动序。于是 `is_initialized()` 返回 false,`sys_exit` 走的是 halt 分支。对 `07-userland/002` 的目标(验证 SYSCALL/SYSRET 这条机制本身能跑通)来说,单任务测试足够,程序跑完一句、干净停住,就算达标。
 
-  `yield` 那个分支是为下一个里程碑留的:024 要让 shell 作为常驻进程,届时会在 `launch_first_user()` 之前启动调度器,`sys_exit` 就会走 yield、真正把 CPU 让出去。但**那条路径在 023 一行也跑不到**,本章不实现、也不该提前实现。
+  `yield` 那个分支是为下一个里程碑留的:`07-userland/003` 要让 shell 作为常驻进程,届时会在 `launch_first_user()` 之前启动调度器,`sys_exit` 就会走 yield、真正把 CPU 让出去。但**那条路径在 `07-userland/002` 一行也跑不到**,本章不实现、也不该提前实现。
 
 - **定位**:这不是排查出来的 bug,是从设计笔记里读出来的「为什么这么写」。判断依据是启动序:[main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/main.cpp) 的 Step 19 是 `syscall_init` + 注册三个 handler,Step 20 是 `launch_first_user()`,中间**没有** `Scheduler::init()`。串口那句 `no scheduler, halting` 本身就是分支选择的直接证据,不是异常。
 
-- **修复**:本 tag 不修——这正是设计意图。要让它走 yield,得等 024 把调度器接进启动序。
+- **修复**:本 tag 不修——这正是设计意图。要让它走 yield,得等 `07-userland/003` 把调度器接进启动序。
 
-- **防复发**:**这是「跨里程碑解耦」留下的隐形契约,当下不炸、上 024 才显出价值**。教训有两条。其一,syscall 模块应当能在「无调度器」的环境下也干净收场——`is_initialized()` 这道判断把 `sys_exit` 与调度器之间的强耦合解开了,任何一个里程碑单独验证 syscall 机制时都不会被调度器拖住。其二,**别被「020 不是已经有调度器了吗」这种记忆骗了**——「代码存在」和「启动序里调没调」是两回事;`Scheduler` 的实现早就在那儿,但本 tag 的启动路径没启用它,`is_initialized()` 就是 false。排查「某段代码该执行却没执行」时,先确认它依赖的前置模块有没有被 `init`,别默认「早就有」就等于「已经开」。
+- **防复发**:**这是「跨里程碑解耦」留下的隐形契约,当下不炸、上 `07-userland/003` 才显出价值**。教训有两条。其一,syscall 模块应当能在「无调度器」的环境下也干净收场——`is_initialized()` 这道判断把 `sys_exit` 与调度器之间的强耦合解开了,任何一个里程碑单独验证 syscall 机制时都不会被调度器拖住。其二,**别被「`06-process/002` 不是已经有调度器了吗」这种记忆骗了**——「代码存在」和「启动序里调没调」是两回事;`Scheduler` 的实现早就在那儿,但本 tag 的启动路径没启用它,`is_initialized()` 就是 false。排查「某段代码该执行却没执行」时,先确认它依赖的前置模块有没有被 `init`,别默认「早就有」就等于「已经开」。
 
 ---
 
 ### 一句话总结
 
-023 的三个坑,一个是**栈没满足 ABI 对齐**(用户入口 RSP 不是 `8 mod 16`,`movaps` 当场 `#GP`),修在「跳转前 RSP-8 + `static_assert`」,顺手记下「FPU 没开只是障眼法」;一个是**boot.S 头两条指令的魔法字节被改**(FPU 初始化插在了 `cli;mov rsp,imm` 中间,小内核验真失败、测试全跳过),修在「FPU 初始化挪到栈设置之后」;还有一个**看着像 bug 的设计**——`sys_exit` 走 `cli;halt` 而非 `yield`,因为本 tag 启动序没接调度器,是跨里程碑解耦的隐形契约,等 024 把调度器接进启动序才会走 yield 路径。前两个是「ABI 契约」和「加载器硬契约」的必修课,最后一个是「解耦要付的代价」——当下沉默、上线才发声的那种。
+`07-userland/002` 的三个坑,一个是**栈没满足 ABI 对齐**(用户入口 RSP 不是 `8 mod 16`,`movaps` 当场 `#GP`),修在「跳转前 RSP-8 + `static_assert`」,顺手记下「FPU 没开只是障眼法」;一个是**boot.S 头两条指令的魔法字节被改**(FPU 初始化插在了 `cli;mov rsp,imm` 中间,小内核验真失败、测试全跳过),修在「FPU 初始化挪到栈设置之后」;还有一个**看着像 bug 的设计**——`sys_exit` 走 `cli;halt` 而非 `yield`,因为本 tag 启动序没接调度器,是跨里程碑解耦的隐形契约,等 `07-userland/003` 把调度器接进启动序才会走 yield 路径。前两个是「ABI 契约」和「加载器硬契约」的必修课,最后一个是「解耦要付的代价」——当下沉默、上线才发声的那种。

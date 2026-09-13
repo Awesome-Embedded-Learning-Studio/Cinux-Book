@@ -4,7 +4,7 @@ title: Lab 005 · SMP 迁移竞态修复验证
 
 # Lab 005 · SMP 迁移竞态修复验证
 
-> 对应 `document/book/15-smp/005/`。验证档 **B 档**(机制/重构,靠内核测试不回归 + grep)。本章修的是 003 留的债:任务跨核迁移时,旧核存 ctx、新核取同一份 ctx 并发写花,导致 `-smp 2` panic。修法对齐 Linux `task_struct->on_cpu`。
+> 对应 `document/book/15-smp/005/`。验证档 **B 档**(机制/重构,靠内核测试不回归 + grep)。本章修的是 `15-smp/003` 留的债:任务跨核迁移时,旧核存 ctx、新核取同一份 ctx 并发写花,导致 `-smp 2` panic。修法对齐 Linux `task_struct->on_cpu`。
 
 ## 目标
 

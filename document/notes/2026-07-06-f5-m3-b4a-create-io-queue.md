@@ -86,5 +86,5 @@ CC 修好后,run-kernel-test-all leg1 卡在 `test_e1000::test_arp_roundtrip`(`s
 
 ## 下一步
 - **批4b**:NVM Read(opcode 0x02)/ Write(0x01)PRP SGL(nsid + slba + nlb + PRP1/PRP2)+ IO Cq 轮询/中断。机制测:read/write round-trip。
-- **批4c**:`NvmeBlockDevice`(`IBlockDevice` 适配,抄 [AHCIBlockDevice](../../kernel/drivers/ahci/ahci_block_device.hpp))+ main.cpp Step 21c 注册(**并存**:NVMe 独立盘,生产仍 AHCI)+ ISR install + `switch_to_apic` + unmask MSI-X。
+- **批4c**:`NvmeBlockDevice`(`IBlockDevice` 适配,抄 `kernel/drivers/ahci/ahci_block_device.hpp`)+ main.cpp Step 21c 注册(**并存**:NVMe 独立盘,生产仍 AHCI)+ ISR install + `switch_to_apic` + unmask MSI-X。
 - **批5**:perf NVMe vs AHCI gcc/g++ I/O 对比(基线 ~6.2s gcc / ~7.4s g++)+ 收官 note + ROADMAP ✅。

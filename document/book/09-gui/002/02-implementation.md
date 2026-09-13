@@ -69,7 +69,7 @@ uint8_t released = prev_buttons_ & ~new_buttons;   // 这帧新松开的
 
 ### 事件队列:为什么要有一个「统一排空点」
 
-鼠标和键盘原本各管各的:键盘有自己的 ring buffer(014 做的),鼠标现在也维护自己的坐标。但窗口管理器不想关心「这个事件是鼠标来的还是键盘来的」,它只想从一个地方拿事件。于是 [event.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/gui/event.hpp) 定义了一套统一事件:
+鼠标和键盘原本各管各的:键盘有自己的 ring buffer(`03-big-kernel/008` 做的),鼠标现在也维护自己的坐标。但窗口管理器不想关心「这个事件是鼠标来的还是键盘来的」,它只想从一个地方拿事件。于是 [event.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/gui/event.hpp) 定义了一套统一事件:
 
 ```cpp
 enum class EventType : uint8_t {
@@ -82,13 +82,13 @@ struct Event {
 };
 ```
 
-`EventQueue` 是一个 128 容量的环形缓冲,`head_` / `tail_` 两个游标,满了就**静默丢弃**(输入事件丢一两个无所谓,不能阻塞中断)。设计意图是:**生产端是中断 handler,消费端是 PIT 滴答回调,中间隔着一个队列解耦**。中断只管「把事件塞进去就返回」,怎么处理是滴答里的事——和 014 的「ISR 入队 + 轮询出队」一脉相承。
+`EventQueue` 是一个 128 容量的环形缓冲,`head_` / `tail_` 两个游标,满了就**静默丢弃**(输入事件丢一两个无所谓,不能阻塞中断)。设计意图是:**生产端是中断 handler,消费端是 PIT 滴答回调,中间隔着一个队列解耦**。中断只管「把事件塞进去就返回」,怎么处理是滴答里的事——和 `03-big-kernel/008` 的「ISR 入队 + 轮询出队」一脉相承。
 
 这里有个值得说清楚的点:头文件注释把 `EventQueue` 称作「single-producer / single-consumer」。严格说它有**两个**生产站点(IRQ1 的键盘、IRQ12 的鼠标),所以并不是教科书意义上的单生产者。它之所以能安全工作,是因为生产(输入 IRQ)和消费(PIT 滴答)都发生在中断上下文里,靠中断处理的串行化来保证队列不被同时踩踏,而不是靠什么无锁原子操作。这是一个「靠上下文串行化换来的简化」,在这个阶段够用——但别把它当成可以随便放宽的硬并发保证。
 
 为了把键盘也接进这条统一管线,[keyboard.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/030_gui_wm_basic/kernel/drivers/keyboard/keyboard.cpp) 的 `irq1_handler` 做了**双路分发**:事件照旧进键盘自己的队列,GUI 构建下再额外拷一份进 `Mouse::event_queue()`:
 
-> **tag-bound 说明**:这段内联在 `irq1_handler` 里的 `#ifdef CINUX_GUI` 块是 030 当时的写法。F-GUI 解耦后(CODING-TASTE §14:驱动不持 GUI 依赖),键盘不再 `#include` 任何 GUI 头、也不再直接往 `Mouse::event_queue()` enqueue;改为通过 `Keyboard::register_key_listener`(keyboard.cpp:288)注册回调,GUI 侧在 `gui_init.cpp` 的 `on_key_event` 监听器里消费——双路分发的实质保留,只是接线点从驱动内挪到了驱动外。本章贴的 `#ifdef` 代码块按 tag 030 当时的原文叙述。
+> **tag-bound 说明**:这段内联在 `irq1_handler` 里的 `#ifdef CINUX_GUI` 块是 `030` 当时的写法。F-GUI 解耦后(CODING-TASTE §14:驱动不持 GUI 依赖),键盘不再 `#include` 任何 GUI 头、也不再直接往 `Mouse::event_queue()` enqueue;改为通过 `Keyboard::register_key_listener`(keyboard.cpp:288)注册回调,GUI 侧在 `gui_init.cpp` 的 `on_key_event` 监听器里消费——双路分发的实质保留,只是接线点从驱动内挪到了驱动外。本章贴的 `#ifdef` 代码块按 tag `030` 当时的原文叙述。
 
 ```cpp
 #ifdef CINUX_GUI
@@ -107,7 +107,7 @@ struct Event {
 
 [window.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/030_gui_wm_basic/kernel/gui/window.hpp) 定义的 `Window`,核心思路是**双缓冲**:每个窗口自己拥有一块离屏 `Canvas`(就是前面那个不挂 framebuffer 的版本),标题栏和内容都先画在这块离屏画布上,合成时再 `blit_to` 到屏幕:
 
-> **tag-bound 说明**:这一章讲的 `Window`(`x_/y_/w_/h_` + `title_[64]` + `canvas_` + 静态 `TITLE_BAR_HEIGHT=20` / `CLOSE_BUTTON_SIZE=14` + `next_id_`)是 030 当时**内核内**的简版。后续的 visor 解耦把整个 GUI 整体外置到独立的 Cinux-GUI 库(当时是 third_party/Cinux-GUI 子模块,现已并回 `libs/gui/`),在那里 `window.hpp` 被重写成基于 `Widget` 的复合控件(字段变成 `kTitleBarHeight` / `kCloseButtonSize=20` / `theme_` / `content_` / `on_close_` / `drag_px_` 等,和这一章的简版不再是一回事)。本章一律按 tag 030 当时的内核源码叙述,链接也指向该 tag 的 blob。
+> **tag-bound 说明**:这一章讲的 `Window`(`x_/y_/w_/h_` + `title_[64]` + `canvas_` + 静态 `TITLE_BAR_HEIGHT=20` / `CLOSE_BUTTON_SIZE=14` + `next_id_`)是 `030` 当时**内核内**的简版。后续的 visor 解耦把整个 GUI 整体外置到独立的 Cinux-GUI 库(当时是 third_party/Cinux-GUI 子模块,现已并回 `libs/gui/`),在那里 `window.hpp` 被重写成基于 `Widget` 的复合控件(字段变成 `kTitleBarHeight` / `kCloseButtonSize=20` / `theme_` / `content_` / `on_close_` / `drag_px_` 等,和这一章的简版不再是一回事)。本章一律按 tag `030` 当时的内核源码叙述,链接也指向该 tag 的 blob。
 
 ```cpp
 class Window {
@@ -130,7 +130,7 @@ class Window {
 
 [window_manager.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/030_gui_wm_basic/kernel/gui/window_manager.cpp) 是这一章的重头戏。先看它怎么存窗口:
 
-> 同样是 tag-bound:030 当时这个 `WindowManager` 有 `MAX_WINDOWS=64` 的 `windows_[]` 数组、`composite()` / `hit_test(int32_t,int32_t)` / `handle_mouse()` / `draw_cursor()` / `instance()` 单例等成员。visor 解耦后外置到 Cinux-GUI 库(现已并回主仓 `libs/gui/core/widget/window_manager.cpp`),新版自己继承 `Widget`,API 改成 `add_window` / `remove_window` / `raise` / `window_at` / `topmost` / `on_pointer` / `paint_to_list`,这些标签下的成员全都不复存在。本章一律按 tag 030 当时的实现叙述。
+> 同样是 tag-bound:`030` 当时这个 `WindowManager` 有 `MAX_WINDOWS=64` 的 `windows_[]` 数组、`composite()` / `hit_test(int32_t,int32_t)` / `handle_mouse()` / `draw_cursor()` / `instance()` 单例等成员。visor 解耦后外置到 Cinux-GUI 库(现已并回主仓 `libs/gui/core/widget/window_manager.cpp`),新版自己继承 `Widget`,API 改成 `add_window` / `remove_window` / `raise` / `window_at` / `topmost` / `on_pointer` / `paint_to_list`,这些标签下的成员全都不复存在。本章一律按 tag `030` 当时的实现叙述。
 
 ```cpp
 static constexpr uint32_t MAX_WINDOWS = 64;
@@ -217,10 +217,10 @@ for (uint32_t row = 0; row < CURSOR_SIZE; row++) {
 
 GUI 的初始化分两个时机,封装在 [gui_init.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/030_gui_wm_basic/kernel/gui/gui_init.cpp),刻意让 `kernel_main` 和 `kernel_init_thread` 都不直接碰 GUI 细节:
 
-- `gui_init(Canvas&, PSFFont&)`:在 [main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/030_gui_wm_basic/kernel/main.cpp) 的早期(console 之后、开中断之前)调用。它初始化窗口管理器、把 029 的那个 demo 画出来(暗色背景 + 随机矩形 + `Cinux GUI`),存好 screen/font 指针。
+- `gui_init(Canvas&, PSFFont&)`:在 [main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/030_gui_wm_basic/kernel/main.cpp) 的早期(console 之后、开中断之前)调用。它初始化窗口管理器、把 `09-gui/001` 的那个 demo 画出来(暗色背景 + 随机矩形 + `Cinux GUI`),存好 screen/font 指针。
 - `gui_start()`:在 [init.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/030_gui_wm_basic/kernel/proc/init.cpp) 的 `kernel_init_thread` 里、挂载完 ext2 之后调用。它打印里程碑、初始化鼠标、设置屏幕边界、建三个测试窗口,最后**把 `gui_tick_callback` 注册到 PIT**。
 
-> **tag-bound 说明**:这两段式初始化是 030 当时的接线。F-GUI-USERSPACE(visor 解耦)后,`gui_init(Canvas&, PSFFont&)` 已删,`gui_init.hpp` 只剩 `void gui_start()`(注册 PS/2 鼠标 + 键盘 listener,把事件双写到 `/dev/event0`);`main.cpp` 改调 `cinux::proc::handoff_framebuffer_to_gui(fb, font, console)` 把 framebuffer 让给 userspace GUI host;`gui_tick_callback`(PIT 滴答排空队列)也随之移除,事件改由 `/dev/event0` push、userspace host 自己 poll。本章一律按 tag 030 当时的实现叙述,链接指向该 tag 的 blob。
+> **tag-bound 说明**:这两段式初始化是 `030` 当时的接线。F-GUI-USERSPACE(visor 解耦)后,`gui_init(Canvas&, PSFFont&)` 已删,`gui_init.hpp` 只剩 `void gui_start()`(注册 PS/2 鼠标 + 键盘 listener,把事件双写到 `/dev/event0`);`main.cpp` 改调 `cinux::proc::handoff_framebuffer_to_gui(fb, font, console)` 把 framebuffer 让给 userspace GUI host;`gui_tick_callback`(PIT 滴答排空队列)也随之移除,事件改由 `/dev/event0` push、userspace host 自己 poll。本章一律按 tag `030` 当时的实现叙述,链接指向该 tag 的 blob。
 
 为什么要分两步?因为鼠标初始化会去碰 PS/2 控制器(发 `0xA8` 等命令),而键盘当时已经在用同一个控制器了——这件事必须在开中断之后、且和键盘的初始化顺序协调好才安全。`gui_start` 放在 init 线程里,正好避开 `kernel_main` 那段密集的早期硬件初始化。
 

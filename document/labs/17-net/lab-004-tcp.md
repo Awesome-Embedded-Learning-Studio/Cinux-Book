@@ -4,7 +4,7 @@ title: Lab 004 · TCP 协议层验证
 
 # Lab 004 · TCP 协议层验证
 
-> 对应 `document/book/17-net/004/`。验证档 **A 档**:这一章交付的是最小可用 TCP 协议层(握手/序号/数据/挥手/RST)。punchline 是 loopback 上 TCP 端到端走通——握手 + 数据 + 挥手在内核 poll 里确定性跑完。验证沿用 003 UDP 的底子优先:host 单测(逐步断言 seq/ack)→ loopback 内核 → e1000 TX。诚实边界:这是最小可用 TCP,重传/RTO/窗口/拥塞/TIME_WAIT/socket 都没做。
+> 对应 `document/book/17-net/004/`。验证档 **A 档**:这一章交付的是最小可用 TCP 协议层(握手/序号/数据/挥手/RST)。punchline 是 loopback 上 TCP 端到端走通——握手 + 数据 + 挥手在内核 poll 里确定性跑完。验证沿用 `17-net/003` UDP 的底子优先:host 单测(逐步断言 seq/ack)→ loopback 内核 → e1000 TX。诚实边界:这是最小可用 TCP,重传/RTO/窗口/拥塞/TIME_WAIT/socket 都没做。
 
 ## 目标
 
@@ -60,7 +60,7 @@ sed -n '161,199p' kernel/net/tcp.cpp
 grep -n "add_l8(kIpProtoTcp\|kIpProtoTcp" kernel/test/test_net.cpp kernel/net/ipv4.hpp | head
 ```
 
-应看到 `ipv4.add_l8(kIpProtoTcp, tcp)`——「TCP joins ICMP/UDP in the L4 table」(003 立的单一分派机制,加协议不疼)。
+应看到 `ipv4.add_l8(kIpProtoTcp, tcp)`——「TCP joins ICMP/UDP in the L4 table」(`17-net/003` 立的单一分派机制,加协议不疼)。
 
 ### 6. loopback 内核端到端(4 polls)
 

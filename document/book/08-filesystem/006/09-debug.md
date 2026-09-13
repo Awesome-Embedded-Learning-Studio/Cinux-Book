@@ -8,7 +8,7 @@ title: 09 · 调试现场:sys_creat 首次深入 ext2 触发 GPF
 
 这一章最有意思的一个坑,不在 ext2 逻辑里,而在它第一次被系统调用真正驱动起来的时候。过程值得完整走一遍,因为它是一个经典的「症状在深处、根因在入口」的对齐 bug。
 
-**现象。** 把 006 的写链路接好,头几次 `touch`、`mkdir` 都正常。直到在 QEMU 里执行 `touch /hello2.txt`,内核直接崩:
+**现象。** 把 `08-filesystem/006` 的写链路接好,头几次 `touch`、`mkdir` 都正常。直到在 QEMU 里执行 `touch /hello2.txt`,内核直接崩:
 
 ```text
 ==== EXCEPTION: #GP (vector 13) ====
@@ -42,7 +42,7 @@ ffffffff81005d97:  movaps %xmm0,(%rax)       ; ← #GP 就在这一条
 
 Cinux 的 `syscall_entry` 是手写汇编,它没守。它 push 了 12 个寄存器构造 trap frame(96 字节),再 push 第 7 个 C 参数(8 字节),一共 13 次 push = 104 字节。`104 % 16 = 8`。于是在 `call syscall_dispatch` 之前,RSP 是 `16k+8` 而不是 `16k`——**差了 8 字节**。这个 8 字节的偏移一路传下去,到了 `Ext2::create` 里,栈上 `new_disk` 的地址就都偏了 8,本来该对齐的变得不对齐,`movaps` 一碰就炸。
 
-**为什么之前的系统调用没事?** 这是最关键的问题,也是这类 bug 最坑的地方。023/004 那些 syscall(`sys_read`/`sys_write`/`sys_open` 等)执行路径浅、调用链不深,而且没碰上要求 16 字节对齐的指令。对齐是错的,但「错而未爆」。`sys_creat` 是第一个**深入调到 ext2 复杂逻辑、且那里恰好有结构体清零**的 syscall,这才头一次把这条潜伏的对齐错误逼了出来。换句话说:bug 不在崩溃的 `Ext2::create` 里,而在最顶层的 `syscall_entry` 里;只是直到这里才暴露。
+**为什么之前的系统调用没事?** 这是最关键的问题,也是这类 bug 最坑的地方。`07-userland/002`/`08-filesystem/004` 那些 syscall(`sys_read`/`sys_write`/`sys_open` 等)执行路径浅、调用链不深,而且没碰上要求 16 字节对齐的指令。对齐是错的,但「错而未爆」。`sys_creat` 是第一个**深入调到 ext2 复杂逻辑、且那里恰好有结构体清零**的 syscall,这才头一次把这条潜伏的对齐错误逼了出来。换句话说:bug 不在崩溃的 `Ext2::create` 里,而在最顶层的 `syscall_entry` 里;只是直到这里才暴露。
 
 **修复。** 在 push 第 7 个参数之前,先 `subq $8, %rsp` 把栈补齐到 16:
 

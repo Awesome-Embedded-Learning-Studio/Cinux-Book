@@ -31,7 +31,7 @@ void user_write_u64(uint64_t addr, uint64_t value) {
 }
 ```
 
-([test_shm.cpp](../../../kernel/test/test_shm.cpp#L57-L62),`user_read_u64` 同款。)直接 ring0 读写用户映射页会 #PF(SMAP 挡),stac 临时打开用户访问、clac 关上。每个 AddressSpace 操作前先 `activate()` 换 CR3(`test_shm.cpp:112, 115`)、完事 `write_cr3(AddressSpace::kernel_pml4())` 回内核空间(`test_shm.cpp:119`)——否则栈上 AddressSpace 析构会拆当前 CR3 下的页表,把测试自己的页表拆了。这两个反直觉点 lab-082 让你亲自踩一遍。
+(`kernel/test/test_shm.cpp:57-62`,`user_read_u64` 同款。)直接 ring0 读写用户映射页会 #PF(SMAP 挡),stac 临时打开用户访问、clac 关上。每个 AddressSpace 操作前先 `activate()` 换 CR3(`test_shm.cpp:112, 115`)、完事 `write_cr3(AddressSpace::kernel_pml4())` 回内核空间(`test_shm.cpp:119`)——否则栈上 AddressSpace 析构会拆当前 CR3 下的页表,把测试自己的页表拆了。这两个反直觉点 lab-006 让你亲自踩一遍。
 
 **第三层:shell/用户态闭环——讲清目前没有。** musl/glibc 用户态 SHM demo 是 follow-up。当前 `shmid_ds`(`shm.hpp:81-87`)是精简内核内形状,只有 `shm_segsz/cpid/lpid/nattch/mode` 五字段,不是 Linux 全 `ipc_perm`(uid/gid)+ 时间戳(`shm_atime/dtime/ctime`)布局。真要跟 glibc 互操作得先拓宽这个结构体,这是诚实边界。
 
@@ -52,7 +52,7 @@ void user_write_u64(uint64_t addr, uint64_t value) {
 ## 小结
 
 - **shm 的价值不是「比 pipe 快」,是「机制不同」**:pipe 搬数据(字节流过内核 buffer,两次 copy)、shm 搬地址(页表直接共享物理页,零 copy + 无 syscall 可见)。四个 syscall(shmget/shmat/shmdt/shmctl)真注册在 `syscall.cpp:224-227`,号 29/30/31/67 跟 Linux x86_64 ABI 对齐。
-- **分层铁律**:`ShmRegistry`(固定 16 槽纯逻辑表,key→segment,只管簿记 + nattach/marked 状态机,零 kernel-only 依赖)vs `sys_shm`(物理页生命周期层,alloc_pages/map/unmap/free_pages)。承 071 的 `FifoRegistry` 模子,跟 081 tmpfs「纯逻辑 vs boot I/O」是同一套切法。
+- **分层铁律**:`ShmRegistry`(固定 16 槽纯逻辑表,key→segment,只管簿记 + nattach/marked 状态机,零 kernel-only 依赖)vs `sys_shm`(物理页生命周期层,alloc_pages/map/unmap/free_pages)。承 `14-process-advanced/005` 的 `FifoRegistry` 模子,跟 `08-filesystem/017` tmpfs「纯逻辑 vs boot I/O」是同一套切法。
 - **mapcount 闭环双计数器真相**:`pte_count`(PTE 映射数,起 0)+ `refcount`(所有权,alloc 给段基线 1)。shmat 同时 inc 两者;teardown 走 `pte_count_dec_and_test` 两级 test(pte_count 先减、归零才 dec refcount)——段页即便所有 attach 退出、pte_count 归零,refcount 仍 > 0 不放,只有 IPC_RMID 显式 free 才回收。源码注释(shm.hpp:18-22、sys_shm.cpp:12-15)把基线说成「pte_count 置 1」是历史措辞漂移,**以 pmm.cpp:229-230 为真相**。
 - **shmdt 长度陷阱**:两 SHM 映射会合并成一个 VMA(flags 全等 + 无 backing),shmdt 不能取 VMA 跨度(会拆邻居页),必须用 `translate(addr) → find_by_phys → seg->page_count` 取段自己的页数当权威长度,`remove()` 戳洞处理合并 VMA 切分。`test_shm.cpp:277-319` 专门回归兜底。
 - **诚实边界**:ring0 测用栈上 AddressSpace + 空壳 Task 模拟两进程(不是真 libc 跑通);`ShmRegistry` 设计上可链 host 单测但目前没配(对照 fifo 有);shmid_ds 精简五字段(跟 glibc 互操作差一截);IPC_SET/SHM_LOCK 返 ENOSYS;无权限强制、无 sequence number、SMP TOCTOU 文档化、buddy 尾页 refcount 残留是已知非严格性。这些不假装做了,留给后续工程债。

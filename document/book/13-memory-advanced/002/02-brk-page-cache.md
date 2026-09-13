@@ -4,9 +4,9 @@ title: 02 · 连续的堆,和文件映射背后的真内容:brk 与 Page Cache
 
 # 连续的堆,和文件映射背后的真内容:brk 与 Page Cache
 
-> 040 给了 `mmap`(离散映射)和 VMA 账本。这一章往上叠两块,都复用 040 那套"懒分配 + 按需分页"的骨架,所以代价很小。
+> `13-memory-advanced/001` 给了 `mmap`(离散映射)和 VMA 账本。这一章往上叠两块,都复用 `13-memory-advanced/001` 那套"懒分配 + 按需分页"的骨架,所以代价很小。
 >
-> 一块是 **`brk`**——传统 C 程序 `malloc` 底层要的**连续堆区**,和 `mmap` 的离散映射是两种用法。另一块是 **Page Cache**——040 的文件映射有个洞:映射了文件,page fault 时却映射**零页**,于是读出来全是零,不是文件内容。Page Cache 补上这个洞,让文件映射在 fault 时读到真内容。
+> 一块是 **`brk`**——传统 C 程序 `malloc` 底层要的**连续堆区**,和 `mmap` 的离散映射是两种用法。另一块是 **Page Cache**——`13-memory-advanced/001` 的文件映射有个洞:映射了文件,page fault 时却映射**零页**,于是读出来全是零,不是文件内容。Page Cache 补上这个洞,让文件映射在 fault 时读到真内容。
 
 ## brk:像 mmap 一样懒
 
@@ -23,7 +23,7 @@ int64_t sys_brk(uint64_t addr, ...);
 
 ## Page Cache:文件映射读到真内容
 
-040 的文件映射有个洞:它只记了 `backing` inode,fault 时一律映射**零页**——所以 `mmap` 一个文件再读,读到全零。Page Cache 补这个洞:缓存文件的内容页,fault 时按 `(inode, 页偏移)` 取缓存页(没缓存就从盘读进来)。
+`13-memory-advanced/001` 的文件映射有个洞:它只记了 `backing` inode,fault 时一律映射**零页**——所以 `mmap` 一个文件再读,读到全零。Page Cache 补这个洞:缓存文件的内容页,fault 时按 `(inode, 页偏移)` 取缓存页(没缓存就从盘读进来)。
 
 `kernel/mm/page_cache.hpp`:
 
@@ -39,7 +39,7 @@ extern PageCache g_page_cache;
 
 数据结构是个哈希表,键是 `(Inode*, 页偏移)`,每条 `CachedPage` 持一对物理/虚拟地址。两个设计点:
 
-**复用 direct-map。** 缓存页的虚拟地址直接取 `phys + DIRECT_MAP_BASE`,和 037 的 `DmaPool` 同款——物理地址唯一决定虚拟地址,免单独分配。那条"direct-map 的页表项绝不 unmap"的纪律这里也适用。
+**复用 direct-map。** 缓存页的虚拟地址直接取 `phys + DIRECT_MAP_BASE`,和 `11-foundation/002` 的 `DmaPool` 同款——物理地址唯一决定虚拟地址,免单独分配。那条"direct-map 的页表项绝不 unmap"的纪律这里也适用。
 
 **`get_page` 锁外读、锁内插。** 命中的话,拿锁查到、bump 引用计数、返;**没命中**的话,**放锁**,分配一页 + 调 `inode->ops->read` 从盘读内容,再**重新拿锁**插进缓存。这一步是为了**杜绝持锁读盘的重入死锁**——拿着缓存锁去读盘,读盘路径要是再碰缓存就死锁了。
 

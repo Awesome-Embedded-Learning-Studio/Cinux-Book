@@ -95,7 +95,7 @@ inline bool access_ok(const void* addr, size_t size) {
 
 `is_user_vaddr` 的判据是 **bit 47 = 0**(用户态 canonical 下半区,`0x0000...` 到 `0x7FFF...`)。ring0 测试内核跑在内核高半区,栈指针 bit 47 = 1,所以 `access_ok` 直接拒——`copy_from_user` 返 false,`parse_sockaddr_un` 跟着返 false,`sys_bind` 映射成 `-EFAULT`(`sys_socket.cpp:244-246`)。测试想给 `sys_bind` 喂一个栈上的 `sockaddr_un`,根本过不了这一关。
 
-所以 echo 测试的策略是:**走 `UnixSocket` 的直接方法**(`bind_path`/`connect_path`/`send`/`recv`),绕开 `sys_bind` 这层用户边界。这不是 `UnixSocket` 的 bug——`is_user_vaddr` 这个范围检查是 SMAP/extable 安全模型的一部分(防止内核被诱导读写用户态范围外的地址),生产路径上 musl 给的是真用户地址,过得了 `access_ok`。测试侧的这条妥协,跟 063 UDP / 069 TCP 的 echo 测试是同一个选择(那两章注释也明说 ring0 测试内核喂不了用户地址)。
+所以 echo 测试的策略是:**走 `UnixSocket` 的直接方法**(`bind_path`/`connect_path`/`send`/`recv`),绕开 `sys_bind` 这层用户边界。这不是 `UnixSocket` 的 bug——`is_user_vaddr` 这个范围检查是 SMAP/extable 安全模型的一部分(防止内核被诱导读写用户态范围外的地址),生产路径上 musl 给的是真用户地址,过得了 `access_ok`。测试侧的这条妥协,跟 `17-net/003` UDP / `17-net/004` TCP 的 echo 测试是同一个选择(那两章注释也明说 ring0 测试内核喂不了用户地址)。
 
 只有 `test_unix_socket_returns_fd` 走 `sys_socket`(`test_socket.cpp:276-292`)——因为 `sys_socket` 不吃用户指针(参数是 `domain`/`type`/`protocol` 三个整数),不触发 `copy_from_user`,所以这条路径在 ring0 测试内核里能跑。它验证的是「`socket(AF_UNIX, SOCK_STREAM, 0)` 真能造出一个 `SocketOps` fd」这条 syscall 链路。
 
@@ -120,9 +120,9 @@ if (need_block) {
 
 `prepare_to_wait` + `schedule_blocked` 这一对是 Cinux 真调度等待队列的标准模板。`recv_waiters_`/`accept_waiters_` 是侵入式链表头(`unix_socket.hpp:180-181`),`wait_enqueue`/`wake_one`/`wake_all` 是 `wait_queue.hpp` 提供的共享原语(`unix_socket.cpp:20` include,这玩意儿原来在 tcp/udp/unix 三处重复,后来抽出来共享)。
 
-这套模板的来历在 071 章——那里把 pipe 阻塞从 `sti`/`hlt` 自旋改成 `prepare_to_wait` + `schedule_blocked`,根因是 `sti`-in-syscall 的 `#DF` 隐患(059 sys_ping 首发现同一族):syscall 里 `sti` → LAPIC 时钟中断抢 `%gs:0` 栈陷阱帧 → sysretq 弹花 → `#DF`,而且 harness 的「假绿」盖着这条坑。071 给的修法就是真调度等待队列,`AF_UNIX` 这里**直接复用**同一个模板——`unix_socket.cpp:5-9` + `:20-21` 的注释明说 mirrors `pipe.cpp`/`tcp_socket.cpp`、NO `sti`/`hlt`。
+这套模板的来历在 `14-process-advanced/005` 章——那里把 pipe 阻塞从 `sti`/`hlt` 自旋改成 `prepare_to_wait` + `schedule_blocked`,根因是 `sti`-in-syscall 的 `#DF` 隐患(`07-userland/004` sys_ping 首发现同一族):syscall 里 `sti` → LAPIC 时钟中断抢 `%gs:0` 栈陷阱帧 → sysretq 弹花 → `#DF`,而且 harness 的「假绿」盖着这条坑。`14-process-advanced/005` 给的修法就是真调度等待队列,`AF_UNIX` 这里**直接复用**同一个模板——`unix_socket.cpp:5-9` + `:20-21` 的注释明说 mirrors `pipe.cpp`/`tcp_socket.cpp`、NO `sti`/`hlt`。
 
-EINTR 的处理也跟 071 同款:`recv`/`accept` 睡回来后检查 `signal_deliverable_pending`,若有信号挂起,返一个 sentinel(`recv` 返 `-1`、`accept` 返 `-1`-cast-to-`Socket*`),由 `sys_recvfrom`/`do_accept` 映射成 `-EINTR`(`sys_socket.cpp:336-338` / `:188-190`)。这两个 sentinel 是一个真实字节数/指针取不到的值,用来在 `ErrorOr` 不能扩展 `lib::Error`(那是 Cinux-Base,彼时子模块现已并回 `libs/base`)的前提下把 EINTR 传过协议层。
+EINTR 的处理也跟 `14-process-advanced/005` 同款:`recv`/`accept` 睡回来后检查 `signal_deliverable_pending`,若有信号挂起,返一个 sentinel(`recv` 返 `-1`、`accept` 返 `-1`-cast-to-`Socket*`),由 `sys_recvfrom`/`do_accept` 映射成 `-EINTR`(`sys_socket.cpp:336-338` / `:188-190`)。这两个 sentinel 是一个真实字节数/指针取不到的值,用来在 `ErrorOr` 不能扩展 `lib::Error`(那是 Cinux-Base,彼时子模块现已并回 `libs/base`)的前提下把 EINTR 传过协议层。
 
 ### host 单测把阻塞编译掉
 

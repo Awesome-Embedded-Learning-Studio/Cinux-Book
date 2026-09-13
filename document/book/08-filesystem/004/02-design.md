@@ -30,7 +30,7 @@ title: 02 · 设计图:系统调用怎么落到 VFS
         return n
 ```
 
-关键在两层分工:**系统调用层**负责「fd 状态 + 偏移推进 + 地址安全」这些和具体文件系统无关的事;**inode 操作层**(003 的 InodeOps)负责「从哪读、怎么读」这些后端特定的事。sys_read 调完 `ops->read` 后自己把 `file->offset` 加上读到的字节数——偏移是 VFS 层管的,后端的 read 只管「从 offset 处给我 count 字节」,不管「下次从哪接着读」。
+关键在两层分工:**系统调用层**负责「fd 状态 + 偏移推进 + 地址安全」这些和具体文件系统无关的事;**inode 操作层**(`08-filesystem/003` 的 InodeOps)负责「从哪读、怎么读」这些后端特定的事。sys_read 调完 `ops->read` 后自己把 `file->offset` 加上读到的字节数——偏移是 VFS 层管的,后端的 read 只管「从 offset 处给我 count 字节」,不管「下次从哪接着读」。
 
 `getdents`(列目录)复用了一个巧妙的设计:
 

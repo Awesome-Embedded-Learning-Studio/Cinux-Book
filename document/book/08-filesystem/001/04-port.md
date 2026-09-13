@@ -17,7 +17,7 @@ pci::PCI::pci_write(dev.bus, dev.slot, dev.func, pci::PciReg::COMMAND, cmd_reg);
 
 这两位漏一个,BAR5 要么读不到、要么命令发不动——调试现场里它排第一号坑。
 
-然后映射 BAR5。AHCI 的所有寄存器(全局控制、端口寄存器)都铺在 BAR5 这块物理地址上,内核要通过虚拟地址访问,所以用 016 的 VMM 把它 `map` 进来:
+然后映射 BAR5。AHCI 的所有寄存器(全局控制、端口寄存器)都铺在 BAR5 这块物理地址上,内核要通过虚拟地址访问,所以用 `05-memory/002` 的 VMM 把它 `map` 进来:
 
 ```cpp
 HBAMem* AHCI::map_bar5(uint64_t bar5_phys) {
@@ -87,7 +87,7 @@ void AHCI::setup_port(uint8_t port_index) {
 }
 ```
 
-这里有两个「为什么」。第一,改 `clb/fb` 这些基地址寄存器前**必须先停引擎**(`stop_port`):命令引擎若还在跑,你换了它脚下的命令列表地址,等于在行驶中换轮子,后果是数据错乱甚至控制器锁死。第二,内核要往命令列表页里写命令头、清零,得能访问这块**物理**内存——代码用 `cmd_list_phys + 0xFFFFFFFF80000000ULL`(也就是 `KERNEL_VMA`)直接当虚拟地址访问,这靠的就是 016 说过的「整段物理内存做了高半区恒等映射」那个 boot 期约定。
+这里有两个「为什么」。第一,改 `clb/fb` 这些基地址寄存器前**必须先停引擎**(`stop_port`):命令引擎若还在跑,你换了它脚下的命令列表地址,等于在行驶中换轮子,后果是数据错乱甚至控制器锁死。第二,内核要往命令列表页里写命令头、清零,得能访问这块**物理**内存——代码用 `cmd_list_phys + 0xFFFFFFFF80000000ULL`(也就是 `KERNEL_VMA`)直接当虚拟地址访问,这靠的就是 `05-memory/002` 说过的「整段物理内存做了高半区恒等映射」那个 boot 期约定。
 
 `stop_port` 和 `start_port` 的顺序是规范的硬要求,一个字都不能乱:
 
@@ -138,7 +138,7 @@ for (uint32_t i = 0; i < POLL_TIMEOUT; ++i) {
 }
 ```
 
-几个细节值得停一下。PRDT(Physical Region Descriptor Table)是 DMA 的散列-聚集表,一个条目描述一块物理连续缓冲:地址(dba/dbau)+ 长度(dbc)。注意 `dbc` 是「**字节数减一**」(`count * SECTOR_SIZE - 1`),这是硬件约定——0 表示传 1 字节。这里只用一个 PRD 条目,所以要求调用方给的缓冲必须**物理连续**(一整页天然连续,016 的 `alloc_page` 给的就是这个)。
+几个细节值得停一下。PRDT(Physical Region Descriptor Table)是 DMA 的散列-聚集表,一个条目描述一块物理连续缓冲:地址(dba/dbau)+ 长度(dbc)。注意 `dbc` 是「**字节数减一**」(`count * SECTOR_SIZE - 1`),这是硬件约定——0 表示传 1 字节。这里只用一个 PRD 条目,所以要求调用方给的缓冲必须**物理连续**(一整页天然连续,`05-memory/002` 的 `alloc_page` 给的就是这个)。
 
 FIS 本身是 `build_cfis` 填的 Register Host-to-Device FIS(`0x27`),里头是一条 ATA 命令:
 

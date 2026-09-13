@@ -19,7 +19,7 @@ ext2 搬独立库、治成 SMP-safe 的过程中,带出了两个 ext2 依赖、�
 virtual cinux::lib::ErrorOr<void> truncate(Inode* inode, uint64_t new_size);
 ```
 
-([inode.hpp:92-97](../../../kernel/fs/inode.hpp#L92))。默认是 `NotImplemented`([inode.cpp:30](../../../kernel/fs/inode.cpp#L30)),ext2 override 它来实现 `O_TRUNC` / `ftruncate` 的截断语义:
+(`kernel/fs/inode.hpp:92`)。默认是 `NotImplemented`(`kernel/fs/inode.cpp:30`),ext2 override 它来实现 `O_TRUNC` / `ftruncate` 的截断语义:
 
 ```cpp
 cinux::lib::ErrorOr<void> Ext2FileOps::truncate(Inode* inode, uint64_t new_size) {
@@ -42,7 +42,7 @@ cinux::lib::ErrorOr<void> Ext2FileOps::truncate(Inode* inode, uint64_t new_size)
 }
 ```
 
-([ext2_common.cpp:343-365](../../../libs/ext2/ext2_common.cpp#L343))
+(`libs/ext2/ext2_common.cpp:343`)
 
 注意它是 **shrink-only**——只处理 `new_size` 比原 `i_size` 小的情况(典型 `sys_open` 带 `O_TRUNC` 的 `new_size=0`)。截断掉的那部分**孤儿数据块不释放**,是已知的 hobby-os 式 leak:read 不超过 `i_size`(读不到那些块),后续 write 走 `get_or_alloc_block` 会复用同一批块,所以不影响正确性,只浪费磁盘。诚实写进边界,留 follow-up。
 
@@ -81,6 +81,6 @@ void PageCache::invalidate_range(cinux::fs::Inode* inode, uint64_t file_off, uin
 }
 ```
 
-([page_cache.hpp:129](../../../kernel/mm/page_cache.hpp#L129) 声明,[page_cache.cpp:162-191](../../../kernel/mm/page_cache.cpp#L162) 实现)
+(`kernel/mm/page_cache.hpp:129` 声明,`kernel/mm/page_cache.cpp:162` 实现)
 
 这两个为什么是 ext2 的依赖而非独立 feature?因为新 ext2 的行为(`O_TRUNC` 走 `truncate`、write 直写盘)需要它们做前提,不补 ext2 就跑不对。补到 parity 是搬家的连带账,不是另外的功能扩展。

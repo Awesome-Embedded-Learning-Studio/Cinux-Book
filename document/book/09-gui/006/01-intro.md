@@ -4,7 +4,7 @@ title: 01 · 导引:点亮什么与为什么
 
 # 导引:点亮什么与为什么
 
-::: tip tag-bound(本章源码见 tag 033_gui_desktop / e96fff2)
+::: tip tag-bound(本章源码见 tag `033_gui_desktop` / e96fff2)
 本章描述的是 **整体外置前的内核内 GUI** —— 那时 `desktop_icon.hpp` / `window_manager.hpp` / `window_manager.cpp` / `gui_init.cpp` 都还在 `kernel/gui/` 下,`DesktopIcon` 是带 `IconAction` 枚举的 POD,Window Manager 用"意图槽 `pending_icon_action_` + tick 消费"的两段式点击模型。
 
 主线在后来的 visor 解耦把 GUI 整体外置到用户态 Cinux-GUI 库(当时是 third_party/Cinux-GUI 子模块,现已并回 `libs/gui/`)重写为 Widget 版:`DesktopIcon` 变成 `cinux::gui::DesktopIcon` Widget(`set_bitmap` / `set_label` / `set_on_activate`),点击改用 down+up press capture + `on_activate` 回调,不再有"槽 + 消费"语义;`draw_desktop_icons` / `composite` / `flip` 改成 `WindowManager::paint_to_list(PaintList&)` 三层(PaintList)由 Compositor flush。
@@ -12,7 +12,7 @@ title: 01 · 导引:点亮什么与为什么
 读这一章请按 **tag `033_gui_desktop`** 的快照读源码,而不是当前主线 `main`。下面所有源码链接(`kernel/gui/...`)指向的是该 tag 的历史路径。
 :::
 
-> 到 032 为止,我们已经攒齐了画一个图标的全部零件:`Canvas::draw_bitmap` 会把一块 32×32 的像素数组原样贴到画布上,透明像素自动跳过;`desktop_icon.hpp` 里有了 `DesktopIcon` 这个结构体,把"位置、位图、标签、动作"打成一个包,还自带 `contains(mx, my)` 这个左闭右开的命中框。可问题在于——这些零件全躺在仓库里,桌面压根没用它们。开机进 GUI,你看到的还是 030 那张光秃秃的暗青桌面,一个终端窗口漂在背景上,仅此而已。这一章,我们让 Window Manager 长出一个"桌面层":开机时往桌上摆两个图标,合成时把它们画到屏幕上,鼠标点上去能命中,并把"你点了什么"记下来。读完这一章你会看到:桌面有了图标,点 Shell 图标真的会弹出一个跑 shell 的终端窗口,而点 Calculator 图标则什么都不会发生——它的动作还没有消费者。
+> 到 `09-gui/005` 为止,我们已经攒齐了画一个图标的全部零件:`Canvas::draw_bitmap` 会把一块 32×32 的像素数组原样贴到画布上,透明像素自动跳过;`desktop_icon.hpp` 里有了 `DesktopIcon` 这个结构体,把"位置、位图、标签、动作"打成一个包,还自带 `contains(mx, my)` 这个左闭右开的命中框。可问题在于——这些零件全躺在仓库里,桌面压根没用它们。开机进 GUI,你看到的还是 `09-gui/002` 那张光秃秃的暗青桌面,一个终端窗口漂在背景上,仅此而已。这一章,我们让 Window Manager 长出一个"桌面层":开机时往桌上摆两个图标,合成时把它们画到屏幕上,鼠标点上去能命中,并把"你点了什么"记下来。读完这一章你会看到:桌面有了图标,点 Shell 图标真的会弹出一个跑 shell 的终端窗口,而点 Calculator 图标则什么都不会发生——它的动作还没有消费者。
 
 ## 这一章我们要点亮什么
 
@@ -43,9 +43,9 @@ gui_start() 开机注册:
 
 ## 为什么现在需要它
 
-回顾 030 给我们留下的 Window Manager。它的 `composite()` 只有三步:把屏幕 `clear(DESKTOP_COLOR)` 成暗青色、从底到顶把每个可见窗口 `blit_to` 上去、最后画鼠标光标。这套循环已经能让窗口拖得动、关得掉。但桌面这个概念,在 030 里是**缺席**的——`clear` 之后、`blit` 之前那一大片暗青区域,Window Manager 对它一无所知,它只是"没被窗口盖住的背景色"。
+回顾 `09-gui/002` 给我们留下的 Window Manager。它的 `composite()` 只有三步:把屏幕 `clear(DESKTOP_COLOR)` 成暗青色、从底到顶把每个可见窗口 `blit_to` 上去、最后画鼠标光标。这套循环已经能让窗口拖得动、关得掉。但桌面这个概念,在 `09-gui/002` 里是**缺席**的——`clear` 之后、`blit` 之前那一大片暗青区域,Window Manager 对它一无所知,它只是"没被窗口盖住的背景色"。
 
-体现在输入侧更明显。030 的 `handle_mouse` 处理 `MouseDown` 时,先 `hit_test()` 从顶往下找窗口;如果没命中任何窗口(`hit == nullptr`),它做的事只有一件——清焦点:
+体现在输入侧更明显。`09-gui/002` 的 `handle_mouse` 处理 `MouseDown` 时,先 `hit_test()` 从顶往下找窗口;如果没命中任何窗口(`hit == nullptr`),它做的事只有一件——清焦点:
 
 ```cpp
 if (hit == nullptr) {
@@ -56,13 +56,13 @@ if (hit == nullptr) {
 
 也就是说,你在桌面空白处点一下,Window Manager 的反应是"哦,没点到窗口,那我把当前焦点摘了"。桌面在它眼里和"一块什么都没有的地方"完全等价。没有"桌面上摆着东西、点东西能触发动作"这层概念。
 
-032 恰好把原材料备齐了:`DesktopIcon` 结构体有了,`contains` 命中框有了,`icons::data::k_shell_icon` / `k_calc_icon` 这两组 32×32 像素数据也有了。但它们都还是"独立存在的零件",没有任何人去注册它们、绘制它们、点击它们。033 要做的,就是在 Window Manager 里给这些零件安一个家:一个存图标的数组、一套注册/命中/取走意图的接口、合成循环里多画一层、输入路径上多一条"没点中窗口就去找图标"的分支。
+`09-gui/005` 恰好把原材料备齐了:`DesktopIcon` 结构体有了,`contains` 命中框有了,`icons::data::k_shell_icon` / `k_calc_icon` 这两组 32×32 像素数据也有了。但它们都还是"独立存在的零件",没有任何人去注册它们、绘制它们、点击它们。`09-gui/006` 要做的,就是在 Window Manager 里给这些零件安一个家:一个存图标的数组、一套注册/命中/取走意图的接口、合成循环里多画一层、输入路径上多一条"没点中窗口就去找图标"的分支。
 
-所以这一章的位置很清楚:032 给了原语,030 给了 WM 骨架,033 把两者焊起来,让桌面从"一块背景色"变成"一个能摆东西、能被点击的层"。
+所以这一章的位置很清楚:`09-gui/005` 给了原语,`09-gui/002` 给了 WM 骨架,`09-gui/006` 把两者焊起来,让桌面从"一块背景色"变成"一个能摆东西、能被点击的层"。
 
 ## 设计图
 
-整个 033 的桌面层长这样,关键是**合成顺序**和**命中优先级**这两件事:
+整个 `09-gui/006` 的桌面层长这样,关键是**合成顺序**和**命中优先级**这两件事:
 
 ```text
 composite() 一帧的分层(从下往上画):

@@ -6,7 +6,7 @@ title: 04 · 调试现场与收尾
 
 ## 调试现场
 
-这一章和 016 一样没有 notes 文件,但堆分配器有几个「写错就极难查」的隐患,值得当调试现场讲。
+这一章和 `05-memory/002` 一样没有 notes 文件,但堆分配器有几个「写错就极难查」的隐患,值得当调试现场讲。
 
 **一是 front padding 没摆正——头不在 payload 前 32 字节处。** 这是这一章最深的坑,测试里 [test_heap.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/test/unit/test_heap.cpp) 专门标了 `CRITICAL: alloc with front padding` 的用例来盯它(kernel 侧那条 `test_odd_sizes` 的注释更直白,管它叫「the alignment padding bug」)。症状是这样的:如果你实现 alloc 时图省事,把块头固定摆在块首 `curr_addr`,payload 摆到中间某个对齐位置,却没有保证「payload - 32 正好是头」——那么 `free(p)` 调 `header_from_ptr` 算出来的头地址,落到了 payload 和块首之间的填充区,读出来的 `magic` 是随机字节。于是你会看到一个稳定的 `[HEAP] Double-free or corruption at ... (magic=0x...)`——明明只 free 了一次,却报「损坏」。更阴的是,如果那段填充区恰好某些字节拼出来等于 `0xDEADBEEF`(概率低但非零),magic 校验放过去了,`free` 就会改写一个错误位置的块头,静默踩坏邻居,等症状爆发时离根因十万八千里。根因就一句:**payload 的头必须写在 `aligned_payload - HEADER_SIZE`,`header_from_ptr` 才能找回来**。测试里先 `alloc(64)` 占点位置、再 `alloc(64, 4096)`(强对齐,逼出 front padding),然后 free 它、再验 `used_` 归零——这条链路要是断了,十有八九就是头摆错了。
 
@@ -42,13 +42,13 @@ cmake --build build --target run-big-kernel-test
 
 但你会注意到一个还没收口的细节:这一章堆的基址是硬编码的 `0xFFFF800000000000`——我们只是「把堆映射到 high-half 起点」,内核并没有一个「地址空间」的概念:哪段虚拟地址归内核、哪段留给将来用户态进程、堆区和别的区域会不会撞、每个进程要不要有自己的视图……这些问题,堆本身回答不了,它只是个「在一块已映射内存上切蛋糕」的工具。
 
-下一站就是把这些收口:把「地址空间」正式抽象出来,让内核有一套统一的区域划分与映射管理。那是 018 的事——我们先享受一下「内核能 `new` 了」这个里程碑,地址空间下一章再见。
+下一站就是把这些收口:把「地址空间」正式抽象出来,让内核有一套统一的区域划分与映射管理。那是 `05-memory/004` 的事——我们先享受一下「内核能 `new` 了」这个里程碑,地址空间下一章再见。
 
 ---
 
 ### 参考
 
 - cppreference — [C++ `operator new` / `std::align_val_t`](https://en.cppreference.com/w/cpp/memory/new/operator_new):C++17 引入的带对齐 `operator new(size, std::align_val_t)` 重载语义,支持 `crt_stub.cpp` 里那组对齐版重定向、以及 `alloc` 第二参数 `align` 的来历。
-- 015 章 · [给物理内存建账本:bitmap PMM](../001/):堆的 `init` / `expand` 每页都靠 `g_pmm.alloc_page` 提供物理页,三块基石的第一块。
-- 016 章 · [把物理页挂进虚拟地址:VMM](../002/):堆的页靠 `g_vmm.map` 挂到虚拟地址;`0xFFFF800000000000` 这个 high-half 基址的由来、`phys_to_virt` 的自举约定,都在这一章打过底。
+- `05-memory/001` 章 · [给物理内存建账本:bitmap PMM](../001/):堆的 `init` / `expand` 每页都靠 `g_pmm.alloc_page` 提供物理页,三块基石的第一块。
+- `05-memory/002` 章 · [把物理页挂进虚拟地址:VMM](../002/):堆的页靠 `g_vmm.map` 挂到虚拟地址;`0xFFFF800000000000` 这个 high-half 基址的由来、`phys_to_virt` 的自举约定,都在这一章打过底。
 - 本 tag 源码:[heap.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mm/heap.hpp) / [heap.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mm/heap.cpp)、[crt_stub.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/crt_stub.cpp)(`operator new`/`delete` 重定向)、[main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/main.cpp)(Step 9 `g_heap.init`,生产基址 `0xFFFF800000000000`);测试 [test_heap.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/test/unit/test_heap.cpp)(host 镜像,不含 expand)、[test_heap.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/test/test_heap.cpp)(QEMU 真 `g_heap`)、[main_test.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/test/main_test.cpp)(测试 harness 基址 `0xFFFFFFFF80100000`,与生产不同)。

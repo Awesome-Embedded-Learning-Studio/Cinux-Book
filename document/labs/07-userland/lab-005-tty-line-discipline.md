@@ -79,7 +79,7 @@ sed -n '61,66p' kernel/syscall/sys_read.cpp
 sed -n '69,90p' kernel/syscall/sys_ioctl.cpp
 ```
 
-应看到 `switch` 分派:`kTcgets`(TCGETS,`copy_to_user` 写 termios)、`kTcsets`(TCSETS,`copy_from_user` 读 termios)、`kTiocgwinsz`(`copy_to_user` 写固定 80×25 winsize)。每条都经 `copy_to/from_user`(061 的 accessor),坏用户指针返 `-kEfault` 不 panic。fd 非 0/1/2 或未知 cmd 返 `-ENOTTY`。
+应看到 `switch` 分派:`kTcgets`(TCGETS,`copy_to_user` 写 termios)、`kTcsets`(TCSETS,`copy_from_user` 读 termios)、`kTiocgwinsz`(`copy_to_user` 写固定 80×25 winsize)。每条都经 `copy_to/from_user`(`16-security/004` 的 accessor),坏用户指针返 `-kEfault` 不 panic。fd 非 0/1/2 或未知 cmd 返 `-ENOTTY`。
 
 ### 6. Ctrl+C → SIGINT(机制测证真投了)
 

@@ -50,7 +50,7 @@ size_t read_line(char* buf, size_t cap) {
 }
 ```
 
-几个「为什么这样写」值得点出来。其一,退格发的是三字节 `\b \b`(退格、空格、退格),不是单个 `\b`。因为终端光标只 `'\b'` 会左移一格但**不擦**内容,得用空格把那个字盖掉、再退一格把光标停回原位——这是 VT100 时代留下的擦除套路,我们的 Console 在 [console.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/drivers/video/console.cpp) 的 `putc` 里把 `'\b'` 实现成「列号减一」,所以这串三字节恰好完成「左移、用空格覆盖、再左移」。其二,换行符 `'\n'` **只回显、不存进 `buf`**——`break` 在 `buf[pos++]` 之前发生,所以行缓冲里是个干净的、不含换行的字符串,后面 `tokenize` 不用特判结尾。其三,`sys_read` 返回 `<=0` 时 `continue` 而非报错,因为 024 的 `sys_read` 在键盘空且 spin-wait 超时后会返回 0,这时不该让 shell 退出,该再等一轮。
+几个「为什么这样写」值得点出来。其一,退格发的是三字节 `\b \b`(退格、空格、退格),不是单个 `\b`。因为终端光标只 `'\b'` 会左移一格但**不擦**内容,得用空格把那个字盖掉、再退一格把光标停回原位——这是 VT100 时代留下的擦除套路,我们的 Console 在 [console.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/drivers/video/console.cpp) 的 `putc` 里把 `'\b'` 实现成「列号减一」,所以这串三字节恰好完成「左移、用空格覆盖、再左移」。其二,换行符 `'\n'` **只回显、不存进 `buf`**——`break` 在 `buf[pos++]` 之前发生,所以行缓冲里是个干净的、不含换行的字符串,后面 `tokenize` 不用特判结尾。其三,`sys_read` 返回 `<=0` 时 `continue` 而非报错,因为 `07-userland/003` 的 `sys_read` 在键盘空且 spin-wait 超时后会返回 0,这时不该让 shell 退出,该再等一轮。
 
 ## tokenize:就地把空格变 NUL
 
@@ -85,7 +85,7 @@ constexpr CmdEntry builtin_cmds[] = {
 };
 ```
 
-派发时遍历到哨兵就停,这是 C 风格变长表的标准手法,省得单独维护一个 `count`。`CmdEntry` 的结构在 [shell.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/user/programs/shell/shell.hpp) 里定义——`{const char* name; void (*handler)(int,char**)}`,handler 统一签名为 `(argc, argv)`,哪怕像 `clear` 这样不需要参数的命令,也照收 `argc/argv` 然后忽略。这种「统一签名 + 各自忽略不需要的参数」的做法,让加一条新命令的成本极低:写个 `cmd_xxx.cpp`、在 `shell.hpp` 声明、在表里加一行。024 只填了这三条,扩展点已经留好了。
+派发时遍历到哨兵就停,这是 C 风格变长表的标准手法,省得单独维护一个 `count`。`CmdEntry` 的结构在 [shell.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/user/programs/shell/shell.hpp) 里定义——`{const char* name; void (*handler)(int,char**)}`,handler 统一签名为 `(argc, argv)`,哪怕像 `clear` 这样不需要参数的命令,也照收 `argc/argv` 然后忽略。这种「统一签名 + 各自忽略不需要的参数」的做法,让加一条新命令的成本极低:写个 `cmd_xxx.cpp`、在 `shell.hpp` 声明、在表里加一行。`07-userland/003` 只填了这三条,扩展点已经留好了。
 
 三个 handler 的实现都短得可怜:`cmd_echo` 把 `argv[1..]` 用单空格连起来加个 `\n`、`cmd_help` 打一段固定的命令清单、`cmd_clear` 发 7 字节的 `\033[2J\033[H`。这里特别说明 `cmd_clear` 为什么发的是**两个**转义:`\033[2J` 是「擦除整个屏幕」、`\033[H` 是「光标归位到 (1,1)」——只擦不归位,光标会停在原处,新输出接在后面显得没清干净;两个一起发,屏才真清干净。这 7 个字节能不能起作用,完全取决于内核 Console 会不会吃这串 ANSI CSI,那就是下面 Console 那块的事。
 
@@ -121,7 +121,7 @@ while (read_bytes < count) {
 return static_cast<int64_t>(read_bytes);
 ```
 
-两个设计选择得讲清。其一,**为什么 spin-wait 而不阻塞**?因为 024 还是单任务——`launch_first_user` 只起了 shell 一个进程,shell 不返回。没有别的任务可调度,「阻塞当前任务、等键盘中断把它唤醒」这套机制(需要调度器、需要把键盘 IRQ 接到阻塞队列)在本章根本不存在。所以最朴素的做法就是 `pause` 死等到字符出现为止,`SPIN_WAIT_ITERS=1'000'000` 这个上限只是个保险——万一键盘真的一直没输入,转完这一百万圈就返回 0,shell 的 `read_line` 见到 `n<=0` 就 `continue` 再来一轮,不至于把 CPU 永久焊死在内核里。其二,**为什么 `\r` 要转 `\n`**?PS/2 键盘按回车产生的扫描码,经过键盘驱动解码后,`KeyEvent.ascii` 里填的是 `'\r'`(回车);但 shell、C 字符串、`tokenize` 全都拿 `'\n'` 当行尾。在 `sys_read` 这一层统一转掉,shell 那侧就不用关心键盘到底吐的是 `\r` 还是 `\n`。这一层「内核把硬件的怪癖抹平、给用户态一个干净语义」的分工,是 read 能用起来的关键。
+两个设计选择得讲清。其一,**为什么 spin-wait 而不阻塞**?因为 `07-userland/003` 还是单任务——`launch_first_user` 只起了 shell 一个进程,shell 不返回。没有别的任务可调度,「阻塞当前任务、等键盘中断把它唤醒」这套机制(需要调度器、需要把键盘 IRQ 接到阻塞队列)在本章根本不存在。所以最朴素的做法就是 `pause` 死等到字符出现为止,`SPIN_WAIT_ITERS=1'000'000` 这个上限只是个保险——万一键盘真的一直没输入,转完这一百万圈就返回 0,shell 的 `read_line` 见到 `n<=0` 就 `continue` 再来一轮,不至于把 CPU 永久焊死在内核里。其二,**为什么 `\r` 要转 `\n`**?PS/2 键盘按回车产生的扫描码,经过键盘驱动解码后,`KeyEvent.ascii` 里填的是 `'\r'`(回车);但 shell、C 字符串、`tokenize` 全都拿 `'\n'` 当行尾。在 `sys_read` 这一层统一转掉,shell 那侧就不用关心键盘到底吐的是 `\r` 还是 `\n`。这一层「内核把硬件的怪癖抹平、给用户态一个干净语义」的分工,是 read 能用起来的关键。
 
 ## GDT 重排:为什么 0x10/0x18/0x33/0x2B/0x38,以及那个 TLS 占位
 
@@ -138,7 +138,7 @@ entries_[6] = segment_entry(/* User64 Code,  Ring3, Exec|RW, LongMode */);  // 0
 entries_[7] = tss_low_entry(...);   entries_[8] = tss_high_entry(...);      // TSS, 0x38
 ```
 
-为什么 idx 1 留个空的占位?这是在**对齐 Linux 的 GDT 布局**:Linux 在 0x08 那个位置放的是 per-CPU 的 TLS(线程局部存储)段。024 还没实现 TLS,但把位置占住,后面要加就不用再动一遍选择子编号——选择子一旦写进 STAR/GDT 测试/用户态链接脚本,改一处就得连带着改一堆,所以现在就按目标布局摆好。`kEntryCount=9`、`GDT_USER_CODE=0x33`、`GDT_USER_DATA=0x2B` 这些常量随之在 [gdt.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/gdt.hpp) 定下来。注意 `0x33 = 0x30 | 3`、`0x2B = 0x28 | 3`——用户态选择子本来就**自带 RPL=3**,这一点马上就是 024-01 的关键。
+为什么 idx 1 留个空的占位?这是在**对齐 Linux 的 GDT 布局**:Linux 在 0x08 那个位置放的是 per-CPU 的 TLS(线程局部存储)段。`07-userland/003` 还没实现 TLS,但把位置占住,后面要加就不用再动一遍选择子编号——选择子一旦写进 STAR/GDT 测试/用户态链接脚本,改一处就得连带着改一堆,所以现在就按目标布局摆好。`kEntryCount=9`、`GDT_USER_CODE=0x33`、`GDT_USER_DATA=0x2B` 这些常量随之在 [gdt.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/gdt.hpp) 定下来。注意 `0x33 = 0x30 | 3`、`0x2B = 0x28 | 3`——用户态选择子本来就**自带 RPL=3**,这一点马上就是 `07-userland/003` 案例一的关键。
 
 真正的新东西是 `GDT_SYSRET_BASE = 0x23`。它在 [syscall.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/syscall.cpp) 里被拼进 STAR:
 
@@ -148,11 +148,11 @@ uint64_t star_val = (static_cast<uint64_t>(GDT_SYSRET_BASE) << 48)   // STAR[63:
 write_msr(MSR_STAR, star_val);
 ```
 
-`0x23` 这个值不是随便挑的。SYSRETQ 出口会读 `STAR[63:48]` 做两次加法得到目标 CS/SS:`CS = base+16`、`SS = base+8`(Intel SDM Vol.3A p.184 原文:`Stack segment — IA32_STAR[63:48] + 8`)。当 `base=0x23` 时,`0x23+16 = 0x33`、`0x23+8 = 0x2B`——正好是两个自带 RPL=3 的用户选择子。SYSCALL 入口读的是 `STAR[47:32]=0x10`,算出 CS=`0x10`、SS=`0x10+8=0x18`,对应内核态,不受影响。这一改让 SYSRETQ 的算术结果**天然带 RPL=3**,不再依赖「CPU 算完之后会不会再 OR 一个 3」——而那正是 024 崩溃的根子。
+`0x23` 这个值不是随便挑的。SYSRETQ 出口会读 `STAR[63:48]` 做两次加法得到目标 CS/SS:`CS = base+16`、`SS = base+8`(Intel SDM Vol.3A p.184 原文:`Stack segment — IA32_STAR[63:48] + 8`)。当 `base=0x23` 时,`0x23+16 = 0x33`、`0x23+8 = 0x2B`——正好是两个自带 RPL=3 的用户选择子。SYSCALL 入口读的是 `STAR[47:32]=0x10`,算出 CS=`0x10`、SS=`0x10+8=0x18`,对应内核态,不受影响。这一改让 SYSRETQ 的算术结果**天然带 RPL=3**,不再依赖「CPU 算完之后会不会再 OR 一个 3」——而那正是 `07-userland/003` 崩溃的根子。
 
 ## Console 的 ANSI CSI 状态机:吃 ESC[2J / ESC[H
 
-为了让 `cmd_clear` 发的那 7 字节 `\033[console.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/drivers/video/console.cpp)):
+为了让 `cmd_clear` 发的那 7 字节 `ESC[console.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/drivers/video/console.cpp)):
 
 ```cpp
 switch (ansi_state_) {

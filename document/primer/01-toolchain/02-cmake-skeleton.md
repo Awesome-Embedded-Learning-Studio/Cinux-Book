@@ -23,7 +23,7 @@ CMakeLists.txt (顶层)            ← 第②层:project/option/add_subdirectory
  boot/CMakeLists.txt  kernel/CMakeLists.txt   ← 第③层:各 target 怎么用这些标志
 ```
 
-具体每个 target 怎么拼 MBR、怎么塞 Stage2、怎么把 ELF 抽成裸二进制,那是正文 [001 · 实模式引导](../../book/01-boot/001-boot-real-mode.md)的事——这里只把"为什么 CMake 这么写"讲清楚,够你读懂就行。
+具体每个 target 怎么拼 MBR、怎么塞 Stage2、怎么把 ELF 抽成裸二进制,那是正文 [001 · 实模式引导](../../book/01-boot/001/)的事——这里只把"为什么 CMake 这么写"讲清楚,够你读懂就行。
 
 > 外部依据:CMake 官方手册 [cmake-toolchains(7)](https://cmake.org/cmake/help/latest/manual/cmake-toolchains.7.html) 描述了 toolchain file 的加载时机与 `CMAKE_SYSTEM_NAME` 的语义;[target_compile_options](https://cmake.org/cmake/help/latest/command/target_compile_options.html) 描述了 INTERFACE/PUBLIC/PRIVATE 三档作用域。下面凡是涉及这些外部事实的地方,我们用 blockquote 再点一次权威出处。
 
@@ -200,7 +200,7 @@ target_compile_options(mbr PRIVATE
 
 因为这里的 16 位是**逻辑上的**,不是对象文件格式上的。`mbr.S` 里有 `.code16` 这类汇编伪指令,告诉 `gas` "请按 16 位指令编码生成机器码";但**输出的对象文件本身**可以是 32 位的 ELF(`elf_i386`),两者不冲突。链接器(`-Wl,-m,elf_i386`)也按 32 位 ELF 来链。这样的好处是:16 位/32 位/64 位的代码片段(Stage2 里切换长模式那段就是 `.code16`/`.code32`/`.code64` 混着的)可以编进**同一种**对象格式,统一用一套链接流程处理,而不是为每种 CPU 模式各搞一套。
 
-> 注意:这个细节和正文 001 强相关——`mbr` 用 `-Wl,-m,elf_i386` 链成 32 位 ELF、再用 `objcopy -O binary` 抽成裸二进制、最后写进磁盘扇区 0,整套拼装流程在 [001 · 实模式引导](../../book/01-boot/001-boot-real-mode.md)的"设计图/代码路线"里有完整的图。这里只解释 CMake 这几个标志**为什么这么写**,不重复流程。
+> 注意:这个细节和正文 001 强相关——`mbr` 用 `-Wl,-m,elf_i386` 链成 32 位 ELF、再用 `objcopy -O binary` 抽成裸二进制、最后写进磁盘扇区 0,整套拼装流程在 [001 · 实模式引导](../../book/01-boot/001/)的"设计图/代码路线"里有完整的图。这里只解释 CMake 这几个标志**为什么这么写**,不重复流程。
 
 `PRIVATE` 这里的作用是"这些标志只给 `mbr` 自己用"。同一个文件里的 `boot_common`、`boot_longmode`、`stage2` 各自带自己的 `-Wa,--32`(因为它们也是汇编目标),互不串味。如果把 `mbr` 改成 `PUBLIC`,这些标志会通过 `INTERFACE_COMPILE_OPTIONS` 暴露给任何链了 `mbr` 的目标——可 `mbr` 没人链,所以这里写 `PUBLIC`/`PRIVATE` 行为一样,但语义上 `PRIVATE` 更准确:这是 mbr 自己的汇编设定,不是给别人用的接口。
 
@@ -286,7 +286,7 @@ boot/、kernel/CMakeLists.txt
 - **C++ 只用 freestanding 子集**:STL 容器、异常、RTTI、智能指针、虚函数多态——要么依赖被我们用 `_INIT` 标志关掉的运行时,要么内核根本接不住。本前置卷讲 C++ 时只覆盖"够写内核的最小子集",不碰这些。
 - **`OBJECT` 库是核心手段**:`boot_common`、`boot_longmode`、`big_kernel_common` 全是 `OBJECT` 库——它们不产最终文件,而是把一组对象文件(`.o`)攒起来,被多个可执行目标用 `$<TARGET_OBJECTS:...>` 引用。这是内核里复用汇编/公共代码的主要方式,和应用里动辄 `SHARED`/`STATIC` 库不同。
 
-对着仓库核对一遍:`cmake/toolchain-x86_64.cmake`、顶层 `CMakeLists.txt`、`boot/CMakeLists.txt`、`kernel/CMakeLists.txt`——这几样就撑起了 Cinux 的整个构建骨架。正文 [001 · 实模式引导](../../book/01-boot/001-boot-real-mode.md)里 `boot/CMakeLists.txt` 怎么把 MBR 和 Stage2 拼成 `cinux.img`,是建在这副骨架之上的下一步,需要时再跳过去看。
+对着仓库核对一遍:`cmake/toolchain-x86_64.cmake`、顶层 `CMakeLists.txt`、`boot/CMakeLists.txt`、`kernel/CMakeLists.txt`——这几样就撑起了 Cinux 的整个构建骨架。正文 [001 · 实模式引导](../../book/01-boot/001/)里 `boot/CMakeLists.txt` 怎么把 MBR 和 Stage2 拼成 `cinux.img`,是建在这副骨架之上的下一步,需要时再跳过去看。
 
 ---
 
@@ -295,4 +295,4 @@ boot/、kernel/CMakeLists.txt
 - CMake 官方手册 — [cmake-toolchains(7)](https://cmake.org/cmake/help/latest/manual/cmake-toolchains.7.html)(toolchain file 的加载时机、`CMAKE_SYSTEM_NAME`/`CMAKE_<LANG>_FLAGS_INIT`/`CMAKE_FIND_ROOT_PATH_MODE_*` 语义)、[CMAKE_SYSTEM_NAME](https://cmake.org/cmake/help/latest/variable/CMAKE_SYSTEM_NAME.html)(`Generic` = "bare metal embedded devices"、已知平台名清单)、[target_compile_options](https://cmake.org/cmake/help/latest/command/target_compile_options.html)(INTERFACE/PUBLIC/PRIVATE 作用域)、[cmake-buildsystem(7)](https://cmake.org/cmake/help/latest/manual/cmake-buildsystem.7.html)(usage requirements 沿依赖链传播)。
 - GCC 手册 — `-ffreestanding`(freestanding 环境,不假定标准库)、`-mno-red-zone`/`-mcmodel=kernel`(x86-64 内核代码模型)、`-fno-exceptions -fno-rtti`(关闭异常/RTTI 运行时):https://gcc.gnu.org/onlinedocs/gcc/。
 - 本仓库源码:[toolchain-x86_64.cmake](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/cmake/toolchain-x86_64.cmake)、[顶层 CMakeLists.txt](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/CMakeLists.txt)、[boot/CMakeLists.txt](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/CMakeLists.txt)、[kernel/CMakeLists.txt](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/CMakeLists.txt)。
-- 详见正文跳转:[001 · 实模式引导](../../book/01-boot/001-boot-real-mode.md)(MBR/Stage2 的链接脚本、`objcopy` 抽裸二进制、拼装 `cinux.img` 的完整流程)。
+- 详见正文跳转:[001 · 实模式引导](../../book/01-boot/001/)(MBR/Stage2 的链接脚本、`objcopy` 抽裸二进制、拼装 `cinux.img` 的完整流程)。

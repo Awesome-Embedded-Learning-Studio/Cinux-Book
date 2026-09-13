@@ -33,7 +33,7 @@ sed -n '90,98p' kernel/arch/x86_64/usermode.S
 
 应看到 `jump_to_usermode` 里设 RFLAGS 那行是 `movq $0x202, %r11`(立即数加载,**不碰内存**)——不是 `pushq $0x202; popq %r11`(那个会在切到用户栈后内核态写用户内存、SMAP 下 #PF→#DF)。注释会说明这是 SYSRET 恢复的 RFLAGS。
 
-> **思考这个 bug 为什么潜伏**:`pushq/popq` 那版写用户内存,只有 SMAP 开了才会被拦。本机 WSL2 不透传 SMAP CPUID(见 056 的边界),所以 SMAP 没生效、bug 没发作。真机/SMAP 透传环境必 #DF。这是「开发机绿 ≠ 真机对」的典型。
+> **思考这个 bug 为什么潜伏**:`pushq/popq` 那版写用户内存,只有 SMAP 开了才会被拦。本机 WSL2 不透传 SMAP CPUID(见 `16-security/001` 的边界),所以 SMAP 没生效、bug 没发作。真机/SMAP 透传环境必 #DF。这是「开发机绿 ≠ 真机对」的典型。
 
 ### 2. 初始栈:host 单测验 auxv
 

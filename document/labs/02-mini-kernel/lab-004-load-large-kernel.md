@@ -4,7 +4,7 @@ title: Lab 004 · 为大内核铺路
 
 # Lab 004 · 为大内核铺路
 
-> 这个 lab 配套 [004 · 为大内核铺路](../../book/02-mini-kernel/004/)。目标:写出 ATA PIO 读盘驱动和 ELF64 加载器,串成 `load_big_kernel`,并用两个 demo(读 MBR 验签名、试解析 LBA 16)验证它们能干活。**big kernel 还没来(009),这一章不真正加载/跳转**,只搭管线 + 演示。
+> 这个 lab 配套 [004 · 为大内核铺路](../../book/02-mini-kernel/004/)。目标:写出 ATA PIO 读盘驱动和 ELF64 加载器,串成 `load_big_kernel`,并用两个 demo(读 MBR 验签名、试解析 LBA 16)验证它们能干活。**big kernel 还没来(`03-big-kernel/001`),这一章不真正加载/跳转**,只搭管线 + 演示。
 
 ## 实验目标
 
@@ -85,4 +85,4 @@ main 跑着跑着跳进了垃圾地址。误以为本 tag 要调用 `load_big_ke
 - `test_host` 里 ATA/ELF/loader 三套 host 单测全过。
 - `run-kernel-test` 里 `test_ata`/`test_elf_loader` 过、退出码 0。
 - 量产 `make run` 看到 MBR `0xAA55 (VALID)`、LBA 16 `expected for flat binary`、`Milestone 004 complete. Waiting for big kernel (009+)`。
-- 全程没调用 `load_big_kernel`、没跳转——那是 [009](../../book/03-big-kernel/009-large-kernel-entry.md) 的事。
+- 全程没调用 `load_big_kernel`、没跳转——那是 `03-big-kernel/001` 的事。

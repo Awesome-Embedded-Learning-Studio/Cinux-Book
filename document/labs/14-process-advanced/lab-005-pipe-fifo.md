@@ -10,7 +10,7 @@ title: Lab 005 · Pipe 增强与命名 FIFO 验证
 
 确认七件事:
 
-1. **sti/hlt 自旋阻塞已除**:改成真调度 wait queue(跟 059 sys_ping #DF 同根的隐患);
+1. **sti/hlt 自旋阻塞已除**:改成真调度 wait queue(跟 `07-userland/004` sys_ping #DF 同根的隐患);
 2. **wait queue 复用 Mutex/console_tty 模板**(lost-wakeup-safe);
 3. **O_NONBLOCK → EAGAIN**(满/空返 PIPE_WOULDBLOCK,不改 InodeOps 签名);
 4. **BrokenPipe/SIGPIPE**(写已关读端 → -EPIPE + SIGPIPE,reader_alive 区分);
@@ -34,7 +34,7 @@ title: Lab 005 · Pipe 增强与命名 FIFO 验证
 sed -n '12,20p' kernel/ipc/pipe.hpp
 ```
 
-应看到文件头注释:`prepare_to_wait()/schedule_blocked()/unblock()` pattern(跟 Mutex、console TTY 阻塞读同一个 proven 模板)。这就是替代 sti/hlt 自旋的真调度等待——旧实现 `irq_enable(); for{hlt;...}` 在 syscall 上下文 sti,时钟中断抢 `%gs:0` 栈陷阱帧 → sysretq 弹花 → #DF(跟 059 sys_ping 同根,harness 假绿盖着)。
+应看到文件头注释:`prepare_to_wait()/schedule_blocked()/unblock()` pattern(跟 Mutex、console TTY 阻塞读同一个 proven 模板)。这就是替代 sti/hlt 自旋的真调度等待——旧实现 `irq_enable(); for{hlt;...}` 在 syscall 上下文 sti,时钟中断抢 `%gs:0` 栈陷阱帧 → sysretq 弹花 → #DF(跟 `07-userland/004` sys_ping 同根,harness 假绿盖着)。
 
 ### 3. O_NONBLOCK
 
@@ -73,7 +73,7 @@ sed -n '87,108p' kernel/ipc/fifo.hpp
 sed -n '22,56p' kernel/syscall/sys_mknod.cpp
 ```
 
-应看到 `do_mknod_kernel`(只接 `S_IFIFO`,char/block → -ENOSYS,本里程碑只做 FIFO)+ `sys_mknod`(走 061 那套 `resolve_user_path` + `do_mknod_kernel` 分层)。`mkfifo(path,mode)` 是 libc 拼写 = `mknod(path, S_IFIFO|mode, 0)`。
+应看到 `do_mknod_kernel`(只接 `S_IFIFO`,char/block → -ENOSYS,本里程碑只做 FIFO)+ `sys_mknod`(走 `16-security/004` 那套 `resolve_user_path` + `do_mknod_kernel` 分层)。`mkfifo(path,mode)` 是 libc 拼写 = `mknod(path, S_IFIFO|mode, 0)`。
 
 ### 7. kernel 端到端 + shell + 两腿
 
@@ -110,7 +110,7 @@ cmake --build build --target run-kernel-test-all 2>&1 | grep -E "Tests: [0-9]{4}
 
 ## 别做这些
 
-- **别**用 sti/hlt 自旋做 pipe 阻塞——在 syscall 上下文 sti,时钟中断抢栈陷阱帧 → sysretq 弹花 → #DF(跟 059 sys_ping 同根,真硬件必炸,harness 假绿盖着)。用真调度 wait queue。
+- **别**用 sti/hlt 自旋做 pipe 阻塞——在 syscall 上下文 sti,时钟中断抢栈陷阱帧 → sysretq 弹花 → #DF(跟 `07-userland/004` sys_ping 同根,真硬件必炸,harness 假绿盖着)。用真调度 wait queue。
 - **别**改 InodeOps::read/write 签名加 nonblock——blast radius 大(PTY/ext2/DevFS 都实现它)。nonblock 收 ops 成员,InodeOps 签名不动。
 - **别**把「写已关读端」和「参数错」混成同一个 IOError——前者该 BrokenPipe(-EPIPE + SIGPIPE),后者 InvalidArgument。靠 `reader_alive()` 区分,否则 SIGPIPE 永远不触发。
 - **别**以为 close 一个 FIFO 端会拆掉共享 Pipe——没有 InodeOps::release 钩子,close 不销毁 pipe(per-open ops/inode 还会泄漏,hobby-OS 限制)。

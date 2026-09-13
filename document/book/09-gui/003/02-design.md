@@ -6,7 +6,7 @@ title: 02 · 设计图
 
 ## 设计图
 
-一帧的完整旅程,在 031 里长这样:
+一帧的完整旅程,在 `09-gui/003` 里长这样:
 
 ```text
 ┌──────────────┐  SDL poll  ┌─────────────────────────────┐
@@ -34,7 +34,7 @@ title: 02 · 设计图
                           (SDL: per-rect UpdateTexture)
 ```
 
-这里有两个 029/030 没有的关键动作。一是 `collect_dirty`:控件改了状态只标脏,**不立即画**;帧边界由根统一收集所有标了脏的矩形。二是 `flatten`:整棵 Widget 树递归地把自己想画的指令塞进**同一张** PaintList——每个控件 `clip_push` 自己的矩形(保证画不出去)、调 `paint_to_list` 塞自己的 cmd、递归子控件、`clip_pop`。
+这里有两个 `09-gui/001`/`09-gui/002` 没有的关键动作。一是 `collect_dirty`:控件改了状态只标脏,**不立即画**;帧边界由根统一收集所有标了脏的矩形。二是 `flatten`:整棵 Widget 树递归地把自己想画的指令塞进**同一张** PaintList——每个控件 `clip_push` 自己的矩形(保证画不出去)、调 `paint_to_list` 塞自己的 cmd、递归子控件、`clip_pop`。
 
 `TerminalWidget` 内部的模型则是一张廉价的字符网格,而不是直接操作像素:
 
@@ -52,5 +52,5 @@ title: 02 · 设计图
    满行: newline_() → 触底 scroll_up_() 把整屏上移一行,顶行丢弃
 ```
 
-先维护语义层(字符 + 颜色索引),只在 `paint_to_list` 那一步翻译成绘制指令,这样换行、退格、清屏、滚动全都只是在廉价的字符数组上挪数据,代价极低。颜色用的是 ANSI 调色板索引(0..15 标准 16 色、16..231 的 6×6×6 立方、232..255 灰阶),`paint_to_list` 时再查 [`palette_color`](../../../libs/gui/core/widget/terminal.cpp#L19-L33) 翻成 XRGB8888 像素值。`cols_`/`rows_` 默认 80×25,但 cells_ 的 stride 固定是 `kMaxCols=120`——这样 `set_cols_rows` 把网格变小时不用重布局,只是少用几列。
+先维护语义层(字符 + 颜色索引),只在 `paint_to_list` 那一步翻译成绘制指令,这样换行、退格、清屏、滚动全都只是在廉价的字符数组上挪数据,代价极低。颜色用的是 ANSI 调色板索引(0..15 标准 16 色、16..231 的 6×6×6 立方、232..255 灰阶),`paint_to_list` 时再查 `libs/gui/core/widget/terminal.cpp:19-33` 翻成 XRGB8888 像素值。`cols_`/`rows_` 默认 80×25,但 cells_ 的 stride 固定是 `kMaxCols=120`——这样 `set_cols_rows` 把网格变小时不用重布局,只是少用几列。
 

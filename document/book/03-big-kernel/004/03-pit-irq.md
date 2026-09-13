@@ -6,7 +6,7 @@ title: 03 · IRQ 路由与 PIT:让时钟嘀嗒起来
 
 ## IRQ 路由表:data-driven 注册 0x20-0x2F
 
-IDT 在 010 已经建好了,现在要往 0x20-0x2F 这 16 个 gate 里塞 handler。和 010 处理异常一个思路,这里也用一张表代替 16 段重复:
+IDT 在 `03-big-kernel/003` 已经建好了,现在要往 0x20-0x2F 这 16 个 gate 里塞 handler。和 `03-big-kernel/003` 处理异常一个思路,这里也用一张表代替 16 段重复:
 
 ```cpp
 struct IRQRoute { uint8_t vector; IDT::Stub stub; };
@@ -25,9 +25,9 @@ extern "C" void irq_init() {
 }
 ```
 
-注意 `kIRQAttr` 算出来正好是 `0x8E`——和 010 异常那套是一个套路:present 位 `0x80` | 内核态 DPL `0x00` | Interrupt gate 类型 `0x0E`。这里特意用 Interrupt gate(类型位 `0x0E`),而不是 010 给 #BP 的 Trap gate(类型位 `0x0F`)。差别还是 IF 那一位:中断门进 handler 时自动清 IF,意味着处理这条 IRQ 期间不再被别的可屏蔽中断打断,这对硬件中断是想要的——你总不希望时钟中断还能被自己嵌套打断。所有 IRQ gate 都是内核态(DPL=0),第五个参数 `ist=0` 表示不用独立中断栈,复用当前栈。
+注意 `kIRQAttr` 算出来正好是 `0x8E`——和 `03-big-kernel/003` 异常那套是一个套路:present 位 `0x80` | 内核态 DPL `0x00` | Interrupt gate 类型 `0x0E`。这里特意用 Interrupt gate(类型位 `0x0E`),而不是 `03-big-kernel/003` 给 #BP 的 Trap gate(类型位 `0x0F`)。差别还是 IF 那一位:中断门进 handler 时自动清 IF,意味着处理这条 IRQ 期间不再被别的可屏蔽中断打断,这对硬件中断是想要的——你总不希望时钟中断还能被自己嵌套打断。所有 IRQ gate 都是内核态(DPL=0),第五个参数 `ist=0` 表示不用独立中断栈,复用当前栈。
 
-汇编侧这一打 stub,复用的正是 010 那两个宏里的 `ISR_NOERRCODE`,新加 16 行:
+汇编侧这一打 stub,复用的正是 `03-big-kernel/003` 那两个宏里的 `ISR_NOERRCODE`,新加 16 行:
 
 ```asm
 ISR_NOERRCODE irq0_stub,  pit_irq0_handler     /* IRQ0(0x20): PIT Timer */
@@ -109,4 +109,4 @@ while (1) { __asm__ volatile("hlt"); }   // idle:开中断停机,等 IRQ0 唤醒
 
 为什么是这个顺序,每一步都有理由。④ 必须在 ⑤ 之前:PIC 没 remap,IRQ 注册进 IDT 的向量号就是错的,到时候 IRQ0 会以 INT 0x08 的身份进来,撞上 #DF 直接重启——这正是开头说的那个坑。⑤ 必须在 ⑨ 之前:gate 没注册就 sti,第一个 IRQ0 找不到 handler,Double Fault。⑥ 要在 ⑨ 之前,但和 ⑤ 的相对顺序其实可以换——PIT 先配好、gate 还没注册也不会出事,因为还没 sti,中断进不来。⑦ 那个 `int $3` 放在开中断之前,是刻意选的位置:确认装了 PIC、IRQ 这一堆之后,老的异常路径没被搞坏。
 
-⑧ 和 ⑨ 这两步是「两道闸」的体现:`unmask(0)` 开 PIC 的闸,`sti` 开 CPU 的闸,少任何一个,IRQ0 都到不了 handler。最后那个 idle loop 从 010 的 `cli; hlt` 变成了单纯的 `hlt`——区别巨大。`cli; hlt` 是「关中断再停机」,CPU 永远不会被中断叫醒,纯粹等死;而 `hlt` 配合前面那句 `sti`,是「开着中断停机」,CPU 睡着等下一个 IRQ0 把它唤醒,处理完再睡回去。这就是一个事件驱动的 idle 循环的雏形。
+⑧ 和 ⑨ 这两步是「两道闸」的体现:`unmask(0)` 开 PIC 的闸,`sti` 开 CPU 的闸,少任何一个,IRQ0 都到不了 handler。最后那个 idle loop 从 `03-big-kernel/003` 的 `cli; hlt` 变成了单纯的 `hlt`——区别巨大。`cli; hlt` 是「关中断再停机」,CPU 永远不会被中断叫醒,纯粹等死;而 `hlt` 配合前面那句 `sti`,是「开着中断停机」,CPU 睡着等下一个 IRQ0 把它唤醒,处理完再睡回去。这就是一个事件驱动的 idle 循环的雏形。

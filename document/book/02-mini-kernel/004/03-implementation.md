@@ -28,7 +28,7 @@ constexpr uint8_t ATA_CMD_READ_PIO_EXT = 0x24;  // LBA48 读
 
 [elf_loader.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/elf_loader.hpp) 把 ELF64 的标准结构搬进来。文件头 `Elf64_Ehdr`(64 字节)里有 magic、类型(`ET_EXEC`)、架构(`EM_X86_64`)、入口地址 `e_entry`、程序头表偏移 `e_phoff`;程序头 `Elf64_Phdr`(56 字节)描述一个段:类型 `p_type`、文件偏移 `p_offset`、目标地址 `p_paddr`、文件大小 `p_filesz`、内存大小 `p_memsz`。
 
-`parse_elf_header` 做最基本的校验:开头四个字节是不是 `0x7F 'E' 'L' 'F'`(magic)、是不是 64 位(`ELF_CLASS_64`)、小端、目标架构 x86-64、类型是不是可执行。这几项任一不对就返回 false。这个函数正是 008 两个 demo 之一要调的——拿 mini kernel 的 LBA 16 头几个字节去验,预期失败(它是裸二进制不是 ELF),用来证明"解析器能正确认出非 ELF"。
+`parse_elf_header` 做最基本的校验:开头四个字节是不是 `0x7F 'E' 'L' 'F'`(magic)、是不是 64 位(`ELF_CLASS_64`)、小端、目标架构 x86-64、类型是不是可执行。这几项任一不对就返回 false。这个函数正是 `02-mini-kernel/004` 两个 demo 之一要调的——拿 mini kernel 的 LBA 16 头几个字节去验,预期失败(它是裸二进制不是 ELF),用来证明"解析器能正确认出非 ELF"。
 
 ## 3. load_elf:拷 filesz、零填 BSS、返回 entry
 
@@ -58,11 +58,11 @@ uint64_t load_big_kernel(uint64_t disk_lba) {
 
 `BIG_KERNEL_LOAD_ADDR = 0x1000000`(16MB)是 staging 缓冲区——选这么高,是为了避开 mini kernel(在 `0x20000`)、bootloader 结构(<0x10000)和 PMM 管的可分配区。读盘、验 magic、加载,三步一气呵成,返回 big kernel 的入口地址。
 
-再说一遍那个重要的边界:这个函数**写好了、但 008 的 main 没有调用它**。因为现在盘上 LBA 848 之后还没有真正的 big kernel,调了也是读到一堆零或垃圾、magic 校验失败。它要等 009 big kernel 真正被编出来、写进磁盘,才会被真正调用、真正完成接力。
+再说一遍那个重要的边界:这个函数**写好了、但 `02-mini-kernel/004` 的 main 没有调用它**。因为现在盘上 LBA 848 之后还没有真正的 big kernel,调了也是读到一堆零或垃圾、magic 校验失败。它要等 `03-big-kernel/001` big kernel 真正被编出来、写进磁盘,才会被真正调用、真正完成接力。
 
 ## 5. main 的两个 demo:诚实说明 big kernel 未到
 
-[main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/main.cpp) 在 GDT/IDT/PMM/`int $3` 这些(沿用 006/007)之后,做这两步演示。第一步读 MBR:
+[main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/main.cpp) 在 GDT/IDT/PMM/`int $3` 这些(沿用 `02-mini-kernel/002`/`02-mini-kernel/003`)之后,做这两步演示。第一步读 MBR:
 
 ```cpp
 ata::read(0, 1, g_sector_buf);
@@ -70,7 +70,7 @@ uint16_t sig = g_sector_buf[510] | (g_sector_buf[511] << 8);
 kprintf("[DEMO] MBR boot signature: 0x%04x %s\n", sig, sig == 0xAA55 ? "(VALID)" : "(INVALID)");
 ```
 
-读第 0 扇区、看末两字节是不是 `0xAA55`——这正是 [001](../01-boot/001/) MBR 立的签名。看到 `(VALID)`,说明 ATA 读盘这条路从头到尾通了(命令、轮询、`inw`、字节序都对)。
+读第 0 扇区、看末两字节是不是 `0xAA55`——这正是 [001](../../01-boot/001/) MBR 立的签名。看到 `(VALID)`,说明 ATA 读盘这条路从头到尾通了(命令、轮询、`inw`、字节序都对)。
 
 第二步读 mini kernel 所在的 LBA 16、试解析 ELF 头:
 
@@ -80,6 +80,6 @@ if (elf_loader::parse_elf_header(g_sector_buf)) { /* 是 ELF */ }
 else { kprintf("No valid ELF header at LBA 16 (expected for flat binary)\n"); }
 ```
 
-mini kernel 是 [004](../01-boot/004/) 里 `objcopy -O binary` 出来的**裸二进制**(flat binary),没有 ELF 头,所以 `parse_elf_header` 返回 false 是**预期的**。这条 demo 的意义不是"找到 ELF",而是"证明解析器能正确地拒绝一个非 ELF",以及"再验一次读盘读到的是真实数据"。
+mini kernel 是 [004](../../01-boot/004/) 里 `objcopy -O binary` 出来的**裸二进制**(flat binary),没有 ELF 头,所以 `parse_elf_header` 返回 false 是**预期的**。这条 demo 的意义不是"找到 ELF",而是"证明解析器能正确地拒绝一个非 ELF",以及"再验一次读盘读到的是真实数据"。
 
 main 最后打印 `Milestone 008 complete. Waiting for big kernel (009+)...` 然后 `cli; hlt`——一句话把这个 tag 的边界说清楚:家伙都造好了、也验证过了,就等 big kernel 入住。

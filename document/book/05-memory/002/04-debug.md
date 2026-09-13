@@ -44,7 +44,7 @@ init 时会打印 `[VMM] Initialised, kernel PML4 at phys %p`,看到这行 + dem
 
 ## 下一站
 
-到这里,内核的内存子系统两块基石都就位了:PMM 管物理页的分配,VMM 管虚拟↔物理的映射,还顺手实现了 demand paging。内核现在有了主动控制地址空间的正经能力——013 那个 `map_mmio` hack 也终于有了它的替代者(这一章 framebuffer 仍走旧路,VMM 是为后面铺的路)。
+到这里,内核的内存子系统两块基石都就位了:PMM 管物理页的分配,VMM 管虚拟↔物理的映射,还顺手实现了 demand paging。内核现在有了主动控制地址空间的正经能力——`03-big-kernel/006` 那个 `map_mmio` hack 也终于有了它的替代者(这一章 framebuffer 仍走旧路,VMM 是为后面铺的路)。
 
 但你会发现一个粒度上的缺口:PMM 和 VMM 的最小单位都是**一整页 4KB**。如果你想「分配 64 字节」存个结构体,得拿一整页——既浪费,又难管理(谁拥有这页?释放了其中 64 字节怎么办?)。内核需要一个小粒度的分配器,在页的基础上切块、回收,也就是堆(heap)。
 
@@ -56,5 +56,5 @@ init 时会打印 `[VMM] Initialised, kernel PML4 at phys %p`,看到这行 + dem
 
 - Intel SDM Vol.3(System Programming,4 级分页):PML4→PDPT→PD→PT 四级结构、每级 9 位索引(512 项)、页表项(64 位)的位布局(物理地址位 `[12..51]`、P/RW/U/PS/NX 等 flag)、`CR2`(存缺页地址)、`CR3`(存 PML4 物理基址)、`INVLPG`(作废单页 TLB)。本地 PDF `document/reference/intel/SDM-Vol3A-*.pdf`,可用 `pdf-reader` 搜 "4-Level Paging"/"Page-Fault Error Code" 复核。
 - OSDev — [Paging](https://wiki.osdev.org/Paging):4 级页表结构、PTE 位含义、页表 walk 的社区参考实现。
-- 015 章 · [给物理内存建账本:bitmap PMM](../001/):VMM 的中间页表和 demand paging 都靠 PMM 的 `alloc_page` 提供物理页,两章是内存子系统的一对基石。
+- `05-memory/001` 章 · [给物理内存建账本:bitmap PMM](../001/):VMM 的中间页表和 demand paging 都靠 PMM 的 `alloc_page` 提供物理页,两章是内存子系统的一对基石。
 - 本 tag 源码:[vmm.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mm/vmm.hpp) / [vmm.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mm/vmm.cpp)、[paging_config.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/paging_config.hpp)、[paging.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/paging.hpp)(`PageEntry`/`flush_tlb`/`read_cr3`)、[exception_handlers.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/exception_handlers.cpp)(`handle_pf` demand paging)、[main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/main.cpp)(Step 8 `g_vmm.init`);测试 [test_vmm.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/test/unit/test_vmm.cpp)(host 镜像)、[test_vmm.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/test/test_vmm.cpp)(QEMU 真 map/demand paging)。

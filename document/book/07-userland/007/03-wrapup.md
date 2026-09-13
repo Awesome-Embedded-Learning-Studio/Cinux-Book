@@ -14,7 +14,7 @@ title: 03 · 收尾:验证、没做的与小结
 
 **第三层:回归网。** 改公共头 `inode.hpp`(加 ioctl/open virtual)是大事,得有回归网罩:`test_sys_ioctl_non_tty_fd_enotty`(fd 99 无 File → -ENOTTY)、`test_sys_ioctl_unknown_cmd_enotty`、console 的 TCGETS/TCSETS/TIOCGPGRP/TIOCSPGRP 全过——证 fd≤2 行为零变、fd>2 默认路径仍 -ENOTTY。
 
-**第四层:boot 冒烟。** `make run` 起 QEMU,看 `[DEVFS] mounted at /dev (4 nodes)`——比 064 多了一个 `ptmx` 节点。生产 boot 真加载了 `/dev/ptmx` + `/dev/tty` + `/dev/pts/N` resolver,零 panic。
+**第四层:boot 冒烟。** `make run` 起 QEMU,看 `[DEVFS] mounted at /dev (4 nodes)`——比 `08-filesystem/010` 多了一个 `ptmx` 节点。生产 boot 真加载了 `/dev/ptmx` + `/dev/tty` + `/dev/pts/N` resolver,零 panic。
 
 `run-kernel-test-all` 单核和 `-smp 2` 两条腿都过(在既有基线上加了 9 个 PTY 设备/控制终端测)。
 
@@ -28,8 +28,8 @@ title: 03 · 收尾:验证、没做的与小结
 
 ## 小结
 
-- PTY 是一对 master/slave:slave 对程序像真终端(行规范 + termios + 信号),master 是模拟器端。开一对 = 开一个新终端,把 062 的 console 单例升级成多路。
-- PTY 核心(`Pty` 类)是纯逻辑,slave 复用 062 的 `TTY` 行规范(不重写),回显经 echo sink 路由回 master 读侧;四条数据路径 host 单测全过。
+- PTY 是一对 master/slave:slave 对程序像真终端(行规范 + termios + 信号),master 是模拟器端。开一对 = 开一个新终端,把 `07-userland/005` 的 console 单例升级成多路。
+- PTY 核心(`Pty` 类)是纯逻辑,slave 复用 `07-userland/005` 的 `TTY` 行规范(不重写),回显经 echo sink 路由回 master 读侧;四条数据路径 host 单测全过。
 - 两条新接缝让 PTY 接进 fd:`InodeOps::ioctl`/`open` virtual(对齐 Linux fops),`sys_ioctl`/`sys_open` 对 fd>2 走 `fd→File→Inode→ops` 派发(fd≤2 console 零变,NotImplemented→ENOTTY)。
 - `/dev/ptmx` 克隆 open(`PtmxOps::open` 分配一对返 master)+ `/dev/pts/N` DevFS 动态查找;8 槽固定注册表,inode 号编码 pty 索引,reset() 避 echo sink 悬垂。
 - `TIOCSCTTY` 挂控制终端 + `/dev/tty` 每进程别名,PTY 有完整 session/前台组/信号语义。

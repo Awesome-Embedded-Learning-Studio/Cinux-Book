@@ -109,6 +109,6 @@ if (!will_sleep) {
 - **poll 侧**:`InterruptGuard` 把「Blocked 翻转 + 入队 + arm」关在一个 IRQ-off 窗口里。
 - **fd 侧**:每个 fd 的 `poll_events` 实现在自己锁下既算 mask 又 `wait_enqueue`(pipe 是 `lock_.irq_guard()`、socket 是 `lock_.irq_guard()`)。
 
-两层缺一不可——单核关中断够,但多核上别的 CPU 的 write 不受本地 `cli` 影响,必须靠 fd 自己的锁。这是 071 章立过的铁律,这里引用不重讲。
+两层缺一不可——单核关中断够,但多核上别的 CPU 的 write 不受本地 `cli` 影响,必须靠 fd 自己的锁。这是 `14-process-advanced/005` 章立过的铁律,这里引用不重讲。
 
-> **prepare_to_wait 契约的来历**:这套 `prepare_to_wait` / `schedule_blocked` / `wake_one` 模板在 071 章立过——那里把 pipe 阻塞从 `sti`/`hlt`(撞 `#DF`)改成真调度等待队列。poll 这里一字不动地复用同一套 proven 模板,只是把「挂一个队列」扩成「挂 N 个队列」。下一节讲这个扩展带来的新复杂度。
+> **prepare_to_wait 契约的来历**:这套 `prepare_to_wait` / `schedule_blocked` / `wake_one` 模板在 `14-process-advanced/005` 章立过——那里把 pipe 阻塞从 `sti`/`hlt`(撞 `#DF`)改成真调度等待队列。poll 这里一字不动地复用同一套 proven 模板,只是把「挂一个队列」扩成「挂 N 个队列」。下一节讲这个扩展带来的新复杂度。

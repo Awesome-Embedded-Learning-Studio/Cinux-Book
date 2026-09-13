@@ -4,11 +4,11 @@ title: Lab 007 · poll / select 双源多路复用:pipe + AF_UNIX 同时等
 
 # Lab 007 · poll / select 双源多路复用:pipe + AF_UNIX 同时等
 
-> 007 章把 poll/select 的源码过了一遍:`do_poll_core` 的三段循环、`poll_events` 二合一虚方法、统一 park 防 lost-wakeup、poll vs select 两套 ABI 共享核心。这个 lab 不发答案,只给路径——咱们用 poll(2) 同时等「一个 pipe 读端 + 一个 AF_UNIX socket 读端」,亲手验证多路复用端到端跑通,再用 select(2) 重写一遍验证两个 ABI 行为一致。所有断言挂在 kernel 测试侧的 `test_poll.cpp` 已有 9 例上(就绪语义 / 有限 timeout 真 park + timer-wake / 事件唤醒 role-play),lab 只补「两个不同类型 fd 同时等」这一层用户态视角的折腾。
+> `14-process-advanced/007` 章把 poll/select 的源码过了一遍:`do_poll_core` 的三段循环、`poll_events` 二合一虚方法、统一 park 防 lost-wakeup、poll vs select 两套 ABI 共享核心。这个 lab 不发答案,只给路径——咱们用 poll(2) 同时等「一个 pipe 读端 + 一个 AF_UNIX socket 读端」,亲手验证多路复用端到端跑通,再用 select(2) 重写一遍验证两个 ABI 行为一致。所有断言挂在 kernel 测试侧的 `test_poll.cpp` 已有 9 例上(就绪语义 / 有限 timeout 真 park + timer-wake / 事件唤醒 role-play),lab 只补「两个不同类型 fd 同时等」这一层用户态视角的折腾。
 
 ## 你要确认的事
 
-开始之前,先在 Book 工作树(`/home/charliechen/Cinux`)上核这几样源码都在、行号对得上 007 章:
+开始之前,先在 Book 工作树(`/home/charliechen/Cinux`)上核这几样源码都在、行号对得上 `14-process-advanced/007` 章:
 
 1. `kernel/syscall/poll_core.cpp` 存在,`do_poll_core` 入口在 `:144`,park 块入口在 `:180`。
 2. `kernel/syscall/sys_poll.cpp` 存在,`sys_poll` 在 `:31`,`kPollMaxFds=64` 在 `:29`。
@@ -23,11 +23,11 @@ grep -n "do_poll_core" kernel/syscall/poll_core.cpp | head -3
 grep -n "run_poll_tests\|RUN_TEST" kernel/test/test_poll.cpp | head -12
 ```
 
-如果上面四样有对不上的,先回头核路径——007 章的链接全是 `kernel/syscall/poll_core.cpp` 这种,别被旧 dev note 误导。
+如果上面四样有对不上的,先回头核路径——`14-process-advanced/007` 章的链接全是 `kernel/syscall/poll_core.cpp` 这种,别被旧 dev note 误导。
 
 ## 第一步:读懂 do_poll_core 的三段循环
 
-`do_poll_core`(`poll_core.cpp:144-218`)是 007 章的脊柱。先读一遍主循环,搞清三段时序:
+`do_poll_core`(`poll_core.cpp:144-218`)是 `14-process-advanced/007` 章的脊柱。先读一遍主循环,搞清三段时序:
 
 ```bash
 sed -n '150,165p' kernel/syscall/poll_core.cpp
@@ -43,7 +43,7 @@ sed -n '150,165p' kernel/syscall/poll_core.cpp
 
 ## 第二步:多 fd 同时等的最小证据
 
-`test_poll_two_fds_one_ready`(`test_poll.cpp:168-189`)是 007 章「多 fd 同时等、只就绪的计返回值」的最小证据。先读一遍:
+`test_poll_two_fds_one_ready`(`test_poll.cpp:168-189`)是 `14-process-advanced/007` 章「多 fd 同时等、只就绪的计返回值」的最小证据。先读一遍:
 
 ```bash
 sed -n '168,189p' kernel/test/test_poll.cpp
@@ -75,7 +75,7 @@ sed -n '194,204p' kernel/test/test_poll.cpp
 
 这条用例的妙处:它不靠 role-play(不像第五步那条手动驱动 wake),它**真跑** park 路径——空 pipe + timeout=30ms,`do_poll_core` 进 park 块:关 IRQ → `prepare_to_wait` 翻 Blocked → `register_all` 挂 read 队列 → `timer_queue_arm(30ms)` → `schedule_blocked` 真切走。30ms 后 timer tick 调 `Scheduler::unblock` 把 poller 翻 Ready,返回 0、revents=0。
 
-这里有个 007 章点出的 stale:头注释 `poll_core.hpp:17-20` 还写「有限 timeout 只能 yield 自旋、真 timer-wake 是 DEBT」——但这条测试**就是**有限 timeout 真 park + timer-wake 的端到端证据。亲手核一下实现:
+这里有个 `14-process-advanced/007` 章点出的 stale:头注释 `poll_core.hpp:17-20` 还写「有限 timeout 只能 yield 自旋、真 timer-wake 是 DEBT」——但这条测试**就是**有限 timeout 真 park + timer-wake 的端到端证据。亲手核一下实现:
 
 ```bash
 sed -n '188p'     kernel/syscall/poll_core.cpp   # timer_queue_arm 真调了
@@ -106,7 +106,7 @@ sed -n '260,299p' kernel/test/test_poll.cpp
 
 ## 第五步:poll vs select 两个 ABI 行为一致
 
-007 章声明「poll 和 select 两套 ABI、一个核心」——`sys_poll` 直接搬 pollfd 数组,`sys_select` 把 fd_set 位图翻成 pollfd 再喂同一个 `do_poll_core`。这一步用源码核行为一致。
+`14-process-advanced/007` 章声明「poll 和 select 两套 ABI、一个核心」——`sys_poll` 直接搬 pollfd 数组,`sys_select` 把 fd_set 位图翻成 pollfd 再喂同一个 `do_poll_core`。这一步用源码核行为一致。
 
 **核 sys_poll 的路径**(`sys_poll.cpp:31-56`):
 
@@ -153,7 +153,7 @@ if (readfds != 0 &&
 
 ## 第六步:核对 always_bits 透传
 
-007 章声明「POLLERR/POLLHUP/POLLNVAL 三位无条件透传,即使用户没在 events 里请求」。这一步用源码核:
+`14-process-advanced/007` 章声明「POLLERR/POLLHUP/POLLNVAL 三位无条件透传,即使用户没在 events 里请求」。这一步用源码核:
 
 ```bash
 sed -n '47p' kernel/syscall/poll_core.cpp        # always_bits 定义
@@ -172,9 +172,9 @@ sed -n '77,92p' kernel/syscall/poll_core.cpp     # poll_one: wanted = events | a
 
 ## 收尾:把 007 章的声明逐条对上
 
-跑完上面六步,回头逐条核 007 章的「咱们要点亮什么」七条,每条都能在源码或测试里找到证据:
+跑完上面六步,回头逐条核 `14-process-advanced/007` 章的「咱们要点亮什么」七条,每条都能在源码或测试里找到证据:
 
-| 007 章声明 | 证据位置 |
+| `14-process-advanced/007` 章声明 | 证据位置 |
 |---|---|
 | 多路复用这一层:`do_poll_core` 三段循环 | `poll_core.cpp:144-218`、`test_poll.cpp:168-189` 多 fd 同时等 |
 | level-trigger,不是 edge | `poll_core.cpp:150` 无界 for 顶无条件重扫 |
@@ -184,7 +184,7 @@ sed -n '77,92p' kernel/syscall/poll_core.cpp     # poll_one: wanted = events | a
 | 一个 poller 睡在 N 个队列上 | `poll_core.cpp:97-123` register_all、`:126-140` detach_all、`scheduler_block.cpp:48-70` unblock 幂等 |
 | poll vs select 共享核心 | `sys_poll.cpp:31-56` 直接搬、`sys_select.cpp:114-165` 翻译、`do_poll_core` 不知 poll/select |
 
-七条全对上,007 章的「教程即验证」才算闭环。如果某条对不上(比如 grep 不到 `timer_queue_arm`、或者 `register_all` 的行号偏了),回头读 007 章对应小节,看是源码演进了还是章节写错了——教程是 tag-bound 的,以当前工作树的源码真值为准。
+七条全对上,`14-process-advanced/007` 章的「教程即验证」才算闭环。如果某条对不上(比如 grep 不到 `timer_queue_arm`、或者 `register_all` 的行号偏了),回头读 `14-process-advanced/007` 章对应小节,看是源码演进了还是章节写错了——教程是 tag-bound 的,以当前工作树的源码真值为准。
 
 ### 进一步的折腾(可选)
 
@@ -193,4 +193,4 @@ sed -n '77,92p' kernel/syscall/poll_core.cpp     # poll_one: wanted = events | a
 - 读 `Scheduler::unblock`(`scheduler_block.cpp:48-70`)的幂等注释,思考「如果 unblock 不是幂等,双唤醒源会怎样」——fd 那侧叫了一次,timer 这侧又叫一次,后者若 enqueue 就 double-add 进运行队列,栈就乱了。这条注释的 `Idempotent (F4-M4 prepare-to-wait)` 就是防这个。
 - grep `SYS_ppoll` / `SYS_pselect6` 在 `syscall_nums.hpp`——确认 Cinux 全无。Linux 的 ppoll/pselect6 在 poll/select 基础上原子换信号掩码,避免「poll 之前信号到了、handler 跑完、poll 又阻塞」的竞态。Cinux 这会儿没做,如实说「未实现」。
 
-这些折腾不要求做完,挑一个顺眼的深挖。007 章主线是 `do_poll_core` 多路复用层 + poll/select 共享核心,这几个延伸是「顺手吃下的扩展 ABI」的入口。
+这些折腾不要求做完,挑一个顺眼的深挖。`14-process-advanced/007` 章主线是 `do_poll_core` 多路复用层 + poll/select 共享核心,这几个延伸是「顺手吃下的扩展 ABI」的入口。

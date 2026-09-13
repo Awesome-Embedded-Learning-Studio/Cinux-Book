@@ -4,7 +4,7 @@ title: 002 · 时钟到点,该换人了:抢占式调度
 
 # 002 · 时钟到点,该换人了:抢占式调度
 
-> 019 造出了 `Task`、`context_switch`、`RoundRobin`,可它是协作式的——线程不主动 `yield` 就霸着 CPU。这一章把调度器挂到那个从 011 章起就在跑的 PIT 时钟中断上,让 IRQ0 在固定节拍强行打断当前线程,也就是抢占式多任务;顺带把 `idle` 任务、`TSS.RSP0` 更新、`PerCPU` 占位和最朴素的 `Spinlock` 原语一并铺上。
+> `06-process/001` 造出了 `Task`、`context_switch`、`RoundRobin`,可它是协作式的——线程不主动 `yield` 就霸着 CPU。这一章把调度器挂到那个从 `03-big-kernel/004` 章起就在跑的 PIT 时钟中断上,让 IRQ0 在固定节拍强行打断当前线程,也就是抢占式多任务;顺带把 `idle` 任务、`TSS.RSP0` 更新、`PerCPU` 占位和最朴素的 `Spinlock` 原语一并铺上。
 
 ## 本章路线
 

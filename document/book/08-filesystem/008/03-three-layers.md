@@ -38,7 +38,7 @@ uint64_t PMM::alloc_page() {
 }
 ```
 
-007 之前,「找空闲 bit」和「置位」是分开的两步、且无锁,于是两个线程能各自 find 到同一个 bit。现在 `guard()` 把它们包成一个不可分割的临界区:第二个线程会在 `acquire` 处 spin,等第一个 `release` 之后再去 find——这时 bit 已经被置上了,它自然会 find 到**下一个**空闲位。竞争就这么根治了。
+`08-filesystem/007` 之前,「找空闲 bit」和「置位」是分开的两步、且无锁,于是两个线程能各自 find 到同一个 bit。现在 `guard()` 把它们包成一个不可分割的临界区:第二个线程会在 `acquire` 处 spin,等第一个 `release` 之后再去 find——这时 bit 已经被置上了,它自然会 find 到**下一个**空闲位。竞争就这么根治了。
 
 顺带一个小拆分:你会看到 `alloc_page_locked` / `free_page_locked` 这种「不拿锁」的内层函数。原因是 `alloc_pages`(分配连续多页)需要**在已经持锁的状态下**复用单页逻辑——它不能去调会再次 `guard()` 的 `alloc_page`,因为我们的 Spinlock 不支持重入(同一个线程第二次 `acquire` 会把自己 spin 死)。所以把「真正干活但不碰锁」的逻辑抽成 `_locked` 版本,由外层加好锁再调。这是个很常见的锁代码组织手法。
 

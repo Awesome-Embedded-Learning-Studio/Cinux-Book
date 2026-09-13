@@ -102,7 +102,7 @@ public:
 
 ## 这章没做的
 
-- **`/dev/console` 只接了写**:写到串口做对了,但**读**没接(读 console 该读键盘,要接 062 那个 console TTY 的真 stdin)。完整的 `/dev/console` 双向、`/dev/tty`、PTY master/slave,是 TTY 那条线 Phase 2 的事——这一章先把 console 的写和三个基础节点立住。
+- **`/dev/console` 只接了写**:写到串口做对了,但**读**没接(读 console 该读键盘,要接 `07-userland/005` 那个 console TTY 的真 stdin)。完整的 `/dev/console` 双向、`/dev/tty`、PTY master/slave,是 TTY 那条线 Phase 2 的事——这一章先把 console 的写和三个基础节点立住。
 - **mknod**:还不能用户态 `mknod` 造设备节点。设备是 boot 时 `mount()` 预建的固定三个。
 - **块设备 inode**:这一章的设备都是字符设备(`kSIfChr`)。块设备(磁盘那种,要支持 buffer cache)留后面。
 - **ProcFS / tmpfs / ext4**:同为虚拟 FS 或 FS 扩展,各自单独的里程碑,不在这一章。

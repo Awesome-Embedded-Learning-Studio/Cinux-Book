@@ -35,7 +35,7 @@ grep -nE 'run_dentry_tests|run_flock_tests' kernel/test/main_test.cpp
 cmake --build build --target run-kernel-test 2>&1 | grep -aE 'dentry|flock|Tests:' | head -20
 ```
 
-串口上应看到 dentry 与 flock 的测试用例 `[PASS]`,最后是 `Tests: 1080 passed, 0 failed`(本章比 077 多出 dentry + flock 两组用例)。
+串口上应看到 dentry 与 flock 的测试用例 `[PASS]`,最后是 `Tests: 1080 passed, 0 failed`(本章比 `12-storage/002` 多出 dentry + flock 两组用例)。
 
 ### 3. 验 dentry cache 三种行为
 

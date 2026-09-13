@@ -13,7 +13,7 @@ title: Lab 003 · 进程组与 waitpid 阻塞 验证
 1. 进程组/会话身份在(`pgid`/`sid`/`session_leader`/`controlling_tty`),fork 继承规则集中;
 2. `setpgid`/`setsid`/`getpgid`/`getsid` + `killpg` 在,闭环 `sys_kill(pid<0)`;
 3. waitpid 阻塞 + Zombie reap 在(exit Dead→Zombie、scheduler 跳 Zombie、exit 唤醒父、WNOHANG 非阻塞);
-4. run-kernel-test 从 002 的 809 涨到 827。
+4. run-kernel-test 从 `14-process-advanced/002` 的 809 涨到 827。
 
 ## 步骤
 

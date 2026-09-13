@@ -8,7 +8,7 @@ title: Lab 001 · 给进程加上 fork / execve / waitpid
 
 ## 实验目标
 
-在 033 的基础上,让内核具备 Unix 进程模型的三个核心原语:
+在 `09-gui/006` 的基础上,让内核具备 Unix 进程模型的三个核心原语:
 
 1. **fork**——复制当前进程,得到一个几乎相同的子进程(Copy-On-Write)。
 2. **execve**——把当前进程的用户空间映像换成磁盘上的一个 ELF 程序,PID 不变。
@@ -18,10 +18,10 @@ title: Lab 001 · 给进程加上 fork / execve / waitpid
 
 ## 前置条件
 
-- 跑通 019/020 的调度器(`Scheduler::current()`、`Scheduler::add_task()`、`context_switch`)。
-- 跑通 022 的用户态切换与 023 的 syscall 框架(`syscall_register`、`syscall_dispatch`)。
-- 跑通 027 的 VFS(本 lab 的 execve 要靠 `vfs_resolve` + `fs->lookup` 读 ELF)。
-- 跑通 016/018 的分页与 `AddressSpace`(本 lab 的 CoW 要直接操作 4 级页表)。
+- 跑通 `06-process/001`/`06-process/002` 的调度器(`Scheduler::current()`、`Scheduler::add_task()`、`context_switch`)。
+- 跑通 `07-userland/001` 的用户态切换与 `07-userland/002` 的 syscall 框架(`syscall_register`、`syscall_dispatch`)。
+- 跑通 `08-filesystem/003` 的 VFS(本 lab 的 execve 要靠 `vfs_resolve` + `fs->lookup` 读 ELF)。
+- 跑通 `05-memory/002`/`05-memory/004` 的分页与 `AddressSpace`(本 lab 的 CoW 要直接操作 4 级页表)。
 
 ## 任务分解
 

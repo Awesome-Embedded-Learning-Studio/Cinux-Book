@@ -35,7 +35,7 @@ title: 02 · 拆账:`pte_count` 与 `refcount` 各司其职
 
 ### 两本账各自的语义
 
-[pmm.hpp](../../../kernel/mm/pmm.hpp) 给每页维持**两个**独立计数:
+`kernel/mm/pmm.hpp` 给每页维持**两个**独立计数:
 
 ```cpp
 // 映射维度:几个 PTE 映射这页。纯计数,绝不自己决定释放。

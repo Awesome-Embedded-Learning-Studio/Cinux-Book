@@ -44,7 +44,7 @@ cmake --build build --target run-kernel-test
 
 ### 4.(思考)static_assert 锁布局
 
-去看 046 提到的 `static_assert(offsetof(CpuContext, fs_base)==80)`——这就是 F-INFRA 的"static_assert 锁结构体布局"在 `CpuContext` 上的落地。改布局时编译期挡住。
+去看 `14-process-advanced/002` 提到的 `static_assert(offsetof(CpuContext, fs_base)==80)`——这就是 F-INFRA 的"static_assert 锁结构体布局"在 `CpuContext` 上的落地。改布局时编译期挡住。
 
 ## 验收清单
 

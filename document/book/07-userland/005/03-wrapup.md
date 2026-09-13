@@ -14,7 +14,7 @@ title: 03 · 收尾:验证、没做的与小结
 
 **第三层:真交互。** 跑 `make run` 起 QEMU,进 shell,亲手敲:打一行字、按退格编辑、回车提交;跑个程序按 Ctrl+C 看它被打断;按 Ctrl+D 看 shell 读到 EOF。这一层本机的 headless 自动测试罩不到(没有真键盘输入),要靠你自己在 QEMU 里试。
 
-> 一个本地验证的小坑得提醒:测试里有个 ring-3 的 musl `/hello` smoke(061 章那一步默认开了),它需要先用 `tools/musl/build-musl.sh` + `build-hello.sh` 编出 `/hello` 才跑;本地没编的话 smoke 会空转撑满超时。本地验证时要么先编 musl,要么 `cmake -DCINUX_MUSL_HELLO_SMOKE=OFF` 关掉它(关了不影响行规范那些测试,那些不依赖 `/hello`)。
+> 一个本地验证的小坑得提醒:测试里有个 ring-3 的 musl `/hello` smoke(`16-security/004` 章那一步默认开了),它需要先用 `tools/musl/build-musl.sh` + `build-hello.sh` 编出 `/hello` 才跑;本地没编的话 smoke 会空转撑满超时。本地验证时要么先编 musl,要么 `cmake -DCINUX_MUSL_HELLO_SMOKE=OFF` 关掉它(关了不影响行规范那些测试,那些不依赖 `/hello`)。
 
 ## 这章没做的
 
@@ -29,4 +29,4 @@ title: 03 · 收尾:验证、没做的与小结
 - 行规范核心写成纯逻辑(回显走注入 callback、信号走枚举),换来 host 链真码单测;ICANON 攒行/退格/回车提交、ISIG 把 `^C`/`^\`/`^Z` 翻译成信号不进缓冲。
 - 接键盘时两个坑:回显 sink 必须 lock-free(IRQ 上下文不能拿锁打印);设备层字节(`^H`)跟 UAPI 默认值(DEL)对不上,初始化时显式对齐 VERASE。
 - 阻塞读用 `prepare_to_wait` + `schedule_blocked` 替忙等,关中断下「检查 + 登记 + 标 Blocked」原子防丢失唤醒;EOF 当状态(`eof_pending_` + `take_eof` 一次性),跟「暂时没行」分开。
-- ioctl 接成真命令(TCGETS/TCSETS/TIOCGWINSZ),经 061 的 accessor 走、坏指针 `-EFAULT`;Ctrl+C 经 `killpg` 投前台组,终端能打断程序了。
+- ioctl 接成真命令(TCGETS/TCSETS/TIOCGWINSZ),经 `16-security/004` 的 accessor 走、坏指针 `-EFAULT`;Ctrl+C 经 `killpg` 投前台组,终端能打断程序了。

@@ -6,7 +6,7 @@ title: 03 · 实现:resolve_user_path、规范化、Task::cwd、stat
 
 ### 先把散落的路径逻辑收拢:resolve_user_path
 
-先看这一章最直接的一笔「去重」。006 的 `sys_creat` 开头长这样(简化):
+先看这一章最直接的一笔「去重」。`08-filesystem/006` 的 `sys_creat` 开头长这样(简化):
 
 ```cpp
 // 校验用户指针(canonical address)
@@ -18,7 +18,7 @@ if (bit47 == 1 && upper != 0xFFFF) return -1;
 // ...然后 split_pathname 拆父目录和叶子...
 ```
 
-这段「canonical 校验」在五个 syscall 里一字不差地重复。007 把它抽成 `path_util.hpp` 里一个 inline 函数:
+这段「canonical 校验」在五个 syscall 里一字不差地重复。`08-filesystem/007` 把它抽成 `path_util.hpp` 里一个 inline 函数:
 
 ```cpp
 inline bool validate_user_ptr(uint64_t ptr) {
@@ -31,7 +31,7 @@ inline bool validate_user_ptr(uint64_t ptr) {
 }
 ```
 
-为什么 x86_64 要做这个校验?64 位虚拟地址里,只有低 48 位是有效的,第 47 位决定「符号扩展」:第 47 位为 0 时,高 16 位(48..63)必须全 0;为 1 时必须全 1。符合这个规则的叫「规范地址(canonical address)」,不符合的访问直接触发 #GP。用户态传进来的指针内核不能信,得先确认它是规范地址,否则一旦解引用就崩。这个道理 006 讲过,007 把它从五份拷贝变成一个函数。
+为什么 x86_64 要做这个校验?64 位虚拟地址里,只有低 48 位是有效的,第 47 位决定「符号扩展」:第 47 位为 0 时,高 16 位(48..63)必须全 0;为 1 时必须全 1。符合这个规则的叫「规范地址(canonical address)」,不符合的访问直接触发 #GP。用户态传进来的指针内核不能信,得先确认它是规范地址,否则一旦解引用就崩。这个道理 `08-filesystem/006` 讲过,`08-filesystem/007` 把它从五份拷贝变成一个函数。
 
 在这之上,`resolve_user_path` 把「校验 + 按 cwd 解析 + 规范化」三步打包:
 
@@ -48,7 +48,7 @@ bool resolve_user_path(uint64_t path_virt, char* out) {
 }
 ```
 
-注意中间那行:`cwd` 取自「当前进程」的 `Task::cwd`,如果拿不到 current 就退回根目录 "/"。这一行是 cwd 支持的核心——相对路径到底是相对谁,答案就是「当前进程的工作目录」。006 的各 syscall 改成调这个函数后,既去掉了重复,又自动获得了 cwd 支持。
+注意中间那行:`cwd` 取自「当前进程」的 `Task::cwd`,如果拿不到 current 就退回根目录 "/"。这一行是 cwd 支持的核心——相对路径到底是相对谁,答案就是「当前进程的工作目录」。`08-filesystem/006` 的各 syscall 改成调这个函数后,既去掉了重复,又自动获得了 cwd 支持。
 
 ### 路径规范化:折叠 . .. // 的栈式算法
 
@@ -95,7 +95,7 @@ void path_canonicalize(char* buf) {
 
 ### 工作目录挂在进程上:Task::cwd 与 set_current
 
-工作目录是「每个进程一份」的状态,所以它得挂在进程结构上。007 给 `Task` 加了一个字段:
+工作目录是「每个进程一份」的状态,所以它得挂在进程结构上。`08-filesystem/007` 给 `Task` 加了一个字段:
 
 ```cpp
 struct Task {
@@ -164,7 +164,7 @@ int64_t sys_getcwd(uint64_t buf_virt, uint64_t size, ...) {
 
 问题来了:`sys_chdir`/`sys_getcwd`/`resolve_user_path` 全都依赖 `Scheduler::current()->cwd`。如果 shell 一进去就敲 `pwd`,而 `current()` 返回 `nullptr`,这些 syscall 就没法工作(代码里对 nullptr 的处理是「退回 "/" 或返回 -1」)。
 
-007 的解决办法是个实用主义的小补丁:在 `launch_first_user` 跳进用户态之前,手动造一个 `Task`,设好 cwd,并把它登记为 current:
+`08-filesystem/007` 的解决办法是个实用主义的小补丁:在 `launch_first_user` 跳进用户态之前,手动造一个 `Task`,设好 cwd,并把它登记为 current:
 
 ```cpp
 // Create a minimal Task so chdir/getcwd can read/write a per-process cwd
@@ -186,7 +186,7 @@ void Scheduler::set_current(Task* task) {
 }
 ```
 
-这是个**临时**手段。`shell_task` 是个 `static` 单一 Task,不是正经的进程创建。它的意义是「让 cwd 相关的 syscall 在调度器完整运作之前也能用」。等到后面真正实现 fork/exec、进程创建走完整流程时,每个进程自然会有自己的 Task 和 cwd,这个补丁就会被取代。但在 007,它够用。
+这是个**临时**手段。`shell_task` 是个 `static` 单一 Task,不是正经的进程创建。它的意义是「让 cwd 相关的 syscall 在调度器完整运作之前也能用」。等到后面真正实现 fork/exec、进程创建走完整流程时,每个进程自然会有自己的 Task 和 cwd,这个补丁就会被取代。但在 `08-filesystem/007`,它够用。
 
 顺带一提,`launch_first_user` 这版还动了另一处:用户代码的映射从「单页」改成了「多页循环」。原因是 shell 这章加了不少命令(`cd`/`pwd`/`stat` 等),二进制变大,一页(4KB)装不下了。所以现在按 `code_pages = ceil(user_size / PAGE_SIZE)` 分配多页、逐页映射和拷贝。这和 cwd 没直接关系,但它是「shell 长大了」的必然后果,顺带交代。
 
@@ -238,7 +238,7 @@ int64_t Ext2FileOps::stat(const Inode* inode, struct stat* st) {
 }
 ```
 
-这里要诚实交代几个「填不了的」:`st_dev` 和 `st_rdev` 是 0,因为 Cinux 这会儿没有「设备号」的概念(它只有一个 AHCI 盘、一个 ext2,不需要用主从设备号区分);三个时间戳直接取磁盘 inode 里的,而 006 已经说过 Cinux 没有实时时钟,这些时间戳全是 0。所以你 `stat` 一个文件,看到的时间是 1970 年初——不是 bug,是还没接 RTC。
+这里要诚实交代几个「填不了的」:`st_dev` 和 `st_rdev` 是 0,因为 Cinux 这会儿没有「设备号」的概念(它只有一个 AHCI 盘、一个 ext2,不需要用主从设备号区分);三个时间戳直接取磁盘 inode 里的,而 `08-filesystem/006` 已经说过 Cinux 没有实时时钟,这些时间戳全是 0。所以你 `stat` 一个文件,看到的时间是 1970 年初——不是 bug,是还没接 RTC。
 
 `Ext2DirOps::stat`(目录版本的)和上面这个**逐字相同**。文件和目录的 stat 在 ext2 里没有区别(都从同一个 `disk_inode` 拷字段),所以两份代码一模一样。这是个重复,不是精心设计——后面真要整洁,可以把它提到一个公共 helper,或者干脆让基类提供默认实现。留个尾巴,lab 里可以动手。
 

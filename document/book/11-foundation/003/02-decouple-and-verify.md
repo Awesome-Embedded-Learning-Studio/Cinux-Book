@@ -29,7 +29,7 @@ static Ext2 ext2(blk_dev.ok() ? &blk_dev.value() : nullptr);
 
 ## 这套抽象值在哪
 
-现在你回头想"接一块 NVMe"那个问题:写个 `NVMeBlockDevice : IBlockDevice`,把 NVMe 的读写包进去,然后 `Ext2 ext2(&nvme_dev)`——ext2 一行没改。AHCI、NVMe、VirtIO 共用的是同一个 `IBlockDevice` 契约(加上 037 的 `DmaPool`/`PrdtBuilder`),各转各的硬件格式。这就是**依赖倒置**的回报:高层(ext2)依赖抽象(`IBlockDevice`),不依赖具体(AHCI);新增一种盘,只新增一个适配器,不动已有代码。
+现在你回头想"接一块 NVMe"那个问题:写个 `NVMeBlockDevice : IBlockDevice`,把 NVMe 的读写包进去,然后 `Ext2 ext2(&nvme_dev)`——ext2 一行没改。AHCI、NVMe、VirtIO 共用的是同一个 `IBlockDevice` 契约(加上 `11-foundation/002` 的 `DmaPool`/`PrdtBuilder`),各转各的硬件格式。这就是**依赖倒置**的回报:高层(ext2)依赖抽象(`IBlockDevice`),不依赖具体(AHCI);新增一种盘,只新增一个适配器,不动已有代码。
 
 > 小提醒:这是"最小同步"接口。真到高并发 + 异步 IO(请求队列、中断驱动完成),接口形态会再演进(可能加 async/回调)。但那是后面的需求,现在不为它先造一套复杂的。
 

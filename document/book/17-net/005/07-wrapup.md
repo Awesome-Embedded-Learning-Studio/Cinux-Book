@@ -46,7 +46,7 @@ auto cr = client.recv(cbuf, sizeof(cbuf), nullptr, nullptr);
 TEST_ASSERT_EQ(*cr, static_cast<int64_t>(sizeof(msg)));
 ```
 
-注意 `server`/`client` 是 `static`——块注释 `test_socket.cpp:295-296` 说明:4 KB RX 环让每个 `UnixSocket` 占 4 KB+,两个放栈上会爆 16 KB 内核栈,所以用 `static`(跟 069 TcpSocket echo 测试同款妥协)。echo round-trip 走通,证明 `bind_path` → `listen` → `connect_path`(立即建连 + wire peer + enqueue child)→ `send`(拷进对端环)→ `accept`(取 child)→ `recv`(排空环)→ 回程 `send`/`recv` 整条链路端到端对。
+注意 `server`/`client` 是 `static`——块注释 `test_socket.cpp:295-296` 说明:4 KB RX 环让每个 `UnixSocket` 占 4 KB+,两个放栈上会爆 16 KB 内核栈,所以用 `static`(跟 `17-net/004` TcpSocket echo 测试同款妥协)。echo round-trip 走通,证明 `bind_path` → `listen` → `connect_path`(立即建连 + wire peer + enqueue child)→ `send`(拷进对端环)→ `accept`(取 child)→ `recv`(排空环)→ 回程 `send`/`recv` 整条链路端到端对。
 
 **第三层:负路径。** 两个负向测试守住错误语义:
 
@@ -60,7 +60,7 @@ TEST_ASSERT_EQ(*cr, static_cast<int64_t>(sizeof(msg)));
 - `shutdown`:`do_shutdown`(`socket.hpp:145-147`)记录方向 bit,`send`/`recv` 入口查 `shut_write()`/`shut_read()`(`unix_socket.cpp:206`/`:248`)。`test_shutdown_directions`(`test_socket.cpp:482-498`)断言 `SHUT_WR` 后 send 返 `BrokenPipe`、`SHUT_RD` 后 recv 返 0(EOF)。
 - `poll(2)`/`select(2)`:`poll_events`/`poll_detach_waiter`(`unix_socket.cpp:391-429`)。listening 报 accept 队列就绪、connected 报 RX 环就绪 + `POLLHUP`(对端 EOF),镜像 `TcpSocket`。
 
-这四样不展开讲——它们挂在 073 立的 socket 适配器模子上,跟 `AF_INET` 的 Udp/Tcp 共用同一套 `Socket` base 接口。本章主线是 bind/connect/echo round-trip,这几样点到「已落地 + 有测试」即可,不喧宾夺主。RUN_TEST 注册在 `test_socket.cpp:538-541`(AF_UNIX 核心 4 例)+ `:548-551`(getsockname 等 4 例),加上 setsockopt/getsockopt/accept4 又 4 例,`AF_UNIX` 总共撑起了 socket syscall 对齐的一大片测试。
+这四样不展开讲——它们挂在 `07-userland/008` 立的 socket 适配器模子上,跟 `AF_INET` 的 Udp/Tcp 共用同一套 `Socket` base 接口。本章主线是 bind/connect/echo round-trip,这几样点到「已落地 + 有测试」即可,不喧宾夺主。RUN_TEST 注册在 `test_socket.cpp:538-541`(AF_UNIX 核心 4 例)+ `:548-551`(getsockname 等 4 例),加上 setsockopt/getsockopt/accept4 又 4 例,`AF_UNIX` 总共撑起了 socket syscall 对齐的一大片测试。
 
 ## 这章没做的
 
@@ -79,7 +79,7 @@ TEST_ASSERT_EQ(*cr, static_cast<int64_t>(sizeof(msg)));
 `AF_UNIX` 是 Cinux socket family 的第三个成员,挂的方式跟 UDP/TCP 一样轻——`sys_socket` 里一个 `if (domain == kAfUnix)` 分支直接 `new UnixSocket`,`AF_INET` 路径一行没改。三件工程决定撑起这一章:
 
 - **加法非破坏**:`bind_path`/`connect_path` 是 Socket base 上新加的虚函数,默认 `NotImplemented`,既有 Udp/TcpSocket 不动。`AF_UNIX` 的路径形状跟 `AF_INET` 的 `(Ipv4Addr, port)` 形状对不上,加新接口比改既有签名干净——blast radius 为零。
-- **两角色一类**:`UnixSocket` 既是监听 socket 又是已连接 socket,`listening_`/`connected_` 几个 bool 切换,跟 069 `TcpSocket` 镜像同款。`accept` 出来的 child 和 client 用同一个类型,`send`/`recv` 一份代码两种角色共用。
-- **内存命名空间**:`UnixRegistry` 一张定长表 + Spinlock,bind 塞记录、connect 查记录、close 删记录,不碰真 fs。镜像 071 `FifoRegistry`,进程级单例。
+- **两角色一类**:`UnixSocket` 既是监听 socket 又是已连接 socket,`listening_`/`connected_` 几个 bool 切换,跟 `17-net/004` `TcpSocket` 镜像同款。`accept` 出来的 child 和 client 用同一个类型,`send`/`recv` 一份代码两种角色共用。
+- **内存命名空间**:`UnixRegistry` 一张定长表 + Spinlock,bind 塞记录、connect 查记录、close 删记录,不碰真 fs。镜像 `14-process-advanced/005` `FifoRegistry`,进程级单例。
 
-立即建连(无内核握手)是 `AF_UNIX` 跟 TCP 最大的语义差别——`connect_path` 直接 wire 双向 peer + enqueue child,所以 send 可以先于 accept,字节缓冲在 child 的 4 KB RX 环里。阻塞抄 `prepare_to_wait` 真调度模板(071 修对的那套,避开 `sti`/`hlt` 的 `#DF` 坑),加锁顺序无 AB-BA(registry 锁不嵌套在 socket 锁里、peer write-once 让 send 只持一把锁)。`copy_from_user` 的 `is_user_vaddr` 范围检查让 ring0 测试喂不了用户地址,echo 测试走 `UnixSocket` 直接方法——这是测试侧妥协,不是产品缺陷,生产路径留 musl 覆盖。loopback echo round-trip 端到端跑通,加上负路径和扩展 ABI 的测试,`AF_UNIX` 在 Book 真能用。
+立即建连(无内核握手)是 `AF_UNIX` 跟 TCP 最大的语义差别——`connect_path` 直接 wire 双向 peer + enqueue child,所以 send 可以先于 accept,字节缓冲在 child 的 4 KB RX 环里。阻塞抄 `prepare_to_wait` 真调度模板(`14-process-advanced/005` 修对的那套,避开 `sti`/`hlt` 的 `#DF` 坑),加锁顺序无 AB-BA(registry 锁不嵌套在 socket 锁里、peer write-once 让 send 只持一把锁)。`copy_from_user` 的 `is_user_vaddr` 范围检查让 ring0 测试喂不了用户地址,echo 测试走 `UnixSocket` 直接方法——这是测试侧妥协,不是产品缺陷,生产路径留 musl 覆盖。loopback echo round-trip 端到端跑通,加上负路径和扩展 ABI 的测试,`AF_UNIX` 在 Book 真能用。

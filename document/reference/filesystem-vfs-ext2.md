@@ -4,7 +4,7 @@ title: 参考 · 文件系统:VFS、ramdisk、ext2 与文件描述符
 
 # 参考 · 文件系统:VFS、ramdisk、ext2 与文件描述符
 
-> 查阅层。这一页是 Cinux 文件系统子系统的速查表,不按 tag 组织,给后续章节(ramdisk 026、VFS 027、ext2 028 系列、cwd/stat 028c、init 线程 028e、管道 031b、shell 024……)查 VFS 抽象、Inode/Ops、FDTable、ext2 布局、syscall 号用。实现以最终 tag `035_multi_terminal` 源码为准。
+> 查阅层。这一页是 Cinux 文件系统子系统的速查表,不按 tag 组织,给后续章节(ramdisk `08-filesystem/002`、VFS `08-filesystem/003`、ext2 `08-filesystem/005` 系列、cwd/stat `08-filesystem/007`、init 线程 `08-filesystem/009`、管道 `09-gui/004`、shell `07-userland/003`……)查 VFS 抽象、Inode/Ops、FDTable、ext2 布局、syscall 号用。实现以最终 tag `035_multi_terminal` 源码为准。
 >
 > 范围:VFS 三层抽象(FileSystem → Inode+InodeOps → File+FDTable)、USTAR ramdisk、ext2 只读 + 后期可写、POSIX 风格 fd 与 syscall。**不含 journaling、不含符号链接解析的完整实现、不含权限强制(早期 tag 多为 stub)**。
 
@@ -32,7 +32,7 @@ title: 参考 · 文件系统:VFS、ramdisk、ext2 与文件描述符
    管道(031b):包成 Inode,挂 PipeReadOps / PipeWriteOps,统一进 VFS
 ```
 
-设计核心:**一切皆 Inode**——普通文件、目录、设备、管道都先变成带 `InodeOps` 虚表的 `Inode`,`sys_read`/`sys_write` 只对着 `Inode.ops` 调用,不关心后端是什么。这就是管道(031b)能「包成 Inode」复用整套 VFS 的原因。
+设计核心:**一切皆 Inode**——普通文件、目录、设备、管道都先变成带 `InodeOps` 虚表的 `Inode`,`sys_read`/`sys_write` 只对着 `Inode.ops` 调用,不关心后端是什么。这就是管道(`09-gui/004`)能「包成 Inode」复用整套 VFS 的原因。
 
 ## VFS 三层抽象
 
@@ -78,7 +78,7 @@ title: 参考 · 文件系统:VFS、ramdisk、ext2 与文件描述符
 
 FDTable 嵌在 `Task` 里,每任务一张;`Task::fd_table == nullptr` 表示共享全局内核表。生命周期:FDTable 拥有 File 对象,`close` 释放。
 
-> **关键设计(031b 的坑):** `sys_read`/`sys_write` 的派发顺序是「先查 FDTable 走 Inode.ops、再回退 fd0 键盘 / fd1 串口」。如果把顺序写反(先 fd0/fd1),管道会被短路——数据打到串口而不是管道。
+> **关键设计(`09-gui/004` 的坑):** `sys_read`/`sys_write` 的派发顺序是「先查 FDTable 走 Inode.ops、再回退 fd0 键盘 / fd1 串口」。如果把顺序写反(先 fd0/fd1),管道会被短路——数据打到串口而不是管道。
 
 ## ramdisk 后端(USTAR)
 
@@ -90,7 +90,7 @@ ramdisk 把一块内嵌的 **USTAR tar** 镜像当文件系统(`ramdisk_config.h
 | magic | `"ustar"` |
 | type flag | `'0'` Regular、`'5'` Directory、`'1'` Hardlink、`'2'` Symlink、`'6'` FIFO、`'3'`/`'4'` 字符/块设备、`'7'` Contiguous |
 
-ramdisk 在 026 引入,是 ext2 上线前让 shell 能读文件的简单后端;**只读**(无 write ops,或 write 返回不支持)。镜像在编译期嵌进内核镜像。
+ramdisk 在 `08-filesystem/002` 引入,是 ext2 上线前让 shell 能读文件的简单后端;**只读**(无 write ops,或 write 返回不支持)。镜像在编译期嵌进内核镜像。
 
 ## ext2 后端
 
@@ -108,7 +108,7 @@ ramdisk 在 026 引入,是 ext2 上线前让 shell 能读文件的简单后端;*
 | 扇区 | `EXT2_SECTOR_SIZE = 512`(经 AHCI 读写) |
 | mode 掩码 | `EXT2_S_IFMT=0xF000`、`EXT2_S_IFREG=0x8000`、`EXT2_S_IFDIR=0x4000` |
 
-ext2 经 028(只读挂载解析)→ 028b(写)→ 028c(cwd/stat)→ 028d(sync 安全)→ 028e(init 线程)逐步补齐。读写裸扇区走 [storage-ahci-pci.md](storage-ahci-pci.md) 那套 AHCI DMA。
+ext2 经 `08-filesystem/005`(只读挂载解析)→ `08-filesystem/006`(写)→ `08-filesystem/007`(cwd/stat)→ `08-filesystem/008`(sync 安全)→ `08-filesystem/009`(init 线程)逐步补齐。读写裸扇区走 [storage-ahci-pci.md](storage-ahci-pci.md) 那套 AHCI DMA。
 
 ## 系统调用(syscall_nums.hpp)
 
@@ -120,9 +120,9 @@ ext2 经 028(只读挂载解析)→ 028b(写)→ 028c(cwd/stat)→ 028d(sync 安
 | 3 | `SYS_close` | 关 fd |
 | 4 | `SYS_stat` | 取 inode 状态 |
 | 12 | `SYS_chdir` | 改当前目录 |
-| 22 | `SYS_pipe` | 建管道,返两个 fd(031b) |
+| 22 | `SYS_pipe` | 建管道,返两个 fd(`09-gui/004`) |
 | 39 | `SYS_getpid` | 取 pid |
-| 57 | `SYS_fork` | 复制进程(034/035) |
+| 57 | `SYS_fork` | 复制进程(`10-multitasking/001-002`) |
 | 59 | `SYS_execve` | 替换镜像 |
 | 60 | `SYS_exit` | 退出 |
 | 61 | `SYS_waitpid` | 收尸 |
@@ -133,11 +133,11 @@ ext2 经 028(只读挂载解析)→ 028b(写)→ 028c(cwd/stat)→ 028d(sync 安
 ## 约束与边界(本子系统的真实限制)
 
 - **fd 表固定 256。** `alloc` 跳过 0/1/2(预留),所以第一个普通 fd 是 3;装固定 fd 用 `set`。
-- **ramdisk 只读。** 写文件要 ext2(028b+);早期 shell 对 ramdisk 只能读。
-- **管道 = 带 PipeReadOps/PipeWriteOps 的 Inode**(031b)。它复用 VFS,但派发顺序错了会被 fd0/fd1 回退短路。
+- **ramdisk 只读。** 写文件要 ext2(`08-filesystem/006`+);早期 shell 对 ramdisk 只能读。
+- **管道 = 带 PipeReadOps/PipeWriteOps 的 Inode**(`09-gui/004`)。它复用 VFS,但派发顺序错了会被 fd0/fd1 回退短路。
 - **权限(uid/gid/mode)多为元数据,早期不强制。** mode 字段存着,但 open/execute 不一定检查(核对具体 tag)。
 - **符号链接/硬链接解析程度有限。** USTAR/ext2 都定义了类型,但完整路径解析(尤其 symlink 跟随)未必全实现。
-- **无 journaling、无 fsck。** 028d 的 sync 安全是「写后刷盘、防掉电损坏」的朴素版本,不是日志。
+- **无 journaling、无 fsck。** `08-filesystem/008` 的 sync 安全是「写后刷盘、防掉电损坏」的朴素版本,不是日志。
 
 ## 验证入口
 

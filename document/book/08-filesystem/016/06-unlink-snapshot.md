@@ -26,7 +26,7 @@ uint32_t unlink_ptr_buf_[1024];
 uint32_t unlink_child_buf_[1024];
 ```
 
-([ext2.hpp:447-457](../../../libs/ext2/ext2.hpp#L447))
+(`libs/ext2/ext2.hpp:447`)
 
 single-indirect 的释放:
 
@@ -46,7 +46,7 @@ if (read_block(indirect_blk, unlink_ptr_buf_)) {
 }
 ```
 
-([ext2_directory.cpp:402-424](../../../libs/ext2/ext2_directory.cpp#L402))
+(`libs/ext2/ext2_directory.cpp:402`)
 
 double-indirect 是嵌套 walk:外层数组得在「处理每个 child 数组」的整个过程中存活,所以**两个快照缓冲**——`unlink_ptr_buf_` 装顶层、`unlink_child_buf_` 装每个 child:
 
@@ -70,7 +70,7 @@ if (read_block(di_blk, unlink_ptr_buf_)) {
 }
 ```
 
-([ext2_directory.cpp:426-457](../../../libs/ext2/ext2_directory.cpp#L426))
+(`libs/ext2/ext2_directory.cpp:426`)
 
 这里要诚实说一个**还没收尾的口子**。`unlink_ptr_buf_` / `unlink_child_buf_` 这两块快照是**实例级共享**的——它和 `block_buf_` 同病。快照治的是「同一次 unlink 内部,free 数据块的过程会 clobber 正在遍历的 indirect 数组」这一层 clobber(这是本章关心的、已经治住的那一类);但它**不治**「两个 CPU 同时对同一 ext2 实例上不同路径的文件并发 unlink」这一层——核对 `sys_unlink.cpp`,从 `parent->ops->unlink(...)` 进来到 `Ext2::unlink` 遍历 indirect,全程没有 per-inode / per-fs 的锁把 unlink 串行化;`Ext2::unlink` 自身在遍历这两块快照时也不持 `inode_cache_lock_` 或 `block_alloc_lock_`(`block_alloc_lock_` 只在 `free_block` 内部保护 bitmap RMW,覆盖不到快照缓冲)。也就是说:跨 inode 的并发 unlink 会让两个 CPU 同时读写这两块实例级快照,留下一个真实的残留 race。
 

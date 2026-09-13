@@ -64,6 +64,6 @@ bool PMM::pte_count_dec_and_test(uint64_t phys) {
  * each page to 1 (the segment's own reference); shmat adds +1 per page; ...
 ```
 
-([sys_shm.cpp](../../../kernel/syscall/sys_shm.cpp#L12-L15),有删节。)这跟 `pmm.cpp:229-230` 的真值(`refcount=1 / pte_count=0`)对不上。措辞是历史遗留——旧实现是单 mapcount,注释写「置 1」是对的;batch 3 拆成双计数器后,基线挪到了 refcount 上,这两处头注释没同步改。**讲教程以 `pmm.cpp` 为真相**:`refcount=1` 是基线、`pte_count=0` 起步、shmat 同时 inc 两者。运行时正确性靠 `pte_count_dec_and_test` 的两级 test 守住(段页存活),注释措辞模糊但不影响行为。这种「注释跟代码漂移」是工程里常见的债,记一笔省得你拿着头注释去 grep `pte_count = 1` 找到对不上。
+(`kernel/syscall/sys_shm.cpp:12-15`,有删节。)这跟 `pmm.cpp:229-230` 的真值(`refcount=1 / pte_count=0`)对不上。措辞是历史遗留——旧实现是单 mapcount,注释写「置 1」是对的;batch 3 拆成双计数器后,基线挪到了 refcount 上,这两处头注释没同步改。**讲教程以 `pmm.cpp` 为真相**:`refcount=1` 是基线、`pte_count=0` 起步、shmat 同时 inc 两者。运行时正确性靠 `pte_count_dec_and_test` 的两级 test 守住(段页存活),注释措辞模糊但不影响行为。这种「注释跟代码漂移」是工程里常见的债,记一笔省得你拿着头注释去 grep `pte_count = 1` 找到对不上。
 
 > grep 时认准这两处**头注释**(`shm.hpp:18-22` 和 `sys_shm.cpp:12-15`),别误伤同文件 `sys_shm.cpp:182-185` 的**安装注释**——那段写的是「map-ownership ref (refcount); the segment's own ref (alloc baseline=1)」,明确把基线归到 refcount,跟 `pmm.cpp` 真值一致,是 batch 3 重写过的正确版本。漂移只在头注释那一处,别拿对的注释去印证错的注释。

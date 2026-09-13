@@ -4,7 +4,7 @@ title: 01 · xHCI USB:一张环、一个 cycle bit,把键鼠接到桌面
 
 # xHCI USB:一张环、一个 cycle bit,把键鼠接到桌面
 
-> 054 把桌面 GUI 从内核里拔了出来,可那套桌面的输入还只有 PS/2 鼠标——键盘敲不响、USB 鼠标也不认。这一章给内核接上一个真正的 USB 主控制器驱动:xHCI。它是一整条链:先在 PCI 总线上把 xHCI 控制器认出来、复位、用 MSI-X 给它挂一个中断向量;再学会和控制器通信的「语言」——一种叫 TRB 的 16 字节描述符排成的环,靠一个 cycle bit 无锁握手;然后用这套语言把一个 USB 设备枚举出来(分 slot、填 context、下 Address Device 命令);最后解析 HID 鼠标/键盘/tablet 的输入报告,送进 054 那个 GUI 窗口管理器已经在消费的同一个事件队列。验证靠内核测试 `test_xhci`(找控制器、复位、给设备寻址、跑通 HID 鼠标)。
+> `09-gui/008` 把桌面 GUI 从内核里拔了出来,可那套桌面的输入还只有 PS/2 鼠标——键盘敲不响、USB 鼠标也不认。这一章给内核接上一个真正的 USB 主控制器驱动:xHCI。它是一整条链:先在 PCI 总线上把 xHCI 控制器认出来、复位、用 MSI-X 给它挂一个中断向量;再学会和控制器通信的「语言」——一种叫 TRB 的 16 字节描述符排成的环,靠一个 cycle bit 无锁握手;然后用这套语言把一个 USB 设备枚举出来(分 slot、填 context、下 Address Device 命令);最后解析 HID 鼠标/键盘/tablet 的输入报告,送进 `09-gui/008` 那个 GUI 窗口管理器已经在消费的同一个事件队列。验证靠内核测试 `test_xhci`(找控制器、复位、给设备寻址、跑通 HID 鼠标)。
 >
 > 诚实的边界先说清:这套驱动在 QEMU 上跑通,真中断的送达在 QEMU+nested-KVM 下并不可靠(中断器使能位锁存不上),所以生产路径其实是 worker 线程在轮询事件环,MSI-X 的武装留着给真硬件;SuperSpeed(5 Gb/s)、hub 拓扑这些没做;BIOS 那套 USB Legacy Support 的所有权交接在 QEMU 上不需要(启动即 OS-owned),真机才补。
 
@@ -14,7 +14,7 @@ title: 01 · xHCI USB:一张环、一个 cycle bit,把键鼠接到桌面
 2. **MSI-X 中断**:为什么不用老的共享中断线,而让设备往一段约定地址写一笔数据就算中断;怎么在 PCI 能力链表里找到它、给一个向量编程。
 3. **TRB 和环**:host 和控制器之间所有的工作都描述成 16 字节的 TRB,排成环;两边不靠锁,只靠一个 cycle bit 握手。
 4. **枚举一个设备**:slot_id、input/output context、为什么 xHCI 里 SET_ADDRESS 被一条控制器命令替掉了。
-5. **HID boot 协议**:为什么不必解析每个设备冗长的 report descriptor,只认鼠标 4 字节 / 键盘 8 字节 / tablet 5 字节;以及 USB 输入怎么收进 054 的 GUI 事件队列。
+5. **HID boot 协议**:为什么不必解析每个设备冗长的 report descriptor,只认鼠标 4 字节 / 键盘 8 字节 / tablet 5 字节;以及 USB 输入怎么收进 `09-gui/008` 的 GUI 事件队列。
 
 ## 先认识 xHCI:USB 3.0 时代的统一主控制器
 
@@ -178,7 +178,7 @@ constexpr HidMouseReport decode_boot_mouse(const uint8_t* r) {
 
 报告怎么从设备流到内核?interrupt-IN 端点天生适合输入:host 提交一个 async interrupt-IN transfer(只入队 TRB + 敲门铃,不阻塞),然后挂起。设备没数据时 NAK(host 零 CPU),有数据时 xHCI 把报告 DMA 进内核缓冲、往事件环挂一个 Transfer Event。内核在 `poll_events` 里按 slot_id 把事件分发给该设备注册的 `TransferListener`,后者解码报告、注入事件队列、再 arm 下一个 transfer。整个输入就这么自驱动地流动。
 
-**收口的地方**:054 那个 GUI 窗口管理器消费的 `cinux::gui` 事件队列,USB 输入最终也汇进这同一个队列——无论 PS/2 还是 USB,所有输入都进同一个队列,`pump()` 那头不区分来源。为了避免两个驱动抢同一个(单生产者)队列,USB 枚举成功后置 `usb_primary` 标志,PS/2 的中断处理函数查到这个标志就直接 return、不喂队列;USB 成为唯一生产者。反过来,没 xHCI 控制器时(比如 `run-kernel-test` 默认无 qemu-xhci)`usb::init` 优雅跳过,PS/2 继续当主输入。
+**收口的地方**:`09-gui/008` 那个 GUI 窗口管理器消费的 `cinux::gui` 事件队列,USB 输入最终也汇进这同一个队列——无论 PS/2 还是 USB,所有输入都进同一个队列,`pump()` 那头不区分来源。为了避免两个驱动抢同一个(单生产者)队列,USB 枚举成功后置 `usb_primary` 标志,PS/2 的中断处理函数查到这个标志就直接 return、不喂队列;USB 成为唯一生产者。反过来,没 xHCI 控制器时(比如 `run-kernel-test` 默认无 qemu-xhci)`usb::init` 优雅跳过,PS/2 继续当主输入。
 
 > **生产指针是 usb-tablet,不是相对鼠标。** Cinux 在生产里枚举的指针设备是 QEMU usb-tablet(`UsbTablet`,绝对坐标)——它同样被 `find_boot_mouse` 认出来(usb-tablet 也呈现 HID boot-mouse 接口 3/1/2),但用 `decode_tablet` 解 5 字节绝对报告。上面那个相对鼠标 `decode_boot_mouse` 主要是 `test_hid_mouse` 用来验证 boot 鼠标解码本身的。为什么生产选 tablet:相对鼠标在虚拟机里有个老毛病——宿主光标和 guest 自画光标是两个独立光标,撞窗口边后 delta 丢失、绝对位置发散,点不准。usb-tablet 报绝对坐标(0..32767 线性映射到屏幕像素)根治它,guest 光标直接设到宿主光标的位置,两个光标合一。
 
@@ -196,4 +196,4 @@ constexpr HidMouseReport decode_boot_mouse(const uint8_t* r) {
 
 **AHCI 还没迁过来用 MSI-X。** MSI-X 子系统是为 xHCI 建的、预留了复用接口,但 AHCI 当前仍走传统的寄存器中断状态位,没迁。
 
-验证该看到什么,见配套 lab。下一章 056 回到安全(NX/SMEP/SMAP + ASLR)——xHCI 这套 USB 输入先到这儿;后面那条「解耦收尾」会把 USB 在关掉时的空壳补齐,让 GUI 在没有真 xHCI 驱动时也能链接。
+验证该看到什么,见配套 lab。下一章 `16-security/001` 回到安全(NX/SMEP/SMAP + ASLR)——xHCI 这套 USB 输入先到这儿;后面那条「解耦收尾」会把 USB 在关掉时的空壳补齐,让 GUI 在没有真 xHCI 驱动时也能链接。

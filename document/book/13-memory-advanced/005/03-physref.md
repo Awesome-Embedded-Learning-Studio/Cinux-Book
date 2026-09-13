@@ -10,7 +10,7 @@ title: 03 · 类型化所有权:`PhysRef<Tag>` 与收尾
 
 「这页归谁所有」可以有好几种:页缓存拥有(`CachePhysRef`)、匿名页拥有(`AnonPhysRef`)、页表拥有(`PageTablePhysRef`)。如果都用裸 `refcount_inc`/`dec`,「这是谁的 ref」只靠注释和记忆,容易把一个 `CachePhysRef` 的 ref 当成匿名页的 ref 减错。
 
-`PhysRef<Tag>` 用模板参数 `Tag` 在**编译期**标记「这页归谁」:[phys_ref.hpp](../../../kernel/mm/phys_ref.hpp)
+`PhysRef<Tag>` 用模板参数 `Tag` 在**编译期**标记「这页归谁」:`kernel/mm/phys_ref.hpp`
 
 ```cpp
 // 每种拥有者一个 tag 类型;PhysRef<Tag> 析构时减 refcount
@@ -35,7 +35,7 @@ struct PageTablePhysRef { /* ... */ };
 
 合起来,旧账那套「`mapcount` 既数映射又决定释放 + 缓存幻影 +1 兜底」被「两本独立账 + 类型化所有权」替代。「幻影算错 → 页提前释放 → 别的进程读到垃圾」这条腐蚀路径,从类型结构上没了——不是「+1 算对了」,是「不需要 +1 了」。
 
-> 这一章和隔壁 [014 · VFS 地基](../08-filesystem/014/)(inode 引用计数)是姊妹:那章讲 **inode 层**的引用计数(几个 fd 指着 inode),这章讲**物理页层**的引用计数(几个映射/拥有者占着页)。两层都是「对象生命周期 + 引用计数」,但对象不同、计数语义不同。VFS 那层解决「inode 指针有效性」,这层解决「物理页释放正确性」。
+> 这一章和隔壁 [014 · VFS 地基](../../08-filesystem/014/)(inode 引用计数)是姊妹:那章讲 **inode 层**的引用计数(几个 fd 指着 inode),这章讲**物理页层**的引用计数(几个映射/拥有者占着页)。两层都是「对象生命周期 + 引用计数」,但对象不同、计数语义不同。VFS 那层解决「inode 指针有效性」,这层解决「物理页释放正确性」。
 
 ## 范围与边界(诚实说)
 

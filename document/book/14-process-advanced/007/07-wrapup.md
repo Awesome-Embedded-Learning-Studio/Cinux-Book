@@ -35,8 +35,8 @@ title: 07 · 验证、没做的、小结
 
 诚实的边界清单:
 
-1. **`prepare_to_wait`/`schedule_blocked`/`unblock` 的 Scheduler 内部状态机**:那是 071 章 proven 模板,本章只引用「抄同款模板」。`wait_queue.hpp` 的 `wait_enqueue`/`wait_remove`/`wake_one`/`wake_all` 原语实现也是 071 章讲过的,本章不展开。
-2. **各 socket 的 `poll_events` 就绪判据细节**:UnixSocket 怎么判 accept 队列、rx 环、peer EOF——083 章对象。TcpSocket/UDP socket 的 `poll_events` 是跟 poll 一同落地的 override(069 章只做 TCP 协议骨架,socket API 留到后续,没碰 poll_events),实现思路与 UnixSocket 镜像,本章只指出它们 override 的是同一个 `InodeOps::poll_events` 虚方法。
+1. **`prepare_to_wait`/`schedule_blocked`/`unblock` 的 Scheduler 内部状态机**:那是 `14-process-advanced/005` 章 proven 模板,本章只引用「抄同款模板」。`wait_queue.hpp` 的 `wait_enqueue`/`wait_remove`/`wake_one`/`wake_all` 原语实现也是 `14-process-advanced/005` 章讲过的,本章不展开。
+2. **各 socket 的 `poll_events` 就绪判据细节**:UnixSocket 怎么判 accept 队列、rx 环、peer EOF——`17-net/005` 章对象。TcpSocket/UDP socket 的 `poll_events` 是跟 poll 一同落地的 override(`17-net/004` 章只做 TCP 协议骨架,socket API 留到后续,没碰 poll_events),实现思路与 UnixSocket 镜像,本章只指出它们 override 的是同一个 `InodeOps::poll_events` 虚方法。
 3. **`dup` 后 last-close 的 POLLHUP 时序**:测试 `test_poll_writer_closed_pollhup` 用的是 `Pipe::close_writer()` 直接调用(隔离测 `poll_events` 的 mask 计算,不掺 fd-close 路径的复杂性)。last-close 的 release hook 其实已经接上了——`PipeReadOps::release` / `PipeWriteOps::release`(`pipe_ops.hpp:70` / `:117`)在最后一个引用归零时调 `Pipe::release_read_ref` / `release_write_ref`(`pipe.cpp:315` / `:333`),翻转 `reader_open_`/`writer_open_` 并 `wake_all` 对端,从而触发 POLLHUP/POLLERR。真正还要 last-close 语义的边界点是:`dup` 一个 pipe fd 让 refcount>1 后,单个 close 不会立即 POLLHUP,要等最后一个引用归零——这条时序本章不展开。
 4. **timer_queue 的 tick 扫描与 SMP 安全细节**:这是 timer_queue 的另一议题,本章只确认 `timer_queue_arm`/`disarm` 接口存在且 `poll_core.cpp:188`/`:207` 调用,不展开内部实现。
 5. **`ppoll`/`pselect`(atom 版带信号掩码变体)**:经 grep 确认 Cinux 全无(`SYS_ppoll`/`SYS_pselect6` 不存在)。Linux 的 `ppoll`/`pselect6` 在 poll/select 基础上原子地换信号掩码,避免「poll 之前信号到了、handler 跑完、poll 又阻塞」的竞态——Cinux 这会儿没做,如实说「未实现」。
@@ -51,4 +51,4 @@ poll/select 是 Cinux 把「一个任务等一个 fd」扩成「一个任务同�
 - **统一 park 防丢唤醒**:`InterruptGuard` 关 IRQ + `prepare_to_wait` 翻 Blocked + `register_all` 挂 N 个队列 + `timer_queue_arm` 挂 deadline,四步在一个 IRQ-off 窗口里原子完成。`became_ready` 二次确认就绪防「查完没就绪 → 准备睡 → 数据到了 → 你却睡了」;`will_sleep=false` 守护防「infinite 且无唤醒源」挂死。
 - **一个 poller 睡在 N 个队列上**:同一个 `self` 被 `register_all` 挂进每个被等 fd 的队列,任一 fd 的 `wake_one` 都能叫醒,但醒后不知道是谁叫的——所以 `detach_all` 遍历全部 fd 撤销注册,防 stale waiter 悬挂。`Scheduler::unblock` 的幂等(state != Blocked 就 no-op)是「敢同时挂 fd + timer 两个唤醒源」的支点。
 
-阻塞那套 `prepare_to_wait`/`schedule_blocked`/`wake_one` 模板是 071 章修 pipe 阻塞时立的 proven 模板,poll 这里一字不动地复用,只是把「挂一个队列」扩成「挂 N 个队列」。UnixSocket 的 `poll_events` 实现是 083 章讲过的,TcpSocket/UDP 的 `poll_events` 是跟 poll 一同落地的 override——本章只引用。`SYS_poll=7` 是「换芯」(早期 stub、后来换成真阻塞),`SYS_select=23` 是同时新加的号。9 个 kernel 测试端到端跑通就绪语义、有限 timeout 真 park + timer-wake、事件唤醒 role-play、POLLHUP/POLLNVAL 透传——poll/select 在 Book 既能多 fd 同时等,又能真阻塞 wait-queue,可用。
+阻塞那套 `prepare_to_wait`/`schedule_blocked`/`wake_one` 模板是 `14-process-advanced/005` 章修 pipe 阻塞时立的 proven 模板,poll 这里一字不动地复用,只是把「挂一个队列」扩成「挂 N 个队列」。UnixSocket 的 `poll_events` 实现是 `17-net/005` 章讲过的,TcpSocket/UDP 的 `poll_events` 是跟 poll 一同落地的 override——本章只引用。`SYS_poll=7` 是「换芯」(早期 stub、后来换成真阻塞),`SYS_select=23` 是同时新加的号。9 个 kernel 测试端到端跑通就绪语义、有限 timeout 真 park + timer-wake、事件唤醒 role-play、POLLHUP/POLLNVAL 透传——poll/select 在 Book 既能多 fd 同时等,又能真阻塞 wait-queue,可用。

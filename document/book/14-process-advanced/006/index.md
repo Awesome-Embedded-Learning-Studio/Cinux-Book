@@ -9,7 +9,7 @@ title: 006 · SysV 共享内存
 ## 本章路线
 
 - [01 · 导引:不是搬字节,是搬地址](01-intro.md)
-- [02 · ShmRegistry 表层:承 071 的模子](02-registry.md)
+- [02 · ShmRegistry 表层:承 `14-process-advanced/005` 的模子](02-registry.md)
 - [03 · mapcount 闭环:段自带 refcount 基线 1](03-mapcount.md)
 - [04 · shmdt 长度陷阱:取段 page_count](04-shmdt.md)
 - [05 · 验证、没做的、小结](05-wrapup.md)

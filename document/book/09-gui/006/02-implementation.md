@@ -24,7 +24,7 @@ IconAction  pending_icon_action_ = IconAction::None;      // 待消费的图标�
 
 `icons_[16]` 是值数组,不是指针数组。这和窗口那边存 `Window*` 不一样,原因是 `DesktopIcon` 是个轻量的 POD(几个标量 + 一个 `const uint32_t*` 位图指针 + 一个 `const char*` 标签),拷起来很便宜,也没有 `Canvas` 那种不可拷贝的资源。所以直接按值存,注册时拷一份进数组,简单直接。
 
-`pending_icon_action_` 初值是 `IconAction::None`,这个槽是这一章的核心产物。`IconAction` 是 032 就在 [desktop_icon.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/gui/desktop_icon.hpp) 里定义好的枚举:`None`、`OpenShell`、`OpenCalculator`。一个图标被点中时,它自己的 `action` 字段(注册时填好)会被拷进这个槽,等下一章的 tick 回调来取。
+`pending_icon_action_` 初值是 `IconAction::None`,这个槽是这一章的核心产物。`IconAction` 是 `09-gui/005` 就在 [desktop_icon.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/gui/desktop_icon.hpp) 里定义好的枚举:`None`、`OpenShell`、`OpenCalculator`。一个图标被点中时,它自己的 `action` 字段(注册时填好)会被拷进这个槽,等下一章的 tick 回调来取。
 
 顺带一提,`init()` 里也加了这两行的重置:
 
@@ -68,7 +68,7 @@ const DesktopIcon* WindowManager::hit_test_icon(int32_t mx, int32_t my) const {
 }
 ```
 
-从 `icon_count_` 往 0 倒着找,第一个 `contains` 命中的就返回。`contains` 是 032 写好的左闭右开框:`mx >= x && mx < x+width && my >= y && my < y+height`——左上角在内、右下角恰好在外,这样相邻两个图标不会在边界上同时命中。逆序的意义前面说过:后注册(数组下标大)的图标,在重叠区优先被点中。这一章只注册两个不重叠的图标,暂时用不上这个优先级,但接口设计得和窗口 `hit_test` 一致,以后图标挤在一起也不会乱。
+从 `icon_count_` 往 0 倒着找,第一个 `contains` 命中的就返回。`contains` 是 `09-gui/005` 写好的左闭右开框:`mx >= x && mx < x+width && my >= y && my < y+height`——左上角在内、右下角恰好在外,这样相邻两个图标不会在边界上同时命中。逆序的意义前面说过:后注册(数组下标大)的图标,在重叠区优先被点中。这一章只注册两个不重叠的图标,暂时用不上这个优先级,但接口设计得和窗口 `hit_test` 一致,以后图标挤在一起也不会乱。
 
 `consume_pending_icon_action` 负责把意图取走,并顺手清零:
 
@@ -113,7 +113,7 @@ void WindowManager::draw_desktop_icons(cinux::drivers::Canvas& screen) {
 }
 ```
 
-位图这一步直接复用 032 的 `Canvas::draw_bitmap`——它拿到 `x, y, w, h` 和像素数组,逐像素拷,遇到透明色(0)就跳过,所以图标的圆角、镂空都自然成立,不会画出一个难看的方块底。
+位图这一步直接复用 `09-gui/005` 的 `Canvas::draw_bitmap`——它拿到 `x, y, w, h` 和像素数组,逐像素拷,遇到透明色(0)就跳过,所以图标的圆角、镂空都自然成立,不会画出一个难看的方块底。
 
 标签的居中算法值得说两句。我们假设每个字符宽度恒定(PSF 字体确实是这样,`glyph_w = font_->width()`),所以"标签总宽 = 字符数 × 字宽"。然后让标签相对图标**水平居中**:`label_x = icon.x + (icon.width - text_w) / 2`。图标宽 32,标签 "Shell" 五个字符,字宽 8,文本宽 40——比图标还宽,这时 `(32 - 40) / 2` 会算出一个负数,但因为是 `uint32_t`,它会回绕成一个巨大的值,标签就飞到屏幕外去了。所以这套居中只对"标签比图标窄"的情况成立;真要稳妥,得先判断 `text_w <= icon.width` 再居中,否则就左对齐。这一章注册的 Shell(5 字符 = 40px)正好踩在这个边界上,实际跑起来标签会偏——这是个已知的小毛刺,但不影响"图标能画出来、能被点中"这件主事,我们就不在这里纠缠。
 
@@ -143,7 +143,7 @@ void WindowManager::composite() {
 
 夹在中间才对:clear 先铺好干净的桌面底色,图标作为桌面的一部分画上去,然后窗口再叠在最上面。这样窗口盖住图标(视觉正确),鼠标光标画在所有东西之上(永远可见),顺序天然成立。`test_desktop_composite_icons_behind_windows` 就是来盯这条的:它在 `(0,0)` 摆一个图标,又在 `(0,0)` 建一个窗口,合成后断言 `(5,25)` 这个点(落在窗口内容区里)的颜色是 `Window::COLOR_CONTENT_BG`,不是图标的颜色——窗口确实盖住了图标。
 
-这一行新增代码,也顺带回答了一个问题:为什么 030 的 composite 看起来"已经完整",却还是得改?因为 030 的桌面是空的,clear 之后直接 blit 窗口没问题;一旦桌面要摆东西,就必须在 clear 和 blit 之间留出一个"桌面层"的位置。033 做的就是把这个层插进去。
+这一行新增代码,也顺带回答了一个问题:为什么 `09-gui/002` 的 composite 看起来"已经完整",却还是得改?因为 `09-gui/002` 的桌面是空的,clear 之后直接 blit 窗口没问题;一旦桌面要摆东西,就必须在 clear 和 blit 之间留出一个"桌面层"的位置。`09-gui/006` 做的就是把这个层插进去。
 
 ### handle_mouse():没点中窗口,就去找图标
 
@@ -185,7 +185,7 @@ case EventType::MouseDown: {
 
 ### gui_start():把两个图标摆上桌面
 
-[gui_init.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/gui/gui_init.cpp) 的 `gui_start()` 负责在开机时把图标注册进 WM——这一步归 033,因为不注册就什么图标都看不见:
+[gui_init.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/gui/gui_init.cpp) 的 `gui_start()` 负责在开机时把图标注册进 WM——这一步归 `09-gui/006`,因为不注册就什么图标都看不见:
 
 ```cpp
 void gui_start() {
@@ -223,7 +223,7 @@ void gui_start() {
 }
 ```
 
-两个图标都摆在 `x=40` 这一列:Shell 在 `y=40`,Calculator 在 `y=120`,竖向排开,中间隔 80 像素(图标本身 32 高,加上标签和留白)。位图取自 032 备好的 `icons::data::k_shell_icon` / `k_calc_icon`(各是 32×32 的像素数组),宽高都是 `icons::ICON_SIZE`(32)。两个图标的 `action` 分别填 `OpenShell` 和 `OpenCalculator`——这就是点击时会被拷进 `pending_icon_action_` 的那个值。
+两个图标都摆在 `x=40` 这一列:Shell 在 `y=40`,Calculator 在 `y=120`,竖向排开,中间隔 80 像素(图标本身 32 高,加上标签和留白)。位图取自 `09-gui/005` 备好的 `icons::data::k_shell_icon` / `k_calc_icon`(各是 32×32 的像素数组),宽高都是 `icons::ICON_SIZE`(32)。两个图标的 `action` 分别填 `OpenShell` 和 `OpenCalculator`——这就是点击时会被拷进 `pending_icon_action_` 的那个值。
 
 注册完打印一行 `Desktop icons registered: Shell, Calculator.`,然后把 `gui_tick_callback` 挂到 PIT 上。这个 tick 回调除了照常排空事件队列、调 `handle_mouse`、`composite` 之外,还会调 `consume_pending_icon_action` 取走点击意图:取到 `OpenShell` 就 `create_shell_terminal()` 真的弹出终端窗口,并打印 `[GUI] Shell terminal created and connected.`。所以点 Shell 图标,屏幕上会真的多出一个跑 shell 的终端,串口也多这一行;唯独 `OpenCalculator` 没有归宿——取出来不是 `OpenShell` 就直接忽略,Calculator 图标点了毫无反应。
 

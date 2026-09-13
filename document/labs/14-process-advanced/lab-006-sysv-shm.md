@@ -144,7 +144,7 @@ void test_two_spaces_share_page() {
 
 这一档的真价值在这两个坑——lab-006 让你亲身体验,不是看教程就懂。
 
-> **坑 1:直接读写用户映射页会 #PF。** `as1.activate()` 换了 CR3,现在页表是 as1 的用户空间。你想 `*((uint64_t*)virt1) = magic` 直接写——#PF。因为测试内核 **SMAP 开着**,ring0 不能直接访问用户页。必须 `stac()` 临时打开用户访问、写完 `clac()` 关上。`user_write_u64`/`user_read_u64` 就是干这个的封装。同理 066 PTY 那卷的 stac/clac 同款。
+> **坑 1:直接读写用户映射页会 #PF。** `as1.activate()` 换了 CR3,现在页表是 as1 的用户空间。你想 `*((uint64_t*)virt1) = magic` 直接写——#PF。因为测试内核 **SMAP 开着**,ring0 不能直接访问用户页。必须 `stac()` 临时打开用户访问、写完 `clac()` 关上。`user_write_u64`/`user_read_u64` 就是干这个的封装。同理 `07-userland/007` PTY 那卷的 stac/clac 同款。
 
 > **坑 2:不回内核空间会让 AS 析构拆自己的页表。** `as2.activate()` 之后,CR3 指向 as2 的 PML4。函数返回时,栈上的 `as1`/`as2` 析构——`~AddressSpace()` 调 `free_subtree` 把这个地址空间的页表全拆了、页表页还回 buddy。**如果当前 CR3 还指向 as2**,析构拆的就是 as2 自己的页表(包括正在跑的内核代码依赖的页表)→ 炸。所以必须在析构前 `write_cr3(AddressSpace::kernel_pml4())` 切回内核 PML4。这一步**不能漏**——漏了就是薛定谔的崩溃,看你运气。
 
@@ -240,7 +240,7 @@ cmake --build build --target run-kernel-test-all 2>&1 | grep -E "Tests: [0-9]+ p
 
 ## 别做这些
 
-- **别**在 ring0 直接 `*((uint64_t*)virt) = ...` 读写用户映射页——SMAP 挡,#PF。必须 stac/clac 窗(`user_write_u64`/`user_read_u64`)。同 066 PTY 那套 stac/clac。
+- **别**在 ring0 直接 `*((uint64_t*)virt) = ...` 读写用户映射页——SMAP 挡,#PF。必须 stac/clac 窗(`user_write_u64`/`user_read_u64`)。同 `07-userland/007` PTY 那套 stac/clac。
 - **别**漏 `write_cr3(AddressSpace::kernel_pml4())`——栈上 AddressSpace 析构会拆当前 CR3 的页表,不切回内核 PML4 会拆自己(薛定谔崩溃)。
 - **别**用 `vma->end - vma->start` 算 shmdt 长度——两 SHM 映射会合并成一个 VMA,按 VMA 算会拆邻居页。用 `translate(addr) → find_by_phys → seg->page_count` 取段自己的页数。
 - **别**拿 `pte_count = 1` 当 alloc 基线去 grep——batch 3 拆成双计数器后,基线在 refcount 上(alloc 设 refcount=1、pte_count=0)。源码注释的旧措辞跟 pmm.cpp 真值对不上,以 pmm.cpp:229-230 为真相。

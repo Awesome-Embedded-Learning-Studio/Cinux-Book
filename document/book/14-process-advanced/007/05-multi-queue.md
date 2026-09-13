@@ -59,6 +59,6 @@ void Scheduler::unblock(lib::NotNull<Task*> task) {
 
 这是「为什么敢同时挂两个唤醒源」的支点——fd 那侧叫了一次,timer 这侧又叫一次,后者是 no-op,不会 double-add。注释里那句 `Idempotent (F4-M4 prepare-to-wait)` 就是这个意思。
 
-**EINTR 路径**:被信号叫醒的 poll,`do_poll_core` 在 `detach_all` 之后返 `-kEintr`(`poll_core.cpp:214`),POSIX poll 可中断。`schedule_blocked`(`scheduler_block.cpp:99-100`)的 TASK_INTERRUPTIBLE 检查——`wait_queue_head != nullptr` 且 `signal_deliverable_pending` 时翻回 Running 不真睡——是 071 章修的 busybox-ping `^C` 卡 Blocked 旧 bug。poll 这里复用同一检查,信号到了不真睡,直接走 EINTR 返回路径让信号处理跑。
+**EINTR 路径**:被信号叫醒的 poll,`do_poll_core` 在 `detach_all` 之后返 `-kEintr`(`poll_core.cpp:214`),POSIX poll 可中断。`schedule_blocked`(`scheduler_block.cpp:99-100`)的 TASK_INTERRUPTIBLE 检查——`wait_queue_head != nullptr` 且 `signal_deliverable_pending` 时翻回 Running 不真睡——是 `14-process-advanced/005` 章修的 busybox-ping `^C` 卡 Blocked 旧 bug。poll 这里复用同一检查,信号到了不真睡,直接走 EINTR 返回路径让信号处理跑。
 
 `test_poll_write_wakes_registered_poller`(`test_poll.cpp:260-299`)是这一节的端到端证据——它 role-play 了「poller 挂在 pipe read 队列上、peer 写一字节、`wake_one` 把 poller 翻成 Ready」这条链路(测试 harness 是单线程的跑不了真阻塞循环,所以用 `NoRescheduleGuard` 手动驱动 commit 序列)。`poller->state == Ready` 这一断言就是 wake 命中的证据。

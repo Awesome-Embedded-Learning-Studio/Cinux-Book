@@ -13,7 +13,7 @@ title: Lab 002 · 通电 fork/exec
 ## 前置条件
 
 - 完成 001:fork/exec/wait 的骨架、CoW 页表标记、`handle_cow_fault`(死代码)、`CpuContext`(64 字节、无 rax、无 gs)。
-- 读懂 023(syscall/SYSCALL/SYSRET、`swapgs`、GS per-CPU 数据页)和 019/020(context_switch、调度器)。
+- 读懂 `07-userland/002`(syscall/SYSCALL/SYSRET、`swapgs`、GS per-CPU 数据页)和 `06-process/001`/`06-process/002`(context_switch、调度器)。
 
 ## 任务分解
 
@@ -61,7 +61,7 @@ MSR 是 CPU 全局寄存器,`context_switch` 不存会导致 `swapgs` 配对跨�
 
 ### 任务 6:栈溢出 guard page(002 半通电,诚实标注)
 
-大对象(Terminal screen_ ~24KB + Pipe 缓冲)超 16KB 内核栈,溢出静默踩邻区。`document/notes/002/stack_guard_page_debug.md` 给出了完整修法,但**tag 002 只落地了一半**,本 lab 按实际落地范围做:
+大对象(Terminal screen_ ~24KB + Pipe 缓冲)超 16KB 内核栈,溢出静默踩邻区。`document/notes/035/stack_guard_page_debug.md` 给出了完整修法,但**tag `035` 只落地了一半**,本 lab 按实际落地范围做:
 
 **002 已落地(做这些):**
 - linker 在 `__kernel_end` 后留 64KB NOLOAD guard 区(`__boot_guard_start/end`)。

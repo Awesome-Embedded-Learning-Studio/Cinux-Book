@@ -27,7 +27,7 @@ RST 是「强制拆连接」。两种:SYN 到一个没人监听的端口,回 RST
 
 ## 底子优先:host 单测 → loopback 内核 → e1000
 
-验证沿用 058/063 的「底子优先」,而且 TCP 这里特别有用——TCP 是多包交换(握手 3 包 + 数据 + 挥手 4 包),时序复杂,直接上真网卡 + SLIRP 调试会迷路。
+验证沿用 `17-net/002`/`17-net/003` 的「底子优先」,而且 TCP 这里特别有用——TCP 是多包交换(握手 3 包 + 数据 + 挥手 4 包),时序复杂,直接上真网卡 + SLIRP 调试会迷路。
 
 **第一层:host 单测,逐步断言每一段。** `test/unit/test_net_tcp.cpp` 用一个 NoL2Dev(捕获 send_l3 不回环),手动把捕获的包喂回 rx 驱动下一步——于是握手每一段的 flags/seq/ack 都能逐包断言:SYN(seq=iss)、SYN-ACK(ack=iss+1)、ACK(ack=对端iss+1)……数据段、挥手段同理。这套「捕获再 deliver」的确定性是 TCP 测试的关键(真回环有时序,难断言具体某一段)。十五个 case(九个主流程 + 六个 adversarial):头 round-trip、校验和门、proto 6 派发、3-way 握手 seq-ack、RST、重复 4-tuple 拒、数据 round-trip、4-way 挥手,加六个对抗性(截断头、data_off 越界、data_off 下溢、连接表溢出、野 ACK、乱序数据)。
 
@@ -39,7 +39,7 @@ RST 是「强制拆连接」。两种:SYN 到一个没人监听的端口,回 RST
 
 ## 验证
 
-四层(沿用 058/063 分层)。
+四层(沿用 `17-net/002`/`17-net/003` 分层)。
 
 **第一层:host 单测。** `./build/test/test_net_tcp` 十五个 case(九个主流程 + 六个 adversarial,上面列过)。
 

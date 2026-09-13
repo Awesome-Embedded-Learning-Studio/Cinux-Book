@@ -22,4 +22,4 @@ title: 03 · 调试现场:movaps #GP、测试全跳过与 sys_exit halt
 
 症状:生产 demo 跑完 `Hello from Ring 3!`,串口最后打的是 `[SYSCALL] sys_exit: no scheduler, halting.`,机器就此停住,而不是切到别的进程。
 
-这不是 bug,是设计。本 tag 在 `launch_first_user` 之前没启动调度器,`Scheduler::is_initialized()` 返回 false,`sys_exit` 走 `cli;hlt`。那条 `yield` 分支是「为 024 留的、本 tag 跑不到」的代码。这种「跨里程碑解耦」的代价就是:syscall 模块要在「无调度器」下也能干净收场。要是图省事直接 `yield()`,在调度器没启时会崩得更难看。把双分支写明白、配上那行提示日志,是让「这是预期行为」变得可读可查。
+这不是 bug,是设计。本 tag 在 `launch_first_user` 之前没启动调度器,`Scheduler::is_initialized()` 返回 false,`sys_exit` 走 `cli;hlt`。那条 `yield` 分支是「为 `07-userland/003` 留的、本 tag 跑不到」的代码。这种「跨里程碑解耦」的代价就是:syscall 模块要在「无调度器」下也能干净收场。要是图省事直接 `yield()`,在调度器没启时会崩得更难看。把双分支写明白、配上那行提示日志,是让「这是预期行为」变得可读可查。

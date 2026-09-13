@@ -27,7 +27,7 @@ title: Lab 002 · 时钟到点,该换人了:抢占式调度
 - **001 的 `RoundRobin` / `Scheduler` 门面**:`init` / `add_task` / `yield` / `exit_current` / `run_first` 都要在这一关扩成抢占版。
 - **001 的 higher-half 收口**:大内核已经在它链接的 higher-half 地址跑,这一关的 demo、TSS 更新都站在这个地基上。
 
-还要确认两件更早的事没掉链子:**011 的 PIT**(`PIT::init(100)` 把 IRQ0 配成 100 Hz,`pit_irq0_handler` 每个 tick 都进)、**007 的 IDT/GDT**(IRQ0 的中断门已经注册、TSS 已经 `ltr` 加载)。001 的 `main` 里 `sti` 之后,IRQ0 其实一直在触发、一直在进 `pit_irq0_handler`,只是那时候 handler 只递增 tick 计数、没碰调度器——这一关要做的,就是把那一行 `Scheduler::tick()` 接上。
+还要确认两件更早的事没掉链子:**`03-big-kernel/004` 的 PIT**(`PIT::init(100)` 把 IRQ0 配成 100 Hz,`pit_irq0_handler` 每个 tick 都进)、**`03-big-kernel/002-003` 的 IDT/GDT**(IRQ0 的中断门已经注册、TSS 已经 `ltr` 加载)。001 的 `main` 里 `sti` 之后,IRQ0 其实一直在触发、一直在进 `pit_irq0_handler`,只是那时候 handler 只递增 tick 计数、没碰调度器——这一关要做的,就是把那一行 `Scheduler::tick()` 接上。
 
 外部约定上,这一关和硬件契约最紧的一条是 **Intel SDM Vol.3A §6.12.1**:CPU 进 ISR 时把 `RFLAGS/CS/RIP` 压栈并清 IF(interrupt-gate 语义),`IRETQ` 才还原。这条是 `sti` 修复的全部依据,动手前最好心里有数。
 

@@ -8,7 +8,7 @@ title: Lab 005 · 磁盘上的真文件系统:ext2 只读驱动
 
 ## 实验目标
 
-在 AHCI 磁盘上实现一个 ext2 只读文件系统,实现 003 的 `FileSystem` 接口、挂进 VFS。拆成五个子目标:
+在 AHCI 磁盘上实现一个 ext2 只读文件系统,实现 `08-filesystem/003` 的 `FileSystem` 接口、挂进 VFS。拆成五个子目标:
 
 1. 认 ext2 磁盘布局:超块、块组描述符表、inode、变长目录项。
 2. 实现「读一块」的原子操作(经 AHCI 的 DMA 读)。
@@ -16,7 +16,7 @@ title: Lab 005 · 磁盘上的真文件系统:ext2 只读驱动
 4. 按 inode 号定位 inode(块组 + 组内索引的数学)。
 5. 找文件(逐分量遍历 + 目录项扫描)+ 读内容(直接块、单间接块、稀疏空洞)。
 
-做完这五条,内核就能从磁盘读出 ext2 文件,ramdisk 被正式取代。注意:这一关只读,写是下一关(006)。
+做完这五条,内核就能从磁盘读出 ext2 文件,ramdisk 被正式取代。注意:这一关只读,写是下一关(Lab 006)。
 
 ## 前置条件
 
@@ -86,6 +86,6 @@ cmake --build build --target run-kernel-test
 1. host 算术测全绿:block_size 换算、inode→group/index 数学、直接/单间接块翻译、目录项 rec_len 步进。
 2. QEMU 机内测通过:mount(magic 有效、参数算对、BGDT 读到)、lookup 找到文件、read 读出内容。
 3. 只读;间接块实现直接+单间接;单 DMA 缓冲且不跨 read 持有;inode 数学 1-based 且和规范一致;目录项防 rec_len==0。
-4. 盘挂 AHCI port 1;挂进 VFS 后 004 的 cat/ls 不改就能读 ext2。
+4. 盘挂 AHCI port 1;挂进 VFS 后 `08-filesystem/004` 的 cat/ls 不改就能读 ext2。
 
-做到这四条,内核就有了磁盘上能读的真文件系统。但还只读——下一关(006)给 ext2 加写(分配 inode/块、写目录项、更新位图)。
+做到这四条,内核就有了磁盘上能读的真文件系统。但还只读——下一关(Lab 006)给 ext2 加写(分配 inode/块、写目录项、更新位图)。

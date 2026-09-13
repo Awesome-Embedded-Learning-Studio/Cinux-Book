@@ -21,16 +21,16 @@ title: Lab 001 · 第一次跳进 Ring 3:用户态与特权隔离
 
 ## 前置条件
 
-你得先过 Lab 009(GDT/IDT)、015(PMM)、016(VMM)、018(AddressSpace)。关键依赖:
+你得先过 03-big-kernel 卷的 `lab-002`(GDT/IDT),以及 05-memory 卷的 `lab-001`(PMM)、`lab-002`(VMM)、`lab-004`(AddressSpace)。关键依赖:
 
-- **009 的 GDT/IDT**:GDT 里早就有 user code(`0x1B`)/user data(`0x23`)/TSS(`0x28`)这几个选择子常量;IDT 的异常路由表(向量 0–14)也在。这一关要往这两处「加料」——给 TSS 配 IST1 栈、给路由表加 `ist` 字段。
-- **015 的 `g_pmm.alloc_page()`**:用户代码页、4 页用户栈、TSS 的 Double Fault 栈,物理页都从这儿要。
-- **016 的 `g_vmm.map(virt, phys, flags, uint64_t* pml4)`**:它带个可选的 `pml4` 根参数,这一关终于用上了——用户地址空间有自己的 PML4 根。而且本关要改它的实现(给 `walk_level` 加 `user_flag`)。
-- **018 的 `AddressSpace`**:构造时只把内核 PML4 的高半区(`PML4[256..511]`)复制过去,低半区全清零——`activate()` 切 CR3、`pml4_phys()` 取根物理地址。本关的「framebuffer identity-mapping 丢失」那个坑,根因就长在这条设计上。
+- **03-big-kernel 卷 `lab-002` 的 GDT/IDT**:GDT 里早就有 user code(`0x1B`)/user data(`0x23`)/TSS(`0x28`)这几个选择子常量;IDT 的异常路由表(向量 0–14)也在。这一关要往这两处「加料」——给 TSS 配 IST1 栈、给路由表加 `ist` 字段。
+- **05-memory 卷 `lab-001` 的 `g_pmm.alloc_page()`**:用户代码页、4 页用户栈、TSS 的 Double Fault 栈,物理页都从这儿要。
+- **05-memory 卷 `lab-002` 的 `g_vmm.map(virt, phys, flags, uint64_t* pml4)`**:它带个可选的 `pml4` 根参数,这一关终于用上了——用户地址空间有自己的 PML4 根。而且本关要改它的实现(给 `walk_level` 加 `user_flag`)。
+- **05-memory 卷 `lab-004` 的 `AddressSpace`**:构造时只把内核 PML4 的高半区(`PML4[256..511]`)复制过去,低半区全清零——`activate()` 切 CR3、`pml4_phys()` 取根物理地址。本关的「framebuffer identity-mapping 丢失」那个坑,根因就长在这条设计上。
 
 还得吃透两个外部约定。第一,**SYSRET 的硬件契约**(Intel SDM Vol.3A §5.8.8):`RIP ← RCX`、`RFLAGS ← R11`、`CS = STAR[63:48]+16`、`SS = STAR[63:48]+8`,而且 **SYSRET 不修改 RSP**——栈得软件自己切。第二,**`wrmsr` 只写 `EDX:EAX`**:64 位 RDX 的高 32 位会被丢掉。这两条是这一关两个最容易翻车的地方的根。
 
-最后一条容易被头注释误导的话先说在前面:`main.cpp` 头注释里写着「Step 17. Scheduler init, create tasks / 18. Launch first user-mode program」,看起来像「调度器 + 用户态并存」。在本 tag 的代码里,Step 17 的 Scheduler init **已经被删掉了**(diff 里 021 的 producer/consumer、`Scheduler::init`、`run_first` 整段都没了),实际只剩 `usermode_init()` + `launch_first_user()`。注释是没擦干净的旧文本,别照着写实现。
+最后一条容易被头注释误导的话先说在前面:`main.cpp` 头注释里写着「Step 17. Scheduler init, create tasks / 18. Launch first user-mode program」,看起来像「调度器 + 用户态并存」。在本 tag 的代码里,Step 17 的 Scheduler init **已经被删掉了**(diff 里 `06-process/003` 的 producer/consumer、`Scheduler::init`、`run_first` 整段都没了),实际只剩 `usermode_init()` + `launch_first_user()`。注释是没擦干净的旧文本,别照着写实现。
 
 ## 任务分解
 

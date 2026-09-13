@@ -102,7 +102,7 @@ bool Keyboard::poll(KeyEvent& out) {
 +ISR_NOERRCODE irq1_stub,  keyboard_irq1_handler /* IRQ1(0x21): Keyboard */
 ```
 
-`irq1_stub` 是 IDT 里 vector `0x21` 那一项指向的中断入口桩,它负责保存现场,然后调一个 C 函数。011 的时候它调的是什么都不干的 `irq_default_handler`;这一章把它换成了我们的 `keyboard_irq1_handler`(那个 `extern "C"` 的 C 桥,转调 `Keyboard::irq1_handler`)。注意这里 C 函数名得和汇编里写的一致,且要 `extern "C"` 避免 C++ 的名字修饰——这种 C/汇编边界上的符号匹配,错一个字符就是链接错误或跳到野地址。
+`irq1_stub` 是 IDT 里 vector `0x21` 那一项指向的中断入口桩,它负责保存现场,然后调一个 C 函数。`03-big-kernel/004` 的时候它调的是什么都不干的 `irq_default_handler`;这一章把它换成了我们的 `keyboard_irq1_handler`(那个 `extern "C"` 的 C 桥,转调 `Keyboard::irq1_handler`)。注意这里 C 函数名得和汇编里写的一致,且要 `extern "C"` 避免 C++ 的名字修饰——这种 C/汇编边界上的符号匹配,错一个字符就是链接错误或跳到野地址。
 
 光挂上 handler 还不够,得让 PIC **允许** IRQ1 通过,这就是 `main.cpp` 里的接线:
 
@@ -122,8 +122,8 @@ while (1) {
 }
 ```
 
-`PIC::unmask(1)` 是关键一差——011 的时候只 unmask 了 IRQ0,IRQ1 一直被屏蔽着,键盘中断根本到不了 CPU。现在把它也放行,键盘才会真正产生中断。注意 `unmask` 必须在 `Keyboard::init` 之后(控制器得先就绪)、在 `sti` 之前(先配好再开中断,免得配置过程中就来中断)。
+`PIC::unmask(1)` 是关键一差——`03-big-kernel/004` 的时候只 unmask 了 IRQ0,IRQ1 一直被屏蔽着,键盘中断根本到不了 CPU。现在把它也放行,键盘才会真正产生中断。注意 `unmask` 必须在 `Keyboard::init` 之后(控制器得先就绪)、在 `sti` 之前(先配好再开中断,免得配置过程中就来中断)。
 
 主循环那个 `hlt` + `poll` 的结构,正是设计图里画的「中断生产、主循环消费」。`hlt` 让 CPU 睡到下一个中断(省电,也避免空转),中断把事件塞进队列后返回,`hlt` 醒来,`while (Keyboard::poll(ev))` 把队列里所有积压的事件一次性排空、回显。为什么用一个 `while` 而不是 `if`?因为你睡着的时候可能敲了好几个键,队列里积了好几个事件,醒来得一次取完,否则下次 `hlt` 前 `poll` 就漏掉了。
 
-回显那一行 `console.putc(ev.ascii)` 把这一章和 013 缝了起来:键盘解码出的 ASCII,直接喂给 013 的 `Console::putc`,它自会画到 framebuffer、经 kprintf 的 sink 同步到串口。你看到字符同时出现在屏幕和串口,就是因为这条链接通了。至于 `ev.pressed && ev.ascii != 0` 的过滤:只回显「按下」(不回显松开,否则每个字符画两遍)且「有 ASCII」(功能键、Ctrl 组合不产生可见字符,不回显)的键。
+回显那一行 `console.putc(ev.ascii)` 把这一章和 `03-big-kernel/006` 缝了起来:键盘解码出的 ASCII,直接喂给 `03-big-kernel/006` 的 `Console::putc`,它自会画到 framebuffer、经 kprintf 的 sink 同步到串口。你看到字符同时出现在屏幕和串口,就是因为这条链接通了。至于 `ev.pressed && ev.ascii != 0` 的过滤:只回显「按下」(不回显松开,否则每个字符画两遍)且「有 ASCII」(功能键、Ctrl 组合不产生可见字符,不回显)的键。

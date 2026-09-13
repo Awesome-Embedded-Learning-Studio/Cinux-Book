@@ -16,7 +16,7 @@ SMP 时代不一样了:本核刷了没用——**别的核的 TLB 里那条旧�
 
 ### IPI shootdown 基建:广播 + ack 计数
 
-机制本身很直白,是一次「广播 + ack 计数」的同步握手。发送方([tlb.cpp](../../../kernel/arch/x86_64/tlb.cpp#L34-L58)):
+机制本身很直白,是一次「广播 + ack 计数」的同步握手。发送方(`kernel/arch/x86_64/tlb.cpp:34-58`):
 
 ```cpp
 void tlb_shootdown_page(uint64_t vaddr) {
@@ -32,9 +32,9 @@ void tlb_shootdown_page(uint64_t vaddr) {
 }
 ```
 
-IPI 向量挑了 `0xE1`,紧挨 reschedule `0xE0`,刻意避开 PIC IRQ 段(`0x20-0x2F`)、spurious(`0xFF`)、sigreturn(`0x80`)([smp.hpp](../../../kernel/arch/x86_64/smp.hpp#L15-L22))。发送用 Local APIC ICR 的「all-excluding-self」简写(`bits[19:18]=11`),一口气发给所有其他核。
+IPI 向量挑了 `0xE1`,紧挨 reschedule `0xE0`,刻意避开 PIC IRQ 段(`0x20-0x2F`)、spurious(`0xFF`)、sigreturn(`0x80`)(`kernel/arch/x86_64/smp.hpp:15-22`)。发送用 Local APIC ICR 的「all-excluding-self」简写(`bits[19:18]=11`),一口气发给所有其他核。
 
-接收端([tlb.cpp](../../../kernel/arch/x86_64/tlb.cpp#L60-L67)):
+接收端(`kernel/arch/x86_64/tlb.cpp:60-67`):
 
 ```cpp
 extern "C" void shootdown_ipi_handler(InterruptFrame* /*frame*/) {
@@ -75,9 +75,9 @@ bool PMM::refcount_dec_and_test_no_free(uint64_t phys) {
 }
 ```
 
-（[pmm.cpp](../../../kernel/mm/pmm.cpp#L279-L289) 和 [pmm.cpp](../../../kernel/mm/pmm.cpp#L327-L350)。这就是 044 章那两本账的 `no_free` 变体——所有权账面归零,实物留着等 drain 兑现。）
+（`kernel/mm/pmm.cpp:279-289` 和 `kernel/mm/pmm.cpp:327-350`。这就是 `13-memory-advanced/005` 章那两本账的 `no_free` 变体——所有权账面归零,实物留着等 drain 兑现。）
 
-2. 把 `{old_phys, vaddr}` 塞进一条 pending 链表 + 给信号量 `post` 一下([tlb.cpp](../../../kernel/arch/x86_64/tlb.cpp#L85-L113)):
+2. 把 `{old_phys, vaddr}` 塞进一条 pending 链表 + 给信号量 `post` 一下(`kernel/arch/x86_64/tlb.cpp:85-113`):
 
 ```cpp
 void enqueue_pending_shootdown(uint64_t phys, uint64_t vaddr) {
@@ -105,7 +105,7 @@ void tlb_drain_entry() {
 }
 ```
 
-（[tlb_drain.cpp](../../../kernel/arch/x86_64/tlb_drain.cpp#L36-L47)。deferred 的兑现端。)
+（`kernel/arch/x86_64/tlb_drain.cpp:36-47`。deferred 的兑现端。)
 
 #### 死锁解除的两条论证
 
@@ -127,4 +127,4 @@ void tlb_drain_entry() {
 
 回到主线一讲过的海森堡悖论——deferred CoW 这套设计里,race-detect 默认 OFF 的理由又一次得到印证:竞态 timing-sensitive,插探针会改时序。deferred 的价值恰恰在于它**不靠时序侥幸**——它把「会互锁」从「可能发生」降到「结构上不可能」(fault 路径根本不做 shootdown),这是比「加锁 + 希望别踩进窗口」强得多的正确性保证。
 
-这条「IF=0 里不能 spin 等跨核 ack」的死锁推导,是全章最值钱的一段叙事,它串起了 044 章的 `pte_count` / `refcount` 拆分——`no_free` 变体减计数但不释放,所有权账面归零而实物留着等 drain 兑现,正是这条推导逼出来的设计。把「正确性子集」拧成一根绳,这根绳的结就在这儿。
+这条「IF=0 里不能 spin 等跨核 ack」的死锁推导,是全章最值钱的一段叙事,它串起了 `13-memory-advanced/005` 章的 `pte_count` / `refcount` 拆分——`no_free` 变体减计数但不释放,所有权账面归零而实物留着等 drain 兑现,正是这条推导逼出来的设计。把「正确性子集」拧成一根绳,这根绳的结就在这儿。

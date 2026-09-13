@@ -15,7 +15,7 @@ call load_kernel_from_disk   # 把内核 ELF 从 LBA 16 读到物理 0x20000
 
 `query_memory_map` 用 BIOS 的 `INT 0x15 AX=0xE820` 问 BIOS"物理内存有哪些区域可用、哪些保留",结果是一串 24 字节的条目(`base/length/type/acpi`),存到 `0x5000`。这张图是后面内核做物理内存管理(PMM)的原料——但我们这一章只负责**收集**,怎么用是后面的事。
 
-`load_kernel_from_disk` 用 001 那套 `INT 0x13 AH=0x42` 扩展读,从 LBA 16 起读 832 个扇区(416KB),倒进物理 `0x20000`。**为什么是 0x20000?** 因为内核的链接脚本([linker.ld](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/linker.ld))把物理落点(LMA)定在了 `0x20000`,读盘地址必须和它对上,否则跳进去就是一堆错位的字节。
+`load_kernel_from_disk` 用 `01-boot/001` 那套 `INT 0x13 AH=0x42` 扩展读,从 LBA 16 起读 832 个扇区(416KB),倒进物理 `0x20000`。**为什么是 0x20000?** 因为内核的链接脚本([linker.ld](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/linker.ld))把物理落点(LMA)定在了 `0x20000`,读盘地址必须和它对上,否则跳进去就是一堆错位的字节。
 
 > 这里有个源码注释的噪声要提醒:`stage2.S` 里 `load_kernel_from_disk` 那行注释同时写了 "→0x20000" 和 "to 0x88000",看着矛盾,其实说的是两件事:`0x20000` 是载入**起点**、`0x88000` 是载入区**上界**——内核最大占 `0x88000 − 0x20000 = 0x68000 = 416KB`,正好顶到 `0x90000` 的栈之前(见 [build_image.sh](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/scripts/build_image.sh))。所以载入起点是 `0x20000`,以 `linker.ld` 的 `AT(0x20000)`、bootloader 的 `movq $0x20000`、以及 `boot.S` 里 `.set MINI_KERNEL_LOAD_PHYS, 0x20000` 这几处**代码值**为准。顺带一提,`boot_info.h` 和 `boot.S` 的注释里还残留着旧的 `0x10000`,那才是过时噪声,别被它带偏——以代码为准,别以注释为准。
 
@@ -72,7 +72,7 @@ SECTIONS {
 
 为什么要把内核放高半?这是 x86_64 内核的惯例:用户态进程占低半地址(0 以下),内核占高半(0xFFFFFFFF80000000 以上),互不干扰,也为以后做用户态/内核态地址隔离铺路。
 
-可问题是:003 我们搭的临时页表只做了**低地址恒等映射**(0~8MB),内核在高半根本没有映射。直接 `jmp 0xFFFFFFFF80020000`,CPU 翻译这个虚拟地址时查不到页表项,当场缺页三重故障。所以 004 在 [long_mode.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/common/long_mode.S) 里**额外搭一条高半映射**:
+可问题是:`01-boot/003` 我们搭的临时页表只做了**低地址恒等映射**(0~8MB),内核在高半根本没有映射。直接 `jmp 0xFFFFFFFF80020000`,CPU 翻译这个虚拟地址时查不到页表项,当场缺页三重故障。所以 `01-boot/004` 在 [long_mode.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/boot/common/long_mode.S) 里**额外搭一条高半映射**:
 
 ```asm
 # PML4[511] → PDPT(复用同一张 PDPT)

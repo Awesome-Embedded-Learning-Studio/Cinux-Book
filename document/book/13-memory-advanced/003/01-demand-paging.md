@@ -4,11 +4,11 @@ title: 01 · 野指针终于会被杀,read() 也走缓存了
 
 # 野指针终于会被杀,read() 也走缓存了
 
-> 两件事,都兑现前面留的债。第一,040 立 VMA 账本时只做"诊断"——访问没登记的区域,内核只是 `klog_warn` 一声然后**照常给页**(野指针、栈溢出都被静默放过)。这一章把按需分页拧成**硬门控**:用户态访问没 VMA 的区域,**真 segfault**,终止进程。第二,041 的 Page Cache 只服务文件映射的按需分页,而 `read()` 读普通文件每次直读盘、不缓存;这一章让 `read()` 也走 Page Cache,读路径统一到一个缓存层。
+> 两件事,都兑现前面留的债。第一,`13-memory-advanced/001` 立 VMA 账本时只做"诊断"——访问没登记的区域,内核只是 `klog_warn` 一声然后**照常给页**(野指针、栈溢出都被静默放过)。这一章把按需分页拧成**硬门控**:用户态访问没 VMA 的区域,**真 segfault**,终止进程。第二,`13-memory-advanced/002` 的 Page Cache 只服务文件映射的按需分页,而 `read()` 读普通文件每次直读盘、不缓存;这一章让 `read()` 也走 Page Cache,读路径统一到一个缓存层。
 
 ## 把"诊断"拧成"硬门控"
 
-page fault 时,如果命不中任何 VMA,该怎么处理?Linux 的答案是:**这是野指针 / 非法访问,杀进程**(SIGSEGV 的内核侧)。040 因为风险(要重构整个按需分配)只做了诊断;现在补上真 segfault。
+page fault 时,如果命不中任何 VMA,该怎么处理?Linux 的答案是:**这是野指针 / 非法访问,杀进程**(SIGSEGV 的内核侧)。`13-memory-advanced/001` 因为风险(要重构整个按需分配)只做了诊断;现在补上真 segfault。
 
 关键在**区分谁触发的 fault**——靠错误码里的一位 `err & 0x04`(用户态触发):
 
@@ -25,7 +25,7 @@ if (vma == nullptr && user_fault) {
 
 ### 栈必须配套扩到 1MB
 
-硬门控上了,但有个**必须配套**的改动:栈的增长窗。040 的栈 VMA 只有 16KB,硬门控一上,**深调用栈的程序(init、gui、shell)栈 fault 就会落到 VMA 之外 → segfault,自己把自己杀了**。所以这一章把栈增长窗从 16KB 扩到 1MB:
+硬门控上了,但有个**必须配套**的改动:栈的增长窗。`13-memory-advanced/001` 的栈 VMA 只有 16KB,硬门控一上,**深调用栈的程序(init、gui、shell)栈 fault 就会落到 VMA 之外 → segfault,自己把自己杀了**。所以这一章把栈增长窗从 16KB 扩到 1MB:
 
 ```cpp
 // kernel/arch/x86_64/usermode.hpp
@@ -41,14 +41,14 @@ VMA 的底(顶 - 1MB)以下没有 VMA → segfault,这就是隐式的栈溢出 g
 
 ## read() 也走 Page Cache
 
-041 的 Page Cache 只服务文件映射的按需分页。而 `read()` 读普通文件,直走 `Ext2FileOps::read`(位于 `libs/ext2/ext2_common.cpp`,080 章把 ext2 独立成库时挪过去的)——每次按 ext2 块读盘,**没缓存**。于是同一份文件,"mmap 读"和"read() 读"各走各的,read() 重复读反复 I/O。这一章让 read() 也接进 Page Cache:
+`13-memory-advanced/002` 的 Page Cache 只服务文件映射的按需分页。而 `read()` 读普通文件,直走 `Ext2FileOps::read`(位于 `libs/ext2/ext2_common.cpp`,`08-filesystem/016` 章把 ext2 独立成库时挪过去的)——每次按 ext2 块读盘,**没缓存**。于是同一份文件,"mmap 读"和"read() 读"各走各的,read() 重复读反复 I/O。这一章让 read() 也接进 Page Cache:
 
 ```cpp
 // kernel/mm/page_cache.hpp —— 给 read() 用的按字节读,内部按页切片复用 get_page
 ErrorOr<int64_t> read_bytes(Inode* inode, uint64_t file_off, void* buf, uint64_t count);
 ```
 
-`read_bytes` 按页切片,每页调 041 的 `get_page`(命中 bump 引用 / 没命中锁外读盘填充),再把切片 memcpy 到用户缓冲。**复用 041 的 `get_page`,不另起缓存逻辑**——读路径从此只有一层缓存。
+`read_bytes` 按页切片,每页调 `13-memory-advanced/002` 的 `get_page`(命中 bump 引用 / 没命中锁外读盘填充),再把切片 memcpy 到用户缓冲。**复用 `13-memory-advanced/002` 的 `get_page`,不另起缓存逻辑**——读路径从此只有一层缓存。
 
 ### 怎么判别"该走缓存的磁盘文件"vs"不该走缓存的管道"
 

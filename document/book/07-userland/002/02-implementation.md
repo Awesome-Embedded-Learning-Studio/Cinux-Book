@@ -20,11 +20,11 @@ write_msr(MSR_LSTAR, reinterpret_cast<uint64_t>(syscall_entry));
 write_msr(MSR_SFMASK, 0x200);                        // bit9 = IF
 ```
 
-`STAR` 把同一个值 `0x08` 同时塞进 `[47:32]`(SYSCALL 取)和 `[63:48]`(SYSRET 取)两个槽。为什么都填 0x08?因为 SYSCALL 进来要用它当**内核**代码段(`CS = STAR[47:32] & FFFC = 0x08`),而 SYSRET 出去时,硬件拿 `[63:48]` 算**用户**段:`CS = (STAR[63:48] + 16) | RPL = (0x08 + 16) | 3 = 0x1B`、`SS = (STAR[63:48] + 8) | RPL = (0x08 + 8) | 3 = 0x13`。用户 CS 这半句算下来正好等于 `GDT_USER_CODE`(0x1B),没问题;可用户 SS 算出来是 0x13,并不等于 `GDT_USER_DATA`(0x23)。这是 023 这套 STAR 取值下没对齐的一处——单任务跑 `SYSCALL→sys_write→SYSRETQ` 往返时,因为同一段寄存器一直是这个值、没人另设 SS,它能蒙混过去;可一旦多任务或中断往返把 SS 换成别的值,这 0x13 就会咬人。这个坑怎么定位、怎么修,是下一站(024)的调试现场,这里只点破它没对齐,不展开。
+`STAR` 把同一个值 `0x08` 同时塞进 `[47:32]`(SYSCALL 取)和 `[63:48]`(SYSRET 取)两个槽。为什么都填 0x08?因为 SYSCALL 进来要用它当**内核**代码段(`CS = STAR[47:32] & FFFC = 0x08`),而 SYSRET 出去时,硬件拿 `[63:48]` 算**用户**段:`CS = (STAR[63:48] + 16) | RPL = (0x08 + 16) | 3 = 0x1B`、`SS = (STAR[63:48] + 8) | RPL = (0x08 + 8) | 3 = 0x13`。用户 CS 这半句算下来正好等于 `GDT_USER_CODE`(0x1B),没问题;可用户 SS 算出来是 0x13,并不等于 `GDT_USER_DATA`(0x23)。这是 `07-userland/002` 这套 STAR 取值下没对齐的一处——单任务跑 `SYSCALL→sys_write→SYSRETQ` 往返时,因为同一段寄存器一直是这个值、没人另设 SS,它能蒙混过去;可一旦多任务或中断往返把 SS 换成别的值,这 0x13 就会咬人。这个坑怎么定位、怎么修,是下一站(`07-userland/003`)的调试现场,这里只点破它没对齐,不展开。
 
 `LSTAR` 直接指向 `syscall_entry` 的地址,这就是 SYSCALL 的落点。`SFMASK=0x200` 让硬件在入口执行 `RFLAGS ← RFLAGS AND NOT 0x200`,即把 IF 清掉——syscall 进来那一刻中断是关的,免得 trap frame 还没建好就被时钟中断打断。
 
-这里有个容易踩混的点,得专门说清:**STAR 在 023 被写了两次**。`usermode_init()`(在汇编 `usermode_init_asm` 里,先于 `syscall_init` 调用)也写了一遍 STAR——它用 `movq $0x08,%rdx; shlq $16,%rdx; orq $0x08,%rdx` 把同样的 `0x08/0x08` 拼进去。两边写法不同(汇编靠移位、C++ 靠字面量),但**值完全一致**。`main.cpp` 里的调用序是先 `usermode_init()` 再 `syscall_init()`,所以最终生效的是后者那一次——但因为两者目标一致,谁最后写都一样。把这件事想明白,就不会在调试时困惑「我明明在 syscall.cpp 里改了 STAR,为什么读回来是另一个值」。
+这里有个容易踩混的点,得专门说清:**STAR 在 `07-userland/002` 被写了两次**。`usermode_init()`(在汇编 `usermode_init_asm` 里,先于 `syscall_init` 调用)也写了一遍 STAR——它用 `movq $0x08,%rdx; shlq $16,%rdx; orq $0x08,%rdx` 把同样的 `0x08/0x08` 拼进去。两边写法不同(汇编靠移位、C++ 靠字面量),但**值完全一致**。`main.cpp` 里的调用序是先 `usermode_init()` 再 `syscall_init()`,所以最终生效的是后者那一次——但因为两者目标一致,谁最后写都一样。把这件事想明白,就不会在调试时困惑「我明明在 syscall.cpp 里改了 STAR,为什么读回来是另一个值」。
 
 ## syscall_entry:swapgs、换栈、建 trap frame
 
@@ -108,7 +108,7 @@ syscall_entry:
 
 `swapgs` 入口一次、出口一次,必须配对——入口把 GS 从用户侧换到内核侧,出口得再换回去,否则下次进用户态 GS 就指错地方了。「切回用户栈」(`mov %gs:8,%rsp`)必须在 `sysretq` **之前**:因为 SYSRETQ 不改 RFLAGS 里的 TF/IF 之外的栈语义、更不动 RSP,你给它什么 RSP,它就在什么 RSP 上回用户态。要是在切栈之前就 `sysretq`,用户态一返回就踩在自己的栈帧之外,立刻炸。
 
-这一版「返回值绕道 rbx」是 023 的实际写法,它在当前这套 GDT 布局下能跑通。它是不是「最终最优」,这一章不下结论——那是后续要打磨的地方。
+这一版「返回值绕道 rbx」是 `07-userland/002` 的实际写法,它在当前这套 GDT 布局下能跑通。它是不是「最终最优」,这一章不下结论——那是后续要打磨的地方。
 
 ## dispatch 表 + 三个 handler
 
@@ -131,7 +131,7 @@ int64_t sys_write(uint64_t fd, uint64_t buf_virt, uint64_t count,
 }
 ```
 
-两道校验:地址上界 `0x800000000000`(canonical address 的分水岭,高于它的就是内核半区,用户不该传)、`fd==1`。它没有 VFS、没有 fd 表、没有缓冲区、没有真正的「写文件」——就是逐字节 `kprintf("%c")` 把字符往串口和 Console 送。这距离 Linux 的 `write(2)` 差着十万八千里,但对 023 的目标(证明通道通)够用了。注意那道地址校验只是「上界」,不是真正的 `copy_from_user`:它不检查页是否映射、不处理缺页。用户传个没映射的地址进来,`kprintf` 读到那字节时会缺页——那是 023 留着的口子。
+两道校验:地址上界 `0x800000000000`(canonical address 的分水岭,高于它的就是内核半区,用户不该传)、`fd==1`。它没有 VFS、没有 fd 表、没有缓冲区、没有真正的「写文件」——就是逐字节 `kprintf("%c")` 把字符往串口和 Console 送。这距离 Linux 的 `write(2)` 差着十万八千里,但对 `07-userland/002` 的目标(证明通道通)够用了。注意那道地址校验只是「上界」,不是真正的 `copy_from_user`:它不检查页是否映射、不处理缺页。用户传个没映射的地址进来,`kprintf` 读到那字节时会缺页——那是 `07-userland/002` 留着的口子。
 
 [sys_exit.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/syscall/sys_exit.cpp) 有一处必须说清的「设计性分歧」:
 
@@ -147,11 +147,11 @@ if (Scheduler::is_initialized()) {
 }
 ```
 
-`launch_first_user` 之前,`main.cpp` **没有**调 `Scheduler::init()`——020 写好的调度器在这条路径上压根没启动。所以 023 跑生产 demo 时,`sys_exit` 走的是 `else` 分支:`cli;hlt` 死循环,串口收尾是那句 `[SYSCALL] sys_exit: no scheduler, halting.`。这不是 bug,是刻意的解耦:`yield` 那条分支是「为 024 留的、本 tag 跑不到」的代码。这样写的好处是 syscall 模块在「有调度器」「无调度器」两种环境都能干净收场,不把里程碑之间的耦合硬拧在一起。
+`launch_first_user` 之前,`main.cpp` **没有**调 `Scheduler::init()`——`06-process/002` 写好的调度器在这条路径上压根没启动。所以 `07-userland/002` 跑生产 demo 时,`sys_exit` 走的是 `else` 分支:`cli;hlt` 死循环,串口收尾是那句 `[SYSCALL] sys_exit: no scheduler, halting.`。这不是 bug,是刻意的解耦:`yield` 那条分支是「为 `07-userland/003` 留的、本 tag 跑不到」的代码。这样写的好处是 syscall 模块在「有调度器」「无调度器」两种环境都能干净收场,不把里程碑之间的耦合硬拧在一起。
 
 ## 用户态编译基建:从 hello.cpp 到嵌入内核的镜像
 
-022 的用户程序是 4 字节机器码,023 把它换成了一个真 C++ 程序。这套基建是 [CMakeLists.txt](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/user/CMakeLists.txt) 三步搭出来的:
+`07-userland/001` 的用户程序是 4 字节机器码,`07-userland/002` 把它换成了一个真 C++ 程序。这套基建是 [CMakeLists.txt](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/user/CMakeLists.txt) 三步搭出来的:
 
 第一步,把 [hello.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/user/programs/hello.cpp) 编成 ELF——用 `-mcmodel=small`(用户态在低 2GB)、`-ffreestanding -nostdlib -static -fno-pie`,链接脚本 [linker.ld](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/user/linker.ld) 把 `USER_VMA` 定在 `0x400000`、`.text.start` 段放最前:
 

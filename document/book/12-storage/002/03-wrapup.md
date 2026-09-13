@@ -11,7 +11,7 @@ title: 03 · 落点与诚实的边界
 - NVMe 和 virtio-blk 都实现 `IBlockDevice`——Ext2 不关心盘是 AHCI、NVMe 还是 virtio,`read_block`/`write_block` 一样调。
 - virtio-net 实现 `NetDevice`——网络栈的 `dev_for()` 在它和 e1000 之间挑,上层 ICMP/UDP/TCP 无感知。
 
-这就是抽象的价值:**设备协议再怎么花样翻新,只要能翻译成 `IBlockDevice` / `NetDevice`,上面的 Ext2 和网络栈一行不改**。038 章立的 `IBlockDevice`、058 章立的 `NetDevice`,到这里各收一个新实现。
+这就是抽象的价值:**设备协议再怎么花样翻新,只要能翻译成 `IBlockDevice` / `NetDevice`,上面的 Ext2 和网络栈一行不改**。`11-foundation/003` 章立的 `IBlockDevice`、`17-net/002` 章立的 `NetDevice`,到这里各收一个新实现。
 
 ## 诚实的边界
 

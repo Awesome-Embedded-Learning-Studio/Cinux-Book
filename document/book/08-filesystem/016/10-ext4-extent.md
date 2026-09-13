@@ -23,7 +23,7 @@ static constexpr uint32_t EXT4_EXTENTS_FL = 0x80000;
 static constexpr uint16_t EXT4_EXTENT_MAGIC = 0xF30A;
 ```
 
-([ext2_types.hpp:354-361](../../../libs/ext2/ext2_types.hpp#L354))。一个**叶 extent** 就是一条「连续的逻辑块 → 连续的物理块」映射:
+(`libs/ext2/ext2_types.hpp:354`)。一个**叶 extent** 就是一条「连续的逻辑块 → 连续的物理块」映射:
 
 ```cpp
 /**
@@ -40,7 +40,7 @@ struct [[gnu::packed]] Ext4Extent {
 };
 ```
 
-([ext2_types.hpp:384-397](../../../libs/ext2/ext2_types.hpp#L384))。意思是「从逻辑块 `ee_block` 起、连续 `ee_len` 个块,对应的物理块从 `(ee_start_hi << 32) | ee_start_lo` 开始」。一条 extent 就能覆盖一大段连续数据(比如一个 1 MiB 的文件,1 KB 块就是 1024 个块,一条 extent 搞定),比 indirect 指针数组(每个块号都得占 4 字节、还得读一个 indirect 块)省盘、省 I/O。
+(`libs/ext2/ext2_types.hpp:384`)。意思是「从逻辑块 `ee_block` 起、连续 `ee_len` 个块,对应的物理块从 `(ee_start_hi << 32) | ee_start_lo` 开始」。一条 extent 就能覆盖一大段连续数据(比如一个 1 MiB 的文件,1 KB 块就是 1024 个块,一条 extent 搞定),比 indirect 指针数组(每个块号都得占 4 字节、还得读一个 indirect 块)省盘、省 I/O。
 
 ### depth-0 leaf:直接给块号,不读盘
 
@@ -89,7 +89,7 @@ ExtentLookupResult extent_lookup_block(const Ext2Inode& disk, uint32_t file_bloc
 }
 ```
 
-([ext2_extent.cpp:18-57](../../../libs/ext2/ext2_extent.cpp#L18))。三个 outcome 得分清(枚举在 [ext2_extent.hpp:31-35](../../../libs/ext2/ext2_extent.hpp#L31)):
+(`libs/ext2/ext2_extent.cpp:18`)。三个 outcome 得分清(枚举在 `libs/ext2/ext2_extent.hpp:31`):
 
 - `Mapped`——找到了覆盖的 extent,`out_block` 里是物理块号,调用方去读;
 - `Hole`——逻辑块没被任何 extent 覆盖(稀疏文件的洞),或者命中了一条 **uninitialized extent**(`ee_len > 32768`,意思是这块盘空间预分配了但没写,read 该返回零);
@@ -118,7 +118,7 @@ uint32_t Ext2FileOps::resolve_disk_block_(const Ext2Inode& disk, uint64_t file_b
         ...
 ```
 
-([ext2_common.cpp:196-211](../../../libs/ext2/ext2_common.cpp#L196))。`inode_has_extent_tree(disk)` 就是查 `i_flags & EXT4_EXTENTS_FL`([ext2_extent.hpp:26-28](../../../libs/ext2/ext2_extent.hpp#L26))——一个 inline 谓词,不读盘。如果 inode 是 extent-mapped 的,**整段 indirect 路径都不走**(`i_block` 已经被重解释成 extent tree 了,再当块指针读就是垃圾),直接调 `extent_lookup_block` 拿块号;否则才回退到经典的 direct/indirect/double-indirect 解析。
+(`libs/ext2/ext2_common.cpp:196`)。`inode_has_extent_tree(disk)` 就是查 `i_flags & EXT4_EXTENTS_FL`(`libs/ext2/ext2_extent.hpp:26`)——一个 inline 谓词,不读盘。如果 inode 是 extent-mapped 的,**整段 indirect 路径都不走**(`i_block` 已经被重解释成 extent tree 了,再当块指针读就是垃圾),直接调 `extent_lookup_block` 拿块号;否则才回退到经典的 direct/indirect/double-indirect 解析。
 
 注意 extent 这条岔路**不碰 `scratch`**——depth-0 的 extent tree 根在 inode 里、不读盘,所以不需要中间 buffer。这是 extent 跟 indirect 在 SMP 上的一个本质区别:indirect 要 `read_block` 一个 indirect 块、所以必须有自己的 `KmBuf`(主线四讲过);extent depth-0 leaf 是纯算术,无 I/O,无 buffer,自然也就没有 `block_buf_` race 那一层。当然,如果 extent 树是 `depth > 0`(有 index 节点),那就要读 index 块,又会引入 buffer 问题——但这一层本驱动 `Unsupported`,不在这次治理范围里。
 
@@ -126,9 +126,9 @@ uint32_t Ext2FileOps::resolve_disk_block_(const Ext2Inode& disk, uint64_t file_b
 
 extent 这条路径没法靠 host 测验(预构镜像是 ext2 的),它在 QEMU 里跑一张专门的 ext4 镜像——`kernel/test/test_ext4_extents.cpp` 挂 AHCI port 2 上那张 ext4 盘(由 `scripts/create_ext4_disk.sh` 构造),验三件事:
 
-1. **挂载能识别 ext4 extents 特性**:卷的 superblock 设了 `EXT4_FEATURE_INCOMPAT_EXTENTS`,`has_ext4_extents_feature()` 返回真([test_ext4_extents.cpp:96-105](../../../kernel/test/test_ext4_extents.cpp#L96));
-2. **大文件(1 MiB)走 extent 且读回字节精确**:`/big.bin` 是 1 MiB、一条 depth-0 leaf extent(1024 块 @ 1 KB),整段读回验 `byte[i] == i & 0xFF`([test_ext4_extents.cpp:131-172](../../../kernel/test/test_ext4_extents.cpp#L131)),还专门测一段跨块边界的读([test_ext4_extents.cpp:174-191](../../../kernel/test/test_ext4_extents.cpp#L174))——验 extent 解析的块内偏移算术;
-3. **小文件(单块 extent)也能读**:`/small.txt` 单块 extent,读回 `"ext4 extents small file\n"`([test_ext4_extents.cpp:201-217](../../../kernel/test/test_ext4_extents.cpp#L201))。
+1. **挂载能识别 ext4 extents 特性**:卷的 superblock 设了 `EXT4_FEATURE_INCOMPAT_EXTENTS`,`has_ext4_extents_feature()` 返回真(`kernel/test/test_ext4_extents.cpp:96`);
+2. **大文件(1 MiB)走 extent 且读回字节精确**:`/big.bin` 是 1 MiB、一条 depth-0 leaf extent(1024 块 @ 1 KB),整段读回验 `byte[i] == i & 0xFF`(`kernel/test/test_ext4_extents.cpp:131`),还专门测一段跨块边界的读(`kernel/test/test_ext4_extents.cpp:174`)——验 extent 解析的块内偏移算术;
+3. **小文件(单块 extent)也能读**:`/small.txt` 单块 extent,读回 `"ext4 extents small file\n"`(`kernel/test/test_ext4_extents.cpp:201`)。
 
 这条测的关键是它**先验 inode 真的是 extent-mapped**(`cached->disk_inode.i_flags & EXT4_EXTENTS_FL`),再读——不然读对了也可能是走了 indirect 路径的巧合:
 
@@ -139,6 +139,6 @@ auto* cached = static_cast<const Ext2CachedInode*>(ino->fs_private);
 TEST_ASSERT_TRUE((cached->disk_inode.i_flags & EXT4_EXTENTS_FL) != 0);
 ```
 
-([test_ext4_extents.cpp:124-126](../../../kernel/test/test_ext4_extents.cpp#L124))。这层前置断言把「extent 路径真的被走到了」钉死,避免误判。
+(`kernel/test/test_ext4_extents.cpp:124`)。这层前置断言把「extent 路径真的被走到了」钉死,避免误判。
 
-> **目录扫描走 `inode_read_block`,不是 `resolve_disk_block_`**。extent 解析还有个共用入口 `inode_read_block`([ext2_extent.cpp:59-71](../../../libs/ext2/ext2_extent.cpp#L59)),它先判 extent,否则回退到 direct(`i_block[0..11]`)。`lookup_in_dir` / `readdir` 这种目录扫描用这个——目录通常很小,只在 direct 区,`inode_read_block` 一行就解析了。而常规文件读走 `resolve_disk_block_` 那条带 indirect/extent 双岔路的完整解析。两个入口共用 `extent_lookup_block`,分工看场景。
+> **目录扫描走 `inode_read_block`,不是 `resolve_disk_block_`**。extent 解析还有个共用入口 `inode_read_block`(`libs/ext2/ext2_extent.cpp:59`),它先判 extent,否则回退到 direct(`i_block[0..11]`)。`lookup_in_dir` / `readdir` 这种目录扫描用这个——目录通常很小,只在 direct 区,`inode_read_block` 一行就解析了。而常规文件读走 `resolve_disk_block_` 那条带 indirect/extent 双岔路的完整解析。两个入口共用 `extent_lookup_block`,分工看场景。

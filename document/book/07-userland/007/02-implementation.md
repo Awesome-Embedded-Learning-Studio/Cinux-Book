@@ -4,7 +4,7 @@ title: 02 · 代码路线:PTY 核心、两条接缝、DevFS 节点与控制终�
 
 # 代码路线:PTY 核心、两条接缝、DevFS 节点与控制终端
 
-## PTY 核心:四条数据路径,复用 062 的行规范
+## PTY 核心:四条数据路径,复用 `07-userland/005` 的行规范
 
 PTY 核心是一个 `Pty` 类(`pty.hpp:48`),四条数据路径:
 
@@ -17,9 +17,9 @@ PTY 核心是一个 `Pty` 类(`pty.hpp:48`),四条数据路径:
 
 (`pty.hpp:58` 起。)两个关键设计。
 
-**其一,slave 复用 062 的 `TTY`,不重写。** PTY 的「终端感」全来自 slave 侧的行规范——攒行、退格、Ctrl+C 翻译信号,这些 062 那个纯逻辑 `TTY` 全做了(host 可测、带 echo sink 注入)。PTY 直接拥有一个 `TTY` 当 slave侧行规范,等于白捡一整套终端行为。这跟前面反复出现的「纯逻辑 + 注入式解耦」一脉相承:`TTY` 当初写成纯逻辑、host 可测,现在换个场景(PTY)直接复用,不用重写一遍。
+**其一,slave 复用 `07-userland/005` 的 `TTY`,不重写。** PTY 的「终端感」全来自 slave 侧的行规范——攒行、退格、Ctrl+C 翻译信号,这些 `07-userland/005` 那个纯逻辑 `TTY` 全做了(host 可测、带 echo sink 注入)。PTY 直接拥有一个 `TTY` 当 slave侧行规范,等于白捡一整套终端行为。这跟前面反复出现的「纯逻辑 + 注入式解耦」一脉相承:`TTY` 当初写成纯逻辑、host 可测,现在换个场景(PTY)直接复用,不用重写一遍。
 
-**其二,回显路由回 master 读侧。** 你在模拟器里敲一个字,期望屏幕上立刻看到它(本地回显)。PTY 怎么做到?slave 的 `TTY` 有个 echo sink(062 立的接缝),构造 PTY 时把 echo sink 接到「往 master 读环 push」上——于是 master 写一个字节 → slave 行规范处理 → 回显经 sink 回到 master 读环 → 模拟器从 master 读到那个字节。回显 best-effort:master 读环满了就丢回显字节,不阻塞输入路径。信号字符(`^C`)同理:行规范认出来记成 `pending_signal`,`Pty::take_pending_signal()` 转发,内核侧(后面)投给 slave 的前台进程组。
+**其二,回显路由回 master 读侧。** 你在模拟器里敲一个字,期望屏幕上立刻看到它(本地回显)。PTY 怎么做到?slave 的 `TTY` 有个 echo sink(`07-userland/005` 立的接缝),构造 PTY 时把 echo sink 接到「往 master 读环 push」上——于是 master 写一个字节 → slave 行规范处理 → 回显经 sink 回到 master 读环 → 模拟器从 master 读到那个字节。回显 best-effort:master 读环满了就丢回显字节,不阻塞输入路径。信号字符(`^C`)同理:行规范认出来记成 `pending_signal`,`Pty::take_pending_signal()` 转发,内核侧(后面)投给 slave 的前台进程组。
 
 > 这一批(`pty.cpp`)又是**纯逻辑**:零 `kprintf`、零 `proc`、零 Console,能直接链进 host 单测。`test/unit/test_pty.cpp` 十个 case:canonical 行 round-trip、本地回显、slave 输出 → master、`^C` → pending SIGINT、raw 模式、退格编辑、空行 `^D` EOF、行内 `^D` 提交、满环 partial write、双实例不串扰。能 host 单测,是因为它只依赖 `TTY`(也是纯逻辑),不碰任何内核东西。
 
@@ -27,7 +27,7 @@ PTY 核心是一个 `Pty` 类(`pty.hpp:48`),四条数据路径:
 
 PTY 核心是纯对象,没接 fd。要让一个进程拿到 PTY 的 master fd 并对它 ioctl(拿 termios、挂控制终端),得先有两条基础设施——这俩之前都缺。
 
-**缝一:`InodeOps::ioctl` virtual。** 之前 `InodeOps` 虚表里**没有 ioctl 方法**(063 的 ioctl 只处理 fd≤2 的 console)。PTY 的 fd>2,得让设备 inode 能响应 ioctl。于是给 `InodeOps` 加 `ioctl` 虚函数(`inode.hpp:105`),默认返 `NotImplemented`:
+**缝一:`InodeOps::ioctl` virtual。** 之前 `InodeOps` 虚表里**没有 ioctl 方法**(`17-net/003` 的 ioctl 只处理 fd≤2 的 console)。PTY 的 fd>2,得让设备 inode 能响应 ioctl。于是给 `InodeOps` 加 `ioctl` 虚函数(`inode.hpp:105`),默认返 `NotImplemented`:
 
 ```cpp
 virtual ErrorOr<int64_t> ioctl(const Inode* inode, uint32_t request, uint64_t arg);
@@ -42,7 +42,7 @@ auto r = file->inode->ops->ioctl(file->inode, request, arg);
 if (!r.ok() && r.error() == NotImplemented) return -ENOTTY;  // 默认 ioctl = "不是 tty"
 ```
 
-> 两处细节。其一,**File 优先,console 是兜底**。这一章最初只给 fd>2 加派发、保留「fd≤2 写死 console」;但后续 GUI shell 那条线(step75)发现:GUI shell 把 stdio 绑到 PTY slave 后,若 `sys_ioctl` 对 0/1/2 仍硬走 console,TCSETS 会打到 console 而非 PTY slave,PTY 就一直留着 ECHO,busybox 行编辑会和终端模拟器双重回显。于是 dispatch 改成「先看 FDTable 有没有装 File——有(哪怕是 0/1/2)就走该 inode 的 ops,没装才回退 console」。这一章的代码雏形是「fd≤2 console 零变」,但那是对 066 当时的论断;真正的「0/1/2 也能指向 PTY」要等 dup2 那条线(见 0XX 章)合上。其二,`NotImplemented → -ENOTTY`(不是 ENOSYS):`to_errno(NotImplemented)` 本会映射成 ENOSYS,但 ioctl 的语义里「这个 inode 不处理 ioctl」该返 ENOTTY(Linux:对普通文件做 tty ioctl 返 ENOTTY)。所以特判一下;PTY ops 自己返的真错误(EINVAL 等)仍走正常映射。
+> 两处细节。其一,**File 优先,console 是兜底**。这一章最初只给 fd>2 加派发、保留「fd≤2 写死 console」;但后续 GUI shell 那条线(step75)发现:GUI shell 把 stdio 绑到 PTY slave 后,若 `sys_ioctl` 对 0/1/2 仍硬走 console,TCSETS 会打到 console 而非 PTY slave,PTY 就一直留着 ECHO,busybox 行编辑会和终端模拟器双重回显。于是 dispatch 改成「先看 FDTable 有没有装 File——有(哪怕是 0/1/2)就走该 inode 的 ops,没装才回退 console」。这一章的代码雏形是「fd≤2 console 零变」,但那是对 `07-userland/007` 当时的论断;真正的「0/1/2 也能指向 PTY」要等 dup2 那条线(见 0XX 章)合上。其二,`NotImplemented → -ENOTTY`(不是 ENOSYS):`to_errno(NotImplemented)` 本会映射成 ENOSYS,但 ioctl 的语义里「这个 inode 不处理 ioctl」该返 ENOTTY(Linux:对普通文件做 tty ioctl 返 ENOTTY)。所以特判一下;PTY ops 自己返的真错误(EINVAL 等)仍走正常映射。
 
 ## DevFS PTY 节点:/dev/ptmx 克隆 + /dev/pts/N
 
@@ -78,4 +78,4 @@ class PtmxOps : public InodeOps {
 
 最后一块是「控制终端」语义。一个 session leader(setsid 之后)可以挂一个终端当自己的控制终端:往后它(及其进程组)的 Ctrl+C 往这个终端投、`/dev/tty` 指向这个终端。这靠 `TIOCSCTTY` ioctl(挂在 slave inode 上)设 `Task::controlling_tty`,把 PTY 跟 session 绑上(setsid 早留了 pgid/sid 那条缝,这会儿接上)。`/dev/tty` 是「当前控制终端」的每进程别名——也走 DevFS 的 dynamic lookup,resolver 返回当前 task 的 controlling_tty 对应的 inode。
 
-这一块接通后,PTY 不只是个数据管子,而是有完整终端会话语义:session + 控制终端 + 前台组 + Ctrl+C 信号投递(062 console 那套信号路径,现在 PTY 也能走)。
+这一块接通后,PTY 不只是个数据管子,而是有完整终端会话语义:session + 控制终端 + 前台组 + Ctrl+C 信号投递(`07-userland/005` console 那套信号路径,现在 PTY 也能走)。

@@ -8,7 +8,7 @@ title: 03 · 内核里 C++ 的克制用法
 
 ## 这一章干什么
 
-读了前两章(03-cpp 的 C 核心、freestanding 子集),你已经知道内核里的 C++ 是一个被 `-ffreestanding`、`-fno-exceptions`、`-fno-rtti` 砍过的方言。这一章是个**速览**,只回答一个问题:**砍完之后,还剩下的那点现代 C++,我们在 Cinux 里到底用了哪几样、又是怎么用的**。目的是让你在读正文 [009 大内核入口](../../book/03-big-kernel/009-large-kernel-entry.md) 起、看到 `enum class`、`constexpr`、`using`、RAII 锁守卫、模板 `Atomic` 时,不会因为不熟悉而卡住,也不会因为太熟悉(桌面 C++ 习惯)而把不该搬进内核的东西搬进来。
+读了前两章(03-cpp 的 C 核心、freestanding 子集),你已经知道内核里的 C++ 是一个被 `-ffreestanding`、`-fno-exceptions`、`-fno-rtti` 砍过的方言。这一章是个**速览**,只回答一个问题:**砍完之后,还剩下的那点现代 C++,我们在 Cinux 里到底用了哪几样、又是怎么用的**。目的是让你在读正文 [009 大内核入口](../../book/03-big-kernel/001/) 起、看到 `enum class`、`constexpr`、`using`、RAII 锁守卫、模板 `Atomic` 时,不会因为不熟悉而卡住,也不会因为太熟悉(桌面 C++ 习惯)而把不该搬进内核的东西搬进来。
 
 这一章偏短。它只圈"边界"和"最小够读懂的写法",不讲 ABI、不讲运行时 stub(那在 02-freestanding-cpp 里),也不重复正文要讲透的实现细节。
 
@@ -57,7 +57,7 @@ enum class IDTPrivilege : uint8_t {
 
 代价几乎为零:编译完就是几个整数常量,没有虚表、没有分配。这是教科书级的"零成本抽象"。
 
-> 详见正文 [010b · 大内核 IDT 与异常](../../book/03-big-kernel/010b-big-kernel-idt-exceptions.md)——那里会展开 IDT entry 的 16 字节布局、`type_attr` 字节怎么拼、IST 怎么用。
+> 详见正文 [010b · 大内核 IDT 与异常](../../book/03-big-kernel/003/)——那里会展开 IDT entry 的 16 字节布局、`type_attr` 字节怎么拼、IST 怎么用。
 
 ### `constexpr`:编译期常量与常量函数
 
@@ -92,7 +92,7 @@ constexpr uint8_t make_idt_attr(IDTPrivilege priv, IDTGateType gate) {
 
 调用处如果参数也都是编译期常量,整个 `make_idt_attr(...)` 会被折叠成一个字节;即便参数是运行期的,它也只是几条位运算,和手写 `0x80 | priv | gate` 没区别——但可读性强得多。`constexpr` 在这里的作用是"既能编译期算、又不亏运行期",典型的零成本。
 
-> 详见正文 [009 · 大内核入口](../../book/03-big-kernel/009-large-kernel-entry.md)——`BOOT_INFO_PHYS` 怎么和引导阶段对接、`g_heap` 怎么初始化,那里讲透。
+> 详见正文 [009 · 大内核入口](../../book/03-big-kernel/001/)——`BOOT_INFO_PHYS` 怎么和引导阶段对接、`g_heap` 怎么初始化,那里讲透。
 
 ### `using`:类型别名,给函数指针起人话名字
 
@@ -169,7 +169,7 @@ void RoundRobin::enqueue(Task* task) {
 
 这就是内核 RAII 的全部哲学:**靠作用域自动释放,所以提前 `return`、走异常(如果有的话)、漏写 `unlock` 都不会泄漏锁**。但它和桌面 RAII 的边界要画清——见下一节的禁区。
 
-> 详见正文 [06 · 进程卷](../../book/06-process/021-proc-sync.md) 里的同步原语章——`Mutex` 的 `guard()`、`Semaphore`、`InterruptGuard`(关中断的 RAII)都在那里展开,包括"自旋锁绝不能跨阻塞操作持有"这条硬约束。
+> 详见正文 [06 · 进程卷](../../book/06-process/003/) 里的同步原语章——`Mutex` 的 `guard()`、`Semaphore`、`InterruptGuard`(关中断的 RAII)都在那里展开,包括"自旋锁绝不能跨阻塞操作持有"这条硬约束。
 
 ## 有限模板 `Atomic`:被允许的、很薄的一层模板
 
@@ -210,7 +210,7 @@ cinux::lib::Atomic<uint64_t> next_tid{1};
 
 这是 Cinux 允许模板的全部理由:**实例化结果可控、靠编译器内建而非库、有 `static_assert` 收口**。任何"模板 + 虚函数 + 堆分配"的组合(典型如 STL 容器)就被挡在禁区外了。
 
-> 详见正文 [06 · 进程卷](../../book/06-process/020-proc-scheduler.md)——`next_tid` 怎么在创建进程时 `fetch_add`、调度器的 `Atomic<int> tick_count_` 怎么被时钟中断累加,那里有完整调用链。
+> 详见正文 [06 · 进程卷](../../book/06-process/002/)——`next_tid` 怎么在创建进程时 `fetch_add`、调度器的 `Atomic<int> tick_count_` 怎么被时钟中断累加,那里有完整调用链。
 
 ## 禁区:桌面 C++ 习惯,内核里一个都别用
 
@@ -257,4 +257,4 @@ Cinux 用 `-fno-exceptions` 编译,`throw` 直接编不过。更根本的是:**�
 - 本仓库源码:[idt.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/idt.hpp)(`enum class`/`constexpr`/`using`)、[main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/main.cpp)(`constexpr` 堆基址/BootInfo 地址)、[sync.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/sync.hpp)(RAII `Guard`/`IrqGuard`/`InterruptGuard`)、[atomic.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/lib/atomic.hpp)(模板 `Atomic<T>` + `static_assert`)、[scheduler.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/scheduler.cpp)(`irq_guard()` 真实调用现场)。
 - 边界依据:README §3(模块 3)划定的 out_of_scope——STL 容器 / 异常 / RTTI / 智能指针。
 
-> 本章为速览,边界划清即达目的。freestanding 运行时 stub(`__cxa_*`/guard)、全局 `new`/`delete` 转 `g_heap`、内联汇编 `asm volatile`、`extern "C"` 接汇编与链接脚本符号,见同卷 [02-freestanding-cpp.md](02-freestanding-cpp.md);正文 C++ 内核实现细节见 [009 大内核入口](../../book/03-big-kernel/009-large-kernel-entry.md) 起。
+> 本章为速览,边界划清即达目的。freestanding 运行时 stub(`__cxa_*`/guard)、全局 `new`/`delete` 转 `g_heap`、内联汇编 `asm volatile`、`extern "C"` 接汇编与链接脚本符号,见同卷 [02-freestanding-cpp.md](02-freestanding-cpp.md);正文 C++ 内核实现细节见 [009 大内核入口](../../book/03-big-kernel/001/) 起。

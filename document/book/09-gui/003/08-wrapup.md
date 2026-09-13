@@ -52,26 +52,26 @@ cmake --build build -- terminal-host
 - **OSC 整段吞。** `ESC ]` ... `BEL` 之间的字节全部消费掉不画——不实现设窗口标题、超链接,但也不让这些字节当普通字符画成乱码。
 - **键盘不经 Widget 树。** TerminalWidget 没有 `on_key` override,host 直接 `pty_write` 进 PTY master。这不是缺陷,是终端和普通输入控件(后面的 TextBox)的本质区别:普通控件是"键盘 → 控件状态",终端是"键盘 → shell → 回显 → 控件"。
 - **read 每帧封顶 8192 字节。** shell 大爆发(`ls /usr/lib`、加载 bashrc)分摊到多帧,牺牲一点输出速度换主循环响应——GUI 单线程模型下不能让一帧的 `put_char_` 跑几万次卡住。
-- **本章的 host 是 SDL2 + POSIX forkpty。** 两者都在 ring3、同一个 Linux 主机。真搬到 Cinux 内核里跑,host 层要换:字节通道换成内核 PTY([007](../07-userland/007/))或 AF_UNIX socket([005](../17-net/005/)),事件/画像素换成 `/dev/event0` + `/dev/fb0`([012](../012/))。Widget 树和 PaintList 一行不改——这就是 host-neutral 的意义。
+- **本章的 host 是 SDL2 + POSIX forkpty。** 两者都在 ring3、同一个 Linux 主机。真搬到 Cinux 内核里跑,host 层要换:字节通道换成内核 PTY([007](../../07-userland/007/))或 AF_UNIX socket([005](../../17-net/005/)),事件/画像素换成 `/dev/event0` + `/dev/fb0`([012](../012/))。Widget 树和 PaintList 一行不改——这就是 host-neutral 的意义。
 - **保留模式不自动恢复遮挡背景。** Window 移走、Window 关闭露出的那块,都要有人显式 `invalidate` 旧 footprint;即时模式全屏重画自动解决,保留模式必须显式。本章调试现场三个坑(光标拖影、窗口移动、窗口关闭)都是这一条的不同表现。
 
 ## 下一站
 
-031 的终端已经能跑真 shell、能出彩色、能滚动。可这个 shell 是从开机那一刻就在跑的——host 一启动就 `forkpty` 出一个 `/bin/sh`,挂在唯一的那个终端窗口上。桌面要是只有一个终端窗口,这套没问题。可 033 要把桌面变成"有一排图标、点哪个开哪个"——终端不再是开机默认出现的那个窗口,而是"点 Shell 图标才该出现"的窗口之一。
+`09-gui/003` 的终端已经能跑真 shell、能出彩色、能滚动。可这个 shell 是从开机那一刻就在跑的——host 一启动就 `forkpty` 出一个 `/bin/sh`,挂在唯一的那个终端窗口上。桌面要是只有一个终端窗口,这套没问题。可 `09-gui/006` 要把桌面变成"有一排图标、点哪个开哪个"——终端不再是开机默认出现的那个窗口,而是"点 Shell 图标才该出现"的窗口之一。
 
 这就撞上一个时序矛盾:如果开机就造终端,桌面一进来就有一个终端杵那儿,违背"点图标才开"的交互;可如果开机不造终端,shell 又是开机就起的(它得是第一个 ring-3 进程),它一跑就往 stdout 写,谁来接?
 
-答案在 033b——"懒创建":shell 照旧开机起,它的 stdio 照旧挂在 PTY 上;但 PTY 的另一端不立刻绑终端,而是把 fd 先存进 host 状态;用户点 Shell 图标那一刻,host 才 `new` 一个 TerminalWidget + Window、把它们推上桌面、把存好的 fd 绑上去。在终端出生之前,shell 写出的字节先在 PTY 缓冲里排队。这套"懒创建"的代价是要认真对待"生产者(shell)先于消费者(终端)"的那段时间——这正是 033b 要细讲的地方。
+答案在 `09-gui/007`——"懒创建":shell 照旧开机起,它的 stdio 照旧挂在 PTY 上;但 PTY 的另一端不立刻绑终端,而是把 fd 先存进 host 状态;用户点 Shell 图标那一刻,host 才 `new` 一个 TerminalWidget + Window、把它们推上桌面、把存好的 fd 绑上去。在终端出生之前,shell 写出的字节先在 PTY 缓冲里排队。这套"懒创建"的代价是要认真对待"生产者(shell)先于消费者(终端)"的那段时间——这正是 `09-gui/007` 要细讲的地方。
 
-至于 GUI host 搬到 Cinux 内核跑、ring3 进程经 `/dev/event0` 读事件、`/dev/fb0` mmap 画像素——那是 087 的事。这一章的 Widget 树 + PaintList 一行没改,只是 host 层从 SDL 换成了那两条设备接口。字节通道从 POSIX `forkpty` 换成内核 PTY(066)或 AF_UNIX socket(083),也是 host 层的事。core 对这些一无所知——它只认识 Widget、PaintList、Surface,这就是 host-neutral 的意义。
+至于 GUI host 搬到 Cinux 内核跑、ring3 进程经 `/dev/event0` 读事件、`/dev/fb0` mmap 画像素——那是 `09-gui/012` 的事。这一章的 Widget 树 + PaintList 一行没改,只是 host 层从 SDL 换成了那两条设备接口。字节通道从 POSIX `forkpty` 换成内核 PTY(`07-userland/007`)或 AF_UNIX socket(`17-net/005`),也是 host 层的事。core 对这些一无所知——它只认识 Widget、PaintList、Surface,这就是 host-neutral 的意义。
 
 ## 小结
 
-031 把 030 那个"会动的空窗口骨架"变成"窗口里真能跑 shell"——但比"加一个终端控件"更重要的,是顺手把整套渲染模型从即时模式换成了保留模式。记住下面几条就够:
+`09-gui/003` 把 `09-gui/002` 那个"会动的空窗口骨架"变成"窗口里真能跑 shell"——但比"加一个终端控件"更重要的,是顺手把整套渲染模型从即时模式换成了保留模式。记住下面几条就够:
 
 - **Widget 基类的接口名是 `paint_to_list(PaintList&)`,不是 `on_paint`**;`flatten` 才是非虚框架入口(clip push → paint_to_list → 递归 child → clip pop),`paint_to_list` 是子类填的 protected virtual hook。`hit_test` / `on_pointer` / `on_key` 是另外几个虚 hook。
 - **PaintList 是定长 4096 的 cmd 数组**,7 种 CmdKind;溢出 drop 不 abort(守"core never aborts"铁律)。`kTextGlyph` 单字符内联进 cmd,是为了避免字符密集型控件借用栈临时 `char[]` 当指针导致 dangling——这是这种控件最容易踩的坑。
-- **保留模式三红利**:脏区重绘(只重画标了脏的矩形)、批量合成 + clip 栈裁剪(控件画不出祖先矩形)、跨进程共享(PaintList 是纯数据,087 把 GUI host 搬用户态的地基)。
+- **保留模式三红利**:脏区重绘(只重画标了脏的矩形)、批量合成 + clip 栈裁剪(控件画不出祖先矩形)、跨进程共享(PaintList 是纯数据,`09-gui/012` 把 GUI host 搬用户态的地基)。
 - **ANSI 不能靠猜**:BS(`\b`)只移光标、DEL(0x7f)才擦字符——shell 行编辑的左箭头/退格全靠这条分开才不"吃字"。
 - **任何"位置会移动 / 会消失"的可视元素,旧位置 + 新位置都得显式标脏**:光标行(`prev_cursor_row_`)、窗口移动(`move_to_` 标 old footprint)、窗口关闭(`remove_window` capture stale rect)。这是保留模式相对即时模式最容易漏的一类点,本章调试现场踩了三次。
 - **WindowManager 自管 `windows_[]` 不用 `children_`**(因为 flatten 是 self→children 序,画不了"光标在最上");连带 `collect_dirty`/`clear_dirty` 必须 override 显式递归 `windows_`,否则 Window 的脏区永远到不了 root。
@@ -79,11 +79,11 @@ cmake --build build -- terminal-host
 - **终端"输入不经控件、输出才进控件"**:host 把键盘字节直接 `pty_write` 进 PTY,不经 `Desktop::dispatch_key`;shell 输出 read PTY → `term.write` 才进控件。TerminalWidget 因此没有 `on_key` override。
 - **forkpty 而非裸 pipe**:PTY 给 shell 一个控制终端,行编辑、历史、curses 才能用;`*stdin_fd = *stdout_fd = master` 签名跟 pipe 一样、内部是 PTY。
 
-这一章之后,Widget 树 + PaintList 这套地基就立住了。后面不管是再加控件(按钮/文本框/滑块,Widget 库里其实都已经在了)、把 GUI host 搬进 Cinux 内核(087)、还是换字节通道(066 PTY / 083 AF_UNIX),都是在这套地基上加 host 适配、不再动 core。031 立的不是"一个终端",是"userspace GUI 的控件框架 + 渲染模型"。
+这一章之后,Widget 树 + PaintList 这套地基就立住了。后面不管是再加控件(按钮/文本框/滑块,Widget 库里其实都已经在了)、把 GUI host 搬进 Cinux 内核(`09-gui/012`)、还是换字节通道(`07-userland/007` PTY / `17-net/005` AF_UNIX),都是在这套地基上加 host 适配、不再动 core。`09-gui/003` 立的不是"一个终端",是"userspace GUI 的控件框架 + 渲染模型"。
 
 ## 参考
 
 - ECMA-48 — Control Functions for Coded Character Sets,5th edition(1991 年 6 月)。CSI 序列:`ESC[m` SGR 设色、`ESC[H` CUP 光标定位、`ESC[J` ED 擦屏、`ESC[A/B/C/D` 光标移动。38;5;N / 48;5;N 的 256 色扩展见 xterm 的 `ctlseqs`:https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
-- xterm 256 色 palette(0-15 标准 16 色、16-231 的 6×6×6 立方、232-255 灰阶),支撑 [`palette_color`](../../../libs/gui/core/widget/terminal.cpp#L19-L33) 的颜色翻译算式:https://github.com/termstandard/colors
-- Retained-mode vs immediate-mode GUI(保留模式 vs 即时模式的概念框架,支撑本章 PaintList 保留模式 vs 029 Canvas 即时模式的对比):https://en.wikipedia.org/wiki/Graphical_user_interface#Modes
-- Linux `forkpty(3)` / PTY(控制终端、行编辑、curses,支撑 [`linux_spawn`](../../../libs/gui/host/posix_spawn.cpp#L16-L40) 用 PTY 而非裸 pipe 的选择):https://man7.org/linux/man-pages/man3/forkpty.3.html
+- xterm 256 色 palette(0-15 标准 16 色、16-231 的 6×6×6 立方、232-255 灰阶),支撑 `libs/gui/core/widget/terminal.cpp:19-33` 的颜色翻译算式:https://github.com/termstandard/colors
+- Retained-mode vs immediate-mode GUI(保留模式 vs 即时模式的概念框架,支撑本章 PaintList 保留模式 vs `09-gui/001` Canvas 即时模式的对比):https://en.wikipedia.org/wiki/Graphical_user_interface#Modes
+- Linux `forkpty(3)` / PTY(控制终端、行编辑、curses,支撑 `libs/gui/host/posix_spawn.cpp:16-40` 用 PTY 而非裸 pipe 的选择):https://man7.org/linux/man-pages/man3/forkpty.3.html

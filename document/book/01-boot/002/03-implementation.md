@@ -37,7 +37,7 @@ gdt_data:
 
 把代码段的字节拼出来看:`access = 0x9A` = `1001 1010`——P(有效)=1、DPL(特权)=00、S=1(代码/数据段)、type=1010(代码、可执行、可读)。`flags = 0xC` = `1100`——G=1(4KB 粒度)、D=1(32 位默认操作数)。Limit 三段合起来是 `0xFFFFF`,配上 G=1 就是 `0xFFFFF × 0x1000 + 0xFFF = 4GB`。Base 三段全是 0——**段基址就是 0,段覆盖整个 4GB 空间**,这就是"扁平模型":段透明,地址即线性地址。数据段只把 access 换成 `0x92`(把"可执行"去掉、保留"可写"),其余一样。
 
-> 这里有个**源码注释和实现不符**的地方,值得拎出来说:`gdt_code` 的 `.word 0x0000` 那行源码注释写着 "Base 15:0 (= 0x8000)",但实际编码出来的 base 是 **0**,不是 0x8000。这是对的——扁平模型必须 base=0,否则进 PM 后 `CS` 基址是 0x8000,而 `pm_entry` 又是按 0x8000 链接的绝对地址,两者一加就错位崩了。注释是笔误,代码是正确的。读这段源码时别被注释带偏。(这和 [002](../03-big-kernel/002/) 里 TSS 注释写成 "Table 8-2" 是同一类问题——源码注释是线索,不是权威。)
+> 这里有个**源码注释和实现不符**的地方,值得拎出来说:`gdt_code` 的 `.word 0x0000` 那行源码注释写着 "Base 15:0 (= 0x8000)",但实际编码出来的 base 是 **0**,不是 0x8000。这是对的——扁平模型必须 base=0,否则进 PM 后 `CS` 基址是 0x8000,而 `pm_entry` 又是按 0x8000 链接的绝对地址,两者一加就错位崩了。注释是笔误,代码是正确的。读这段源码时别被注释带偏。(这和 [002](../../03-big-kernel/002/) 里 TSS 注释写成 "Table 8-2" 是同一类问题——源码注释是线索,不是权威。)
 
 `gdt_ptr` 是给 `lgdt` 用的 6 字节结构(16 位 limit + 32 位 base):
 
@@ -64,7 +64,7 @@ lgdt gdt_ptr           # 装载 GDTR
 
 所以**必须先 `DS=0`**:这样实模式寻址退化成 `0<<4 + 偏移 = 偏移本身`,正好等于那个绝对地址 `0x81xx`,也就是 GDT 真正所在的地方。
 
-顺带说一句链接地址的改动。001 时 Stage2 链接在 `. = 0x0`、运行时靠 `DS=0x800` 承载位置(相对模型);002 改回链接 `. = 0x8000`(绝对模型)。原因正是 `lgdt` 和 PM 后的绝对寻址需要**链接地址 = 载入地址**——一旦进 PM、base=0,所有标号都得是它们真实的线性地址,不能再靠段寄存器去补差。CMakeLists 里那句注释 "link address MUST match the load address" 就是这个意思。
+顺带说一句链接地址的改动。`01-boot/001` 时 Stage2 链接在 `. = 0x0`、运行时靠 `DS=0x800` 承载位置(相对模型);`01-boot/002` 改回链接 `. = 0x8000`(绝对模型)。原因正是 `lgdt` 和 PM 后的绝对寻址需要**链接地址 = 载入地址**——一旦进 PM、base=0,所有标号都得是它们真实的线性地址,不能再靠段寄存器去补差。CMakeLists 里那句注释 "link address MUST match the load address" 就是这个意思。
 
 > 外部依据:Intel SDM Vol.3A §3.4.4(LGDT/GDTR 结构)、§9.9.1(切换到 PM 前的 GDTR 装载)。`lgdt` 本身只搬运那 6 个字节,**不校验 GDT 内容合法性**——合法性要到后续真正用某个段选择子时才查,这点很容易踩(见"调试现场")。
 
@@ -125,4 +125,4 @@ pm_entry:
 
 栈为什么从 `0x9000:0xFFFE` 换成 `0x90000`?因为实模式栈地址是 `SS<<4 + SP`(16 位段),进了 PM 扁平模型,栈地址就是 `ESP` 一个 32 位数;旧的 `0x9000:0xFFFE` 在新模型下会被当成 `ESP=0xFFFE`,那是 64KB 附近、非常低且危险的地方。换到 `0x90000`(576KB)给它一个安稳的家。
 
-`outb %al, $0xE9` 是这一章新引入的输出手段。QEMU 的 **debugcon** 设备挂在端口 `0xE9`,往它写一个字节,QEMU 就把字节记到一个文件里([qemu.cmake](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/cmake/qemu.cmake) 里配了 `-debugcon file:debug.log -global isa-debugcon.iobase=0xe9`)。为什么需要它?因为进 PM 后 `INT 0x10` 没了(告别 BIOS),屏幕又是 VESA 图形模式(没字体、不能 teletype),我们陷入了"既没 BIOS、又没屏幕、又没串口"的输出真空。debugcon 是这个真空期里最便宜的可观测手段——写一个 `P` 到 `build/debug.log`,就知道 `pm_entry` 真的执行到了。注意它**不是真串口**(串口是 COM1/端口 `0x3F8`,驱动要等 [005](../03-big-kernel/005/)),只是个 QEMU 专用的调试后门。
+`outb %al, $0xE9` 是这一章新引入的输出手段。QEMU 的 **debugcon** 设备挂在端口 `0xE9`,往它写一个字节,QEMU 就把字节记到一个文件里([qemu.cmake](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/cmake/qemu.cmake) 里配了 `-debugcon file:debug.log -global isa-debugcon.iobase=0xe9`)。为什么需要它?因为进 PM 后 `INT 0x10` 没了(告别 BIOS),屏幕又是 VESA 图形模式(没字体、不能 teletype),我们陷入了"既没 BIOS、又没屏幕、又没串口"的输出真空。debugcon 是这个真空期里最便宜的可观测手段——写一个 `P` 到 `build/debug.log`,就知道 `pm_entry` 真的执行到了。注意它**不是真串口**(串口是 COM1/端口 `0x3F8`,驱动要等 `02-mini-kernel/001`),只是个 QEMU 专用的调试后门。

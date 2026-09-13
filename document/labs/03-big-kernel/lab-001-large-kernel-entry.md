@@ -15,7 +15,7 @@ title: Lab 001 · 大内核登场
 
 ## 前置条件
 
-- 完成 [Lab 008](../02-mini-kernel/lab-004-load-large-kernel.md):mini kernel 有 ATA/ELF loader、能 demo 读盘解析。
+- 完成 02-mini-kernel 卷的 [`lab-004`](../02-mini-kernel/lab-004-load-large-kernel.md):mini kernel 有 ATA/ELF loader、能 demo 读盘解析。
 - 理解 ELF PT_LOAD、identity 映射、System V AMD64 ABI(`%rdi` 传参)。
 
 ## 任务分解

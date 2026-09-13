@@ -151,7 +151,7 @@ void copy_page_table_level(uint64_t src_phys, uint64_t dst_phys, int level) {
 constexpr uint64_t FLAG_COW = 1ULL << 9;   // Available bit 9: Copy-On-Write marker
 ```
 
-写时复制的活儿,设计上交给 `handle_cow_fault`:它先确认这是一次「CoW 故障」(在用 + 只读 + 带 COW 位),然后复制。代码长这样——但要先打个预防针:**这个函数在 034 写好了、却还没接进 `#PF` handler**(详见本节末尾),现在先看它的逻辑:
+写时复制的活儿,设计上交给 `handle_cow_fault`:它先确认这是一次「CoW 故障」(在用 + 只读 + 带 COW 位),然后复制。代码长这样——但要先打个预防针:**这个函数在 `10-multitasking/001` 写好了、却还没接进 `#PF` handler**(详见本节末尾),现在先看它的逻辑:
 
 ```cpp
 bool handle_cow_fault(uint64_t fault_vaddr) {
@@ -175,13 +175,13 @@ bool handle_cow_fault(uint64_t fault_vaddr) {
 }
 ```
 
-这里有两个**必须看清楚的边界**,都说明 034 的 CoW 是「搭好骨架、还没通电」。
+这里有两个**必须看清楚的边界**,都说明 `10-multitasking/001` 的 CoW 是「搭好骨架、还没通电」。
 
-第一,**`handle_cow_fault` 没接进 `#PF` handler**。034 的 [page_fault.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/page_fault.cpp) 里 `handle_pf` 只做 demand-paging——错误码的 present 位为 0(页不存在)时补一页,其余(包括 CoW 的写保护故障,present=1)一律 `dump_registers` + 打一行 `[FATAL] Page Fault` + `fatal_halt`。也就是说,真去写一张被 fork 标成只读 + COW 的页,在 034 会**直接停机**,而不是走 `handle_cow_fault`。这个函数写好了、却没有任何调用方——典型的「为下一步备好、本步未启用」的死代码。把它真正接进 `#PF`、让它端到端跑起来,是接下来的活。
+第一,**`handle_cow_fault` 没接进 `#PF` handler**。`10-multitasking/001` 的 [page_fault.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/page_fault.cpp) 里 `handle_pf` 只做 demand-paging——错误码的 present 位为 0(页不存在)时补一页,其余(包括 CoW 的写保护故障,present=1)一律 `dump_registers` + 打一行 `[FATAL] Page Fault` + `fatal_halt`。也就是说,真去写一张被 fork 标成只读 + COW 的页,在 `10-multitasking/001` 会**直接停机**,而不是走 `handle_cow_fault`。这个函数写好了、却没有任何调用方——典型的「为下一步备好、本步未启用」的死代码。把它真正接进 `#PF`、让它端到端跑起来,是接下来的活。
 
 第二,**CoW 没有引用计数**。`copy_page_table_level` 只是把双方改成共享 + 只读 + COW,并不记「这张物理页现在被几方共享」;`handle_cow_fault` 每次都无条件分配新页 + 复制,也不更新「另一方」的 PTE。就算把上一条接上,这套也只够「一次 fork、父子各写各的」用——多方共享(fork 之 fork)和原始页回收都不保证。
 
-所以 034 的 CoW 是个**诚实的半成品**:页表标记和 fault handler 的逻辑都铺好了,host 单测也覆盖了「父/子两方、标记转换、写后隔离」这些 PTE 级语义,但从「写一张 CoW 页」到「自动复制成私有页」的端到端通路,这一章还没合上。
+所以 `10-multitasking/001` 的 CoW 是个**诚实的半成品**:页表标记和 fault handler 的逻辑都铺好了,host 单测也覆盖了「父/子两方、标记转换、写后隔离」这些 PTE 级语义,但从「写一张 CoW 页」到「自动复制成私有页」的端到端通路,这一章还没合上。
 
 ## execve:换掉整个进程映像,只留下 PID
 
@@ -201,7 +201,7 @@ void clear_user_mappings(cinux::mm::AddressSpace& space) {
 }
 ```
 
-> 这函数有个**注释和代码打架**的地方:注释写着「Does NOT free the page table pages themselves」(不释放页表页),可代码明明把 PT/PD/PDPT 页都 `free_page` 了。这是典型的「注释过期、以代码为准」。提醒一句:**源码注释是线索,不是权威**——和 010 那回把 TSS 图号抄错是同一类教训,看到注释里的断言,拿代码核实一遍再信。
+> 这函数有个**注释和代码打架**的地方:注释写着「Does NOT free the page table pages themselves」(不释放页表页),可代码明明把 PT/PD/PDPT 页都 `free_page` 了。这是典型的「注释过期、以代码为准」。提醒一句:**源码注释是线索,不是权威**——和 `03-big-kernel/002` 那回把 TSS 图号抄错是同一类教训,看到注释里的断言,拿代码核实一遍再信。
 
 铺新映像是逐段、逐页的。对每个 `PT_LOAD` 段,按 `p_memsz` 算出它覆盖的页范围,逐页「分配 + 清零 + 拷文件字节 + 映射」:
 
@@ -245,7 +245,7 @@ for (uint16_t i = 0; i < phnum; i++) {
 task->ctx.rip = ehdr->e_entry;
 ```
 
-注意 execve 在 034 **只**设了入口地址,**没有**搭用户栈、也**没有**把 `argv`/`envp` 铺进去(参数在 `sys_execve` 里被 `(void)` 掉了)。真正跳进新程序的用户态(`jump_to_usermode`)是调用方的活,这一章把映像铺好、入口备好就交差。把 argv/envp 和用户栈补上是后续的事——这也是为什么 [execve.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/execve.hpp) 的注释会说「caller is responsible for jumping to the new entry point」。
+注意 execve 在 `10-multitasking/001` **只**设了入口地址,**没有**搭用户栈、也**没有**把 `argv`/`envp` 铺进去(参数在 `sys_execve` 里被 `(void)` 掉了)。真正跳进新程序的用户态(`jump_to_usermode`)是调用方的活,这一章把映像铺好、入口备好就交差。把 argv/envp 和用户栈补上是后续的事——这也是为什么 [execve.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/execve.hpp) 的注释会说「caller is responsible for jumping to the new entry point」。
 
 > ELF 校验本身在 [elf_types.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/elf_types.cpp) 的 `validate_elf_header` 里:魔数 `0x7F 'E' 'L' 'F'`、类别 64 位、小端、机型 x86-64、类型 `ET_EXEC`、program header 偏移/尺寸合法、至少一个 program header。任一不过就返回对应的 `ElfValidateResult`,再映射成 `ExecveResult::BadElf*`(统一归到 `-ENOEXEC`,即 -8)。`Elf64_Ehdr` 恰好 64 字节、`Elf64_Phdr` 恰好 56 字节,都用 `static_assert` 钉死——packed 结构体的尺寸绝不能错,host 单测也专门验这两个数。
 
@@ -279,7 +279,7 @@ WaitpidResult waitpid(int pid, int* status, PidAllocator& pid_alloc) {
 
 这里复用了 `Task::wait_next` 这个本来给互斥锁/信号量等待队列用的侵入式链表指针,**兼作** children 链表的 next。一个字段两用,省得再加一个。`fork` 里挂 children 也是用它:`child->wait_next = parent->children; parent->children = child;`(头插法)。
 
-有一个**和 Linux 不一样、必须讲清楚**的地方:034 的 `waitpid` 是**非阻塞**的。看 `sys_waitpid` 的包装:
+有一个**和 Linux 不一样、必须讲清楚**的地方:`10-multitasking/001` 的 `waitpid` 是**非阻塞**的。看 `sys_waitpid` 的包装:
 
 ```cpp
 if (result == WaitpidResult::Ok)        return pid;        // 收到了,返回子 PID
@@ -287,7 +287,7 @@ if (result == WaitpidResult::NotExited) return 0;          // 孩子还没退 �
 return static_cast<int64_t>(result);                        // 其它错误 → 负 errno
 ```
 
-Linux 的 `waitpid` 默认会**阻塞**等孩子退出;Cinux 034 这版孩子没退就直接返回 0(「现在没有可收的」),父进程要等就得自己轮询或靠别的方式。这是个有意识的简化——真正的阻塞等待要把父进程挂到等待队列上、等孩子 exit 时唤醒,那是更后面的工作。这一章先把「收尸」这条**同步**路径打通。
+Linux 的 `waitpid` 默认会**阻塞**等孩子退出;Cinux `10-multitasking/001` 这版孩子没退就直接返回 0(「现在没有可收的」),父进程要等就得自己轮询或靠别的方式。这是个有意识的简化——真正的阻塞等待要把父进程挂到等待队列上、等孩子 exit 时唤醒,那是更后面的工作。这一章先把「收尸」这条**同步**路径打通。
 
 > 五个系统调用的错误码都**沿用 Linux errno 的数值**(`ENOENT=2`、`ECHILD=10`、`EISDIR=21`、`EINVAL=22`、`ENOEXEC=8`、`ENOMEM=12`、`ESRCH=3`),`ExecveResult`/`WaitpidResult` 的枚举值直接就是负的 errno,`sys_*` 包装原样返回。这样用户态拿到的返回值语义和 Linux 对得上,host/内核单测也对 errno 数值做了硬断言。
 
@@ -316,4 +316,4 @@ syscall_register(SyscallNr::SYS_execve,  sys_execve);
 syscall_register(SyscallNr::SYS_waitpid, sys_waitpid);
 ```
 
-用户态 `syscall` 指令进来 → `syscall_dispatch` 按号查表 → 调对应 `sys_*`。和 023 那套 syscall 框架是同一套机制,只是表里多了五项。号码跟 Linux 对齐的好处再次体现:以后写用户态 libc 包装、甚至直接拿 Linux 的小程序过来改,syscall 号这一层不用动。
+用户态 `syscall` 指令进来 → `syscall_dispatch` 按号查表 → 调对应 `sys_*`。和 `07-userland/002` 那套 syscall 框架是同一套机制,只是表里多了五项。号码跟 Linux 对齐的好处再次体现:以后写用户态 libc 包装、甚至直接拿 Linux 的小程序过来改,syscall 号这一层不用动。

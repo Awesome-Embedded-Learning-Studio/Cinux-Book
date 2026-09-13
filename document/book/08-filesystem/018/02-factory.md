@@ -51,7 +51,7 @@ if (strcmp(fstype, "proc") == 0 || strcmp(fstype, "devfs") == 0) {
 }
 ```
 
-(`sys_mount.cpp:52-84`,有删节——省略了 `kprintf` 错误日志。)tmpfs 那一行 017 章讲透了——堆 `new TmpFs`、`mount()` 成功才 `release()` 交裸指针给挂载表、`owned=true` 让 `umount2` 走 `free_tree` 回收整棵树。这里只贴代码回顾链路,RAII 细节不重讲。
+(`sys_mount.cpp:52-84`,有删节——省略了 `kprintf` 错误日志。)tmpfs 那一行 `08-filesystem/017` 章讲透了——堆 `new TmpFs`、`mount()` 成功才 `release()` 交裸指针给挂载表、`owned=true` 让 `umount2` 走 `free_tree` 回收整棵树。这里只贴代码回顾链路,RAII 细节不重讲。
 
 proc/devfs 这一行最值得停下来看。它**不 new 任何东西**——取的是 boot 单例:
 

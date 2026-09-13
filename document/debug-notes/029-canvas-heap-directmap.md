@@ -6,7 +6,7 @@ title: Debug · Canvas 的 3MB back buffer,撞出两个内存布局洞
 
 > 出处:tag `029_gui_canvas`,`document/notes/029/1.md`。这里按「症状 → 定位 → 根因 → 修复 → 防复发」提炼,不照抄原始笔记。地址/常量以 tag 源码为准。
 
-这次排错的特点是:**一个 `new[]` 连环引爆两个潜伏 bug**。canvas 一 `init` 就要 ~3 MB 后备缓冲,这 3 MB 先把「堆能无限扩展」的洞撑爆,修好后又把「direct map 覆盖不足」的洞逼出来。两个洞都是 028e 那张内存布局表里没堵上的薄弱处。
+这次排错的特点是:**一个 `new[]` 连环引爆两个潜伏 bug**。canvas 一 `init` 就要 ~3 MB 后备缓冲,这 3 MB 先把「堆能无限扩展」的洞撑爆,修好后又把「direct map 覆盖不足」的洞逼出来。两个洞都是 `08-filesystem/009` 那张内存布局表里没堵上的薄弱处。
 
 ## 症状
 
@@ -25,13 +25,13 @@ title: Debug · Canvas 的 3MB back buffer,撞出两个内存布局洞
 back_buf_ = new uint32_t[width_ * height_];   // 1024×768×4 ≈ 3 MB
 ```
 
-**第一挂**:canvas 测试通过、后续建任务 hang,典型的「前面的大块分配把后面的路挖断了」。怀疑堆:`KMEM_HEAP_SIZE` 在 028e 只预留了 **1 MB**,而这 1 MB 只是「初始大小」,`Heap::expand()` 找不到空闲块时会自动扩容。查 `expand()` 实现——**没有上限检查**。也就是说堆会一路涨过 1 MB、2 MB、3 MB……于是 canvas 这 3 MB 让堆涨出了自己的区段、踩进了紧挨着的 MMIO / Stack 区段。后续 `TaskBuilder` 给新任务映射内核栈时,`g_vmm.map()` 撞上被冲乱的页表,hang。
+**第一挂**:canvas 测试通过、后续建任务 hang,典型的「前面的大块分配把后面的路挖断了」。怀疑堆:`KMEM_HEAP_SIZE` 在 `08-filesystem/009` 只预留了 **1 MB**,而这 1 MB 只是「初始大小」,`Heap::expand()` 找不到空闲块时会自动扩容。查 `expand()` 实现——**没有上限检查**。也就是说堆会一路涨过 1 MB、2 MB、3 MB……于是 canvas 这 3 MB 让堆涨出了自己的区段、踩进了紧挨着的 MMIO / Stack 区段。后续 `TaskBuilder` 给新任务映射内核栈时,`g_vmm.map()` 撞上被冲乱的页表,hang。
 
 **第二挂**(堆加上限后):建用户地址空间 hang。`AddressSpace` 构造里有 `phys_to_virt(pml4_phys_) = pml4_phys_ + KERNEL_VMA`(`KERNEL_VMA = 0xFFFFFFFF80000000`)。这是内核里的习惯用法——把物理地址加个偏移变成内核可访问的虚拟地址。但它有个**隐含前提**:那个 `phys + KERNEL_VMA` 得真的被映射过。查 loader:它只 `identity_map` 到了 ELF 段末尾,约 ~20 MB;可 PMM 管着 9 GB,`alloc_page()` 能返回任意物理地址。canvas 那堆大块分配把低地址物理页耗得差不多了,后面的分配更容易落到 > 20 MB 的高地址——`phys_to_virt` 算出来的虚拟地址没人映射,一访问就 page fault,hang。
 
 ## 根因
 
-把两个洞放一起看,它们都是 028e 那张布局表没堵上的薄弱处:
+把两个洞放一起看,它们都是 `08-filesystem/009` 那张布局表没堵上的薄弱处:
 
 ```text
 028e 收拢了布局，但留下两个洞：
@@ -77,7 +77,7 @@ for (uint32_t i = 0; i < bi->mmap_count; i++) {
 
 **其三:单测覆盖不了「大块分配」。** 单测里没人会 `new` 出 3 MB,所以「堆越界」「direct map 不足」这类布局冲突在单测里永远隐形。只有像 canvas 这样的大块消费者、或内核集成测试(真去分配大块、真去建任务),才暴露得了。给大块资源消耗的场景补集成测试,是防这类潜伏 bug 的根本。
 
-> 三条合起来其实是一句:028e 把「区段别重叠」做对了,但**地址布局的健全性**还有两层——「区段内部有边界」「direct map 覆盖全」。canvas 这个大块消费者,把后两层一次逼了出来。
+> 三条合起来其实是一句:`08-filesystem/009` 把「区段别重叠」做对了,但**地址布局的健全性**还有两层——「区段内部有边界」「direct map 覆盖全」。canvas 这个大块消费者,把后两层一次逼了出来。
 
 ---
 

@@ -13,7 +13,7 @@ title: Lab 002 · clone / futex / TLS 验证
 1. `sys_clone` / `sys_futex` 在,`CLONE_*` flag 路由(共享 vs 复制);
 2. TLS(`fs_base`)——`CLONE_SETTLS` 设子线程 fs_base,context_switch 恢复;
 3. cleartid(`task_exit_cleartid`)——`CLONE_CHILD_CLEARTID` 的 pthread_join 协议;
-4. run-kernel-test 从 001 的 783 涨到 809。
+4. run-kernel-test 从 `14-process-advanced/001` 的 783 涨到 809。
 
 ## 步骤
 

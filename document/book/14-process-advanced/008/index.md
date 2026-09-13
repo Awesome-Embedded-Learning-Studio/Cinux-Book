@@ -4,7 +4,7 @@ title: 008 · timer_queue 与 stats_kthread
 
 # 008 · timer_queue 与 stats_kthread
 
-> 084 章你用 poll 有限 timeout 真睡了一个任务——timer_queue_arm 内部到底挂了什么、谁负责到点叫醒、为什么不会和运行队列撞锁,那半边没讲。这一章把那半边翻给你看;同一章还有第二件基础设施 stats_kthread,围绕「不饿死、不扭曲、不垄断 CPU」三个角的不可能三角。
+> `14-process-advanced/007` 章你用 poll 有限 timeout 真睡了一个任务——timer_queue_arm 内部到底挂了什么、谁负责到点叫醒、为什么不会和运行队列撞锁,那半边没讲。这一章把那半边翻给你看;同一章还有第二件基础设施 stats_kthread,围绕「不饿死、不扭曲、不垄断 CPU」三个角的不可能三角。
 
 ## 本章路线
 

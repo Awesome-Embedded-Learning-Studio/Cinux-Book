@@ -42,7 +42,7 @@ bool E1000Controller::poll_rx(uint8_t* dst, uint32_t max_len, uint32_t& out_len)
 
 ## CMake 文件 gate:又见 §14
 
-这个驱动也走 054b 立的那条规矩:源码里不写 `#ifdef`,改用 CMake 的文件级 gate。`kernel/drivers/CMakeLists.txt` 里:
+这个驱动也走 `09-gui/009` 立的那条规矩:源码里不写 `#ifdef`,改用 CMake 的文件级 gate。`kernel/drivers/CMakeLists.txt` 里:
 
 ```cmake
 if(CINUX_NET)
@@ -53,4 +53,4 @@ else()
 endif()
 ```
 
-`CINUX_NET` 是 `ON` 时编真驱动,`OFF` 时编一个 `net_stub.cpp`——里头是个空的 `net::init()`,让 `kernel/main.cpp` 里那句 `net::init()` 调用照样链接得过(`main.cpp` 里**一行 `#ifdef` 都没有**)。这和 054b 把 `#ifdef CINUX_GUI` 赶去 CMake 是同一个手法:调用处零 `#ifdef`,开关只在构建系统里管「编哪份文件」。测试侧也一样:`test_e1000.cpp` 挂在 `if(CINUX_NET)` 下,`main_test.cpp` 里 `run_e1000_tests()` 的声明和调用挂 `#ifdef CINUX_NET`——比 xHCI 当年没守卫的 test 还干净一档(那个是 054c 才补上的)。
+`CINUX_NET` 是 `ON` 时编真驱动,`OFF` 时编一个 `net_stub.cpp`——里头是个空的 `net::init()`,让 `kernel/main.cpp` 里那句 `net::init()` 调用照样链接得过(`main.cpp` 里**一行 `#ifdef` 都没有**)。这和 `09-gui/009` 把 `#ifdef CINUX_GUI` 赶去 CMake 是同一个手法:调用处零 `#ifdef`,开关只在构建系统里管「编哪份文件」。测试侧也一样:`test_e1000.cpp` 挂在 `if(CINUX_NET)` 下,`main_test.cpp` 里 `run_e1000_tests()` 的声明和调用挂 `#ifdef CINUX_NET`——比 xHCI 当年没守卫的 test 还干净一档(那个是 `09-gui/010` 才补上的)。

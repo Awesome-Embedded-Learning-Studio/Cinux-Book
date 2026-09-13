@@ -111,6 +111,6 @@ cmake --build build --target run-kernel-test-all 2>&1 | grep -E "Tests: [0-9]{4}
 - **别**以为机制测绿 = busybox 能跑——每批 syscall 机制测都绿,可 busybox 真跑才发现缺 `/proc/meminfo`、`/etc/passwd`(busybox 自己错退,非内核 bug)。真二进制验收(fork+execve busybox 看串口输出 + 退出码)不可替代。
 - **别**给 File 加类型 tag 区分 socket/pipe——socket fd 就当 pipe fd 走(fd→File→Inode→SocketOps),sys_read/write/close 零改动。加 tag 要改每个 fd 消费者 + 未来 dup2/poll,是 Linux struct file 单缝避免的反模式。
 - **别**在协议层(TcpModule/UdpModule)塞 per-socket 状态——协议层保持纯,per-socket RX 环/阻塞/accept 队列放 Socket 适配器,挂 listener 缝。回调里拷贝帧(设备 buffer dispatch 后回收,别存指针)。
-- **别**用 sti/hlt 做 socket 阻塞——syscall 上下文 sti → #DF(004/071 同根)。用 prepare_to_wait/schedule_blocked,由 net_poll kthread 唤醒。
-- **别**指望 socket TCP 可靠——仍最小可用(无重传/RTO/窗口/拥塞,069 范围)。loopback 零丢包 echo 稳,SLIRP 真网可能丢。要 HPET 周期中断。
+- **别**用 sti/hlt 做 socket 阻塞——syscall 上下文 sti → #DF(004 / `14-process-advanced/005` 同根)。用 prepare_to_wait/schedule_blocked,由 net_poll kthread 唤醒。
+- **别**指望 socket TCP 可靠——仍最小可用(无重传/RTO/窗口/拥塞,`17-net/004` 范围)。loopback 零丢包 echo 稳,SLIRP 真网可能丢。要 HPET 周期中断。
 - **别**以为 socket close 彻底——无 InodeOps::release 钩子(close 不彻底拆 Socket,同 pipe hobby 限制)。musl socket demo、setsockopt 精化、AF_UNIX、epoll 都留 follow-up。

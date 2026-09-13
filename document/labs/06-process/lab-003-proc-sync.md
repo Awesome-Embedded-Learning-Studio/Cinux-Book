@@ -26,7 +26,7 @@ title: Lab 003 · 让任务睡得下去、醒得过来:内核同步原语
 - **002 的 `Spinlock` 定义**:内联在 `sync.hpp`,这一关要把它升级成 out-of-line 并真正上内存序。
 - **002 的 `Scheduler::init()` / `TaskBuilder` / `run_first` / idle 兜底**:demo 和测试都要靠这套把两个线程起起来、再切到第一个真任务。
 
-还要确认更早两件没掉链子:**017 的内核堆**(`new` / `knew`,TCB 从堆分配,且堆分配会清零,这点这一关特别要紧)、**001 的 `CpuContext` 布局**(`block` 触发的 `context_switch` 要靠它正确换栈)。
+还要确认更早两件没掉链子:**`05-memory/003` 的内核堆**(`new` / `knew`,TCB 从堆分配,且堆分配会清零,这点这一关特别要紧)、**001 的 `CpuContext` 布局**(`block` 触发的 `context_switch` 要靠它正确换栈)。
 
 外部约定上,这一关和编译器/硬件契约最紧的两条:一是 **GCC `__atomic` builtins**——`__ATOMIC_ACQUIRE` / `__ATOMIC_RELEASE` 的 happens-before 语义、`__atomic_test_and_set` / `__atomic_clear` 适用于 1/2/4/8 字节标量,是 Spinlock 内存序的全部依据;二是 **POSIX `sem_post(3)`** 的语义(post 先自增、自增后若原本有等待者就唤醒一个)——Cinux 的 `Semaphore::post()` 在设计上对齐它,但 POSIX 那套 `SEM_VALUE_MAX` 上限、async-signal-safe 性质 Cinux **没有实现**,只作对比,别说成已有。
 
@@ -129,4 +129,4 @@ cmake --build build --target run
 6. 生产 demo:`main.cpp` 用 `g_sem_free(4)` / `g_sem_used(0)` / `g_pc_mutex` 跑通 producer/consumer,串口出现 `sent: 0..4` / `got: 0..4`,两端值集合一致,无死锁。
 7. mini kernel 入口魔数检查同时接受 `48 C7`/`48 BC` 两种编码,加 `sync.cpp` 后 BSS 变动不会让 big kernel 测试被误判为「不是真内核」。
 
-七条都达成,内核就第一次有了「让任务主动睡下去、被别人精确唤醒」的同步原语,并把 002 那对没人用的 `block`/`unblock` 接成了真东西。但下一站 022 的钩子也在这里:这一关的原语全在**内核态、单核、不关中断**下成立,`Task::addr_space` 在 demo 里根本没填。022 要进 ring3——用户态进程、syscall、SFMASK/MSR、中断门改 IF——那一章会重新审视「自旋锁在用户态和中断里到底安不安全」,把这一关留下的多核/IRQ 缺口往真正的可抢占方向推。再往后才是 `PerCPU` 从「单核全局」长成「真 per-CPU」、以及更复杂的同步原语(读写锁、条件变量、优先级继承)——那些这一关都没有,别提前当成已有。
+七条都达成,内核就第一次有了「让任务主动睡下去、被别人精确唤醒」的同步原语,并把 002 那对没人用的 `block`/`unblock` 接成了真东西。但下一站 `07-userland/001` 的钩子也在这里:这一关的原语全在**内核态、单核、不关中断**下成立,`Task::addr_space` 在 demo 里根本没填。`07-userland/001` 要进 ring3——用户态进程、syscall、SFMASK/MSR、中断门改 IF——那一章会重新审视「自旋锁在用户态和中断里到底安不安全」,把这一关留下的多核/IRQ 缺口往真正的可抢占方向推。再往后才是 `PerCPU` 从「单核全局」长成「真 per-CPU」、以及更复杂的同步原语(读写锁、条件变量、优先级继承)——那些这一关都没有,别提前当成已有。

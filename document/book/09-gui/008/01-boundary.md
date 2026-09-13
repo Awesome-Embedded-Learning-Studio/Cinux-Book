@@ -4,7 +4,7 @@ title: 01 · 问题与边界:被焊死的桌面 + host-neutral core
 
 # 问题与边界:被焊死的桌面 + host-neutral core
 
-> 029 到 033 在内核里搭起了一整套桌面:双缓冲画布、窗口管理器、位图图标、终端。但那套 GUI 当时是**焊死在内核里**的——刷新挂在时钟中断回调里,合成完直接写帧缓冲,任何一笔改动都得把整个内核跑起来才能看见。这一章把它整个搬出来:GUI 的核心几何/事件/光栅化逻辑抽成一个**不 include 任何内核头**的独立库,内核这边连一个 host 适配单元都不剩;真正驱动桌面的是一个**普通的 ring3 进程** `/cinux_gui_host`,它打开 `/dev/fb0` 画像素、读 `/dev/event0` 拿输入,合成和事件泵全在用户态跑。内核只剩两个文件:一个在 ISR 里把鼠标键盘事件推进 `/dev/event0`,一个 fork+execve 把 host 进程拉起来。
+> `09-gui/001-006` 在内核里搭起了一整套桌面:双缓冲画布、窗口管理器、位图图标、终端。但那套 GUI 当时是**焊死在内核里**的——刷新挂在时钟中断回调里,合成完直接写帧缓冲,任何一笔改动都得把整个内核跑起来才能看见。这一章把它整个搬出来:GUI 的核心几何/事件/光栅化逻辑抽成一个**不 include 任何内核头**的独立库,内核这边连一个 host 适配单元都不剩;真正驱动桌面的是一个**普通的 ring3 进程** `/cinux_gui_host`,它打开 `/dev/fb0` 画像素、读 `/dev/event0` 拿输入,合成和事件泵全在用户态跑。内核只剩两个文件:一个在 ISR 里把鼠标键盘事件推进 `/dev/event0`,一个 fork+execve 把 host 进程拉起来。
 >
 > 一条诚实的边界先说在前头:这一章讲的是**架构骨架**——host-neutral core 怎么立、Host 表怎么填、内核薄接缝留到多薄。host 进程的渲染路径里目前有一条**遗留的防御性 workaround**:`host_render_frame` 每帧都报一个全屏脏矩形,把脏矩形优化实际短路掉。这条 workaround 当年是用来补一个 core bug 的,但**那个 core bug 早已修掉**(下面会讲到为什么 host 这边的全屏 flush 留着没拆),拆它是个小活但本章没做。
 
@@ -19,7 +19,7 @@ title: 01 · 问题与边界:被焊死的桌面 + host-neutral core
 
 ## 被焊死的桌面:刷新挂在时钟中断里
 
-先看要修的「病」。在 029–033 那套 GUI 里,屏幕刷新是这么驱动的:向 PIT 注册一个回调,每次 IRQ0 时钟中断就在 **ISR 上下文里**排空鼠标键盘事件、合成一帧、把整帧 `flip()` 到帧缓冲。这是「内核/中断把刷新推给 GUI」的模型。
+先看要修的「病」。在 `09-gui/001-006` 那套 GUI 里,屏幕刷新是这么驱动的:向 PIT 注册一个回调,每次 IRQ0 时钟中断就在 **ISR 上下文里**排空鼠标键盘事件、合成一帧、把整帧 `flip()` 到帧缓冲。这是「内核/中断把刷新推给 GUI」的模型。
 
 这个模型有两个病根,而且一个比一个要命。
 
@@ -33,13 +33,13 @@ title: 01 · 问题与边界:被焊死的桌面 + host-neutral core
 
 拔出来的办法,是给 GUI 立一道**硬边界**:边界这边是「host-neutral core」——只懂 GUI 的事(矩形代数、事件泵、光栅化、控件树),不认识 framebuffer、不认识 IRQ、不认识进程结构、不认识 syscall;边界那边是「宿主」——今天是 Cinux 的 userspace host 进程,明天可能是 SDL 模拟器,后天可能是个 offscreen 测试驱动。两边之间**只通过一张表**说话。
 
-这张边界在文件层就看得见。core 全部住在 [`libs/gui/core/`](../../../libs/gui/core/gui_core.hpp),它的核心会话类 `GuiCore` 的源文件 [`gui_core.cpp`](../../../libs/gui/core/gui_core.cpp) 顶部写得很直白:
+这张边界在文件层就看得见。core 全部住在 `libs/gui/core/gui_core.hpp`,它的核心会话类 `GuiCore` 的源文件 `libs/gui/core/gui_core.cpp` 顶部写得很直白:
 
 > Host-neutral: ZERO host includes. Owns the staging buffer; render_frame paints into it; region algebra collects the dirty rects; flush pushes each to the host. See gui_core.hpp for the flush-display-model contract.
 >
-> ([`gui_core.cpp:5`](../../../libs/gui/core/gui_core.cpp#L5))
+> (`libs/gui/core/gui_core.cpp:5`)
 
-注意这句 "ZERO host includes" 不是修辞。看 [`core/`](../../../libs/gui/core/) 下任何 `.cpp` 的 `#include` 段,出现的全是 `<stdint.h>` + 同目录的兄弟头(`host.hpp`/`region.hpp`/`event.hpp`)——**没有一个内核头,也没有一个 Linux 头**。`core/` 因此能用普通的 g++/clang++ 直接编,跑 ctest,完全不需要把内核起来。
+注意这句 "ZERO host includes" 不是修辞。看 `libs/gui/core/` 下任何 `.cpp` 的 `#include` 段,出现的全是 `<stdint.h>` + 同目录的兄弟头(`host.hpp`/`region.hpp`/`event.hpp`)——**没有一个内核头,也没有一个 Linux 头**。`core/` 因此能用普通的 g++/clang++ 直接编,跑 ctest,完全不需要把内核起来。
 
-怎么证明它真的 host-neutral?这个库里带了好几个**零目标平台**的 host 程序,每个都是一份独立的表填充:[`host/widgets_host_main.cpp`](../../../libs/gui/host/widgets_host_main.cpp) 把控件树渲一帧到 malloc 的缓冲里、dump 成 PPM;[`host/fake_host_main.cpp`](../../../libs/gui/host/fake_host_main.cpp) 手填一张假表(`fake_poll_event` 永远返回 false、`fake_flush` 记调用次数),照样调 `pump()`;[`host/sdl_host_main.cpp`](../../../libs/gui/host/sdl_host_main.cpp) 在一个 SDL 窗口里跑同样的控件树;[`host/linux_fbdev_main.cpp`](../../../libs/gui/host/linux_fbdev_main.cpp) 直接 mmap `/dev/fb0` + 读 `/dev/input/event*`。**同一份 core 驱动 SDL 窗口、Linux framebuffer、offscreen dump、Cinux 用户态进程,只靠换一张表的填充**——这就是 host-neutral 的可证伪证据。
+怎么证明它真的 host-neutral?这个库里带了好几个**零目标平台**的 host 程序,每个都是一份独立的表填充:`libs/gui/host/widgets_host_main.cpp` 把控件树渲一帧到 malloc 的缓冲里、dump 成 PPM;`libs/gui/host/fake_host_main.cpp` 手填一张假表(`fake_poll_event` 永远返回 false、`fake_flush` 记调用次数),照样调 `pump()`;`libs/gui/host/sdl_host_main.cpp` 在一个 SDL 窗口里跑同样的控件树;`libs/gui/host/linux_fbdev_main.cpp` 直接 mmap `/dev/fb0` + 读 `/dev/input/event*`。**同一份 core 驱动 SDL 窗口、Linux framebuffer、offscreen dump、Cinux 用户态进程,只靠换一张表的填充**——这就是 host-neutral 的可证伪证据。
 

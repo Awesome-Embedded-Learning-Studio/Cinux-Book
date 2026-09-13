@@ -51,9 +51,9 @@ void kprintf(const char* fmt, ...) {
 }
 ```
 
-和 012 的版本逐字对比一下,差别只在那个 lambda:012 是 `[&](char c){ g_serial.putc(c); }`(硬编码喂串口),现在是 `[&](char c){ 遍历 g_sinks 逐个喂 }`。而 `vkprintf_impl(引擎, fmt, args)` 这一行的形状、引擎内部的所有格式化逻辑(宽度、对齐、`%p`、负数零补那些),一个字都没动。`kvprintf`、`kpanic` 是同样的改法——三个函数,各自把喂串口的 lambda 换成遍历 sink 表的 lambda。
+和 `03-big-kernel/005` 的版本逐字对比一下,差别只在那个 lambda:`03-big-kernel/005` 是 `[&](char c){ g_serial.putc(c); }`(硬编码喂串口),现在是 `[&](char c){ 遍历 g_sinks 逐个喂 }`。而 `vkprintf_impl(引擎, fmt, args)` 这一行的形状、引擎内部的所有格式化逻辑(宽度、对齐、`%p`、负数零补那些),一个字都没动。`kvprintf`、`kpanic` 是同样的改法——三个函数,各自把喂串口的 lambda 换成遍历 sink 表的 lambda。
 
-这就是 012 那层抽象的回报。当时我们把「格式化」和「输出」用回调切开,看起来像过度设计——只有一个串口后端时,直接调 `serial.putc` 不是更简单吗?但只要后端可能变多,这层切开就值了:现在加屏幕这一路,我们没碰格式化引擎(那是最容易引入 bug 的地方),只动了输出分派。如果以后还想加一路「打到 QEMU debugcon」或者「写到一个环形缓冲区给 dmesg 用」,照样只是再 `kprintf_register_sink` 一个新 adapter,引擎依旧不动。
+这就是 `03-big-kernel/005` 那层抽象的回报。当时我们把「格式化」和「输出」用回调切开,看起来像过度设计——只有一个串口后端时,直接调 `serial.putc` 不是更简单吗?但只要后端可能变多,这层切开就值了:现在加屏幕这一路,我们没碰格式化引擎(那是最容易引入 bug 的地方),只动了输出分派。如果以后还想加一路「打到 QEMU debugcon」或者「写到一个环形缓冲区给 dmesg 用」,照样只是再 `kprintf_register_sink` 一个新 adapter,引擎依旧不动。
 
 初始化时,串口作为第一路 sink 注册:
 
@@ -67,7 +67,7 @@ void kprintf_init() {
 }
 ```
 
-所以 `kprintf_init` 之后,kprintf 已经能走串口了(和 012 行为一致)。屏幕这一路,要等 main 里 Console 建好之后再注册——这就引出下一节的装配顺序。
+所以 `kprintf_init` 之后,kprintf 已经能走串口了(和 `03-big-kernel/005` 行为一致)。屏幕这一路,要等 main 里 Console 建好之后再注册——这就引出下一节的装配顺序。
 
 ## 装配顺序为什么不能乱
 
@@ -123,6 +123,6 @@ kernel/drivers/                    kernel/drivers/
                                        └── serial.hpp
 ```
 
-这其实就是 012 那一章欠下的账——还记得吗,`012_driver_serial` 这个 tag 名里带着 serial,但它其实没干 serial 的活(干的是 kprintf 和 SSE),我们当时说「serial 的目录化在 013」。这一章把它还了:`serial` 和 `pit` 各自挪进自己的子目录,跟新加的 `video/` 子目录保持一致(`video/` 下放着 framebuffer、font、console)。include 路径也跟着从 `"kernel/drivers/serial.hpp"` 改成 `"kernel/drivers/serial/serial.hpp"`。
+这其实就是 `03-big-kernel/005` 那一章欠下的账——还记得吗,`012_driver_serial` 这个 tag 名里带着 serial,但它其实没干 serial 的活(干的是 kprintf 和 SSE),我们当时说「serial 的目录化在 `013`」。这一章把它还了:`serial` 和 `pit` 各自挪进自己的子目录,跟新加的 `video/` 子目录保持一致(`video/` 下放着 framebuffer、font、console)。include 路径也跟着从 `"kernel/drivers/serial.hpp"` 改成 `"kernel/drivers/serial/serial.hpp"`。
 
 这是个纯组织性改动,没有功能变化,但值得做:驱动一多,全堆在 `drivers/` 根下很快就会乱成一锅粥。按设备类型分子目录(pit/、serial/、video/、后面还会有 keyboard/),是操作系统代码库里很自然的组织方式。CMakeLists 里对应的源文件路径也跟着更新了一行。

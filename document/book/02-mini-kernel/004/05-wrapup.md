@@ -34,7 +34,7 @@ cmake --build build --target run
 
 mini kernel 现在什么都备齐了:会输出、有内存、能扛异常、还能读盘解析 ELF。唯一缺的,是那个要被加载的主角——big kernel。这一章我们造好了枪、校好了准星,但靶子还没竖起来。
 
-下一章 [001 · 大内核入口](../03-big-kernel/001/),big kernel 终于登场。它会被写进磁盘 LBA 848 之后,mini kernel 用这一章造好的 `load_big_kernel()` 把它读进来、加载好、跳进它的入口。那一刻,mini kernel 完成它全部的接力使命,把舞台正式交给功能完整的 big kernel——从那以后,Cinux 的故事就是 big kernel 的故事了。
+下一章 [001 · 大内核入口](../../03-big-kernel/001/),big kernel 终于登场。它会被写进磁盘 LBA 848 之后,mini kernel 用这一章造好的 `load_big_kernel()` 把它读进来、加载好、跳进它的入口。那一刻,mini kernel 完成它全部的接力使命,把舞台正式交给功能完整的 big kernel——从那以后,Cinux 的故事就是 big kernel 的故事了。
 
 ---
 

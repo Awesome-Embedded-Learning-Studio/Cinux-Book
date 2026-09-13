@@ -14,7 +14,7 @@ title: Lab 002 · 把物理页挂进虚拟地址:VMM map/unmap + demand paging
 2. 能 unmap / translate:拆掉映射、查一个虚拟地址实际落在哪个物理页。
 3. 能 demand paging:在缺页异常里,对「页不存在」的情况现场补一页,让访问继续。
 
-做完这三条,内核就能主动控制虚拟↔物理映射,013 那个 `map_mmio` hack 也该退休了。
+做完这三条,内核就能主动控制虚拟↔物理映射,`03-big-kernel/006` 那个 `map_mmio` hack 也该退休了。
 
 ## 前置条件
 

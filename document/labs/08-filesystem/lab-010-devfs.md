@@ -125,7 +125,7 @@ cmake --build build --target run-kernel-test-all 2>&1 | grep -E "Tests: 9[0-9][0
 ## 别做这些
 
 - **别**以为 run-kernel-test 验了「boot 挂 /dev」——test kernel 走 `main_test.cpp`,不调 `devfs::init()`。boot 真挂 `/dev` 要 `make run` 起真内核看 `[DEVFS] mounted`。run-kernel-test 只证 devfs_init.cpp link 进 test kernel 没破 + 核心/kernel test_devfs 逻辑对。
-- **别**以为 `/dev/console` 能读——这一章只接了**写**(到串口)。读(接 062 console TTY 的真 stdin)、`/dev/tty`、PTY 是 TTY Phase 2 的事。`/dev/null`/`/dev/zero` 是完整的,console 这半先把写做对。
+- **别**以为 `/dev/console` 能读——这一章只接了**写**(到串口)。读(接 `07-userland/005` console TTY 的真 stdin)、`/dev/tty`、PTY 是 TTY Phase 2 的事。`/dev/null`/`/dev/zero` 是完整的,console 这半先把写做对。
 - **别**以为能用户态 `mknod` 造设备——设备是 boot 时 `mount()` 预建的固定三个(null/zero/console)。mknod、动态设备节点留后面。
 - **别**给 `Inode` 加 `st_rdev` 字段——设备号收在 ops 子类的 `stat()` override 里。改基类字段会让所有 `InodeOps` 子类(ext2/ramdisk/DevFS)都跟着动,破坏并行。这是「加东西靠子类不动基类」的纪律。
 - **别**把 16 个 DevNode 槽当限制——那是基础节点够用的数,要做更多设备(PTY 那一堆 `/dev/pts/N`)再扩。

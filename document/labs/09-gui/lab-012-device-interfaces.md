@@ -91,7 +91,7 @@ sed -n '95,101p' kernel/drivers/video/framebuffer.hpp
 
 fb_dev.cpp 的 mmap 应只做三件事:拿 `system_framebuffer()`、越界检查(先 `offset > size` 再 `size - offset`,顺序防溢出)、`return fb->phys_base() + offset`。**全函数找不到建 PTE 的代码**——这是 demand paging,mmap 是登记意图。
 
-`phys_base_` 是 `Framebuffer::init` 时存的 VBE PhysBasePtr(013 讲过大页映射,本章只消费这个字段)。
+`phys_base_` 是 `Framebuffer::init` 时存的 VBE PhysBasePtr(`03-big-kernel/006` 讲过大页映射,本章只消费这个字段)。
 
 ### 5. sys_mmap + page-fault:IoPhys 分支
 
@@ -135,9 +135,9 @@ sed -n '237,238p' kernel/test/main_test.cpp
 sed -n '179,186p' kernel/test/main_test.cpp
 ```
 
-devfs_init.cpp 应看到 `add_node("ptmx")` + `add_node("fb0")`(`164`)+ `add_node("event0")`(`167`)+ block loop,跟 064 的 null/zero/console 同一个 `add_node` 机制;块设备走 `add_block_node`(085 讲过);子目录 `/dev/pts/<N>` 走 `set_dynamic_lookup`(084 讲过,本章 fb0/event0 是 flat 节点不走那条)。
+devfs_init.cpp 应看到 `add_node("ptmx")` + `add_node("fb0")`(`164`)+ `add_node("event0")`(`167`)+ block loop,跟 `08-filesystem/010` 的 null/zero/console 同一个 `add_node` 机制;块设备走 `add_block_node`(`08-filesystem/018` 讲过);子目录 `/dev/pts/<N>` 走 `set_dynamic_lookup`(`07-userland/007` 讲过,本章 fb0/event0 是 flat 节点不走那条)。
 
-main_test.cpp 应看到 test kernel **也**调 `cinux::fs::devfs::init()`(注释明说「re-mount /dev (vfs_mount_init cleared it) so /dev/fb0 resolves」),并在 `musl_hello_smoke_entry` 里 init 了测试 framebuffer——所以 `/dev/event0`、`/dev/fb0` 在 test kernel 里都解析得到,smoke 才跑得起来。**别照搬 064 那条「test kernel 不挂 /dev」的判据**——本章不适用。
+main_test.cpp 应看到 test kernel **也**调 `cinux::fs::devfs::init()`(注释明说「re-mount /dev (vfs_mount_init cleared it) so /dev/fb0 resolves」),并在 `musl_hello_smoke_entry` 里 init 了测试 framebuffer——所以 `/dev/event0`、`/dev/fb0` 在 test kernel 里都解析得到,smoke 才跑得起来。**别照搬 `08-filesystem/010` 那条「test kernel 不挂 /dev」的判据**——本章不适用。
 
 ### 9. boot 真挂
 
@@ -235,7 +235,7 @@ int main() {
 
 ## 别做这些
 
-- **别**照搬 064 那条「test kernel 不挂 /dev」判据——本章不适用。test kernel 在 `main_test.cpp:237` 显式调了 `devfs::init()`(注释明说为让 `/dev/fb0` 解析),并在 `musl_hello_smoke_entry` 里 init 了测试 framebuffer。boot 与 test kernel 的真实差异在「真 VBE vs 测试 framebuffer」,不在「挂不挂 /dev」。要验真 VBE + 真鼠标键盘,还是 `make run`。
+- **别**照搬 `08-filesystem/010` 那条「test kernel 不挂 /dev」判据——本章不适用。test kernel 在 `main_test.cpp:237` 显式调了 `devfs::init()`(注释明说为让 `/dev/fb0` 解析),并在 `musl_hello_smoke_entry` 里 init 了测试 framebuffer。boot 与 test kernel 的真实差异在「真 VBE vs 测试 framebuffer」,不在「挂不挂 /dev」。要验真 VBE + 真鼠标键盘,还是 `make run`。
 - **别**用 `copy_to_user` 写 read 的 `buf`——它是 kernel staging(`sys_read` 提供),`is_user_vaddr` 会拒 kernel 地址,返 `-EFAULT`。用 `std::memcpy`。对比 `/dev/fb0` 的 `ioctl` arg 是真 user pointer,直接 `copy_to_user` 是对的。
 - **别**以为 `poll` 路径在 QEMU 实跑过——dev note 明说「poll path 未跑机制测(smoke 只 read);用户态 host 用 poll 时再验」。设计到位,实跑待 ring3 host 用 poll 时盖。
 - **别**照搬 Linux `fb_var_screeninfo` 的 struct 布局——Cinux 的 `FbScreenInfo` 只有 4 字段(width/height/pitch/bpp),数值常量 `0x4600` 碰巧一致但布局完全不同。用户态必须 mirror Cinux 的 4 字段。

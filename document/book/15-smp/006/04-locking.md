@@ -24,7 +24,7 @@ Inode* Ext2::get_cached_inode(uint32_t ino) {
 }
 ```
 
-（[ext2_inode.cpp](../../../libs/ext2/ext2_inode.cpp#L93-L103)。注释把设计取舍讲透了。）锁成员声明挨在 cache 表旁边:
+（`libs/ext2/ext2_inode.cpp:93-103`。注释把设计取舍讲透了。）锁成员声明挨在 cache 表旁边:
 
 ```cpp
 Ext2CachedInode* inode_cache_[EXT2_INODE_CACHE_SIZE]{};
@@ -32,7 +32,7 @@ uint32_t inode_cache_count_{0};
 mutable cinux::proc::Spinlock inode_cache_lock_;  ///< SMP: serialize cache walks/evicts
 ```
 
-（[ext2.hpp](../../../libs/ext2/ext2.hpp#L491-L495)。结构(state)和并发(lock)两层加固同处一屏。)
+（`libs/ext2/ext2.hpp:491-495`。结构(state)和并发(lock)两层加固同处一屏。)
 
 #### 关键取舍:持锁跨 read_disk_inode 的盘 I/O
 
@@ -57,7 +57,7 @@ struct Ext2CachedInode {
 };
 ```
 
-（[ext2_types.hpp](../../../libs/ext2/ext2_types.hpp#L334-L340)。）那层治的是**结构性别名 UAF**——「slot 被驱逐重填导致活指针失效」。对象的地址即身份,只要 `refcount>0` 就绝不移动/重填,驱逐只挑 `refcount==0` 的:
+（`libs/ext2/ext2_types.hpp:334-340`。）那层治的是**结构性别名 UAF**——「slot 被驱逐重填导致活指针失效」。对象的地址即身份,只要 `refcount>0` 就绝不移动/重填,驱逐只挑 `refcount==0` 的:
 
 ```cpp
 // evict:缓存满时只驱逐 refcount==0 的;全活则失败不腐蚀
@@ -66,7 +66,7 @@ if ((*pp)->vfs_inode.refcount == 0) { victim_prev = pp; break; }
 if (victim_prev == nullptr) { return nullptr; }  // 全在用,失败也不重填活对象
 ```
 
-（[ext2_inode.cpp](../../../libs/ext2/ext2_inode.cpp#L133-L150)。）但结构层加固只保证「单个 CPU 内、单线程语义下指针稳定」,没管「两个核同时进来改这张表」——那是这一章的活。**一个治结构(谁能在何时被释放),一个治并发(谁能同时进来改),缺一不可**。光有 refcount 不加锁,两核照样能同时 `new` + `read_disk_inode` + `insert`,重复读盘、重复挂桶;光有锁不保证地址即身份,驱逐重填照样让活指针失效。
+（`libs/ext2/ext2_inode.cpp:133-150`。）但结构层加固只保证「单个 CPU 内、单线程语义下指针稳定」,没管「两个核同时进来改这张表」——那是这一章的活。**一个治结构(谁能在何时被释放),一个治并发(谁能同时进来改),缺一不可**。光有 refcount 不加锁,两核照样能同时 `new` + `read_disk_inode` + `insert`,重复读盘、重复挂桶;光有锁不保证地址即身份,驱逐重填照样让活指针失效。
 
 ### 顺手 rider:三个正确性债,两种结局
 
@@ -86,7 +86,7 @@ ErrorOr<uint16_t> NvmeController::io_submit(const NvmeCmd& cmd) {
 }
 ```
 
-（[nvme_io.cpp](../../../kernel/drivers/nvme/nvme_io.cpp#L20-L103)。`io_submit` 在 SMP 重构时拆出独立文件,锁用手动 `acquire()`/`release()` 包整段而非 RAII guard——因为循环中途有 yield 重入点。注释写明 race 表现:合法 LBA 读到 `status=0x4080`。）对照一下:`admin_submit` 无锁——它在 init 期单线程跑,不存在并发。
+（`kernel/drivers/nvme/nvme_io.cpp:20-103`。`io_submit` 在 SMP 重构时拆出独立文件,锁用手动 `acquire()`/`release()` 包整段而非 RAII guard——因为循环中途有 yield 重入点。注释写明 race 表现:合法 LBA 读到 `status=0x4080`。）对照一下:`admin_submit` 无锁——它在 init 期单线程跑,不存在并发。
 
 #### Rider ② ELF 加载校验 —— 已落地
 
@@ -105,14 +105,14 @@ if (seg_vaddr >= kUserVaTop || seg_memsz_end > kUserVaTop) {
 }
 ```
 
-（[elf_load.cpp](../../../kernel/proc/elf_load.cpp#L41-L59)。GCC 没有 unsigned overflow 的 sanitize,只能靠 `__builtin_*_overflow`。）配套给 `e_phnum` 加上限,挡住损坏 ELF 逼内核 alloc + read ~3.6MB phdr 表:
+（`kernel/proc/elf_load.cpp:41-59`。GCC 没有 unsigned overflow 的 sanitize,只能靠 `__builtin_*_overflow`。）配套给 `e_phnum` 加上限,挡住损坏 ELF 逼内核 alloc + read ~3.6MB phdr 表:
 
 ```cpp
 constexpr uint16_t kMaxPhnum = 256;   // real ELFs <30,256 是工程经验值不是规范值
 if (ehdr->e_phnum > kMaxPhnum) { return ElfValidateResult::BadPhnum; }
 ```
 
-（[elf_types.cpp](../../../kernel/proc/elf_types.cpp#L63-L72)。）
+（`kernel/proc/elf_types.cpp:63-72`。）
 
 #### Rider ③ VFS offset_lock —— 已落地(分流锁)
 
@@ -137,6 +137,6 @@ int64_t do_read_kernel(int fd, void* kbuf, uint64_t count) {
 }
 ```
 
-（[sys_read.cpp](../../../kernel/syscall/sys_read.cpp#L48-L57)。`sys_write.cpp:53` 同样已分流。）这条修法对应 CinuxOS 上游(提交 `f40bed1`),已回迁到 Book 工作树。
+（`kernel/syscall/sys_read.cpp:48-57`。`sys_write.cpp:53` 同样已分流。）这条修法对应 CinuxOS 上游(提交 `f40bed1`),已回迁到 Book 工作树。
 
-配套对比点很值得记住——`sys_lseek` 持 `offset_lock_` 改 offset 是对的([sys_lseek.cpp](../../../kernel/syscall/sys_lseek.cpp#L34-L35)):它做的是纯算术、不阻塞,不触发 schedule-while-held;NVMe `io_lock_` 跨 busy-wait poll 也是安全的(poll 不让出 CPU)——错的是「持着它去 `schedule_blocked`」,而分流锁正是把这一刀切干净。
+配套对比点很值得记住——`sys_lseek` 持 `offset_lock_` 改 offset 是对的(`kernel/syscall/sys_lseek.cpp:34-35`):它做的是纯算术、不阻塞,不触发 schedule-while-held;NVMe `io_lock_` 跨 busy-wait poll 也是安全的(poll 不让出 CPU)——错的是「持着它去 `schedule_blocked`」,而分流锁正是把这一刀切干净。

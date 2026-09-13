@@ -21,7 +21,7 @@ cmake --build build -j$(nproc)
 P L J 1 2 3 G 4 ===CPP C1 1 V 2 3 B ===END
 ```
 
-逐段对应:`P/L`=003 的 PM/长模式;`J`=bootloader 要跳了;`1/2/3`=内核 `_start` 前三步(到、设栈、清 BSS);`G`=全局对象 `global_counter` 的构造(由 `_init_global_ctors` 触发,**夹在 `3` 与 `4` 之间**);`4`=全局构造跑完;`===CPP…===END`=main 的 C++ 冒烟测试;中间的 `1/2/3`=三项测试通过、`B`=BootInfo 校验通过。少了哪一段,就照"调试现场"三个坑对号入座。
+逐段对应:`P/L`=`01-boot/003` 的 PM/长模式;`J`=bootloader 要跳了;`1/2/3`=内核 `_start` 前三步(到、设栈、清 BSS);`G`=全局对象 `global_counter` 的构造(由 `_init_global_ctors` 触发,**夹在 `3` 与 `4` 之间**);`4`=全局构造跑完;`===CPP…===END`=main 的 C++ 冒烟测试;中间的 `1/2/3`=三项测试通过、`B`=BootInfo 校验通过。少了哪一段,就照"调试现场"三个坑对号入座。
 
 第三道闸用 GDB 确认跳进高半。`cmake --build build --target run-debug`:
 
@@ -40,7 +40,7 @@ P L J 1 2 3 G 4 ===CPP C1 1 V 2 3 B ===END
 
 boot 卷到这里收尾:从 MBR 到长模式、再到第一个 C++ 内核跑起来,整条引导链完整了。bootloader 的活干完了——但它交给内核的,还只是一个"能跑 C++、有一份启动信息"的空壳。内核现在没有内存管理、没有中断、没有进程,甚至连一块能 `new` 的堆都没有(operator new 调到就死)。
 
-接下来是 [02-mini-kernel 卷](../02-mini-kernel/001/):内核从 `mini_kernel_main` 开始真正接管机器——先给自己搭一套物理内存管理(PMM),再处理中断,把自己从一个"会跑 C++ 的空壳"变成一个"能管资源"的小内核。从那以后,主角就是内核自己了。
+接下来是 [02-mini-kernel 卷](../../02-mini-kernel/001/):内核从 `mini_kernel_main` 开始真正接管机器——先给自己搭一套物理内存管理(PMM),再处理中断,把自己从一个"会跑 C++ 的空壳"变成一个"能管资源"的小内核。从那以后,主角就是内核自己了。
 
 ---
 

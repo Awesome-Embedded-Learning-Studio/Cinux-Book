@@ -4,7 +4,7 @@ title: 参考 · 中断与异常:IDT、8259A PIC、8254 PIT 与 ISR 栈帧
 
 # 参考 · 中断与异常:IDT、8259A PIC、8254 PIT 与 ISR 栈帧
 
-> 查阅层。这一页是 Cinux 中断子系统的速查表,不按 tag 组织,给后续每一章(键盘 014、鼠标 030、调度器 020、系统调用 023、CoW page fault 035……)查向量号、门描述符布局、EOI 规则、ISR 栈账用。实现以最终 tag `035_multi_terminal` 的源码为准;某个特性是哪一 tag 引入的,在行内点出。
+> 查阅层。这一页是 Cinux 中断子系统的速查表,不按 tag 组织,给后续每一章(键盘 `03-big-kernel/008`、鼠标 `09-gui/002`、调度器 `06-process/002`、系统调用 `07-userland/002`、CoW page fault `10-multitasking/002`……)查向量号、门描述符布局、EOI 规则、ISR 栈账用。实现以最终 tag `035_multi_terminal` 的源码为准;某个特性是哪一 tag 引入的,在行内点出。
 >
 > 范围:CPU 异常(0–31)+ 8259A PIC 重映射后的硬件 IRQ(0x20–0x2F)+ 8254 PIT 节拍。**不含 APIC/IOAPIC、不含 MSI、不含中断虚拟化**——Cinux 全程用经典 8259A。
 
@@ -57,7 +57,7 @@ title: 参考 · 中断与异常:IDT、8259A PIC、8254 PIT 与 ISR 栈帧
 
 门类型策略(设计决定):**#BP(3) 与 #DB(1) 用 Trap 门(进入门时 IF 保持)**;其余异常一律 Interrupt 门(进入即 `cli`,IF 清零)。向量 9(协处理器段越界)在 64 位下已废弃,路由表不注册。`#BP` 是唯一一个 DPL=3 的异常——这样才能让 ring-3 的 `int3` 陷进来。
 
-> **诚实点:只有 `#DF` 用了 IST 1(独立栈)。** `#PF`(14)在 tag 035 仍是 IST 0、走当前栈。`document/notes/030/` 里设想的「`#PF` 用 IST2 + guard page」修法**在最终 tag 仍未落地**——`split_2mb_page`/unmap 无调用点。引用 guard page 机制前,先 `git show <tag>:kernel/arch/x86_64/idt.cpp` 核对 `#PF` 那行的 `ist` 字段。
+> **诚实点:只有 `#DF` 用了 IST 1(独立栈)。** `#PF`(14)在 tag `035` 仍是 IST 0、走当前栈。`document/notes/030/` 里设想的「`#PF` 用 IST2 + guard page」修法**在最终 tag 仍未落地**——`split_2mb_page`/unmap 无调用点。引用 guard page 机制前,先 `git show <tag>:kernel/arch/x86_64/idt.cpp` 核对 `#PF` 那行的 `ist` 字段。
 
 ## IDT 门描述符(每项 16 字节)
 
@@ -104,10 +104,10 @@ IDT 加载:`IDT::load()` 执行 `lidt`(64 位 `idtr` = 16 位 limit + 64 位 bas
 | IRQ | INT | 设备 | 谁用 |
 |---|---|---|---|
 | 0 | 0x20 | PIT channel 0 | PIT 节拍 / GUI tick |
-| 1 | 0x21 | 键盘 PS/2 | Keyboard (014) |
+| 1 | 0x21 | 键盘 PS/2 | Keyboard (`03-big-kernel/008`) |
 | 2 | 0x22 | 级联(从片) | — |
 | 8 | 0x28 | RTC | — |
-| 12 | 0x2C | 鼠标 PS/2 (AUX) | Mouse (030) |
+| 12 | 0x2C | 鼠标 PS/2 (AUX) | Mouse (`09-gui/002`) |
 | 14 | 0x2E | 主 IDE | — |
 
 EOI 规则:`PIC::send_eoi(irq)`——**传的是硬件 IRQ 号(0-15),不是 INT 向量**。从片 IRQ(8-15)要同时给从片和主片发 EOI;主片 IRQ(0-7)只给主片。**每个 IRQ handler 末尾必须发 EOI,否则下一次中断永远不再投递**——这是 Cinux 里反复踩的坑(键盘、鼠标、PIT 都中过)。
@@ -156,15 +156,15 @@ EOI 规则:`PIC::send_eoi(irq)`——**传的是硬件 IRQ 号(0-15),不是 INT 
 
 `InterruptFrame`(`[[gnu::packed]]`,字段从低地址到高地址):`r15,r14,r13,r12,r11,r10,r9,r8,rdi,rsi,rbp,rdx,rcx,rbx,rax,error_code,rip,cs,rflags,rsp,ss`。注意 struct 顺序与 push 顺序**相反**——最先 push 的 `rax` 在最高地址、排在 struct 末尾;`leaq 8(%rsp)` 指向最后 push 的 `r15`(最低地址、struct 开头)。
 
-**栈对齐账(为什么要那 8 字节 padding):** System V AMD64 ABI 要求进入函数瞬间 `RSP ≡ 8 (mod 16)`。无错误码异常:CPU 压 5×8=40,stub 压 dummy 8 + 15 GPR 120 + padding 8 = 136,合计 176,`call` 再压 8 = **184**,`184 ≡ 8 (mod 16)` ✓。有错误码异常:CPU 压 6×8=48,stub 压 15 GPR 120 + padding 8 = 128,合计 176,`call` +8 = 184,同样 ✓。**没有这 8 字节 padding,handler 入口会落在 `RSP ≡ 0`,编译器一旦生成 `movaps` 等 16 字节对齐指令就 `#GP`**——这正是 tag 030 开机即 `#GP` 的根因(详见 [030-gp-stack-alignment.md](../debug-notes/030-gp-stack-alignment.md))。
+**栈对齐账(为什么要那 8 字节 padding):** System V AMD64 ABI 要求进入函数瞬间 `RSP ≡ 8 (mod 16)`。无错误码异常:CPU 压 5×8=40,stub 压 dummy 8 + 15 GPR 120 + padding 8 = 136,合计 176,`call` 再压 8 = **184**,`184 ≡ 8 (mod 16)` ✓。有错误码异常:CPU 压 6×8=48,stub 压 15 GPR 120 + padding 8 = 128,合计 176,`call` +8 = 184,同样 ✓。**没有这 8 字节 padding,handler 入口会落在 `RSP ≡ 0`,编译器一旦生成 `movaps` 等 16 字节对齐指令就 `#GP`**——这正是 tag `030` 开机即 `#GP` 的根因(详见 [030-gp-stack-alignment.md](../debug-notes/030-gp-stack-alignment.md))。
 
 ## 约束与边界(本子系统的真实限制)
 
 - **手动 EOI,不用 auto-EOI。** 忘了 `send_eoi` → 该 IRQ 不再来;给没发生的 IRQ 发 EOI → 假中断(spurious IRQ7 / IRQ15)。
 - **只有 `#DF` 用 IST 1。** 其余异常(含 `#PF`)IST 0、走当前栈。内核栈溢出会直接 triple fault,没有 guard page 兜底(修法见 notes,未落地)。
 - **PIC 是 8259A,不是 APIC。** 只有 15 个可用 IRQ(IRQ2 被级联占)、无优先级动态分发、无多核投递。要 SMP 必须迁 APIC/IOAPIC。
-- **PIT 回调在中断上下文。** `set_tick_callback` 注册的函数跑在 IRQ0 里,不能睡、不能 `new`、不能长拷贝(029 flip 的整帧 memcopy 其实是个隐患,真实系统该用下半部)。
-- **异常打印用 `fatal_halt`。** 除 `#PF` 被 035 接进 CoW 处理外,大多数异常 handler 直接打印 `InterruptFrame` 后 `hlt` 死循环,不做恢复。
+- **PIT 回调在中断上下文。** `set_tick_callback` 注册的函数跑在 IRQ0 里,不能睡、不能 `new`、不能长拷贝(`09-gui/001` flip 的整帧 memcopy 其实是个隐患,真实系统该用下半部)。
+- **异常打印用 `fatal_halt`。** 除 `#PF` 被 `10-multitasking/002` 接进 CoW 处理外,大多数异常 handler 直接打印 `InterruptFrame` 后 `hlt` 死循环,不做恢复。
 - `sti` 后立即 `hlt` 是节拍等待的常用模式;`cli` 后 `hlt` 会永久卡死。
 
 ## 验证入口
