@@ -61,7 +61,7 @@ uintptr_t bm_virt = (stack_top_virt + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);  // 页
 bitmap_ = reinterpret_cast<uint8_t*>(bm_virt);
 ```
 
-这里出现了一个关键的常数 `KERNEL_VMA = 0xFFFFFFFF80000000`——内核跑在「高半区」(higher-half),虚拟地址和物理地址之间差这个偏移。bitmap 放在虚拟地址 `bm_virt`,它对应的物理地址就是 `bm_virt - KERNEL_VMA`。这个换算在 `init` 后面会用到(要把 bitmap 自身标占用,得知道它的物理地址)。`KERNEL_VMA` 是个写死的约定,它和 013 里 `map_mmio` 那两个写死的页表地址是同一类东西——都是「bootloader/链接脚本布局约定」的硬编码,脆弱但在 boot 期够用。
+这里出现了一个关键的常数 `KERNEL_VMA = 0xFFFFFFFF80000000`——内核跑在「高半区」(higher-half),虚拟地址和物理地址之间差这个偏移。bitmap 放在虚拟地址 `bm_virt`,它对应的物理地址就是 `bm_virt - KERNEL_VMA`。这个换算在 `init` 后面会用到(要把 bitmap 自身标占用,得知道它的物理地址)。`KERNEL_VMA` 是个写死的约定,它和 `03-big-kernel/006` 里 `map_mmio` 那两个写死的页表地址是同一类东西——都是「bootloader/链接脚本布局约定」的硬编码,脆弱但在 boot 期够用。
 
 ## init 的反向思路:先全占用,再 carve 出可用
 

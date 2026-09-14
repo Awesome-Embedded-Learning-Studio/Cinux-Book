@@ -13,7 +13,7 @@ title: Lab 002 · brk 与 Page Cache 验证
 1. `sys_brk` 在(6 参),懒实现——只挪 `brk_current`,Heap VMA 覆盖整个堆窗;
 2. Page Cache(`PageCache`/`CachedPage`/`g_page_cache`)在,`get_page` 锁外读/锁内 insert;
 3. `handle_pf` 文件感知——`backing != nullptr` 时走 `get_page` 取真内容;
-4. run-kernel-test 从 001 的 721 涨到 730。
+4. run-kernel-test 从 `13-memory-advanced/001` 的 721 涨到 730。
 
 ## 步骤
 

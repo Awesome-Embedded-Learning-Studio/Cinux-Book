@@ -4,9 +4,9 @@ title: 01 · ELF 动态链接:内核只装 interp,重定位交给 ldso
 
 # ELF 动态链接:内核只装 interp,重定位交给 ldso
 
-> 上一章卷(059)让内核跑起了 musl 编译的静态程序——`libc.a` 整个链进可执行文件,扔到内核上就跑。那一章末尾留了句诚实话:「这一步是静态链接的,动态链接是后面的事」。这一章兑现。动态链接的程序不把 libc 链死在可执行文件里,而是带一个 `PT_INTERP`(指向动态链接器,ldso),运行时由 ldso 把程序和共享库(`libc.so`)拼到一起、做重定位。可这一章真正要讲的不是「ldso 怎么重定位」——那全是用户态的事,**内核压根不掺和**。内核在动态链接里只做三件小事:认出 `PT_INTERP`、把 ldso 装载进地址空间、喂对几张辅助向量(auxv)。剩下的(GOT/PLT/`DT_NEEDED`/符号解析/重定位)全交给 musl 的 ldso 在用户态干。这是对齐 Linux 的分工:**内核不自建 loader**。
+> 上一章(`07-userland/004`)让内核跑起了 musl 编译的静态程序——`libc.a` 整个链进可执行文件,扔到内核上就跑。那一章末尾留了句诚实话:「这一步是静态链接的,动态链接是后面的事」。这一章兑现。动态链接的程序不把 libc 链死在可执行文件里,而是带一个 `PT_INTERP`(指向动态链接器,ldso),运行时由 ldso 把程序和共享库(`libc.so`)拼到一起、做重定位。可这一章真正要讲的不是「ldso 怎么重定位」——那全是用户态的事,**内核压根不掺和**。内核在动态链接里只做三件小事:认出 `PT_INTERP`、把 ldso 装载进地址空间、喂对几张辅助向量(auxv)。剩下的(GOT/PLT/`DT_NEEDED`/符号解析/重定位)全交给 musl 的 ldso 在用户态干。这是对齐 Linux 的分工:**内核不自建 loader**。
 >
-> 验证口径:punchline 是动态链接的 musl `hello`(`hello-dyn`)真跑起来——`fork` + `execve("/hello-dyn")` → 内核加载 interp → musl ldso 重定位主程序 → 跳到 `AT_ENTRY` → `write` 经 `libc.so` 输出 `Hello from musl on CinuxOS!`。一条诚实的边界先说在前头:这个端到端 smoke 要先在宿主机上编出 musl 动态工具链(`build-musl.sh` 出 `libc.so`、`build-hello-dyn.sh` 出动态 hello、把 interp 装进 ext2 镜像),本机没编的话 smoke 跳过;内核侧的改动(PT_INTERP 识别、interp 加载、auxv)靠测试验,跟 059 那个静态 smoke 同样的分层。
+> 验证口径:punchline 是动态链接的 musl `hello`(`hello-dyn`)真跑起来——`fork` + `execve("/hello-dyn")` → 内核加载 interp → musl ldso 重定位主程序 → 跳到 `AT_ENTRY` → `write` 经 `libc.so` 输出 `Hello from musl on CinuxOS!`。一条诚实的边界先说在前头:这个端到端 smoke 要先在宿主机上编出 musl 动态工具链(`build-musl.sh` 出 `libc.so`、`build-hello-dyn.sh` 出动态 hello、把 interp 装进 ext2 镜像),本机没编的话 smoke 跳过;内核侧的改动(PT_INTERP 识别、interp 加载、auxv)靠测试验,跟 `07-userland/004` 那个静态 smoke 同样的分层。
 
 ## 这章咱们要点亮什么
 
@@ -17,7 +17,7 @@ title: 01 · ELF 动态链接:内核只装 interp,重定位交给 ldso
 
 ## 静态和动态,差的那一下
 
-先说清静态和动态到底差在哪。静态链接的程序(059 那个 hello)把 musl 的 `libc.a` 整个链进可执行文件——`printf` 的代码、`write` 的 syscall 封装,全在可执行文件里,文件大但自包含。动态链接的程序不链 `libc.a`,而是带一张「我要用 `libc.so`」的清单(`DT_NEEDED`)+ 一个 `PT_INTERP`(指向 ldso,比如 `/lib/ld-musl-x86_64.so.1`)。运行时:内核先把程序加载进来,看到 `PT_INTERP` 就再去加载那个 ldso,然后把控制权交给 ldso;ldso 在用户态读程序的动态表,把 `libc.so` 也映射进来,修好所有的重定位项(GOT/PLT),最后跳到程序的真正入口。
+先说清静态和动态到底差在哪。静态链接的程序(`07-userland/004` 那个 hello)把 musl 的 `libc.a` 整个链进可执行文件——`printf` 的代码、`write` 的 syscall 封装,全在可执行文件里,文件大但自包含。动态链接的程序不链 `libc.a`,而是带一张「我要用 `libc.so`」的清单(`DT_NEEDED`)+ 一个 `PT_INTERP`(指向 ldso,比如 `/lib/ld-musl-x86_64.so.1`)。运行时:内核先把程序加载进来,看到 `PT_INTERP` 就再去加载那个 ldso,然后把控制权交给 ldso;ldso 在用户态读程序的动态表,把 `libc.so` 也映射进来,修好所有的重定位项(GOT/PLT),最后跳到程序的真正入口。
 
 关键认识:**这一长串「读动态表、映射 libc.so、修重定位」全是用户态的事**,ldso 自己就是个普通的用户程序(只不过它专门干这个)。内核在动态链接里要做的,只有装载 + 喂对 auxv,跟「重定位」一词都不沾。这是 Linux 的分工,也是这一章的分工——咱们不写 loader,只把 ldso 装载到位、把它要的信息(auxv)喂对。
 
@@ -25,7 +25,7 @@ title: 01 · ELF 动态链接:内核只装 interp,重定位交给 ldso
 
 动态 ELF 跟静态 ELF 在内核眼里差在哪?就差一个 `PT_INTERP` 程序头。静态 ELF 没有 `PT_INTERP`;动态 ELF 有一个 `PT_INTERP`,里面是一段字符串(interp 路径,如 `/lib/ld-musl-x86_64.so.1`)。内核识别它、跟着加载,就这三件事。
 
-**第一件:抽出 `load_elf_image`。** 059 那版的 `execve`,把 PT_LOAD 段的映射(alloc 页、清零、从 inode 读、map、记 VMA)inline 写在函数里。现在主程序要映射、interp 也要映射(它也是个 ELF,只是 `ET_DYN`),逻辑一模一样,只差一个 base。于是把这段映射抽成一个函数 `load_elf_image(space, inode, ehdr, phdrs, phnum, base, out)`(`elf_load.hpp:64`),返回一个 `LoadedImage{entry, phdr_va, max_seg_end, has_load}`(`elf_load.hpp:38`)。主程序调它 `base=0`(非 PIE,`p_vaddr` 就是绝对地址);interp 调它 `base=USER_INTERP_BASE`(`ET_DYN` 是 base 相对寻址,要加上 base)。
+**第一件:抽出 `load_elf_image`。** `07-userland/004` 那版的 `execve`,把 PT_LOAD 段的映射(alloc 页、清零、从 inode 读、map、记 VMA)inline 写在函数里。现在主程序要映射、interp 也要映射(它也是个 ELF,只是 `ET_DYN`),逻辑一模一样,只差一个 base。于是把这段映射抽成一个函数 `load_elf_image(space, inode, ehdr, phdrs, phnum, base, out)`(`elf_load.hpp:64`),返回一个 `LoadedImage{entry, phdr_va, max_seg_end, has_load}`(`elf_load.hpp:38`)。主程序调它 `base=0`(非 PIE,`p_vaddr` 就是绝对地址);interp 调它 `base=USER_INTERP_BASE`(`ET_DYN` 是 base 相对寻址,要加上 base)。
 
 **第二件:扫 PT_INTERP 读 interp 路径。** 主程序映完,扫一遍程序头找 `PT_INTERP`(`execve.cpp:278`):
 
@@ -86,7 +86,7 @@ Hello from musl on CinuxOS!
 
 ## 验证
 
-三层验证,跟 059 的静态 smoke 同样的分层。
+三层验证,跟 `07-userland/004` 的静态 smoke 同样的分层。
 
 **第一层:host 单测,ELF validate。** `test_fork_exec` 里加了 `test_valid_et_dyn`:interp 是 `ET_DYN`,validate 得收它(以前只收 `ET_EXEC`)。这一层顺带给 PIE 主程序铺了路(主程序要是 PIE 也是 `ET_DYN`)。
 

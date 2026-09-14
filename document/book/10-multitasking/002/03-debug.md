@@ -24,6 +24,6 @@ title: 03 · 调试现场:五堵墙
 
 ## 墙五:多终端测试静默卡死(stack_guard_page_debug)
 
-`test_multi_term_two_terminals_independent_pipes` 在 QEMU 里卡死、无串口输出,换堆分配就过——栈溢出(`Terminal` 的 `screen_` 缓冲 ~24KB + 几个 `Pipe` 缓冲,栈上 ~64KB,超 8KB 内核栈 8 倍)。但 guard page 检测代码早写了却不触发:注释说「已 unmap」其实没 unmap;`#PF` 没配 IST,溢出时 handler 用溢出栈二次崩;boot 栈是 2MB huge page,4KB 的 `unmap` 拆不动。笔记给出的完整修法(IST + split_2mb_page + 运行时 unmap)**在 tag 035 只落地了一半**:guard 区和检测代码进去了,但 `#PF` 仍是 IST=0、`split_2mb_page` 在 035 没有调用点——所以这条墙在 035 严格说还没彻底推倒,是「半通电」的一处。教训照样扎实:**注释说「已 unmap」不代表真 unmap;#PF 必须配 IST;2MB huge page 是隐形的 guard page 杀手**。
+`test_multi_term_two_terminals_independent_pipes` 在 QEMU 里卡死、无串口输出,换堆分配就过——栈溢出(`Terminal` 的 `screen_` 缓冲 ~24KB + 几个 `Pipe` 缓冲,栈上 ~64KB,超 8KB 内核栈 8 倍)。但 guard page 检测代码早写了却不触发:注释说「已 unmap」其实没 unmap;`#PF` 没配 IST,溢出时 handler 用溢出栈二次崩;boot 栈是 2MB huge page,4KB 的 `unmap` 拆不动。笔记给出的完整修法(IST + split_2mb_page + 运行时 unmap)**在 `tag 035` 只落地了一半**:guard 区和检测代码进去了,但 `#PF` 仍是 IST=0、`split_2mb_page` 在 `tag 035` 没有调用点——所以这条墙在 `tag 035` 严格说还没彻底推倒,是「半通电」的一处。教训照样扎实:**注释说「已 unmap」不代表真 unmap;#PF 必须配 IST;2MB huge page 是隐形的 guard page 杀手**。
 
-> 这五堵墙串起来,正好是「把 034 的 fork/exec 通电」的全部代价。034 那章我们说它是「搭好骨架、尚未通电」的半成品;035 这五条排错记录,就是「通电」两个字背后真实的血泪。每一条都不是编的,都在 `document/notes/035/` 里。
+> 这五堵墙串起来,正好是「把 `10-multitasking/001` 的 fork/exec 通电」的全部代价。`10-multitasking/001` 那章我们说它是「搭好骨架、尚未通电」的半成品;`10-multitasking/002` 这五条排错记录,就是「通电」两个字背后真实的血泪。每一条都不是编的,都在 `document/notes/035/` 里。

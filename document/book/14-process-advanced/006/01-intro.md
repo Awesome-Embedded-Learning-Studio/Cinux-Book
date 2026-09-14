@@ -13,14 +13,14 @@ title: 01 · 导引:不是搬字节,是搬地址
 ## 这章咱们要点亮什么
 
 1. **价值先说清:不是搬字节,是搬地址**。pipe 是字节流过内核 buffer(两次 copy),shm 是页表直接共享物理页(零 copy + 无 syscall 可见)。你一眼分清「搬数据 vs 搬地址」,后面 mapcount 闭环才有动机。
-2. **分层铁律:纯逻辑表 vs 物理页生命周期**。`ShmRegistry` 是固定 16 槽的纯逻辑表(key→segment,只管簿记 + nattach/marked 状态机,零 kernel-only 依赖),`sys_shm` 才是物理页生命周期层(alloc_pages/map/unmap/free_pages)。这跟 071 的 `FifoRegistry` 是一个模子,跟 081 tmpfs「纯逻辑层 vs boot I/O 层」是同一套切法。
+2. **分层铁律:纯逻辑表 vs 物理页生命周期**。`ShmRegistry` 是固定 16 槽的纯逻辑表(key→segment,只管簿记 + nattach/marked 状态机,零 kernel-only 依赖),`sys_shm` 才是物理页生命周期层(alloc_pages/map/unmap/free_pages)。这跟 `14-process-advanced/005` 的 `FifoRegistry` 是一个模子,跟 `08-filesystem/017` tmpfs「纯逻辑层 vs boot I/O 层」是同一套切法。
 3. **双计数器闭环:段自带 refcount 基线 1 防 teardown 误放**。一块共享物理页的生命计数要保证进程退出绝不把「段还在用」的页误放回 free pool。Book 源码里是 `pte_count`(多少用户 PTE 映射此页)+ `refcount`(所有权引用)双计数器,alloc 给段 refcount 基线 1、shmat 同时 inc 两者、teardown 走两级 test。
 4. **shmdt 长度陷阱:取段 page_count,不取合并后 VMA 跨度**。两段背靠背映射会并成一个 VMA,shmdt 按 VMA 算长度会顺带拆邻居的页——必须用段的 `page_count` 做权威长度。
 5. **诚实分层的好处:ShmRegistry 设计上可链 host 单测,目前是缺口**。这层纯逻辑零 kernel-only 依赖,设计上 host 可测(同 fifo.cpp);但当前 test_shm 6 例全走 syscall 层在 ring0 跑,registry 的纯逻辑只被顺带覆盖——对照 FIFO 有 `test_fifo.cpp`,shm 没配,这是对称缺口不是 bug。
 
 ## 两进程共享一页要解决什么:不是搬字节,是搬地址
 
-先回顾 071 的 pipe 和 FIFO。它们的本质是「**内核 buffer 搬字节**」:写者 `sys_write` 一次 syscall,把用户态字节拷进内核管道缓冲;读者 `sys_read` 再一次 syscall,把字节从内核缓冲拷出来。两次用户态↔内核态 crossing,两次 memcpy。这是字节流的代价。
+先回顾 `14-process-advanced/005` 的 pipe 和 FIFO。它们的本质是「**内核 buffer 搬字节**」:写者 `sys_write` 一次 syscall,把用户态字节拷进内核管道缓冲;读者 `sys_read` 再一次 syscall,把字节从内核缓冲拷出来。两次用户态↔内核态 crossing,两次 memcpy。这是字节流的代价。
 
 shm 这一刀完全不同。`shm.hpp` 的头注释把机制一句话讲透了:
 
@@ -34,7 +34,7 @@ shm 这一刀完全不同。`shm.hpp` 的头注释把机制一句话讲透了:
  */
 ```
 
-([shm.hpp](../../../kernel/ipc/shm.hpp#L5-L9),有删节。)
+(`kernel/ipc/shm.hpp:5-9`,有删节。)
 
 四个 syscall 拆开看:
 
@@ -54,6 +54,6 @@ syscall_register(SyscallNr::SYS_shmctl, sys_shmctl);
 syscall_register(SyscallNr::SYS_shmdt, sys_shmdt);
 ```
 
-([syscall.cpp](../../../kernel/arch/x86_64/syscall.cpp#L224-L227)。)syscall 号落在 `syscall_nums.hpp`:`SYS_shmget=29`、`SYS_shmat=30`、`SYS_shmctl=31`、`SYS_shmdt=67`(`syscall_nums.hpp:46-48` 和 `:64`)——这四个号跟 Linux x86_64 ABI 对齐,musl/glibc 直接能调到。
+(`kernel/arch/x86_64/syscall.cpp:224-227`。)syscall 号落在 `syscall_nums.hpp`:`SYS_shmget=29`、`SYS_shmat=30`、`SYS_shmctl=31`、`SYS_shmdt=67`(`syscall_nums.hpp:46-48` 和 `:64`)——这四个号跟 Linux x86_64 ABI 对齐,musl/glibc 直接能调到。
 
-> 串一句 071:那卷的 pipe/FIFO 搬数据,这卷的 shm 搬地址,是同一条 IPC 路上的姊妹刀。071 的 `FifoRegistry`(名字→FIFO)跟这卷的 `ShmRegistry`(key→segment)是直系模子——固定 16 槽 + index-as-handle,下一节展开。
+> 串一句 `14-process-advanced/005`:那一章的 pipe/FIFO 搬数据,这卷的 shm 搬地址,是同一条 IPC 路上的姊妹刀。`14-process-advanced/005` 的 `FifoRegistry`(名字→FIFO)跟这卷的 `ShmRegistry`(key→segment)是直系模子——固定 16 槽 + index-as-handle,下一节展开。

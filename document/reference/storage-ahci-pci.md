@@ -4,7 +4,7 @@ title: 参考 · 存储:PCI 枚举与 AHCI 扇区读写
 
 # 参考 · 存储:PCI 枚举与 AHCI 扇区读写
 
-> 查阅层。这一页是 Cinux 存储子系统(PCI 设备枚举 + AHCI SATA 驱动)的速查表,不按 tag 组织,给后续章节(026 ramdisk 及以后的文件系统)查接口、寄存器位、命令流程用。实现细节见 [025 · 让内核自己找到磁盘](../book/08-filesystem/025-driver-ahci.md)。
+> 查阅层。这一页是 Cinux 存储子系统(PCI 设备枚举 + AHCI SATA 驱动)的速查表,不按 tag 组织,给后续章节(`08-filesystem/002` ramdisk 及以后的文件系统)查接口、寄存器位、命令流程用。实现细节见 [`08-filesystem/001` · 让内核自己找到磁盘](../book/08-filesystem/001/)。
 >
 > 范围:本文对应 `025_driver_ahci` 这个 tag 的能力——能找设备、能读/写**裸扇区**。不含文件系统、不含块缓存、不含 NCQ/多命令并发。
 

@@ -8,7 +8,7 @@ title: 03 · 主线一:目录项缓存 dentry cache
 
 ### 三个操作 + 一个不变式
 
-[dentry.hpp](../../../kernel/fs/dentry.hpp) 的全部接口就三个:
+`kernel/fs/dentry.hpp` 的全部接口就三个:
 
 ```cpp
 // 命中 -> 返回一个新引用过的 child inode(调用方负责 unref);未命中 -> nullptr

@@ -27,7 +27,7 @@ title: 03 · 验证、没做的、小结
 
 ## 小结
 
-- 匿名 pipe 两个硬伤:阻塞用 sti/hlt 自旋(syscall 里 sti → 时钟中断抢栈陷阱帧 → #DF,跟 059 sys_ping 同根,harness 假绿盖着);只能亲缘用。
+- 匿名 pipe 两个硬伤:阻塞用 sti/hlt 自旋(syscall 里 sti → 时钟中断抢栈陷阱帧 → #DF,跟 `07-userland/004` sys_ping 同根,harness 假绿盖着);只能亲缘用。
 - 阻塞改真调度等待队列(`prepare_to_wait`+`schedule_blocked`+`unblock`,复用 Mutex/console_tty proven 模板,lost-wakeup-safe);Pipe 加 read/write_waiters_。
 - BrokenPipe/SIGPIPE(write 已关读端 → -EPIPE + SIGPIPE,靠 reader_alive 区分)+ O_NONBLOCK(满/空返 PIPE_WOULDBLOCK → -EAGAIN,不改 InodeOps 签名,nonblock 收 ops 成员)。
 - 命名 FIFO = 给 pipe 起名:FifoRegistry(名字→FIFO)+ cloning open(首读者建共享 Pipe,per-open 端,跟 /dev/ptmx 同套路)+ sys_mknod/mkfifo(S_IFIFO)+ DevFS 节点。shell mkfifo/fifotest 端到端。

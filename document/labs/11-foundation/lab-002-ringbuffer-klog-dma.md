@@ -13,7 +13,7 @@ title: Lab 002 · RingBuffer / dmesg / DMA 池 验证
 1. pipe 和键盘都换上了 Cinux-Base 的 `RingBuffer`,外层语义没破;
 2. `ConcurrentRingBuffer` 在 `kernel/lib/`(不在 Cinux-Base),`KernelLog` + `sys_dmesg` 闭环;
 3. `DmaBuffer/DmaPool/PrdtBuilder` 三个类型在,direct-map 不 unmap;
-4. run-kernel-test 从 001 的 662 涨到 694(DMA +20)。
+4. run-kernel-test 从 `11-foundation/001` 的 662 涨到 694(DMA +20)。
 
 ## 步骤
 
@@ -25,7 +25,7 @@ cmake -B build -S . && cmake --build build -j$(nproc)
 cmake --build build --target run-kernel-test
 ```
 
-**期望**:`0 error`;`run-kernel-test` 全绿,总数应在 694 上下(比 001 多 ~20,DMA 那批)。
+**期望**:`0 error`;`run-kernel-test` 全绿,总数应在 694 上下(比 `11-foundation/001` 多 ~20,DMA 那批)。
 
 ### 2. RingBuffer 归一
 

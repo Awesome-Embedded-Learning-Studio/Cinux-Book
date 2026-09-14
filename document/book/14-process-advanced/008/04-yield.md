@@ -4,9 +4,9 @@ title: 04 · band 0 kthread 不能 sti/hlt:yield 解法(本章明星,串 071)
 
 # band 0 kthread 不能 sti/hlt:yield 解法(本章明星,串 071)
 
-这是本章最硬的反直觉真坑。源码头注释([stats_kthread.cpp:12-24](../../../kernel/mm/stats_kthread.cpp#L12))把三版尝试讲成一条推理链,咱们逐段拆。
+这是本章最硬的反直觉真坑。源码头注释(`kernel/mm/stats_kthread.cpp:12`)把三版尝试讲成一条推理链,咱们逐段拆。
 
-**前提**:Cinux 调度器优先级是「lower runs first」([scheduler.hpp:41](../../../kernel/proc/scheduler.hpp#L41) 头注释:「priority-aware selection (lower Task->priority runs first)」)。`TaskBuilder` 默认 `priority_ = 0`([task_builder.hpp:81](../../../kernel/proc/task_builder.hpp#L81)),被 `/sbin/init` 继承,被 fork/exec 出来的 cc1 继承——所以全系统用户代码都坐 band 0。stats kthread 要采的就是这些 band 0 用户的 workload。
+**前提**:Cinux 调度器优先级是「lower runs first」(`kernel/proc/scheduler.hpp:41` 头注释:「priority-aware selection (lower Task->priority runs first)」)。`TaskBuilder` 默认 `priority_ = 0`(`kernel/proc/task_builder.hpp:81`),被 `/sbin/init` 继承,被 fork/exec 出来的 cc1 继承——所以全系统用户代码都坐 band 0。stats kthread 要采的就是这些 band 0 用户的 workload。
 
 那 stats kthread 自己该坐哪一档?三个候选,前两个各自炸在一个不同维度。
 
@@ -18,7 +18,7 @@ title: 04 · band 0 kthread 不能 sti/hlt:yield 解法(本章明星,串 071)
 - **根因**:「lower runs first」——只要还有任何 band 0 任务 Ready,CPU 就先跑 band 0,band 250 的 stats kthread 永远轮不到。而 `g++ hello.cpp` 恰恰是个 CPU-bound workload——cc1/cc1plus 几乎全程占着 CPU。结果是「**观察者饿死在被观察者手里**」——你专门为了观察编译卡顿起的线程,被编译本身饿死了,一行采样都采不到。
 - **定位**:看串口 dump 行数——启动后到编译结束,`[MEM] === t=...` 那行一次都没出。
 - **修复**:提到 band 0,和被观测对象同档。
-- **防复发**:头注释([stats_kthread.cpp:16-18](../../../kernel/mm/stats_kthread.cpp#L16))写明「Lower (e.g. 250, near idle 255) STARVES under a CPU-bound compile -- the exact workload we want to observe -- so no samples ever land」。
+- **防复发**:头注释(`kernel/mm/stats_kthread.cpp:16`)写明「Lower (e.g. 250, near idle 255) STARVES under a CPU-bound compile -- the exact workload we want to observe -- so no samples ever land」。
 
 ## 症状二:priority 提高 → 抢占 user code,自欺欺人
 
@@ -36,10 +36,10 @@ title: 04 · band 0 kthread 不能 sti/hlt:yield 解法(本章明星,串 071)
 第三版尝试是 band 0,但「等 1 秒」用 `sti; hlt`(开中断然后 halt 等 IRQ)——心想「halt 省 CPU,tick IRQ 唤醒自己」。
 
 - **症状**:`CINUX_STATS_KTHREAD=ON` make run,系统启动到 busybox init 第一次 fork 就**卡死**——串口停在 init fork 那条日志,#PF 全程 +0(根本没采到样)。
-- **根因**:`hlt` 在一个 band-0 线程里是灾难。`hlt` 让 CPU 停下来等中断,IRQ0(PIT tick)来了唤醒——但唤醒后**当前 quantum 没耗尽**,调度器 tick 里 `task_tick` 只记账不强制切换(注释 [scheduler.cpp:381-385](../../../kernel/proc/scheduler.cpp#L381) 写明「context_switch.S enables IF before jumping to the next task; doing that while the old irq0 frame is still live lets the PIT re-enter recursively. Real preemption needs a return-from-IRQ resched point」——这条注释确立的是「tick 不内联切」这个非抢占模型;而「hlt 后的线程会被反复选中」这个具体后果是 CinuxOS dev note 定位的:`stats 在时间片内 hlt,tick IRQ 唤醒后继续 stats(时间片未耗尽),init/child 永远 Ready 等 → 饿死`),于是 CPU 又选回 priority 0 最高的 stats kthread 自己——它再 `hlt`、再被 tick 唤醒、再选自己......init / fork 出来的 child 永远是 Ready 状态等不到 CPU。这跟 071 章那个 sti/hlt #DF 坑是**同族**(都是 Cinux 里 sti/hlt 用错上下文),但**机制不同**:071 章是 syscall 上下文里 `sti` 打开一个窗口,LAPIC 时钟中断在那个窗口抢 `%gs:0` 栈上的 syscall 陷阱帧,sysretq 弹花就 #DF(根子是**陷阱帧损坏**);这里是 band-0 kthread 里 `hlt`,tick IRQ 唤醒后 quantum 没耗尽,调度器重选自己,把同级 init/child 饿死(根子是**非抢占 + 同优先级重选**)。两者的共性只到「都是在错误上下文用 sti/hlt」这一层,不要把两个不同的根机当成同一个。
+- **根因**:`hlt` 在一个 band-0 线程里是灾难。`hlt` 让 CPU 停下来等中断,IRQ0(PIT tick)来了唤醒——但唤醒后**当前 quantum 没耗尽**,调度器 tick 里 `task_tick` 只记账不强制切换(注释 `kernel/proc/scheduler.cpp:381` 写明「context_switch.S enables IF before jumping to the next task; doing that while the old irq0 frame is still live lets the PIT re-enter recursively. Real preemption needs a return-from-IRQ resched point」——这条注释确立的是「tick 不内联切」这个非抢占模型;而「hlt 后的线程会被反复选中」这个具体后果是 CinuxOS dev note 定位的:`stats 在时间片内 hlt,tick IRQ 唤醒后继续 stats(时间片未耗尽),init/child 永远 Ready 等 → 饿死`),于是 CPU 又选回 priority 0 最高的 stats kthread 自己——它再 `hlt`、再被 tick 唤醒、再选自己......init / fork 出来的 child 永远是 Ready 状态等不到 CPU。这跟 `14-process-advanced/005` 章那个 sti/hlt #DF 坑是**同族**(都是 Cinux 里 sti/hlt 用错上下文),但**机制不同**:`14-process-advanced/005` 章是 syscall 上下文里 `sti` 打开一个窗口,LAPIC 时钟中断在那个窗口抢 `%gs:0` 栈上的 syscall 陷阱帧,sysretq 弹花就 #DF(根子是**陷阱帧损坏**);这里是 band-0 kthread 里 `hlt`,tick IRQ 唤醒后 quantum 没耗尽,调度器重选自己,把同级 init/child 饿死(根子是**非抢占 + 同优先级重选**)。两者的共性只到「都是在错误上下文用 sti/hlt」这一层,不要把两个不同的根机当成同一个。
 - **定位**:看 #PF 卡在 +0、gate 卡在 busybox init 第一次 fork——典型的「观测线程垄断了 CPU、被观测对象跑不动」。
 - **修复**:不 `hlt`,改 `yield`。
-- **防复发**:头注释([stats_kthread.cpp:19-22](../../../kernel/mm/stats_kthread.cpp#L19))明确「do NOT sti/hlt: halting inside a band-0 thread makes the tick IRQ resume us (quantum not exhausted) and every other band-0 task (init / fork / exec) waits forever -- the gate freezes at the first fork with #PF stuck at +0」。
+- **防复发**:头注释(`kernel/mm/stats_kthread.cpp:19`)明确「do NOT sti/hlt: halting inside a band-0 thread makes the tick IRQ resume us (quantum not exhausted) and every other band-0 task (init / fork / exec) waits forever -- the gate freezes at the first fork with #PF stuck at +0」。
 
 ## 正解:band 0 + yield——醒得很勤,干活很稀
 

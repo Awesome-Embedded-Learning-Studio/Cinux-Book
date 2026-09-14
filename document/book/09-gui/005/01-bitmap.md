@@ -4,9 +4,9 @@ title: 01 · 位图图标:给画布补一块带透明洞的贴纸
 
 # 位图图标:给画布补一块带透明洞的贴纸
 
-> 029 给了我们一块能画像素、矩形、直线、文字的双缓冲画布;031 把一个真能跑 shell 的终端窗口摆进了桌面。但桌面自己还是光秃秃的——你看着那块深靛色背景,会很自然地想:该有几个图标吧?点一下就开个程序。这一章我们把「画小图」这件事补齐:给 `Canvas` 加一个能吃任意彩色位图、还认透明色的 `draw_bitmap`;用 `consteval` 在编译期把「32 行字符画 + 一张调色板」翻成像素数组,做出第一批 32×32 图标;再定义一个带命中框的 `DesktopIcon` 结构。
+> `09-gui/001` 给了我们一块能画像素、矩形、直线、文字的双缓冲画布;`09-gui/003` 把一个真能跑 shell 的终端窗口摆进了桌面。但桌面自己还是光秃秃的——你看着那块深靛色背景,会很自然地想:该有几个图标吧?点一下就开个程序。这一章我们把「画小图」这件事补齐:给 `Canvas` 加一个能吃任意彩色位图、还认透明色的 `draw_bitmap`;用 `consteval` 在编译期把「32 行字符画 + 一张调色板」翻成像素数组,做出第一批 32×32 图标;再定义一个带命中框的 `DesktopIcon` 结构。
 >
-> 但有一点要先把丑话说在前面:032 只是**原语层**。图标定义好了、`draw_bitmap` 写好了、命中框算好了——可这一章里**没有一个图标真的被摆上桌面**,屏幕上依旧空空荡荡。把它们排上去、接上点击、点了开窗口,是下一章 033 的事。这一章是在打地基。
+> 但有一点要先把丑话说在前面:`09-gui/005` 只是**原语层**。图标定义好了、`draw_bitmap` 写好了、命中框算好了——可这一章里**没有一个图标真的被摆上桌面**,屏幕上依旧空空荡荡。把它们排上去、接上点击、点了开窗口,是下一章 `09-gui/006` 的事。这一章是在打地基。
 
 ## 这一章我们要点亮什么
 
@@ -14,7 +14,7 @@ title: 01 · 位图图标:给画布补一块带透明洞的贴纸
 
 这件事背后,点亮了三样东西,正好对应这一章的三块代码。
 
-`draw_bitmap` 是 `Canvas` 第一个吃「现成像素数组」的接口。029 那套原语里,`draw_rect` 只会填纯色块,`draw_text` 只会画字,`blit` 倒是能拷一块画布过来,但那是「画布到画布」,而且没有透明度概念。画一张预先设计好的小图,得能直接喂一个 `uint32_t` 数组进去,还认得出「这个像素是透明的,别覆盖底色」。
+`draw_bitmap` 是 `Canvas` 第一个吃「现成像素数组」的接口。`09-gui/001` 那套原语里,`draw_rect` 只会填纯色块,`draw_text` 只会画字,`blit` 倒是能拷一块画布过来,但那是「画布到画布」,而且没有透明度概念。画一张预先设计好的小图,得能直接喂一个 `uint32_t` 数组进去,还认得出「这个像素是透明的,别覆盖底色」。
 
 编译期的图标工厂解决「1024 个像素没法手写」的问题。一张 32×32 图标是 1024 个 `uint32_t`,手写 1024 个十六进制颜色既没法看也没法维护。我们用一个 `consteval` 函数,把「32 行字符画 + 16 色调色板」在编译期翻成像素数组——零运行时开销,还能像画 ASCII 艺术一样编辑图标。
 
@@ -22,9 +22,9 @@ title: 01 · 位图图标:给画布补一块带透明洞的贴纸
 
 ## 为什么现在需要它
 
-回看 031 的桌面:窗口管理器能合成窗口、终端窗口里 shell 跑得起来。但「启动一个程序」唯一的办法是代码里硬编码建窗口——用户没法**主动**点开什么。要做成一个像样的桌面,最少得有「图标 → 点击 → 开程序」这条链,而这条链的第一环就是「画图标」。
+回看 `09-gui/003` 的桌面:窗口管理器能合成窗口、终端窗口里 shell 跑得起来。但「启动一个程序」唯一的办法是代码里硬编码建窗口——用户没法**主动**点开什么。要做成一个像样的桌面,最少得有「图标 → 点击 → 开程序」这条链,而这条链的第一环就是「画图标」。
 
-029 的 `Canvas` 恰恰力不从心。我们需要一个新的、能直接吃像素数组、还认「透明色」的接口,一套能在编译期生成的图标数据,以及一个「这是个可点的东西」的抽象。032 补的就是这三层。画法有了、图有了、「这是个可点的对象」的抽象有了——只差下一章把它们排上桌面、接上点击。
+`09-gui/001` 的 `Canvas` 恰恰力不从心。我们需要一个新的、能直接吃像素数组、还认「透明色」的接口,一套能在编译期生成的图标数据,以及一个「这是个可点的东西」的抽象。`09-gui/005` 补的就是这三层。画法有了、图有了、「这是个可点的对象」的抽象有了——只差下一章把它们排上桌面、接上点击。
 
 ## 设计图
 
@@ -98,13 +98,13 @@ void Canvas::draw_bitmap(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
 
 **裁剪为什么用 `break` 而不是 `continue`。** 像素是按行主序、从左到右排的:一旦某一列超出右边界(`x+col >= width_`),后面同一行的列只会更靠右、必然也超界,继续判断纯属浪费,直接 `break` 跳到下一行。垂直方向同理,某行整行超出下边界,再往下也不会回来。画 32×32 图标时,边界附近能少跑不少无用迭代——是个小但实在的优化,也顺带把「越界」变成「裁剪」而不是「崩溃」。
 
-**`pixels_per_row = pitch_ / 4`。** 这一行直接接上了 029 的内存布局:`pitch_` 是每扫描线的**字节数**,除以 4 才是每行多少个 `uint32_t` 像素。`draw_bitmap` 写的是 `back_buf_`(后备缓冲,堆上那块 ~3 MB),写完之后由 `Canvas::flip()` 按 `pitch` 逐行拷到硬件帧缓冲——这条「画在 back、再 flip 到 front」的双缓冲链 029 已经搭好,`draw_bitmap` 只是又一个往 back buffer 里写东西的原语。
+**`pixels_per_row = pitch_ / 4`。** 这一行直接接上了 `09-gui/001` 的内存布局:`pitch_` 是每扫描线的**字节数**,除以 4 才是每行多少个 `uint32_t` 像素。`draw_bitmap` 写的是 `back_buf_`(后备缓冲,堆上那块 ~3 MB),写完之后由 `Canvas::flip()` 按 `pitch` 逐行拷到硬件帧缓冲——这条「画在 back、再 flip 到 front」的双缓冲链 `09-gui/001` 已经搭好,`draw_bitmap` 只是又一个往 back buffer 里写东西的原语。
 
 **先 null 防御。** `back_buf_ == nullptr || pixels == nullptr` 直接返回。freestanding 内核里一个空指针解引用就是三字故障,防御性判断不嫌多——内核测试里专门有 `test_bitmap_null_pixels` 守这条边界。
 
 ### icon_data.hpp:用 constexpr 把字符画编译成像素
 
-> **tag-bound 提示:** 这一章讲的是 032 当时的内核内 GUI。后续的 visor 解耦把 `kernel/gui/` 的窗口/图标管理类外置到独立的 Cinux-GUI 库(当时是 third_party/Cinux-GUI 子模块,现已并回 `libs/gui/`)重写为 Widget 版;但 `kernel/gui/data/icon_data.hpp` 这个**纯数据头**留在了原地,因为它是 freestanding、零依赖,谁都能 include。下面所有路径仍指向 032 当时的内核内位置。
+> **tag-bound 提示:** 这一章讲的是 `032` 当时的内核内 GUI。后续的 visor 解耦把 `kernel/gui/` 的窗口/图标管理类外置到独立的 Cinux-GUI 库(当时是 third_party/Cinux-GUI 子模块,现已并回 `libs/gui/`)重写为 Widget 版;但 `kernel/gui/data/icon_data.hpp` 这个**纯数据头**留在了原地,因为它是 freestanding、零依赖,谁都能 include。下面所有路径仍指向 `032` 当时的内核内位置。
 
 [icon_data.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/gui/data/icon_data.hpp) 把图标数据(尺寸常量、调色板、字符画、编译期图标工厂)都装在一个 `cinux::gui::icons::data` 命名空间里。标准尺寸是写死的:
 
@@ -158,13 +158,13 @@ constexpr IconBitmap build_icon(
 }
 ```
 
-注意这里的返回类型 `IconBitmap`,不是 `std::array<uint32_t,1024>`——它是仓库自定义的 **freestanding aggregate**:`struct IconBitmap { uint32_t pixels[1024]; ... }`,只重载了 `operator[]`(给 `build_icon` 填充用)和 `.data()`(给消费方拿到裸 `const uint32_t*` 喂给 `Canvas::draw_bitmap`)。原因写在文件头注释里:freestanding 内核**禁止 STL 容器**(见 DIRECTIVES A),所以 `std::array` 不能用,得换成这个等价的内置数组包装。这套禁令是后来把 STL 踢出内核那条规矩的连带——032 当时还没走完,但图标数据这条线已经先按规矩来了。
+注意这里的返回类型 `IconBitmap`,不是 `std::array<uint32_t,1024>`——它是仓库自定义的 **freestanding aggregate**:`struct IconBitmap { uint32_t pixels[1024]; ... }`,只重载了 `operator[]`(给 `build_icon` 填充用)和 `.data()`(给消费方拿到裸 `const uint32_t*` 喂给 `Canvas::draw_bitmap`)。原因写在文件头注释里:freestanding 内核**禁止 STL 容器**(见 DIRECTIVES A),所以 `std::array` 不能用,得换成这个等价的内置数组包装。这套禁令是后来把 STL 踢出内核那条规矩的连带——`032` 当时还没走完,但图标数据这条线已经先按规矩来了。
 
 拆开看那个 `pixels[r * 32 + c] = palette_lookup(palette, nibble)`,里面藏着两级映射,值得单独说一句。先是 `hex_nibble`:把一个 ASCII 字符翻成 0-15 的数字——`'0'-'9'` 映到 0-9、`'a'-'f'`/`'A'-'F'` 映到 10-15、其余一律返回 0(也就是当透明)。所以你写的每一个字符,先被压成一个 4 位的调色板下标 `nibble`。然后是 `palette_lookup`:拿这个下标去 16 项调色板里取真正的 `uint32_t` 颜色。两级映射的好处是**字符和颜色解耦**——同一张字符画,换个调色板就是另一套配色;调色板也只有 16 项,正好够一个 nibble 编址,不多不少。注意 `k_shell_palette` 并没有把 16 项填满(只用了 0-7),没用到的槽位编译期也不会报错,因为下标只要落在 `[0,16)` 内就合法——这是个小余地,以后想给图标加新颜色不用动字符画,只在调色板空槽里加一项即可。
 
 为什么要 `constexpr` 而不是普通函数?这里 `build_icon` 用的是 `constexpr`,两个实在的好处:一是**零运行时开销**,图标在编译期就求值完毕(`k_shell_icon`/`k_calc_icon` 都是 `inline constexpr auto = build_icon(...)`),直接躺在 `.rodata` 里,运行时既不分配也不计算,`draw_bitmap` 拿到的就是一个现成的静态数组指针;二是**编译期保证**,哪个图标写错了(比如某行不是 32 个字符、或用了调色板没有的颜色),编译直接失败,而不是等运行时画出一个歪掉的图标才发现。`static_assert(Rows == 32)` 把「必须 32 行」也钉死在编译期。
 
-顺带说一句 `consteval` 与 `constexpr` 的区别,因为它和这一章有段历史。`consteval` 是 C++20 的「立即函数」——它强制编译期求值,运行时根本调不动;`constexpr` 是「**可以**在编译期求值」,但也允许运行时调用。032 当时的代码用 `consteval`(铁定编译期算完、产物进 `.rodata`),但后续把图标数据挪进 freestanding 命名空间后,签名降级成了 `constexpr`——意图还是「在编译期算完」(两个 `inline constexpr auto k_shell_icon = build_icon(...)` 都用在常量初始化里),只是不再用 `consteval` 强制。两者在这一章的效果其实一样:图标数据都在编译期算好、零运行时开销,差别只在编译器允不允许运行时调用这条退路。
+顺带说一句 `consteval` 与 `constexpr` 的区别,因为它和这一章有段历史。`consteval` 是 C++20 的「立即函数」——它强制编译期求值,运行时根本调不动;`constexpr` 是「**可以**在编译期求值」,但也允许运行时调用。`032` 当时的代码用 `consteval`(铁定编译期算完、产物进 `.rodata`),但后续把图标数据挪进 freestanding 命名空间后,签名降级成了 `constexpr`——意图还是「在编译期算完」(两个 `inline constexpr auto k_shell_icon = build_icon(...)` 都用在常量初始化里),只是不再用 `consteval` 强制。两者在这一章的效果其实一样:图标数据都在编译期算好、零运行时开销,差别只在编译器允不允许运行时调用这条退路。
 
 至于「字符画 + 调色板」这套编码:它把一个本来反人类的 1024 数字数组,变成了**能用眼睛看出来画的是什么**的可编辑格式。你看 `"0225567..."` 那行,一眼就知道标题栏左边有三个信号灯点。这是 1024 像素的图标里最值得偷师的设计味道——用可读性换维护性。
 
@@ -172,7 +172,7 @@ constexpr IconBitmap build_icon(
 
 ### desktop_icon.hpp:图标的「身份」与命中框
 
-> **tag-bound 提示(重要):** 这一节讲的 `DesktopIcon`(POD struct + 显式 `x`/`y`/`width`/`height` 字段 + `IconAction` 枚举 + 内联 `contains()` 命中框)是 **032 当时的内核内设计**。后续的 visor 解耦把它外置到 Cinux-GUI 库(现已并回主仓)的 [libs/gui/core/widget/desktop_icon.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/libs/gui/core/widget/desktop_icon.hpp) **彻底重写**为 `class DesktopIcon : public Widget`:不再有公开坐标字段(位置走 Widget 树)、不再有 `contains()`(命中走 Widget clip stack)、`IconAction` 枚举被 `set_on_activate(ActivateFn, ctx)` **回调**取代、位图改由 `set_bitmap(pixels, mask, w, h)` + 1-bpp alpha mask 驱动 blit。下面这段 POD + `IconAction` + 半开区间命中框的教学,是 **032 当时的源码真相**——读者按 tag 切到 032 读源码即可,新设计在 Cinux-GUI 文档里另述。半开区间命中框作为图形 hit-test 的通用惯例依然值得学,只是它在 032 之后由 Widget 框架代管了。
+> **tag-bound 提示(重要):** 这一节讲的 `DesktopIcon`(POD struct + 显式 `x`/`y`/`width`/`height` 字段 + `IconAction` 枚举 + 内联 `contains()` 命中框)是 **`032` 当时的内核内设计**。后续的 visor 解耦把它外置到 Cinux-GUI 库(现已并回主仓)的 [libs/gui/core/widget/desktop_icon.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/libs/gui/core/widget/desktop_icon.hpp) **彻底重写**为 `class DesktopIcon : public Widget`:不再有公开坐标字段(位置走 Widget 树)、不再有 `contains()`(命中走 Widget clip stack)、`IconAction` 枚举被 `set_on_activate(ActivateFn, ctx)` **回调**取代、位图改由 `set_bitmap(pixels, mask, w, h)` + 1-bpp alpha mask 驱动 blit。下面这段 POD + `IconAction` + 半开区间命中框的教学,是 **`032` 当时的源码真相**——读者按 tag 切到 `032` 读源码即可,新设计在 Cinux-GUI 文档里另述。半开区间命中框作为图形 hit-test 的通用惯例依然值得学,只是它在 `032` 之后由 Widget 框架代管了。
 
 光能画还不够。一个桌面图标得知道自己**在哪儿**、**点它该干嘛**。[desktop_icon.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/gui/desktop_icon.hpp) 把这些打包进 `DesktopIcon`:
 
@@ -209,7 +209,7 @@ struct DesktopIcon {
 
 ### window_manager.hpp:那个名不副实的光标常量
 
-> **tag-bound 提示:** 这一节描述的是 032 当时的内核内 `kernel/gui/window_manager.hpp`。后续的 visor 解耦把窗口管理器外置到 Cinux-GUI 库(现已并回主仓)的 [libs/gui/core/widget/window_manager.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/libs/gui/core/widget/window_manager.hpp) 重写为 Widget 版,光标也改由 `Compositor` 统一绘制(`window_manager.cpp` 注释明说「cursor is now painted by the Compositor」)。下面这两个名实不符的常量是 **032 当时**的源码事实,**已随重构删除**,在新代码里 grep 不到——读这一节时按 tag 切回去看就对了。
+> **tag-bound 提示:** 这一节描述的是 `032` 当时的内核内 `kernel/gui/window_manager.hpp`。后续的 visor 解耦把窗口管理器外置到 Cinux-GUI 库(现已并回主仓)的 [libs/gui/core/widget/window_manager.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/libs/gui/core/widget/window_manager.hpp) 重写为 Widget 版,光标也改由 `Compositor` 统一绘制(`window_manager.cpp` 注释明说「cursor is now painted by the Compositor」)。下面这两个名实不符的常量是 **`032` 当时**的源码事实,**已随重构删除**,在新代码里 grep 不到——读这一节时按 tag 切回去看就对了。
 
 这一章顺手还改了 [window_manager.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/gui/window_manager.hpp) 里两个光标常量,值得诚实记一笔:
 
@@ -218,13 +218,13 @@ static constexpr uint32_t CURSOR_WHITE   = 0x00888888;   // 实际是灰色
 static constexpr uint32_t CURSOR_BLACK   = 0x00FFFFFF;   // 实际是白色
 ```
 
-名字叫 `WHITE`,值是灰(`0x00888888`);名字叫 `BLACK`,值是白(`0x00FFFFFF`)——名实完全对不上。看 diff 能确认这是 032 这一步改的(031 时它们还是名副其实的 `0x00FFFFFF` 和 `0x00000000`)。这大概率是调整鼠标配色时改了值、忘了改名字,然后就这么留下来了。它不影响光标正确画出来——光标位图用这两个常量照样能画出一个能看的鼠标——只是读代码的人会被名字骗到。这是个真实的小插曲,不是我们编出来的完整调试事故;下一章也没修它,它就这么挂着。记下来,免得你以后看光标代码时一头雾水。
+名字叫 `WHITE`,值是灰(`0x00888888`);名字叫 `BLACK`,值是白(`0x00FFFFFF`)——名实完全对不上。看 diff 能确认这是 `032` 这一步改的(`031` 时它们还是名副其实的 `0x00FFFFFF` 和 `0x00000000`)。这大概率是调整鼠标配色时改了值、忘了改名字,然后就这么留下来了。它不影响光标正确画出来——光标位图用这两个常量照样能画出一个能看的鼠标——只是读代码的人会被名字骗到。这是个真实的小插曲,不是我们编出来的完整调试事故;下一章也没修它,它就这么挂着。记下来,免得你以后看光标代码时一头雾水。
 
 ## 调试现场
 
-> **历史提示(colorkey → alpha mask):** 032 当时 `draw_bitmap` 的透明机制是 **colorkey**(`0x00000000 == transparent`),下面这段「纯黑 = 透明」的陷阱正是 colorkey 设计的固有短板。后续的 visor 解耦(§4d)把它升级成了 **1-bpp alpha mask**——新增了 `Canvas::draw_bitmap_masked`(在 [canvas.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/drivers/canvas.cpp) 紧挨 `draw_bitmap` 之后)、编译期 `build_mask`(与 `build_icon` 同源、由同一批字符画生成)和配套的 `k_shell_mask`/`k_calc_mask`。透明从此由 **mask 位**决定,与像素颜色值解耦:一个不透明纯黑像素(非零 nibble 映到 `palette::BLACK = 0x00000000`)现在也能画出来了,这条 colorkey 隐患随之解决。`icon_data.hpp` 文件头注释明写「transparency is governed by the MASK, not by the colour value」。下面这段作为**历史教训**保留——colorkey 的设计权衡依然值得讲,只是它已不再是当前代码的真相。
+> **历史提示(colorkey → alpha mask):** `032` 当时 `draw_bitmap` 的透明机制是 **colorkey**(`0x00000000 == transparent`),下面这段「纯黑 = 透明」的陷阱正是 colorkey 设计的固有短板。后续的 visor 解耦(§4d)把它升级成了 **1-bpp alpha mask**——新增了 `Canvas::draw_bitmap_masked`(在 [canvas.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/drivers/canvas.cpp) 紧挨 `draw_bitmap` 之后)、编译期 `build_mask`(与 `build_icon` 同源、由同一批字符画生成)和配套的 `k_shell_mask`/`k_calc_mask`。透明从此由 **mask 位**决定,与像素颜色值解耦:一个不透明纯黑像素(非零 nibble 映到 `palette::BLACK = 0x00000000`)现在也能画出来了,这条 colorkey 隐患随之解决。`icon_data.hpp` 文件头注释明写「transparency is governed by the MASK, not by the colour value」。下面这段作为**历史教训**保留——colorkey 的设计权衡依然值得讲,只是它已不再是当前代码的真相。
 
-032 这个 tag **没有调试笔记**。按 Cinux 的规矩我们不硬造踩坑故事,但这一章有个现成的、源码可证的设计陷阱值得单独讲——就是前面埋下的「纯黑 = 透明」的冲突。它是那种**不爆、但会坑你**的隐患,这里放到「调试现场」的视角再看一遍。
+`032` 这个 tag **没有调试笔记**。按 Cinux 的规矩我们不硬造踩坑故事,但这一章有个现成的、源码可证的设计陷阱值得单独讲——就是前面埋下的「纯黑 = 透明」的冲突。它是那种**不爆、但会坑你**的隐患,这里放到「调试现场」的视角再看一遍。
 
 **陷阱**:`draw_bitmap` 用 `0x00000000` 当透明色键。所以**任何想要纯黑像素的位图,都会得到一个洞**——那一像素被当透明跳过,底下是什么就显示什么(桌面色、别的窗口),而不是你想要的黑。
 
@@ -241,7 +241,7 @@ constexpr uint32_t DARK_BLACK  = 0x00101010;  // Near-black (opaque)
 
 `BLACK` 是 `0x00000000`,注释直接写着 `Transparent`;可 `0x00000000` 不就是纯黑吗?所以 `DARK_BLACK = 0x00101010` 不是多此一举,是被透明色约定逼出来的妥协——一个肉眼几乎看不出区别、但 `draw_bitmap` 认它是「不透明实色」的近黑。终端图标主体那一大片 `1`,对应的就是 `DARK_BLACK`;只有真正想透过去(图标圆角外的边角)才用 `0`。连内核测试里那个程序化生成的 `build_test_icon`,主体填的也是 `DARK_BLACK`,只有四个角各 2×2 的小块填 `palette::BLACK`——同一个规矩。
 
-换个角度看,色键透明不是免费的。它用一个**颜色**换一个**透明语义**:你把哪个颜色征用做色键,那个颜色就从可用调色板里消失。如果将来要画的东西真需要全光谱(比如一幅照片级图标需要纯黑),色键透明就不够用了,得上真 alpha 通道——每像素多一个透明度字节、绘制时做加权混合。但 032 的图标是扁平矢量风、颜色可控,色键透明是最划算的选择,前提是你记住「纯黑没了」。
+换个角度看,色键透明不是免费的。它用一个**颜色**换一个**透明语义**:你把哪个颜色征用做色键,那个颜色就从可用调色板里消失。如果将来要画的东西真需要全光谱(比如一幅照片级图标需要纯黑),色键透明就不够用了,得上真 alpha 通道——每像素多一个透明度字节、绘制时做加权混合。但 `09-gui/005` 的图标是扁平矢量风、颜色可控,色键透明是最划算的选择,前提是你记住「纯黑没了」。
 
 这条也顺带解释了为什么 `0x00RRGGBB` 的高字节(`0x00`)在这套体系里**没**被当成 alpha 通道:这里不用真 alpha 混合,只用「全零 = 透明」这一个色键约定。高字节纯粹是 32 位对齐的填充。
 
@@ -259,7 +259,7 @@ constexpr uint32_t DARK_BLACK  = 0x00101010;  // Near-black (opaque)
 
 ## 验证
 
-> **tag-bound 提示:** 下面这套测试组织——host 侧 `test/unit/test_bitmap_icon.cpp`、机内 `kernel/test/test_bitmap_icon.cpp`、`test/CMakeLists.txt` 里的 `add_test(NAME bitmap_icon ...)`、`main_test.cpp` 里的 `run_bitmap_icon_tests()`——是 **032 当时的布局**。后续的 visor 解耦把内核内 GUI 测试一并外置到 Cinux-GUI 库的 `test/`(库现已并回 `libs/gui/`),并按 `core/`/`host/` 重新拆分,旧的两个测试文件已删、`bitmap_icon` 这个 ctest 名也已不存在。下面给的文件路径、用例计数(23 / 17)、stub 退化串(`[BITMAP_ICON] CLI mode`)都是 **032 当时的事实**,读者按 tag 切源码即可。新测试布局见 Cinux-GUI 文档。
+> **tag-bound 提示:** 下面这套测试组织——host 侧 `test/unit/test_bitmap_icon.cpp`、机内 `kernel/test/test_bitmap_icon.cpp`、`test/CMakeLists.txt` 里的 `add_test(NAME bitmap_icon ...)`、`main_test.cpp` 里的 `run_bitmap_icon_tests()`——是 **`032` 当时的布局**。后续的 visor 解耦把内核内 GUI 测试一并外置到 Cinux-GUI 库的 `test/`(库现已并回 `libs/gui/`),并按 `core/`/`host/` 重新拆分,旧的两个测试文件已删、`bitmap_icon` 这个 ctest 名也已不存在。下面给的文件路径、用例计数(23 / 17)、stub 退化串(`[BITMAP_ICON] CLI mode`)都是 **`032` 当时的事实**,读者按 tag 切源码即可。新测试布局见 Cinux-GUI 文档。
 
 按上一节说的,测试天然分两层。
 
@@ -280,13 +280,13 @@ cmake --build build --target run-kernel-test
 
 预期串口出现 `Bitmap Icon Tests (032_gui_bitmap_icon)` 这个 section 标记,下面 17 个 `RUN_TEST` 全过,涵盖 `draw_bitmap` 的不透明渲染(2×2、原点、更大)、透明跳过(部分透明、全透明 no-op)、裁剪(右边界、下边界、画布外 no-op)、null 像素、两个手工 32×32 测试图标及并排带间隙渲染,还有 `DesktopIcon::contains`(内部 / 外部 / 负坐标 / 1×1 像素 / `IconAction` 枚举值)。GUI 关掉时(`-DCINUX_GUI=OFF`),`run_bitmap_icon_tests` 退化成一个 stub,只打一行 `[BITMAP_ICON] CLI mode -- GUI tests skipped.`——和别的 GUI 测试一样的退路。
 
-**视觉效果**这一层 032 比较单薄。因为图标还没排上桌面(那是 033),单独 `make run` 看不到图标出现在屏幕上——桌面上依旧是空的。032 的视觉验证主要靠上面两层测试里的像素断言(「这个坐标应该是这个颜色」)。想亲眼看到图标画出来的样子,得等下一章把它们摆上桌面。
+**视觉效果**这一层 `09-gui/005` 比较单薄。因为图标还没排上桌面(那是 `09-gui/006`),单独 `make run` 看不到图标出现在屏幕上——桌面上依旧是空的。`09-gui/005` 的视觉验证主要靠上面两层测试里的像素断言(「这个坐标应该是这个颜色」)。想亲眼看到图标画出来的样子,得等下一章把它们摆上桌面。
 
 ## 下一站
 
-到 032,我们有了「画带透明度的小图」的能力,有了第一批编译期图标,也有了带命中框的 `DesktopIcon`。但这些东西还**散着**:`DesktopIcon` 没有被任何桌面收编,`IconAction` 没有被任何点击消费,用户在屏幕上看不到一个图标。`draw_bitmap` 甚至还没被任何 live GUI 代码调用过——这一章里它只有定义和测试在用。
+到 `09-gui/005`,我们有了「画带透明度的小图」的能力,有了第一批编译期图标,也有了带命中框的 `DesktopIcon`。但这些东西还**散着**:`DesktopIcon` 没有被任何桌面收编,`IconAction` 没有被任何点击消费,用户在屏幕上看不到一个图标。`draw_bitmap` 甚至还没被任何 live GUI 代码调用过——这一章里它只有定义和测试在用。
 
-下一步自然是把这些原语**焊成一个体验**:窗口管理器维护一组桌面图标、合成(composite)时把它们画出来、检测鼠标命中、按 `IconAction` 派发动作、打开对应的窗口(比如点终端图标开一个新的 shell 窗口)。那样,桌面才第一次有了「点图标开程序」的完整闭环。怎么把 032 这套原语焊成这个体验,是下一章的事。
+下一步自然是把这些原语**焊成一个体验**:窗口管理器维护一组桌面图标、合成(composite)时把它们画出来、检测鼠标命中、按 `IconAction` 派发动作、打开对应的窗口(比如点终端图标开一个新的 shell 窗口)。那样,桌面才第一次有了「点图标开程序」的完整闭环。怎么把 `09-gui/005` 这套原语焊成这个体验,是下一章的事。
 
 ---
 
@@ -294,4 +294,4 @@ cmake --build build --target run-kernel-test
 
 - 色键透明(color key,也叫 colorkeying):2D 图形的经典透明技法,指定一个像素值代表透明、绘制时跳过。`draw_bitmap` 用 `0x00000000` 作色键即此法。pygame `Surface.set_colorkey` 文档对「指定一个颜色值,所有匹配它的像素都不画」有清楚说明:<https://www.pygame.org/docs/ref/surface.html#pygame.Surface.set_colorkey>。
 - `consteval`(C++20 立即函数):`build_icon` 强制编译期求值、零运行时开销、写错即编译失败的依据。cppreference `consteval specifier (since C++20)`:<https://en.cppreference.com/cpp/language/consteval>。
-- `0x00RRGGBB` 整型打包 RGB:承接本仓库 029 章 `Canvas` 已确立的 32 位像素格式(高字节 `0x00` 为对齐填充,非 alpha)。pygame 用 `map_rgb`/`unmap_rgb` 把 RGB 打包成 Surface 相关的整数像素值,说明「RGB 打包进一个整数」是通用做法(具体位布局各系统不同,pygame 的并不固定为 `0x00RRGGBB`)。
+- `0x00RRGGBB` 整型打包 RGB:承接本仓库 `09-gui/001` 章 `Canvas` 已确立的 32 位像素格式(高字节 `0x00` 为对齐填充,非 alpha)。pygame 用 `map_rgb`/`unmap_rgb` 把 RGB 打包成 Surface 相关的整数像素值,说明「RGB 打包进一个整数」是通用做法(具体位布局各系统不同,pygame 的并不固定为 `0x00RRGGBB`)。

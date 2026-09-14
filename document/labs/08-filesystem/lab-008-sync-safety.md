@@ -4,28 +4,28 @@ title: Lab 008 · 并发安全:亲手感受数据竞争,学会「该用哪种锁
 
 # Lab 008 · 并发安全:亲手感受数据竞争,学会「该用哪种锁」
 
-> 008 是一次加固,不是新功能——所以这个 lab 的重心不在「写一个新模块」,而在三件事:**第一**,在 host 上用真多线程亲手「看见」一次数据竞争,再用自旋锁把它治住,建立体感;**第二**,练出本章最值钱的判断力——给定一段临界区,该用 `guard()`、`irq_guard()`、`InterruptGuard` 还是原子,并说出「因为它(不)和中断共享」;**第三**,读懂生产 stress 测试,手算预期数字,跑 `run-stress-test` 看它是否精确命中。最后留一个扩展:给目前「造好却没上岗」的 `Mutex`/`Semaphore` 补一个真并发用例。
+> `08-filesystem/008` 是一次加固,不是新功能——所以这个 lab 的重心不在「写一个新模块」,而在三件事:**第一**,在 host 上用真多线程亲手「看见」一次数据竞争,再用自旋锁把它治住,建立体感;**第二**,练出本章最值钱的判断力——给定一段临界区,该用 `guard()`、`irq_guard()`、`InterruptGuard` 还是原子,并说出「因为它(不)和中断共享」;**第三**,读懂生产 stress 测试,手算预期数字,跑 `run-stress-test` 看它是否精确命中。最后留一个扩展:给目前「造好却没上岗」的 `Mutex`/`Semaphore` 补一个真并发用例。
 
 ## 实验目标
 
 - 在 host 上用 `std::thread` 复现「计数器丢更新」的数据竞争,再用 `Spinlock` 保护后确认计数精确,理解 test-and-set + pause 在干什么。
-- 把「这块数据会不会被中断处理路径碰到」变成条件反射:给定若干 008 临界区,正确分类该用哪种原语并给出理由。
+- 把「这块数据会不会被中断处理路径碰到」变成条件反射:给定若干 `08-filesystem/008` 临界区,正确分类该用哪种原语并给出理由。
 - 手算 stress 测试的预期操作数(4 × 200、4 × 200、4 × 1000),跑 `run-stress-test` 对照 `expected=actual … PASS`。
 - 用 `run-kernel-test` 验证 `InterruptGuard`/`IrqGuard` 的关中断、恢复、嵌套行为在真硬件上正确。
 - (扩展)检查 host 并发测试对 `Mutex`/`Semaphore` 的覆盖,补一个真并发用例。
 
 ## 前置条件
 
-- 007 通过(`ctest -R cwd_stat` 能跑)。
-- 008 代码已构建:`cmake --build build`。
+- `08-filesystem/007` 通过(`ctest -R cwd_stat` 能跑)。
+- `08-filesystem/008` 代码已构建:`cmake --build build`。
 - host 工具链支持 `-pthread`(Linux 一般自带)。
-- 读懂主书第 008 章的「四个同步原语」「三层加固落地」「设计现场 A/B」三节。
+- 读懂主书 `08-filesystem/008` 章的「四个同步原语」「三层加固落地」「设计现场 A/B」三节。
 
 ## 任务分解
 
 ### 任务 1:在 host 上亲手看见一次数据竞争
 
-`test/unit/host_spinlock.cpp` 是 008 专门加的 host 实验:它把内核的 `Spinlock`(在 `CINUX_HOST_TEST` 下编进 host)拿到 `std::thread` 环境里压。先做对比实验,建立体感——下面只给骨架,不给完整程序,你自己补全跑通:
+`test/unit/host_spinlock.cpp` 是 `08-filesystem/008` 专门加的 host 实验:它把内核的 `Spinlock`(在 `CINUX_HOST_TEST` 下编进 host)拿到 `std::thread` 环境里压。先做对比实验,建立体感——下面只给骨架,不给完整程序,你自己补全跑通:
 
 ```text
 // 对照 A:多个线程对一个 volatile 计数器「裸自增」N 次
@@ -108,7 +108,7 @@ cmake --build build --target run-kernel-test
 
 ### 任务 5(扩展):给 Mutex / Semaphore 补一个真并发用例
 
-主书如实指出:008 里 `Mutex` 和 `Semaphore` 只被定义和测试,**没有任何生产代码用它们**,生产防护全是 Spinlock/InterruptGuard/原子。先做调查:
+主书如实指出:`08-filesystem/008` 里 `Mutex` 和 `Semaphore` 只被定义和测试,**没有任何生产代码用它们**,生产防护全是 Spinlock/InterruptGuard/原子。先做调查:
 
 ```bash
 # 确认 Mutex/Semaphore 在生产代码里的使用面
@@ -156,7 +156,7 @@ git grep -nE '\bMutex\b|\bSemaphore\b' -- 'kernel/*.cpp' 'kernel/*.hpp' \
 - **写 `lock.guard();` 一行,编译器告警**:这是 `[[nodiscard]]` 在救你——返回的临时 Guard 立刻析构,等于没加锁。必须 `auto g = lock.guard(); (void)g;` 把生命期续到作用域末。参见设计现场 C。
 - **host 上裸自增「没丢更新」**:线程数太少或每线程次数太少,竞争窗口太小。调大到 8 线程 × 百万级;或加 `-O0` 避免编译器把自增优化成不可打断的指令。
 - **手算 stress 数字和实际对不上**:你用了错的常量。`stress_test.cpp` 里 `NUM_THREADS=4`、`PMM_OPS=200`、`HEAP_OPS=200`、共享自增是硬编码的 `1000`,不是 `HEAP_OPS`。读源码顶部,别凭记忆。
-- **以为 Mutex 已经保护了 PMM/堆**:没有。008 生产防护全是 Spinlock。Mutex/Semaphore 造好了但没上岗——这是事实边界,别在报告里写错。
+- **以为 Mutex 已经保护了 PMM/堆**:没有。`08-filesystem/008` 生产防护全是 Spinlock。Mutex/Semaphore 造好了但没上岗——这是事实边界,别在报告里写错。
 - **把调度器运行队列的锁写成 `guard()`**:会死锁。它被 PIT IRQ0 的 `tick()` 碰,必须 `irq_guard()`。这是任务 2(b) 的核心。
 - **扩展任务里 Mutex 用例「偶尔挂」**:检查是不是在持锁状态下又触发了阻塞/调度。host 上 `block` 是空操作所以不显,但纪律要守:`release` 在 `block` 之前。
 

@@ -43,7 +43,7 @@ EFER 是读改写:先 `rdmsr` 读出当前值,`orq $1,%rax` 置 `SCE` 位(bit 0)
 
 ## GDT 用户段 + TSS.RSP0 + IST1
 
-[gdt.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/gdt.cpp) 的 `init()` 里,用户代码段、用户数据段这两个描述符其实早就填好了(010 章引入大内核 GDT 时就备好了),`GDT_USER_CODE=0x1B`、`GDT_USER_DATA=0x23` 这两个选择子常量也一直在。这一章新增的是 TSS 这块的实化:
+[gdt.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/gdt.cpp) 的 `init()` 里,用户代码段、用户数据段这两个描述符其实早就填好了(`03-big-kernel/002` 章引入大内核 GDT 时就备好了),`GDT_USER_CODE=0x1B`、`GDT_USER_DATA=0x23` 这两个选择子常量也一直在。这一章新增的是 TSS 这块的实化:
 
 ```cpp
 // 给 IST1 配一块独立的 4 KB Double Fault 栈
@@ -80,7 +80,7 @@ constexpr uint8_t kUserCode[] = {
 };
 ```
 
-如实说:这不是从磁盘加载的 ELF 用户程序,没有 user libc,也没有 `user/linker.ld`——`user/` 目录是 023 才会出现的。这四字节存在的唯一目的,是让 `cli` 在 Ring 3 被执行一次,从而证明特权指令被拦住。
+如实说:这不是从磁盘加载的 ELF 用户程序,没有 user libc,也没有 `user/linker.ld`——`user/` 目录是 `07-userland/002` 才会出现的。这四字节存在的唯一目的,是让 `cli` 在 Ring 3 被执行一次,从而证明特权指令被拦住。
 
 用户地址空间怎么搭?建一个独立的 `AddressSpace`,映一页代码在 `USER_ENTRY_BASE(0x400000)`,映 4 页栈在 `USER_STACK_TOP(0x7FFFFF000)` 下面,全部带 `kUserPageFlags = FLAG_PRESENT|FLAG_WRITABLE|FLAG_USER`:
 
@@ -153,4 +153,4 @@ void handle_gp(InterruptFrame* frame) {
 
 为什么 `cs & 0x03` 能区分来源?段选择子的低 2 位是 RPL(Requester Privilege Level),异常压栈时 CPU 把当时的 CS(连同 RPL)存进 `InterruptFrame`。Ring 3 里执行指令时 `CS=0x1B`,`0x1B & 0x03 = 3`,非零;内核态 `CS=0x08`,`0x08 & 0x03 = 0`。所以一句位与就能告诉我们「这条 `#GP` 是用户撞墙,还是内核自己出了岔子」。前者正是隔离成立的信号,后者是内核 bug(本 demo 里不该发生)。host 测试把这两个分支都镜像过:`0x1B & 0x03` 判为 user、`0x08 & 0x03` 判为 kernel。
 
-不管哪条分支,最后都 `fatal_halt()`——本 demo 里用户态撞墙就停机,不尝试恢复或杀进程,那是 023 之后的事。
+不管哪条分支,最后都 `fatal_halt()`——本 demo 里用户态撞墙就停机,不尝试恢复或杀进程,那是 `07-userland/002` 之后的事。

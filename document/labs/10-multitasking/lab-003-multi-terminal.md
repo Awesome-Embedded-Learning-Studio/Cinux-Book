@@ -13,14 +13,14 @@ title: Lab 003 · 多终端:每个终端一个独立 shell
 ## 前置条件
 
 - 完成 002(fork/exec 通电:子进程返回 0、CoW 接 #PF、GS MSR、execve 页偏移、栈 guard page)。
-- 完成 031b(Pipe + PipeReadOps/PipeWriteOps 伪装成 Inode、fd0/fd1 绑管道)和 033(桌面图标、点图标开窗口)。
+- 完成 `09-gui/004`(Pipe + PipeReadOps/PipeWriteOps 伪装成 Inode、fd0/fd1 绑管道)和 `09-gui/006`(桌面图标、点图标开窗口)。
 - `jump_to_usermode`、per-CPU `update_syscall_stack` 可用。
 
 ## 任务分解
 
 ### 任务 1:每个终端一对私有 pipe
 
-把 033 的「全局 g_stdin_pipe/g_stdout_pipe」改成「每终端 new 自己一对」。
+把 `09-gui/006` 的「全局 g_stdin_pipe/g_stdout_pipe」改成「每终端 new 自己一对」。
 
 - 在 `create_shell_terminal` 里:`new Pipe()` × 2(stdin/stdout),各包 `PipeReadOps`/`PipeWriteOps` + `Inode`(type=Regular)。
 - `term->set_stdin_pipe/stdout_pipe` 绑这一对(内核侧直接访问)。

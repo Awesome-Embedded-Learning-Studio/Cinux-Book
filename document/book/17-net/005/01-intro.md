@@ -4,23 +4,23 @@ title: 01 · 导引:为什么是第三个成员 + 加法非破坏的 bind_path
 
 # 导引:为什么是第三个成员 + 加法非破坏的 bind_path
 
-> 到 069 章为止,`AF_INET` 这条腿已经站得很稳——UDP(063)、TCP(069)、协议栈、e1000 驱动全跑通了。可 Linux 的 socket 抽象里还有**另一条腿**:`AF_UNIX`,本地命名空间 socket。它服务的场景跟 `AF_INET` 完全不同——两个任务在同一台机器上要传字节流,走 TCP 得分配端口、填 IPv4 地址、过协议栈、包再到 loopback 收一圈,纯是杀鸡用牛刀。`AF_UNIX` 给的是一条**不走网卡的近道**:socket 还是那个 socket(同样的 `socket()`/`bind()`/`listen()`/`accept()`/`send()`/`recv()`),只是地址从 `(IP, port)` 换成了一个**文件系统风格的名字**,字节不经网卡、不经 L4 协议栈,直接从一个 socket 的 `send()` 拷到对端 socket 的 RX 环里。
+> 到 `17-net/004` 章为止,`AF_INET` 这条腿已经站得很稳——UDP(`17-net/003`)、TCP(`17-net/004`)、协议栈、e1000 驱动全跑通了。可 Linux 的 socket 抽象里还有**另一条腿**:`AF_UNIX`,本地命名空间 socket。它服务的场景跟 `AF_INET` 完全不同——两个任务在同一台机器上要传字节流,走 TCP 得分配端口、填 IPv4 地址、过协议栈、包再到 loopback 收一圈,纯是杀鸡用牛刀。`AF_UNIX` 给的是一条**不走网卡的近道**:socket 还是那个 socket(同样的 `socket()`/`bind()`/`listen()`/`accept()`/`send()`/`recv()`),只是地址从 `(IP, port)` 换成了一个**文件系统风格的名字**,字节不经网卡、不经 L4 协议栈,直接从一个 socket 的 `send()` 拷到对端 socket 的 RX 环里。
 >
-> 这一章的真主题不是「AF_UNIX 字段怎么填」——那部分比 TCP 还简单,因为根本没有协议字段要填。真正要讲清的是三件**加法而非破坏**的工程决定:其一,`AF_UNIX` 的路径名字塞不进 `AF_INET` 那对 `bind(uint16_t)`/`connect(Ipv4Addr, port)` 的既有签名,于是给 Socket base **加一对 `bind_path`/`connect_path` 虚函数**,默认 `NotImplemented`,既有 Udp/TcpSocket 一行不改;其二,一个 `UnixSocket` 类同时扮演**监听端和已连接端两个角色**(跟 069 的 `TcpSocket` 同一套镜像思路),靠 `listening_`/`connected_` 几个 bool 切换;其三,`AF_UNIX` 的名字住在一个**内存命名空间**(`UnixRegistry`,一张定长表),**不依赖任何真文件系统**——bind 不是去 tmpfs/ext2 上建 socket inode,是往内存表里塞一条记录。一条诚实的边界先说在前头:这是 loopback 友好的最小可用 `AF_UNIX`,真 Linux 的 fs-backed bind、abstract socket(`path` 首字节 `\0`)、DGRAM `sendto(path)` 都还没做;`getsockname`/`getpeername`/`socketpair`/`shutdown`/`poll` 这几样已经顺手吃下了,正文点到、不喧宾夺主。
+> 这一章的真主题不是「AF_UNIX 字段怎么填」——那部分比 TCP 还简单,因为根本没有协议字段要填。真正要讲清的是三件**加法而非破坏**的工程决定:其一,`AF_UNIX` 的路径名字塞不进 `AF_INET` 那对 `bind(uint16_t)`/`connect(Ipv4Addr, port)` 的既有签名,于是给 Socket base **加一对 `bind_path`/`connect_path` 虚函数**,默认 `NotImplemented`,既有 Udp/TcpSocket 一行不改;其二,一个 `UnixSocket` 类同时扮演**监听端和已连接端两个角色**(跟 `17-net/004` 的 `TcpSocket` 同一套镜像思路),靠 `listening_`/`connected_` 几个 bool 切换;其三,`AF_UNIX` 的名字住在一个**内存命名空间**(`UnixRegistry`,一张定长表),**不依赖任何真文件系统**——bind 不是去 tmpfs/ext2 上建 socket inode,是往内存表里塞一条记录。一条诚实的边界先说在前头:这是 loopback 友好的最小可用 `AF_UNIX`,真 Linux 的 fs-backed bind、abstract socket(`path` 首字节 `\0`)、DGRAM `sendto(path)` 都还没做;`getsockname`/`getpeername`/`socketpair`/`shutdown`/`poll` 这几样已经顺手吃下了,正文点到、不喧宾夺主。
 
 ## 这章咱们要点亮什么
 
 1. **加法非破坏**:`bind_path`/`connect_path` 是 Socket base 上新加的虚函数,默认 `NotImplemented`。不是去改 `AF_INET` 那对 `bind(uint16_t)`/`connect(Ipv4Addr, port)` 的签名(那会撞已经合进 main 的 UdpSocket/TcpSocket),而是给 `AF_UNIX` 单开一对路径形状的入口——`sys_bind`/`sys_connect` 按 `domain()` 派发。
-2. **两角色一类**:`UnixSocket` 既是监听 socket(server:bind + listen + accept),又是已连接 socket(client connect 之后、或 accept 出来的 child)。`listening_`/`connected_` 两个 bool 区分角色,跟 069 的 `TcpSocket` 镜像同款。
-3. **内存命名空间 `UnixRegistry`**:`AF_UNIX` 的名字住在一张定长表里(`kUnixRegistryMax = 16`),bind 就是塞记录、connect 就是查记录、close 就是删记录。**不碰真 fs**。镜像 071 那个 `FifoRegistry`。
-4. **立即建连,无内核握手**:`connect_path` 直接 new 一个 child、把 client 和 child 互指为 peer、把 child 塞进 server 的 accept 队列。没有 SYN/SYN-ACK 那一套(那是 069 TCP 才需要的协议握手)。所以确定性单线程测试里,**`send` 可以先于 `accept`**——字节先缓冲在 child 的 RX 环里,等 `accept` 把 child 取走。
+2. **两角色一类**:`UnixSocket` 既是监听 socket(server:bind + listen + accept),又是已连接 socket(client connect 之后、或 accept 出来的 child)。`listening_`/`connected_` 两个 bool 区分角色,跟 `17-net/004` 的 `TcpSocket` 镜像同款。
+3. **内存命名空间 `UnixRegistry`**:`AF_UNIX` 的名字住在一张定长表里(`kUnixRegistryMax = 16`),bind 就是塞记录、connect 就是查记录、close 就是删记录。**不碰真 fs**。镜像 `14-process-advanced/005` 那个 `FifoRegistry`。
+4. **立即建连,无内核握手**:`connect_path` 直接 new 一个 child、把 client 和 child 互指为 peer、把 child 塞进 server 的 accept 队列。没有 SYN/SYN-ACK 那一套(那是 `17-net/004` TCP 才需要的协议握手)。所以确定性单线程测试里,**`send` 可以先于 `accept`**——字节先缓冲在 child 的 RX 环里,等 `accept` 把 child 取走。
 5. **`copy_from_user` 的陷阱**:ring0 测试内核没法给 `sys_bind` 喂一个「用户地址」——`copy_from_user` 的 `is_user_vaddr` 范围检查拒内核栈指针,`sys_bind` 会 `-EFAULT`。所以 echo 测试走 `UnixSocket` 的**直接方法**(`bind_path`/`send`/`recv`),不走 `sys_bind`。这不是 `UnixSocket` 的 bug,是测试侧的局限,生产路径留 musl 覆盖。
-6. **阻塞抄真调度,不 sti/hlt**:recv 空环、accept 队列空,都 `prepare_to_wait` + `schedule_blocked` 真睡,`send`/`enqueue_accept`/`close` 用 `wake_one`/`wake_all` 叫醒。跟 071 修 pipe 阻塞、059 首 discovered 的那族 `sti`-in-syscall `#DF` 同根,这里直接复用 `prepare_to_wait` 模板,不碰 `sti`/`hlt`。
+6. **阻塞抄真调度,不 sti/hlt**:recv 空环、accept 队列空,都 `prepare_to_wait` + `schedule_blocked` 真睡,`send`/`enqueue_accept`/`close` 用 `wake_one`/`wake_all` 叫醒。跟 `14-process-advanced/005` 修 pipe 阻塞、`07-userland/004` 首 discovered 的那族 `sti`-in-syscall `#DF` 同根,这里直接复用 `prepare_to_wait` 模板,不碰 `sti`/`hlt`。
 7. **加锁顺序无 AB-BA**:`UnixRegistry` 的锁**永远不嵌套**在 socket 锁里。`bind_path`/`connect_path` 先拿 registry 锁查/登记、**放掉**,再单独拿 socket 锁。peer 指针是 write-once(connect/accept 时设一次之后不动),`send` 拷进对端 RX 环时只拿**对端那一把锁**,从不同时拿两把 socket 锁。
 
 ## 为什么 AF_UNIX 是 socket family 的第三个成员
 
-073 立起来那个 socket 适配器模子——`SocketOps` 这个 `InodeOps` 子类 + 一个共享单例 `socket_ops()`——已经把「socket fd 就是个 pipe fd」这件事落定了:`File -> Inode -> SocketOps`,`sys_read`/`sys_write`/`sys_close`/`sys_ioctl` 全走 `InodeOps` 派发,**fd 层零改**。`AF_INET` 的 UDP/TCP 挂在这个模子上;`AF_UNIX` 是挂同一个模子上的**第三个 socket family**,差别只在 `Socket` 子类是谁、`bind`/`connect` 走哪条虚函数路径。
+`07-userland/008` 立起来那个 socket 适配器模子——`SocketOps` 这个 `InodeOps` 子类 + 一个共享单例 `socket_ops()`——已经把「socket fd 就是个 pipe fd」这件事落定了:`File -> Inode -> SocketOps`,`sys_read`/`sys_write`/`sys_close`/`sys_ioctl` 全走 `InodeOps` 派发,**fd 层零改**。`AF_INET` 的 UDP/TCP 挂在这个模子上;`AF_UNIX` 是挂同一个模子上的**第三个 socket family**,差别只在 `Socket` 子类是谁、`bind`/`connect` 走哪条虚函数路径。
 
 源码侧,`sys_socket` 的派发就这么直接(`sys_socket.cpp:212-235`):
 

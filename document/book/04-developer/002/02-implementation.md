@@ -50,4 +50,4 @@ void handle_gp(InterruptFrame* frame) {
 
 （`exception_handlers.cpp:232`/`:235`,`handle_gp` 进来第一件事就是 `capture_first_gp(frame)`;实现在 `fault_diag.cpp`,`>>> FIRST #GP rip=...` 在 `:59`。）debugcon 是一条「不经内存、不经调度器、不经任何可能崩的东西」的纯 IO 通道——`out %al, $0xE9` 就把一个字节送出去,它永远活着。所以哪怕后续 `kprintf` 自己 #PF、哪怕 `%gs` 损坏连环 #GP,**第一个 fault 的 rip/rsp/错误码已经稳稳落在 debug.log 里了**,不会被覆盖。`capture_first_gp/pf` 还带「只捕获一次」的逻辑(后续递归的 frame 直接跳过),保证你看到的就是首故障。
 
-> **这条和上一章的 #DF 串得上。** 上一章(059)那个 `jump_to_usermode` #DF,之所以能定位,靠的就是这类「在递归崩之前留住首故障」的诊断——#DF 是「#PF 推栈失败」的产物,首 #PF 的现场最容易丢。把首故障 dump 到一个崩不掉的通道,是调试这类连环崩的通用招。
+> **这条和上一章的 #DF 串得上。** 上一章(`07-userland/004`)那个 `jump_to_usermode` #DF,之所以能定位,靠的就是这类「在递归崩之前留住首故障」的诊断——#DF 是「#PF 推栈失败」的产物,首 #PF 的现场最容易丢。把首故障 dump 到一个崩不掉的通道,是调试这类连环崩的通用招。

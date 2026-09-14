@@ -20,7 +20,7 @@ CinuxOS init: filesystems mounted                 ← /etc/inittab 的 ::sysinit
 
 `pid=1` 这一行是整章的眼。从"匿名 kthread"到"PID 1 的 busybox init",中间没有 fork,只有一次 `alloc()` 和一次保 pid 的 `execve`。后面的 `[WAITPID] reaped child ... by parent pid=1` 更是把"PID1 是孤儿归宿"这件事落到了实处——echo 跑完退出,PID1 把它 reap 掉,这正是 init 该干的活。
 
-> **一个诚实的坑**:这一步偶发会首启动失败——`[PROC] jumping to user mode` 那行有时打出一个 `0xFFFFFFFF8...` 的内核地址而非 `0x431E0C`,随即 #PF panic。根因在 [user_launch.cpp](../../../kernel/proc/user_launch.cpp) 里 `enter_loaded_program` 跳用户态的入口是从 `task->ctx.rip` 读的,而 `execve` 刚把这个字段设成 ELF 入口;两者之间那一小窗,偶发被一次调度打断了、把内核 RIP 存回了 `ctx.rip`。稳的做法其实是直接跳 `elf_aux.at_entry`(它本就是函数参数,不会被调度动),可这一行一直没改——是个带了很多版的潜在脆弱点,重跑一次通常就过。笔者写在这里,是想说:**生产启动绿这件事,值得多跑几次确认,别被一次偶发 panic 骗成"坏了"**。
+> **一个诚实的坑**:这一步偶发会首启动失败——`[PROC] jumping to user mode` 那行有时打出一个 `0xFFFFFFFF8...` 的内核地址而非 `0x431E0C`,随即 #PF panic。根因在 `kernel/proc/user_launch.cpp` 里 `enter_loaded_program` 跳用户态的入口是从 `task->ctx.rip` 读的,而 `execve` 刚把这个字段设成 ELF 入口;两者之间那一小窗,偶发被一次调度打断了、把内核 RIP 存回了 `ctx.rip`。稳的做法其实是直接跳 `elf_aux.at_entry`(它本就是函数参数,不会被调度动),可这一行一直没改——是个带了很多版的潜在脆弱点,重跑一次通常就过。笔者写在这里,是想说:**生产启动绿这件事,值得多跑几次确认,别被一次偶发 panic 骗成"坏了"**。
 
 ## 诚实的边界
 

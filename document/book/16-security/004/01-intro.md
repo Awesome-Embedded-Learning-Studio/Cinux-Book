@@ -4,9 +4,9 @@ title: 01 · 导引:全局 stac 在 SMP 下会丢
 
 # 导引:全局 stac 在 SMP 下会丢
 
-> 上一章(056)开 SMAP 的办法,是在所有从用户态进来的入口各挂一对 `stac`/`clac`——`syscall_entry` 一进来就 `stac`,三个中断宏在「从用户态进」的分支里也 `stac`。等于一进内核就把 RFLAGS.AC 拉高,整段内核态都放行用户内存访问。单核下这套没毛病。可一旦上了 SMP,它就变成一颗定时炸弹:**RFLAGS.AC 是 per-CPU 位,而 context_switch 切任务时根本不存 RFLAGS**。任务从 CPU0 迁到 CPU1,新核上的 AC 是它自己的旧值(多半是 0),代码却还在按「全局 stac 已开」的旧假设裸解引用用户指针——撞上 AC=0 的核,SMAP #PF。`-smp 2` 下 shell 反复 `/hello`,`sys_waitpid` 写用户 `*status` 必崩。
+> 上一章(`16-security/001`)开 SMAP 的办法,是在所有从用户态进来的入口各挂一对 `stac`/`clac`——`syscall_entry` 一进来就 `stac`,三个中断宏在「从用户态进」的分支里也 `stac`。等于一进内核就把 RFLAGS.AC 拉高,整段内核态都放行用户内存访问。单核下这套没毛病。可一旦上了 SMP,它就变成一颗定时炸弹:**RFLAGS.AC 是 per-CPU 位,而 context_switch 切任务时根本不存 RFLAGS**。任务从 CPU0 迁到 CPU1,新核上的 AC 是它自己的旧值(多半是 0),代码却还在按「全局 stac 已开」的旧假设裸解引用用户指针——撞上 AC=0 的核,SMAP #PF。`-smp 2` 下 shell 反复 `/hello`,`sys_waitpid` 写用户 `*status` 必崩。
 >
-> 这一章把那颗炸弹拆了,顺手还掉上一章末尾埋的债。两件事:其一,**撤掉入口级的全局 stac**,改成局部 `stac`/`clac` 的 user accessor——只在真正拷贝用户内存的那一小段窗口里放行 AC,拷完立刻关;所有「内核直接解引用用户指针」的路径迁到 accessor 上,syscall 按Linux 的样子切成 `do_*_kernel`(纯内核逻辑,可以 block)/ `sys_*`(薄边界,只管跨用户)两层。其二,**给 accessor 配上 exception table**——拷贝中途真 fault 了(用户传了个不可映射的地址),靠一张 RIP-based 的 `__ex_table` 把执行改到 fixup,accessor 返回 false,syscall 返回 `-EFAULT`,而不是 panic。这正是 056 章最后那句伏笔:「完整的 `copy_from_user`/`copy_to_user`(带 exception table 的容错访问)是后面的事」。
+> 这一章把那颗炸弹拆了,顺手还掉上一章末尾埋的债。两件事:其一,**撤掉入口级的全局 stac**,改成局部 `stac`/`clac` 的 user accessor——只在真正拷贝用户内存的那一小段窗口里放行 AC,拷完立刻关;所有「内核直接解引用用户指针」的路径迁到 accessor 上,syscall 按Linux 的样子切成 `do_*_kernel`(纯内核逻辑,可以 block)/ `sys_*`(薄边界,只管跨用户)两层。其二,**给 accessor 配上 exception table**——拷贝中途真 fault 了(用户传了个不可映射的地址),靠一张 RIP-based 的 `__ex_table` 把执行改到 fixup,accessor 返回 false,syscall 返回 `-EFAULT`,而不是 panic。这正是 `16-security/001` 章最后那句伏笔:「完整的 `copy_from_user`/`copy_to_user`(带 exception table 的容错访问)是后面的事」。
 >
 > 验证不靠「用户可见的新能力」,靠两件可观测的事——accessor fault 的负测试(解引用未映射地址,返回 false 而不是把内核炸了)、exception table 纯函数的 host 单测,加上全量测试在单核和 `-smp 2` 下都不回归。
 >
@@ -23,7 +23,7 @@ title: 01 · 导引:全局 stac 在 SMP 下会丢
 
 先把上一章怎么开的 SMAP 回顾一下,雷就埋在那套挂法里。
 
-056 开 SMAP 时,`stac` 挂在两个地方。一是 SYSCALL 入口,因为 SYSCALL 必从用户态进来,handler 一定要读用户内存,所以一进来就放行:
+`16-security/001` 开 SMAP 时,`stac` 挂在两个地方。一是 SYSCALL 入口,因为 SYSCALL 必从用户态进来,handler 一定要读用户内存,所以一进来就放行:
 
 ```asm
 swapgs

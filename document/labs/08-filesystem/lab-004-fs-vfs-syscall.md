@@ -8,7 +8,7 @@ title: Lab 004 · 让用户态能 open/read 文件:VFS 系统调用与 shell
 
 ## 实验目标
 
-把 003 搭的 VFS 接到系统调用上,让用户态真能 open/read 文件。拆成三个子目标:
+把 `08-filesystem/003` 搭的 VFS 接到系统调用上,让用户态真能 open/read 文件。拆成三个子目标:
 
 1. 系统调用层:实现 `sys_open`(路径→inode→fd)、`sys_read`/`sys_write`(fd→File→inode 操作)、`sys_close`、`sys_getdents`,接进 syscall 派发表。
 2. 用户态封装:libc 里给每个系统调用写汇编包装(一句 `syscall` + 装参数),让用户程序像调函数一样用。
@@ -20,7 +20,7 @@ title: Lab 004 · 让用户态能 open/read 文件:VFS 系统调用与 shell
 
 过 Lab 003:VFS 内核层(inode、FileSystem、挂载表、FDTable、ramdisk 后端)已就绪——这一关直接用 `vfs_resolve`、`fs->lookup`、`g_global_fd_table()`。
 
-过 023 的 syscall 框架:`syscall` 指令、派发表、`SyscallNr` 编号都懂。这一关是往那张表里加新条目。
+过 `07-userland/002` 的 syscall 框架:`syscall` 指令、派发表、`SyscallNr` 编号都懂。这一关是往那张表里加新条目。
 
 ## 任务分解
 
@@ -49,7 +49,7 @@ title: Lab 004 · 让用户态能 open/read 文件:VFS 系统调用与 shell
 - fd 0 的 read 保留键盘老路,不进 VFS;VFS 只服务 fd≥3。
 - 这一关**不**实现文件创建/写盘(ramdisk 只读);getdents 是「一次一条」的简化形态,不是 POSIX 那种一次多条结构体。
 
-syscall 号怎么编、汇编约束怎么写、cat/ls 的循环怎么组织,都得你照 023 的 syscall 约定来定,这关不提供。
+syscall 号怎么编、汇编约束怎么写、cat/ls 的循环怎么组织,都得你照 `07-userland/002` 的 syscall 约定来定,这关不提供。
 
 ## 验证步骤
 
@@ -78,4 +78,4 @@ cmake --build build --target run-kernel-test                  # QEMU 机内测
 4. fd 0 的 read 走键盘老路,fd≥3 走 VFS;libc 包装把 rcx/r11 加进 clobber。
 5. 不实现写盘/文件创建(ramdisk 只读),getdents 是一次一条的简化形态。
 
-做到这五条,从用户键盘到 VFS 到 ramdisk 的整条路就通了。但文件系统还是只读、数据还嵌在内核里——下一关(005 ext2)才做磁盘上能读能写的真文件系统。
+做到这五条,从用户键盘到 VFS 到 ramdisk 的整条路就通了。但文件系统还是只读、数据还嵌在内核里——下一关(Lab 005 ext2)才做磁盘上能读能写的真文件系统。

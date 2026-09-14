@@ -4,7 +4,7 @@ title: 001 · 大内核登场:mini kernel 交棒
 
 # 001 · 大内核登场:mini kernel 交棒
 
-> mini kernel 用升级过的加载器把 big kernel 从磁盘读进来、跳进它的入口;串口上那一行 `[BIG] Big kernel running @ 0x1000000`,就是整个 004–009 接力跑的终点信号。
+> mini kernel 用升级过的加载器把 big kernel 从磁盘读进来、跳进它的入口;串口上那一行 `[BIG] Big kernel running @ 0x1000000`,就是整个 `01-boot/004`–`03-big-kernel/001` 接力跑的终点信号。
 
 ## 本章路线
 

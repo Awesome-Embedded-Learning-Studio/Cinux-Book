@@ -85,7 +85,7 @@ grep -n 'IBlockDevice\|NetDevice' kernel/drivers/nvme/nvme_block_device.hpp kern
 cmake --build build --target run-kernel-test 2>&1 | grep -aE 'test_nvme|test_virtio' | head
 ```
 
-应看到 `test_nvme`、`test_virtio`(含 `test_net_bringup`)一批 PASS——这些是 002 新加的驱动机制测,挂真设备跑(不是 stub)。
+应看到 `test_nvme`、`test_virtio`(含 `test_net_bringup`)一批 PASS——这些是 `12-storage/002` 新加的驱动机制测,挂真设备跑(不是 stub)。
 
 ## 想一想
 

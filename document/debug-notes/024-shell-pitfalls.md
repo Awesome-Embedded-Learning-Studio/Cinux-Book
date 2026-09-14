@@ -5,7 +5,7 @@ tag: 024_shell
 
 # 调试档案 024 · shell 起来,SYSRETQ 的 SS 与 syscall 的 RBX 各埋一雷
 
-> 从 `document/notes/024/024-01-sysretq-ss-rpl.md`、`024-02-syscall-rbx-clobber.md` 提炼并补全「定位/防复发」,配套主书 [024 · 给内核一个能对话的用户态:shell](../book/07-userland/024-shell.md)。024 把 023 那个只打一行字就走的 hello,换成一个能读键盘、切词、分发的 REPL shell。shell 本身不难写,真正的麻烦全压在「用户态 ↔ 内核态」这条往返通道上:shell 一刻不停地 `sys_read`/`sys_write`,任何出口/入口的细节没接好,都会被高频放大成「整个 shell 报废」。这一章两个坑都典型——一个是「SYSRETQ 算出来的 SS 少了 RPL=3」,shell 刚打完 prompt、下一次 PIT 中断回来就炸 #GP;一个是「syscall 出口拿 RBX 暂存返回值」,把用户 RBX 冲掉,结果每个字符都写进同一格、命令全部失效。两条都值得记成档案。
+> 从 `document/notes/024/024-01-sysretq-ss-rpl.md`、`024-02-syscall-rbx-clobber.md` 提炼并补全「定位/防复发」,配套主书 [`07-userland/003` · 给内核一个能对话的用户态:shell](../book/07-userland/003/)。`07-userland/003` 把 `07-userland/002` 那个只打一行字就走的 hello,换成一个能读键盘、切词、分发的 REPL shell。shell 本身不难写,真正的麻烦全压在「用户态 ↔ 内核态」这条往返通道上:shell 一刻不停地 `sys_read`/`sys_write`,任何出口/入口的细节没接好,都会被高频放大成「整个 shell 报废」。这一章两个坑都典型——一个是「SYSRETQ 算出来的 SS 少了 RPL=3」,shell 刚打完 prompt、下一次 PIT 中断回来就炸 #GP;一个是「syscall 出口拿 RBX 暂存返回值」,把用户 RBX 冲掉,结果每个字符都写进同一格、命令全部失效。两条都值得记成档案。
 
 ## 案例一:shell 打完 prompt,PIT 一 tick 就炸 `#GP(0x28)`
 
@@ -117,16 +117,16 @@ tag: 024_shell
 
 ## 隐形的雷:single-task 时代藏着的 syscall 单栈与单分发表
 
-上面两个坑是当场就炸的,修完 shell 就好用了。但 024 里还埋着一颗当下不炸、迟早要命的雷,单独点出来。
+上面两个坑是当场就炸的,修完 shell 就好用了。但 `07-userland/003` 里还埋着一颗当下不炸、迟早要命的雷,单独点出来。
 
-启动时有两步合谋出了「全局唯一 syscall 栈」:`syscall_init()` 把**当时的**内核栈指针 `rsp` 存进全局变量 `g_syscall_kernel_rsp`;紧接着 `launch_first_user()` 又把同一个 `kernel_rsp0` 写进 GS base 页的 `gs:0`(`gs_virt[0] = kernel_rsp0`)。之后每一次 SYSCALL,`syscall.S` 都是 `movq %gs:0, %rsp`——把内核栈**无脑**切到这一个固定地址。也就是说,整个内核只有**一个 syscall 栈**,所有系统调用共用它,没有任何「这是不是已经进了 syscall」的重入保护。024 是单任务内核,`launch_first_user` 只起一个 shell、shell 不返回,syscall 永远不会嵌套,这颗雷不会响。可一旦哪天 shell 跑到一半被 PIT 中断打断、而中断处理路径里又触发了系统调用(或者上了真正的多进程、两个用户进程前后脚 SYSCALL 进来),两次 syscall 会往同一块栈上压 trap frame,后一次把前一次的现场踩烂——到时候崩出来的栈帧会非常难看,而且根本看不出根因是「单栈 + 无重入门闩」。
+启动时有两步合谋出了「全局唯一 syscall 栈」:`syscall_init()` 把**当时的**内核栈指针 `rsp` 存进全局变量 `g_syscall_kernel_rsp`;紧接着 `launch_first_user()` 又把同一个 `kernel_rsp0` 写进 GS base 页的 `gs:0`(`gs_virt[0] = kernel_rsp0`)。之后每一次 SYSCALL,`syscall.S` 都是 `movq %gs:0, %rsp`——把内核栈**无脑**切到这一个固定地址。也就是说,整个内核只有**一个 syscall 栈**,所有系统调用共用它,没有任何「这是不是已经进了 syscall」的重入保护。`07-userland/003` 是单任务内核,`launch_first_user` 只起一个 shell、shell 不返回,syscall 永远不会嵌套,这颗雷不会响。可一旦哪天 shell 跑到一半被 PIT 中断打断、而中断处理路径里又触发了系统调用(或者上了真正的多进程、两个用户进程前后脚 SYSCALL 进来),两次 syscall 会往同一块栈上压 trap frame,后一次把前一次的现场踩烂——到时候崩出来的栈帧会非常难看,而且根本看不出根因是「单栈 + 无重入门闩」。
 
 同源的还有一个:`syscall_table` 是全局单张表,注册的 `sys_read/sys_write/sys_exit/sys_yield` 对所有用户进程一视同仁,没有「每个进程一张分发表」的概念。现在这无所谓,但等需要按进程隔离系统调用权限时,它也是要被重构的地方。
 
-这颗雷和 019 那条「内核待错地址半区」是同一类——都是为了「先让它跑起来」而走的捷径,在单任务、单进程的世界里人畜无害,一旦上并发或多进程就会一齐反噬。眼下能做的,是在心里给它标个记号:**syscall 栈要 per-CPU/per-task 化、要有重入计数或门闩、分发表要能按进程区分**。这不是 024 该修的事,是「下一站」及以后的债务。
+这颗雷和 `06-process/001` 那条「内核待错地址半区」是同一类——都是为了「先让它跑起来」而走的捷径,在单任务、单进程的世界里人畜无害,一旦上并发或多进程就会一齐反噬。眼下能做的,是在心里给它标个记号:**syscall 栈要 per-CPU/per-task 化、要有重入计数或门闩、分发表要能按进程区分**。这不是 `07-userland/003` 该修的事,是「下一站」及以后的债务。
 
 ---
 
 ### 一句话总结
 
-024 两个坑,一个是 **SYSRETQ 算出来的 SS 在 QEMU 上漏了 RPL=3**(`0x28` 而非 `0x2B`),修在「把 RPL=3 编进 STAR 基值 `0x23`」;一个是 **syscall 出口拿 callee-saved 的 RBX 暂存返回值**,把用户的 `pos` 冲掉、命令全废,修在「返回值改存 `gs:16`、出口从 trap frame `rsp+80` 恢复用户 RBX」。前者是「SYSRETQ 出口不可信,基值自带 RPL 最稳」,后者是「SYSCALL 只自动存 RCX/R11,callee-saved 绝不能当 scratch」。两条之外,还有一颗 single-task 时代的隐形雷:syscall 单栈、无重入门闩、分发表全局共享——当下不响,等中断里再进 syscall 或上了多进程那天,它就会爆。
+`07-userland/003` 两个坑,一个是 **SYSRETQ 算出来的 SS 在 QEMU 上漏了 RPL=3**(`0x28` 而非 `0x2B`),修在「把 RPL=3 编进 STAR 基值 `0x23`」;一个是 **syscall 出口拿 callee-saved 的 RBX 暂存返回值**,把用户的 `pos` 冲掉、命令全废,修在「返回值改存 `gs:16`、出口从 trap frame `rsp+80` 恢复用户 RBX」。前者是「SYSRETQ 出口不可信,基值自带 RPL 最稳」,后者是「SYSCALL 只自动存 RCX/R11,callee-saved 绝不能当 scratch」。两条之外,还有一颗 single-task 时代的隐形雷:syscall 单栈、无重入门闩、分发表全局共享——当下不响,等中断里再进 syscall 或上了多进程那天,它就会爆。

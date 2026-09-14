@@ -29,7 +29,7 @@ title: 03 · 没做的与小结
 
 ## 小结
 
-- TCP(协议号 6)挂进 063 立的 L4 表(`ipv4.add_l4(kIpProtoTcp, tcp)`),加协议不疼。
+- TCP(协议号 6)挂进 `17-net/003` 立的 L4 表(`ipv4.add_l4(kIpProtoTcp, tcp)`),加协议不疼。
 - TCP 比 UDP 多一台**连接状态机**:每个连接一个 TCB(state / 4-tuple / iss / snd_nxt / rcv_nxt),固定 8 槽,在握手→established→挥手间转换。状态机是 TCP 灵魂,也是篇幅所在。
 - 核心算术:**SYN 占 1 序号、FIN 占 1 序号、数据占 len**;`snd_nxt` 是下个发的,`rcv_nxt` 是下个期望收的(=ACK 值)。三次握手协商序号,数据按序 + ACK 推进 rcv_nxt,四次挥手靠 FIN(占 1 序号)+ ACK 拆连接。
 - 校验和**必填**(不像 UDP 可省),伪首部 proto=6 + 段,连续缓冲区一把算(同 UDP trick)。

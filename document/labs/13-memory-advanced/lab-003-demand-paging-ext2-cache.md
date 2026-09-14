@@ -13,7 +13,7 @@ title: Lab 003 · demand paging 硬门控 + ext2 缓存 验证
 1. PF 硬门控:用户态 not-present PF 命不中 VMA → `exit_current` 真 segfault,靠 `err & 0x04` 区分 user/kernel;
 2. 栈增长窗扩到 1MB(`USER_STACK_GROWTH`),配套硬门控;
 3. `sys_read` 对磁盘文件走 `PageCache::read_bytes`,靠 `is_page_cacheable()` virtual 判别;
-4. run-kernel-test 从 002 的 730 涨到 734。
+4. run-kernel-test 从 `13-memory-advanced/002` 的 730 涨到 734。
 
 ## 步骤
 

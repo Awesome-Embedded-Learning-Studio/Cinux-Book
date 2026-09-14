@@ -4,7 +4,7 @@ title: 04 · connect_path:立即建连,无内核握手
 
 # connect_path:立即建连,无内核握手
 
-`connect_path`(`unix_socket.cpp:75-126`)是 `AF_UNIX` 跟 TCP 差别最大的一步。TCP 的 `connect` 发 SYN、等 SYN-ACK、再回 ACK(069 讲过的三次握手),全在协议状态机里跑;`AF_UNIX` 没有协议握手——`connect_path` **直接**在内核里把连接建好:
+`connect_path`(`unix_socket.cpp:75-126`)是 `AF_UNIX` 跟 TCP 差别最大的一步。TCP 的 `connect` 发 SYN、等 SYN-ACK、再回 ACK(`17-net/004` 讲过的三次握手),全在协议状态机里跑;`AF_UNIX` 没有协议握手——`connect_path` **直接**在内核里把连接建好:
 
 ```cpp
 cinux::lib::ErrorOr<void> UnixSocket::connect_path(const char* path) {

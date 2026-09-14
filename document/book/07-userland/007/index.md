@@ -4,7 +4,7 @@ title: 007 · PTY:伪终端把 console 单例变成多路终端
 
 # 007 · PTY:伪终端把 console 单例变成多路终端
 
-> 立 PTY(伪终端):一对 master/slave,slave 对程序表现得像真终端,master 是终端模拟器那一端。开一对就是开一个新终端,把 062 的 console 单例升级成 Linux 风格的多路 PTY。
+> 立 PTY(伪终端):一对 master/slave,slave 对程序表现得像真终端,master 是终端模拟器那一端。开一对就是开一个新终端,把 `07-userland/005` 的 console 单例升级成 Linux 风格的多路 PTY。
 
 ## 本章路线
 

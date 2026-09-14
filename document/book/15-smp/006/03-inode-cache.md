@@ -30,7 +30,7 @@ static cinux::proc::RaceWatchpoint g_race_test_wp =
 #endif
 ```
 
-（[main_test.cpp](../../../kernel/test/main_test.cpp#L910-L917)。机制测试的 watchpoint。）测试的意图是:AP 先碰一次这个 watchpoint,BSP 再 probe,probe 拿到的 `prev` 是 AP 的 cpu id、不等于 BSP 自己,返 `true` = 检测到跨核交错,打出那一行专属的 PASS,FAIL 则把整个 suite 拖红:
+（`kernel/test/main_test.cpp:910-917`。机制测试的 watchpoint。）测试的意图是:AP 先碰一次这个 watchpoint,BSP 再 probe,probe 拿到的 `prev` 是 AP 的 cpu id、不等于 BSP 自己,返 `true` = 检测到跨核交错,打出那一行专属的 PASS,FAIL 则把整个 suite 拖红:
 
 ```cpp
 #ifdef CINUX_RACE_DETECT
@@ -45,9 +45,9 @@ static cinux::proc::RaceWatchpoint g_race_test_wp =
 #endif
 ```
 
-（[main_test.cpp](../../../kernel/test/main_test.cpp#L1048-L1064)。用 probe 不用 `RACE_TOUCH`——机制测试不能挂内核;末尾 `if (!race) { ok = false; }` 让 FAIL 真的拖红整个 suite,这正是这一行测试「没被哑火」的硬证据。)
+（`kernel/test/main_test.cpp:1048-1064`。用 probe 不用 `RACE_TOUCH`——机制测试不能挂内核;末尾 `if (!race) { ok = false; }` 让 FAIL 真的拖红整个 suite,这正是这一行测试「没被哑火」的硬证据。)
 
-⚠️ **这里有个细节值得说清楚**:`main_test.cpp` 注释写着「AP touches it in `ap_test_selfcheck` before writing magic」,翻 `ap_test_selfcheck` 函数体([main_test.cpp](../../../kernel/test/main_test.cpp#L927-L960))确实如此——L940 一行 `#ifdef CINUX_RACE_DETECT race_check_access_probe(g_race_test_wp); #endif` 把 AP 侧的 touch 补上了。BSP 的 probe 拿到的 `prev` 是 AP 的 cpu id、不等于自己,返 `true` = 检测到跨核交错,打出 PASS。也就是说:只要三件套(option + 编译宏 + §14 文件门)齐了,这条机制自测端到端通、能真报 PASS。lab 会带你亲手补全三件套并验证这行 PASS 真的会亮。
+⚠️ **这里有个细节值得说清楚**:`main_test.cpp` 注释写着「AP touches it in `ap_test_selfcheck` before writing magic」,翻 `ap_test_selfcheck` 函数体(`kernel/test/main_test.cpp:927-960`)确实如此——L940 一行 `#ifdef CINUX_RACE_DETECT race_check_access_probe(g_race_test_wp); #endif` 把 AP 侧的 touch 补上了。BSP 的 probe 拿到的 `prev` 是 AP 的 cpu id、不等于自己,返 `true` = 检测到跨核交错,打出 PASS。也就是说:只要三件套(option + 编译宏 + §14 文件门)齐了,这条机制自测端到端通、能真报 PASS。lab 会带你亲手补全三件套并验证这行 PASS 真的会亮。
 
 至于 `ext2` 路径本身——CinuxOS 上游(提交 `bf2d2d7`)确实在 `get_cached_inode` 入口放过 `RACE_TOUCH(g_inode_cache_wp)`,GUI `-smp 2` 跑 gcc 立刻抓到凶手栈 `get_cached_inode ← execve /bin/sh`,证明检测器对真实代码路径有效。但 Book 回迁时**只落地了「锁 + `lockdep_assert_held` + old-style cast 修复」三样**,那个 `RACE_TOUCH` 靶子没回迁(Book 树 `grep kernel/fs/` 零命中)。所以教程里讲「race-detect 作为工具能抓」,用机制自测当例子;`ext2` 路径讲 `lockdep_assert_held` 当回归护栏——两个工具互补,A 抓「有锁忘持」、B 抓「根本没锁」。
 

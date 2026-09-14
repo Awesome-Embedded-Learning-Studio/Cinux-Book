@@ -16,9 +16,9 @@ title: Lab 001 · 双缓冲画布:从像素到翻页
 
 ## 前置条件
 
-- 028e 通过;理解帧缓冲(013)、PIT(011)、heap/VMM、028e 的 `memory_layout.hpp`。
+- `08-filesystem/009` 通过;理解帧缓冲(`03-big-kernel/006`)、PIT(`03-big-kernel/004`)、heap/VMM、`08-filesystem/009` 的 `memory_layout.hpp`。
 - 能用 `CINUX_GUI=ON` 构建:`cmake -B build -DCINUX_GUI=ON && cmake --build build`。
-- 读懂主书第 001 章的「Canvas 设计」「刷新与 demo」「调试现场」三节,以及 [001-canvas-heap-directmap.md](../../debug-notes/001-canvas-heap-directmap.md)。
+- 读懂主书第 001 章的「Canvas 设计」「刷新与 demo」「调试现场」三节,以及 [001-canvas-heap-directmap.md](../../debug-notes/029-canvas-heap-directmap.md)。
 
 ## 任务分解
 
@@ -49,7 +49,7 @@ draw_line (Bresenham)：
 纸上算:
 
 - 1024×768 屏,32 位像素,back buffer 多少字节?(1024 × 768 × 4 = 3 145 728 ≈ 3 MB)
-- 028e 布局表里 `KMEM_HEAP_SIZE` 原先是多少?(1 MB)canvas 这 3 MB 比它大多少?
+- `08-filesystem/009` 布局表里 `KMEM_HEAP_SIZE` 原先是多少?(1 MB)canvas 这 3 MB 比它大多少?
 - heap 的 `expand()` 在 001 之前**有没有上限检查**?没有的话,这 3 MB 会让堆涨到哪个虚拟地址、踩进哪个区段?(提示:堆从 `KMEM_HEAP_BASE` 起,涨过 1 MB 就进了紧挨着的 MMIO / Stack 区段。)
 - 001 的修复做了两件事,分别是什么?(heap 加 `max_size_` 上限 + `expand` 返回 bool;`KMEM_HEAP_SIZE` 提到 128 MB。)为什么「预留 128 MB 虚拟地址」不等于「立刻吃掉 128 MB 物理内存」?(物理页按需分配。)
 
@@ -79,10 +79,10 @@ draw_line (Bresenham)：
 
 - 假设 A:堆越界(canvas 的大块分配让堆 expand 进了别的区段)——验证:在 heap expand 加打印看它涨到哪个虚拟地址,对照 `memory_layout.hpp` 看是否越过 `KMEM_HEAP_BASE + KMEM_HEAP_SIZE`。
 - 假设 B:direct map 覆盖不足(大块分配耗尽低地址物理页,PMM 返回高地址,`phys_to_virt` 落在未映射处)——验证:在 `alloc_page` 后打印返回的物理地址,看是否超过 loader 的 identity-map 范围;或直接读 `phys_to_virt(高地址)` 是否 page fault。
-- 假设 C:中断/抢占问题(flip 在 IRQ0 里跑,长拷贝被打断)——验证:在 flip 外包关中断看是否还 hang(028e/001 的真因不是这条,但要会**先证伪它**)。
+- 假设 C:中断/抢占问题(flip 在 IRQ0 里跑,长拷贝被打断)——验证:在 flip 外包关中断看是否还 hang(`08-filesystem/009`/`09-gui/001` 的真因不是这条,但要会**先证伪它**)。
 - 真因:001 里是 A(heap 无上限)+ B(direct map 不足)两个**叠加**——先 A 后 B。
 
-写完对照主书「调试现场」和 [001-canvas-heap-directmap.md](../../debug-notes/001-canvas-heap-directmap.md),看你的假设链是否覆盖了这两个洞、并正确地**按顺序**定位(先 heap 后 direct map)。
+写完对照主书「调试现场」和 [001-canvas-heap-directmap.md](../../debug-notes/029-canvas-heap-directmap.md),看你的假设链是否覆盖了这两个洞、并正确地**按顺序**定位(先 heap 后 direct map)。
 
 ## 接口约束
 

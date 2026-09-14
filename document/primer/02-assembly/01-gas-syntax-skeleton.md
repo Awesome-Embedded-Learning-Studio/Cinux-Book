@@ -78,7 +78,7 @@ GAS 用**伪指令**(以 `.` 开头、不是真机器指令的汇编器指令)�
 
 `.global`/`.extern` 管**符号的可见性**:比如 `long_mode.S` 里 `.global setup_page_tables`(long_mode.S:87)把符号导出给链接器,`stage2.S` 那边用 `.extern setup_page_tables`(stage2.S:44)声明、`call setup_page_tables`(stage2.S:178)调用——这是两个汇编文件之间的跨文件调用。C++ 调汇编同理:`kernel/main.cpp:81` 的 `extern "C" void irq_init();` 声明后,就能调到汇编里 `.global` 导出的同名函数。反过来,`interrupts.S` 里 `call \handler` 调的 C++ 中断处理函数,GAS 允许不写 `.extern`、直接 `call`,符号由链接器解析到 C++ 那边 `extern "C"` 导出的实现。`.set` 则是编译期常量,`mbr.S` 开头那一坨 `.set STAGE2_LBA, 1` / `.set PAGE_FLAGS, (...)`(long_mode.S:37)就是给魔法数字起名字,改起来只动一处。
 
-这些伪指令的**实模式/保护模式/长模式实战细节**,正文展开得很透——详见正文 [001 · 实模式引导](../../book/01-boot/001-boot-real-mode.md)(`mbr.S`/`stage2.S` 的实模式用法)、[002 · GDT 与保护模式](../../book/01-boot/002-boot-gdt-protected.md)、[003 · 进入长模式](../../book/01-boot/003-boot-long-mode.md)(`long_mode.S` 的 `.code32`→`.code64` 切换)。本前置卷只摆骨架,不重复讲。
+这些伪指令的**实模式/保护模式/长模式实战细节**,正文展开得很透——详见正文 [001 · 实模式引导](../../book/01-boot/001/)(`mbr.S`/`stage2.S` 的实模式用法)、[002 · GDT 与保护模式](../../book/01-boot/002/)、[003 · 进入长模式](../../book/01-boot/003/)(`long_mode.S` 的 `.code32`→`.code64` 切换)。本前置卷只摆骨架,不重复讲。
 
 ## 数据定义:把字节铺进镜像
 

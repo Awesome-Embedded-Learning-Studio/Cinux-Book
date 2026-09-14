@@ -4,7 +4,7 @@ title: Lab 002 · per-CPU 与 LAPIC IPI 验证
 
 # Lab 002 · per-CPU 与 LAPIC IPI 验证
 
-> 对应 `document/book/15-smp/002/`。验证档 **B 档**(`test_apic` 验证 IPI 的 ICR 写入)。本章只到 IPI 发令枪,trampoline/AP 真跑是 003。验证靠构建 + 测试 + grep。
+> 对应 `document/book/15-smp/002/`。验证档 **B 档**(`test_apic` 验证 IPI 的 ICR 写入)。本章只到 IPI 发令枪,trampoline/AP 真跑是 `15-smp/003`。验证靠构建 + 测试 + grep。
 
 ## 目标
 
@@ -48,7 +48,7 @@ grep -rn 'send_init\|send_sipi\|send_ipi\|kRegIcr\|kIcrMode' kernel/drivers/apic
 cmake --build build --target run-kernel-test 2>&1 | grep -A2 'APIC'
 ```
 
-应见 `test_send_init_writes_icr`、`test_send_sipi_writes_vector`、`test_send_ipi_fixed` 全过(ICR high/low 写入正确)。**注意**:本章没有 trampoline,`-smp 2` 此刻看不到第二个核 online——AP 真跑是下一章 003。
+应见 `test_send_init_writes_icr`、`test_send_sipi_writes_vector`、`test_send_ipi_fixed` 全过(ICR high/low 写入正确)。**注意**:本章没有 trampoline,`-smp 2` 此刻看不到第二个核 online——AP 真跑是下一章 `15-smp/003`。
 
 ## 验收清单
 
@@ -61,4 +61,4 @@ cmake --build build --target run-kernel-test 2>&1 | grep -A2 'APIC'
 
 - **别**给 ISR 无条件 swapgs——要按 CS 判 CPL=3 条件 swap,否则内核态中断 swap 两次出错。
 - **别**在 context_switch 里还存/取 GS——GS 是 per-CPU 不是 per-task。
-- **别**指望 002 结束时 `-smp 2` 能看到第二个核——trampoline 在 003,本章只有 IPI 发令枪。
+- **别**指望 `15-smp/002` 结束时 `-smp 2` 能看到第二个核——trampoline 在 `15-smp/003`,本章只有 IPI 发令枪。

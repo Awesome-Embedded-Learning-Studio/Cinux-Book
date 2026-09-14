@@ -4,7 +4,7 @@ title: 02 · 多路复用这一层:poll_core 干什么
 
 # 多路复用这一层:poll_core 干什么
 
-先说为什么需要 poll。到 083 章为止,UnixSocket 的 recv、pipe 的 read、tty 的 read 都能真睡——字节没到,任务 Blocked;字节到了,producer 调 `wake_one` 把它叫醒。这套机制很美,但它有一个朴素约束:**一次阻塞调用只能等一个 fd**。
+先说为什么需要 poll。到 `17-net/005` 章为止,UnixSocket 的 recv、pipe 的 read、tty 的 read 都能真睡——字节没到,任务 Blocked;字节到了,producer 调 `wake_one` 把它叫醒。这套机制很美,但它有一个朴素约束:**一次阻塞调用只能等一个 fd**。
 
 设想你在写一个 shell:它既要等用户敲键盘(stdin),又要等一个后台子进程通过 pipe 报状态。你只有一条主线程。傻办法是开两个线程各阻塞一个 fd,然后俩线程还得用别的机制把「谁先来」告诉你——这是把简单问题硬扭成并发问题。聪明的办法是**把 stdin 和 pipe 两个 fd 一次性塞进一个数组,告诉内核「这俩 fd 任一可读你就唤醒进程」**。内核替你盯着这俩 fd,谁先就绪就叫醒你,你醒后查 revents 看是谁。这就是 poll/select 这一层多路复用。
 
@@ -59,6 +59,6 @@ struct kpollfd {
 
 `level-trigger` 这个语义要先讲清楚:每次回到 for 顶都**无条件重扫所有 fd 的当前状态**,只要此刻仍就绪就报 POLLIN,内核不记忆「这个 fd 上一轮报过没」。这跟 edge-trigger(epoll ET)完全不同——ET 只在状态翻转那一刻报一次,报完你得读完否则下次 poll 不再报。poll 是 LT,你 poll 一次报一次,只要数据还在就持续报。语义等同 Linux poll、等同 epoll LT。这一层选择 LT 不是偷懒,是 poll 这个 ABI 的本意——它没有「注册一次持续监控」的状态,每次调用都是独立的一次扫描。
 
-阻塞真睡的模板——`prepare_to_wait` / `schedule_blocked` / `wake_one`——071 章立过:那里把 pipe 的阻塞 read 从 `sti`/`hlt`(会撞 `#DF`)改成真调度等待队列。poll 这里**一字不动地复用同一套 proven 模板**,不碰 `sti`/`hlt`。下一节讲 poll 怎么把这套模板扩成「一个任务睡在 N 个队列上」。
+阻塞真睡的模板——`prepare_to_wait` / `schedule_blocked` / `wake_one`——`14-process-advanced/005` 章立过:那里把 pipe 的阻塞 read 从 `sti`/`hlt`(会撞 `#DF`)改成真调度等待队列。poll 这里**一字不动地复用同一套 proven 模板**,不碰 `sti`/`hlt`。下一节讲 poll 怎么把这套模板扩成「一个任务睡在 N 个队列上」。
 
 > **顺手提一句头注释的 stale**:`poll_core.hpp:17-20` 的注释大意是「有限 timeout 在 yield 自旋、真 timer-wake 是 F5-M4 DEBT」(原文见那几行)。但实现里 `poll_core.cpp:188` 早把 `timer_queue_arm` 调上了(`:207` 还有 `timer_queue_disarm` 配对),有限 timeout 也是真 park + timer-wake。这是文档落后于代码的典型,本章以 `.cpp` 实现为准。读者核源码时别被那段 header 注释带歪。

@@ -30,7 +30,7 @@ title: 05 · 收尾:验证、没做的、小结
 
 ## 小结
 
-- tmpfs 是内存型虚拟 FS 范式(DevFS 010 / ProcFS 011 已立)的第三次复用:`FileSystem` 子类 + `InodeOps` 子类 + boot `_init.cpp`。差别只在「内容是不是真数据」——tmpfs 的内容是用户态写进去的字节,住在堆上。
+- tmpfs 是内存型虚拟 FS 范式(DevFS `08-filesystem/010` / ProcFS `08-filesystem/011` 已立)的第三次复用:`FileSystem` 子类 + `InodeOps` 子类 + boot `_init.cpp`。差别只在「内容是不是真数据」——tmpfs 的内容是用户态写进去的字节,住在堆上。
 - **数据存哪**:`TmpNode` 内嵌 `Inode` + `fs_private` 指回自身,从 DevFS 的「单例 FS 指自己」升级到「per-node 指自己」;文件内容住 `data/capacity/size` 三件套。写路径三件事:4KB 对齐摊销扩容、gap 零填防 stale 堆字节、靠 `is_page_cacheable()` 默认 false 绕开磁盘 PageCache——**正确性来自一个被故意留在默认值的虚函数,不是显式代码**。
 - **目录树怎么长**:单向兄弟链表代替 DevFS 的定长表(`first_child`+`next_sibling`,头插,无上限);`make_node` 共用 create/mkdir,`unlink` 带 prev 摘链,`lookup` 真正多段 walk(扁平的 DevFS/ProcFS 不需要)。
 - **两条挂载通路**:boot 静态 `g_tmpfs` unowned(`/tmp` 命超表,`umount2` 只摘槽);`sys_mount` 堆对象 owned=true(`umount2` 走 `free_tree` 回收整棵树)。差别全在挂载表那个 `owned` bool——**实际决定生命周期的是「挂载表登不登记所有权」,不是「对象在哪创建」**。

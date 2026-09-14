@@ -62,7 +62,7 @@ for (uint64_t i = 0; i < pages; ++i) {
 static_cast<void>(task->addr_space->vmas().remove(addr, addr + len));
 ```
 
-([sys_shm.cpp](../../../kernel/syscall/sys_shm.cpp#L228-L253),有删节——省略了 detach 后的 free_pages 路径。)调用方 addr → `translate` 得 phys_base → `find_by_phys` 定位段 → **取段自己的 `page_count`** 算 `len = pages * 4096` → 逐页 unmap + `pte_count_dec_and_test` → `vmas().remove(addr, addr + len)`。`remove()` 戳洞,正确处理合并 VMA 的切分(把合并节点劈成两半,不会误删邻居)。
+(`kernel/syscall/sys_shm.cpp:228-253`,有删节——省略了 detach 后的 free_pages 路径。)调用方 addr → `translate` 得 phys_base → `find_by_phys` 定位段 → **取段自己的 `page_count`** 算 `len = pages * 4096` → 逐页 unmap + `pte_count_dec_and_test` → `vmas().remove(addr, addr + len)`。`remove()` 戳洞,正确处理合并 VMA 的切分(把合并节点劈成两半,不会误删邻居)。
 
 源码注释把这条决策讲得很直白(`sys_shm.cpp:221-227`):
 

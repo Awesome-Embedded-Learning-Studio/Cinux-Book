@@ -12,8 +12,8 @@ title: Lab 001 · POSIX 信号 验证
 
 1. 信号数据结构 + 投递三件套在(`signal_send`/`pick_deliverable`/`check_and_deliver`);
 2. Custom handler 走 ISR 路径(`signal_setup_frame` 建栈帧),sigreturn 经 `int $0x80`;
-3. 三处集成:PF→SIGSEGV(替代 042 的 exit_current)、exit→SIGCHLD、write→SIGPIPE;
-4. run-kernel-test 从 044 的 763 涨到 783。
+3. 三处集成:PF→SIGSEGV(替代 `13-memory-advanced/003` 的 exit_current)、exit→SIGCHLD、write→SIGPIPE;
+4. run-kernel-test 从 `13-memory-advanced/005` 的 763 涨到 783。
 
 ## 步骤
 
@@ -40,7 +40,7 @@ grep -rn 'sys_kill\|sys_rt_sigaction\|sys_rt_sigprocmask' kernel/syscall/sys_sig
 grep -n 'SIGSEGV\|signal_send' kernel/arch/x86_64/exception_handlers.cpp
 ```
 
-对比 042:那里 user-fault no-VMA 是 `exit_current` 直接杀;001 改成 `signal_send(SIGSEGV)+return`,ISR 投递——能被 handler 捕获,或默认终止。**这是 042→001 的行为演进。**
+对比 `13-memory-advanced/003`:那里 user-fault no-VMA 是 `exit_current` 直接杀;`14-process-advanced/001` 改成 `signal_send(SIGSEGV)+return`,ISR 投递——能被 handler 捕获,或默认终止。**这是 `13-memory-advanced/003`→`14-process-advanced/001` 的行为演进。**
 
 ### 4.(A 档)handler 往返 + sigreturn trampoline
 
@@ -48,13 +48,13 @@ grep -n 'SIGSEGV\|signal_send' kernel/arch/x86_64/exception_handlers.cpp
 grep -n 'cd 80\|int .0x80\|trampoline' kernel/proc/signal.cpp
 ```
 
-去看 signal.cpp 里 sigreturn trampoline 的构造(栈上 `cd 80`+nop,handler 返回地址指它)。内核测试里 `signal_setup_frame` 构造 + sigreturn 恢复两条单测覆盖往返。**思考**:为什么这个 trampoline 是"登记好的债"?——见章节 GOTCHA#10:依赖栈可执行,NXE 未启用故可行;F9(056)启用 NXE 后栈不可执行,trampoline 失效,须迁 vdso。
+去看 signal.cpp 里 sigreturn trampoline 的构造(栈上 `cd 80`+nop,handler 返回地址指它)。内核测试里 `signal_setup_frame` 构造 + sigreturn 恢复两条单测覆盖往返。**思考**:为什么这个 trampoline 是"登记好的债"?——见章节 GOTCHA#10:依赖栈可执行,NXE 未启用故可行;F9(`16-security/001`)启用 NXE 后栈不可执行,trampoline 失效,须迁 vdso。
 
 ## 验收清单
 
 - [ ] 构建 `build=0`,run-kernel-test ~783。
 - [ ] `signal_send`/`pick_deliverable`/`check_and_deliver`/`setup_frame` + kill/sigaction/sigprocmask 都在。
-- [ ] PF→SIGSEGV 替代了 042 的 exit_current;exit→SIGCHLD、write→SIGPIPE 在。
+- [ ] PF→SIGSEGV 替代了 `13-memory-advanced/003` 的 exit_current;exit→SIGCHLD、write→SIGPIPE 在。
 - [ ] 能说清「Custom 为何走中断路径」「sigreturn trampoline 为何是债」。
 
 ## 别做这些

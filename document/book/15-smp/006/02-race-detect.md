@@ -31,7 +31,7 @@ lockdep 和 race-detect 是两把互补的钳子,分工很明确。`lockdep` 看
 #endif
 ```
 
-（[race_detect.hpp](../../../kernel/proc/race_detect.hpp#L69-L87)。`lockdep_assert_held` 真实宏体是一个带 `kpanic` 的 `do/while(0)`——它是断言不是空操作;宏门控的好处下面讲。）注意「设计了锁但某条路径忘了拿」和「根本没设计锁」是两种不同的病——前者有锁可以 assert,后者连 assert 的对象都没有。
+（`kernel/proc/race_detect.hpp:69-87`。`lockdep_assert_held` 真实宏体是一个带 `kpanic` 的 `do/while(0)`——它是断言不是空操作;宏门控的好处下面讲。）注意「设计了锁但某条路径忘了拿」和「根本没设计锁」是两种不同的病——前者有锁可以 assert,后者连 assert 的对象都没有。
 
 ### 机制:一次原子 exchange 拿到「上一个是谁」
 
@@ -44,7 +44,7 @@ struct RaceWatchpoint {
 };
 ```
 
-（[race_detect.hpp](../../../kernel/proc/race_detect.hpp#L46-L49)。初值 `kRaceCpuNone = 0xFFFFFFFF`,意思是「还没人碰过」。）访问点用 `RACE_TOUCH(w)` 宏,内核做的是一次 `__ATOMIC_ACQ_REL` 的 `atomic_exchange_n`——把本核的 cpu id 写进 `last_cpu`,同时拿到「上一个是谁」:
+（`kernel/proc/race_detect.hpp:46-49`。初值 `kRaceCpuNone = 0xFFFFFFFF`,意思是「还没人碰过」。）访问点用 `RACE_TOUCH(w)` 宏,内核做的是一次 `__ATOMIC_ACQ_REL` 的 `atomic_exchange_n`——把本核的 cpu id 写进 `last_cpu`,同时拿到「上一个是谁」:
 
 ```cpp
 bool race_check_access_probe(RaceWatchpoint& w) {
@@ -54,7 +54,7 @@ bool race_check_access_probe(RaceWatchpoint& w) {
 }
 ```
 
-（[race_detect.cpp](../../../kernel/proc/race_detect.cpp#L17-L21)。）如果 `prev` 既不是 `kRaceCpuNone`(还没人碰过),也不是本核自己,那就说明在上一次访问和这次之间,**另一个 CPU 碰过它且中间没有锁**——这就是跨核交错。`race_check_access` 在此基础上 `backtrace()` + `kpanic("[SMP-RACE] xxx: cpuN touched after cpuM without lock")`,backtrace 从 `RACE_TOUCH` 调用点往上走,正好指到竞态现场([race_detect.cpp](../../../kernel/proc/race_detect.cpp#L23-L34))。
+（`kernel/proc/race_detect.cpp:17-21`。）如果 `prev` 既不是 `kRaceCpuNone`(还没人碰过),也不是本核自己,那就说明在上一次访问和这次之间,**另一个 CPU 碰过它且中间没有锁**——这就是跨核交错。`race_check_access` 在此基础上 `backtrace()` + `kpanic("[SMP-RACE] xxx: cpuN touched after cpuM without lock")`,backtrace 从 `RACE_TOUCH` 调用点往上走,正好指到竞态现场(`kernel/proc/race_detect.cpp:23-34`)。
 
 为什么要强调「无锁」?因为看门点报的是**任何**跨 CPU 交错,哪怕两次访问在时间上是串行的。这是刻意的——hobby 内核里每个共享可变状态都**应当**带锁,「两核无锁碰同一状态」本身就是设计缺陷,逼你加锁,而不是靠时序侥幸。加锁之后这个看门点就该拆掉(下面主线三讲)。
 
@@ -83,4 +83,4 @@ bool race_check_access_probe(RaceWatchpoint& /*w*/) { return false; }
 void race_check_access(RaceWatchpoint& /*w*/)       {}
 ```
 
-（[race_detect_stub.cpp](../../../kernel/proc/race_detect_stub.cpp#L14-L22)。）这套设计的关键是**「生产关、测试开」零侵入**——`RACE_TOUCH` 和 `lockdep_assert_held` 都是宏,编译宏没定义时直接 `((void)0)`,访问点处一行 `#ifdef` 都不用写。
+（`kernel/proc/race_detect_stub.cpp:14-22`。）这套设计的关键是**「生产关、测试开」零侵入**——`RACE_TOUCH` 和 `lockdep_assert_held` 都是宏,编译宏没定义时直接 `((void)0)`,访问点处一行 `#ifdef` 都不用写。

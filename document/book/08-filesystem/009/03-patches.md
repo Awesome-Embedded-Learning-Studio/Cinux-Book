@@ -28,7 +28,7 @@ void  AHCI::set_instance(AHCI* a) { s_instance_ = a; }
 
 ### 二、launch_first_user 不再手搓 Task:复用调度器的 current
 
-008 的 `launch_first_user` 里有一行很可疑的代码:它手动 `static Task shell_task{}`——一个零初始化的、没有内核栈、`tid=0`、不在任何运行队列里的「假 Task」。重构前凑合能用,是因为那时调度器还没真正接管它;但一旦启动路径线程化,这个假 Task 就成了定时炸弹:
+`08-filesystem/008` 的 `launch_first_user` 里有一行很可疑的代码:它手动 `static Task shell_task{}`——一个零初始化的、没有内核栈、`tid=0`、不在任何运行队列里的「假 Task」。重构前凑合能用,是因为那时调度器还没真正接管它;但一旦启动路径线程化,这个假 Task 就成了定时炸弹:
 
 - `sys_exit` 会 `Scheduler::current()` 拿到这个假 Task,标记 Dead 后 `yield`;可它根本不在运行队列里;
 - 它没有有效的 `CpuContext`,调度器要是尝试切回它就直接崩。
@@ -43,7 +43,7 @@ current->cwd[1] = '\0';
 Scheduler::set_current(current);
 ```
 
-还有一个连带的小坑,分两层。008 里 `user_space` 是 `launch_first_user` 的一个**栈上局部变量**(`AddressSpace user_space;`),函数一返回就析构;但线程化之后,它要被存进 `current->addr_space`、由调度器长期持有,函数返回时不能析构,所以必须把它的生命期提升到**静态存储**。可 `AddressSpace` 带析构器,一个静态的 `AddressSpace` 对象会触发 `__dso_handle` 之类的全局析构登记,在 freestanding 内核里链接报错。解法是 **placement new**——在一块 align 好的静态 `uint8_t` buffer 上构造它,既拿到静态生命期,又绕开析构器登记:
+还有一个连带的小坑,分两层。`08-filesystem/008` 里 `user_space` 是 `launch_first_user` 的一个**栈上局部变量**(`AddressSpace user_space;`),函数一返回就析构;但线程化之后,它要被存进 `current->addr_space`、由调度器长期持有,函数返回时不能析构,所以必须把它的生命期提升到**静态存储**。可 `AddressSpace` 带析构器,一个静态的 `AddressSpace` 对象会触发 `__dso_handle` 之类的全局析构登记,在 freestanding 内核里链接报错。解法是 **placement new**——在一块 align 好的静态 `uint8_t` buffer 上构造它,既拿到静态生命期,又绕开析构器登记:
 
 ```cpp
 alignas(alignof(AddressSpace)) static uint8_t user_space_storage[sizeof(AddressSpace)];
@@ -52,4 +52,4 @@ auto* user_space = new (user_space_storage) AddressSpace;   // 不触发全局�
 
 ### 三、main.cpp 删掉 stress 调用和键盘轮询
 
-`run_concurrent_stress()` 是 008 的阶段性脚手架,兼着「验证并发 + 顺带起 shell」两件事。009 把启动职责交还给 `kernel_init` 后,这个脚手架就整个删掉了(`kernel/stress/stress_test.cpp` 连文件一起移除)。`kernel_main` 末尾也不再是键盘轮询循环,而是让 `boot_task` 进入调度器、由 idle task 兜底。
+`run_concurrent_stress()` 是 `08-filesystem/008` 的阶段性脚手架,兼着「验证并发 + 顺带起 shell」两件事。`08-filesystem/009` 把启动职责交还给 `kernel_init` 后,这个脚手架就整个删掉了(`kernel/stress/stress_test.cpp` 连文件一起移除)。`kernel_main` 末尾也不再是键盘轮询循环,而是让 `boot_task` 进入调度器、由 idle task 兜底。

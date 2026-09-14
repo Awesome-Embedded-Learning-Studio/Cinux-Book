@@ -22,7 +22,7 @@ static_assert(sizeof(CpuContext) == 64, "CpuContext must be 64 bytes");
 
 `alignas(16)` 不是装饰:这条结构体会被汇编按固定偏移读写,也经常被一次性拷贝,16 字节对齐既配合 SSE 之类的要求,也防止结构体里出现意外的填充(padding)把偏移打乱。后面那串 `static_assert` 才是命门——它让「C++ 这一侧的布局」和「汇编那一侧写死的 `0/8/16/.../56` 偏移」在**编译期**就被绑定。谁要是手滑在中间加了个字段,编译直接红,而不是等运行时切到一半寄存器全错、查三天。
 
-`TaskState` 是个简单的枚举:`Running / Ready / Blocked / Dead`。如实说:019 只用到前两个和最后一个——`Ready`(在队列里等着)、`Running`(正占着 CPU)、`Dead`(已退场、待回收)。`Blocked` 这个值在这一章**定义了但没人用**,它是给以后「线程等 I/O / 等锁」留的坑。看到枚举里有它,不代表功能已经在了。
+`TaskState` 是个简单的枚举:`Running / Ready / Blocked / Dead`。如实说:`06-process/001` 只用到前两个和最后一个——`Ready`(在队列里等着)、`Running`(正占着 CPU)、`Dead`(已退场、待回收)。`Blocked` 这个值在这一章**定义了但没人用**,它是给以后「线程等 I/O / 等锁」留的坑。看到枚举里有它,不代表功能已经在了。
 
 ## context_switch.S:换栈,就是切换
 
@@ -72,7 +72,7 @@ context_switch:
 
 ## TaskBuilder.build:第一次切换,和以后的不一样
 
-`context_switch` 跳到 `to->rip`。这就引出一个问题:一个**全新**的任务,它的 `ctx.rip` 该是什么?它的栈上又该有什么?答案藏在 [process.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/process.cpp) 的 `build()` 里——这是 019 最精妙也最容易写错的一段:
+`context_switch` 跳到 `to->rip`。这就引出一个问题:一个**全新**的任务,它的 `ctx.rip` 该是什么?它的栈上又该有什么?答案藏在 [process.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/process.cpp) 的 `build()` 里——这是 `06-process/001` 最精妙也最容易写错的一段:
 
 ```cpp
 Task* TaskBuilder::build() {
@@ -97,7 +97,7 @@ Task* TaskBuilder::build() {
 - **全新任务**:`rip = entry_`(线程函数),`rsp` 指向压了 `exit_current` 的干净栈。第一次切换 → 从头跑线程。
 - **被打断过的任务**:它上次被切走时,汇编把 `.restore` 存进了它的 `rip`。再切回来 → 跳到 `.restore` → `ret` → 回到它当初调用 `yield` 的地方继续。
 
-同一个 `context_switch`,靠 `to->rip` 里存的是什么,自动区分「第一次启动」和「恢复执行」——这就是 019 上下文切换的二元性。栈底那个 `0xDEADC0DE` 不是装饰:它是栈溢出哨兵,如果某个线程把栈用爆了,这个 magic 会被改写,以后能据此报警。调试现场里你会看到它**另一种**意外出场方式。
+同一个 `context_switch`,靠 `to->rip` 里存的是什么,自动区分「第一次启动」和「恢复执行」——这就是 `06-process/001` 上下文切换的二元性。栈底那个 `0xDEADC0DE` 不是装饰:它是栈溢出哨兵,如果某个线程把栈用爆了,这个 magic 会被改写,以后能据此报警。调试现场里你会看到它**另一种**意外出场方式。
 
 ## RoundRobin + Scheduler:谁下一个
 
@@ -148,7 +148,7 @@ void Scheduler::exit_current() {   // 线程 return 后走到这里
 
 ## higher-half 收口:内核该待在高半区
 
-最后这一块不是「新功能」,是「把上一章埋的雷拆了」。看 [elf_loader.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/elf_loader.cpp) 末尾,019 之前是这么返回入口的:
+最后这一块不是「新功能」,是「把上一章埋的雷拆了」。看 [elf_loader.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/elf_loader.cpp) 末尾,`06-process/001` 之前是这么返回入口的:
 
 ```cpp
 // 旧(错): 把 higher-half 入口剥回物理地址
@@ -171,8 +171,8 @@ return saved_entry;
 
 大内核是按 higher-half 地址 `0xFFFFFFFF81000000` **链接**的——它内部所有符号地址、所有绝对地址引用,都指望自己跑在这个地址上。可旧的 ELF 加载器把入口剥成了 `0x1000000`,然后 mini-kernel 跳过去。这之所以「能跑」,纯粹是因为引导加载程序顺手建了一条**恒等映射**(`PML4[0]` → 物理,盖住 `0x1000000`),让 `0x1000000` 和 `0xFFFFFFFF81000000` 指向同一片物理页。
 
-但这件事和 018 的地址空间设计**正面冲突**。回忆 018:`AddressSpace` 的设计是「内核半区 `PML4[256..511]` 跨所有空间共享,用户半区 `PML4[0..255]` 每个空间私有」。内核理应待在**共享的**高半区,这样无论切到哪个地址空间,内核映射都在。可旧的加载器让内核跑在 `PML4[0]`(恒等映射,落在**用户半区**)——这正是每个地址空间各自私有、要重新建的那一半。于是麻烦来了:一旦开始给不同进程造独立地址空间,内核待在「本该私有」的那一半里,页表子树就被多个空间错误地共享,一个空间里建的页表项会顺着共享的 PDPT 子树**泄漏**到别的空间——进程隔离形同虚设。019 的调试笔记 `001_higher_half_fix` 记录了这条症状。
+但这件事和 `05-memory/004` 的地址空间设计**正面冲突**。回忆 `05-memory/004`:`AddressSpace` 的设计是「内核半区 `PML4[256..511]` 跨所有空间共享,用户半区 `PML4[0..255]` 每个空间私有」。内核理应待在**共享的**高半区,这样无论切到哪个地址空间,内核映射都在。可旧的加载器让内核跑在 `PML4[0]`(恒等映射,落在**用户半区**)——这正是每个地址空间各自私有、要重新建的那一半。于是麻烦来了:一旦开始给不同进程造独立地址空间,内核待在「本该私有」的那一半里,页表子树就被多个空间错误地共享,一个空间里建的页表项会顺着共享的 PDPT 子树**泄漏**到别的空间——进程隔离形同虚设。`06-process/001` 的调试笔记 `001_higher_half_fix` 记录了这条症状。
 
 修复就一句:`return saved_entry;`,让内核回到它链接的 higher-half 地址,待在共享的高半区——隔离的地基这才算稳。(顺带一提,[main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/main.cpp) 里那行 `[BIG] Big kernel running @ 0x1000000` 是个**遗留字符串**,它打的是物理基址,不代表修复后的运行地址;别被它误导以为内核还跑在 `0x1000000`。)
 
-同一次收口里,还有两处配套小修。一是缺页处理 [exception_handlers.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/exception_handlers.cpp) 的 `handle_pf`:以前需求分页调 `g_vmm.map(virt, phys, flags)`,默认映射进**内核** PML4;现在先 `read_cr3()` 拿到当前地址空间的 PML4,把 `&cur_cr3` 传进去,让缺页页落在**当前**空间里(否则一旦真有多地址空间,缺页修错了地方),而且映射失败时会 `free_page` 把物理页还回去(修了个小泄漏)。二是 [vmm.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mm/vmm.cpp) 的 `walk_level` 多了**大页拆分**:当要下钻的区域恰好被一张 2 MB 大页盖住、而我们想要 4 KB 粒度时(比如给任务栈映射),它分配一张新页表,把那 2 MB 拆成 512 个 4 KB 项,再用新页表替掉大页项。这两处都是「为多地址空间铺路」的零碎活,019 顺手做了。
+同一次收口里,还有两处配套小修。一是缺页处理 [exception_handlers.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/exception_handlers.cpp) 的 `handle_pf`:以前需求分页调 `g_vmm.map(virt, phys, flags)`,默认映射进**内核** PML4;现在先 `read_cr3()` 拿到当前地址空间的 PML4,把 `&cur_cr3` 传进去,让缺页页落在**当前**空间里(否则一旦真有多地址空间,缺页修错了地方),而且映射失败时会 `free_page` 把物理页还回去(修了个小泄漏)。二是 [vmm.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mm/vmm.cpp) 的 `walk_level` 多了**大页拆分**:当要下钻的区域恰好被一张 2 MB 大页盖住、而我们想要 4 KB 粒度时(比如给任务栈映射),它分配一张新页表,把那 2 MB 拆成 512 个 4 KB 项,再用新页表替掉大页项。这两处都是「为多地址空间铺路」的零碎活,`06-process/001` 顺手做了。

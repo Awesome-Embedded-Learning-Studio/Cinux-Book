@@ -10,14 +10,14 @@ title: Lab 004 · 管道:让终端跑起真正的 shell
 
 在 003 的终端基础上,加一套**管道 IPC**,把内核态 GUI 终端和 ring-3 用户态 shell 连成一个端到端回路:你敲 `help`,shell 执行命令,输出回显到窗口里。
 
-要点亮的是:一根 4 KB 环形缓冲的内核管道(带半关闭与 EOF 语义)、把管道伪装成文件的 `InodeOps` 适配器、`sys_read`/`sys_write` 的派发顺序翻转、`sys_pipe` 系统调用、`FDTable::set` 把管道绑到 fd 0/1,最后在 `init.cpp` 里把这一切焊起来。这一章**还没有 fork/exec**(那是 034),所以 shell 是 `launch_first_user()` 拉起的第一个用户进程,管道是 init 在拉起 shell 之前**预先接好**的。
+要点亮的是:一根 4 KB 环形缓冲的内核管道(带半关闭与 EOF 语义)、把管道伪装成文件的 `InodeOps` 适配器、`sys_read`/`sys_write` 的派发顺序翻转、`sys_pipe` 系统调用、`FDTable::set` 把管道绑到 fd 0/1,最后在 `init.cpp` 里把这一切焊起来。这一章**还没有 fork/exec**(那是 `10-multitasking/001`),所以 shell 是 `launch_first_user()` 拉起的第一个用户进程,管道是 init 在拉起 shell 之前**预先接好**的。
 
 ## 前置条件
 
 - 跑通 Lab 003:`Terminal` 控件、`on_key` 的双分支(挂管道即转发、不本地回显)。
-- 跑通 023/024:syscall 框架(`syscall_register`/`syscall_dispatch`)+ ring-3 shell,`sys_read`/`sys_write` 已存在。
-- 跑通 027:VFS 的 `Inode`/`InodeOps`/`File`/`FDTable`/`g_global_fd_table()`。
-- 跑通 021:`Spinlock`(及其 RAII `guard()`)。
+- 跑通 `07-userland/002`/`07-userland/003`:syscall 框架(`syscall_register`/`syscall_dispatch`)+ ring-3 shell,`sys_read`/`sys_write` 已存在。
+- 跑通 `08-filesystem/003`:VFS 的 `Inode`/`InodeOps`/`File`/`FDTable`/`g_global_fd_table()`。
+- 跑通 `06-process/003`:`Spinlock`(及其 RAII `guard()`)。
 
 ## 任务分解
 

@@ -31,7 +31,7 @@ public:
 };
 ```
 
-([ext2_common.hpp:24-41](../../../libs/ext2/ext2_common.hpp#L24))
+(`libs/ext2/ext2_common.hpp:24`)
 
 在 `#PF` 里再撑一个 4KB 的栈数组就贴着栈底跑了;就算不在 `#PF` 里,文件读写的调用链也会深递归进 demand-page 路径,把 8KB 任务栈(`TaskBuilder::STACK_PAGES = 2`、AP 内核栈 `kStackPages = 4`,都见 `task_builder.hpp` / `ap_main.cpp`)也吃紧。所以选堆。
 

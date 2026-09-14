@@ -26,7 +26,7 @@ struct [[gnu::packed]] UstarHeader {
 static_assert(sizeof(UstarHeader) == USTAR_BLOCK_SIZE, "UstarHeader 必须 512 字节");
 ```
 
-几个关键点。第一,整个头**恰好 512 字节**,`[[gnu::packed]]` 加 `static_assert` 焊死——和 001 的 MMIO 结构体同理,格式布局差一个字节就全错,编译期必须卡住。第二,头里几乎所有字段都是**字符串**,包括数字(mode/uid/gid/size/mtime/checksum)——而且这些数字字段是**八进制 ASCII**(后面专门讲)。第三,`typeflag` 是单个字符,决定这一条目是什么:`'0'` 普通文件、`'5'` 目录、`'7'` 连续文件(等价于普通文件)、`'1'` 硬链接、`'2'` 符号链接等等。第四,`magic` 是 `"ustar\0"`,这是判断「这是一个合法 ustar 头」的凭据。记住这几个字段(name、size、typeflag、magic),mount 的逻辑就全围绕它们转。
+几个关键点。第一,整个头**恰好 512 字节**,`[[gnu::packed]]` 加 `static_assert` 焊死——和 `08-filesystem/001` 的 MMIO 结构体同理,格式布局差一个字节就全错,编译期必须卡住。第二,头里几乎所有字段都是**字符串**,包括数字(mode/uid/gid/size/mtime/checksum)——而且这些数字字段是**八进制 ASCII**(后面专门讲)。第三,`typeflag` 是单个字符,决定这一条目是什么:`'0'` 普通文件、`'5'` 目录、`'7'` 连续文件(等价于普通文件)、`'1'` 硬链接、`'2'` 符号链接等等。第四,`magic` 是 `"ustar\0"`,这是判断「这是一个合法 ustar 头」的凭据。记住这几个字段(name、size、typeflag、magic),mount 的逻辑就全围绕它们转。
 
 ### 八进制:ustar 的数字编码
 
@@ -132,6 +132,6 @@ objcopy --redefine-sym "${SYM_START}=${SYM_PREFIX}_start" \
 }
 ```
 
-两个细节。`ALIGN(4096)` 让归档按页对齐——方便后续如果要把这段映射/搬移时按页处理。`AT(ADDR(.initrd) - KERNEL_VMA)` 是高半区内核的老把戏:段在**虚拟地址空间**里排在 `KERNEL_VMA` 之上(内核代码看到的地址),但它的**加载地址**(LMA,bootloader 实际把它放到物理内存的位置)是虚拟地址减去 `KERNEL_VMA`,落在低端物理内存。这样内核用一个高半区虚拟地址访问它,靠的就是 016 那套「物理地址 ↔ 虚拟地址」的高半区约定。整个 `initrd.o` 由 [CMakeLists.txt](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/CMakeLists.txt) 用 `add_custom_command` 生成,再作为源文件塞进 `big_kernel` 和 `big_kernel_test`,链接时就和 `main.cpp` 编出来的代码并到了一起。
+两个细节。`ALIGN(4096)` 让归档按页对齐——方便后续如果要把这段映射/搬移时按页处理。`AT(ADDR(.initrd) - KERNEL_VMA)` 是高半区内核的老把戏:段在**虚拟地址空间**里排在 `KERNEL_VMA` 之上(内核代码看到的地址),但它的**加载地址**(LMA,bootloader 实际把它放到物理内存的位置)是虚拟地址减去 `KERNEL_VMA`,落在低端物理内存。这样内核用一个高半区虚拟地址访问它,靠的就是 `05-memory/002` 那套「物理地址 ↔ 虚拟地址」的高半区约定。整个 `initrd.o` 由 [CMakeLists.txt](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/CMakeLists.txt) 用 `add_custom_command` 生成,再作为源文件塞进 `big_kernel` 和 `big_kernel_test`,链接时就和 `main.cpp` 编出来的代码并到了一起。
 
 ## 调试现场

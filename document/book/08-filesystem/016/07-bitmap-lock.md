@@ -16,7 +16,7 @@ block/inode bitmap 的分配是 read-modify-write:读 bitmap 块、找 free bit�
 mutable cinux::proc::Spinlock block_alloc_lock_;  ///< SMP: serialize block+inode bitmap alloc/free
 ```
 
-([ext2.hpp:496](../../../libs/ext2/ext2.hpp#L496))。`alloc_block` / `free_block` 进去先拿这把锁:
+(`libs/ext2/ext2.hpp:496`)。`alloc_block` / `free_block` 进去先拿这把锁:
 
 ```cpp
 uint32_t Ext2::alloc_block() {
@@ -30,7 +30,7 @@ uint32_t Ext2::alloc_block() {
     ...
 ```
 
-([ext2_block.cpp:21-29](../../../libs/ext2/ext2_block.cpp#L21))`free_block` 同款([ext2_block.cpp:104-106](../../../libs/ext2/ext2_block.cpp#L104))。
+(`libs/ext2/ext2_block.cpp:21`)`free_block` 同款(`libs/ext2/ext2_block.cpp:104`)。
 
 **它和 `KmBuf` 的分工讲清楚**:
 

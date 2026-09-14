@@ -6,7 +6,7 @@ title: 02 · 同步原语:Spinlock、InterruptGuard、Mutex、Semaphore
 
 ## 先造基建:四个同步原语
 
-在动手加固之前,得先有趁手的工具。008 新增的 `kernel/proc/sync.{hpp,cpp}` 一口气造了四个原语,分两层:
+在动手加固之前,得先有趁手的工具。`08-filesystem/008` 新增的 `kernel/proc/sync.{hpp,cpp}` 一口气造了四个原语,分两层:
 
 ```text
         ┌──────────────────────────────────────────────────────┐
@@ -88,6 +88,6 @@ class Mutex {
 
 它们是**阻塞式**原语:抢不到锁不忙等,而是把自己挂到等待队列、调 `Scheduler::block()` 睡过去,由 `unlock()` / `post()` 的一方唤醒。`Semaphore` 是经典 Dijkstra 信号量(`wait`=P、`post`=V)。
 
-**但这里必须诚实一句**:在 008,`Mutex` 和 `Semaphore` **只被定义和测试,还没有任何生产代码用它们**。你 grep 整个 `kernel/`(排除 `sync.cpp`/`sync.hpp` 自身和测试目录)会发现一个 `.lock()` 调用都没有——这一章真正上线防护的,全是 `Spinlock`(`guard()` 或 `irq_guard()`)、`InterruptGuard` 和原子计数器。`Mutex`/`Semaphore` 是为后面那些需要「真 sleep」的场景(等磁盘、等信号、等条件)预备的弹药。我们仍然要讲它们的实现,因为里面有一条「release-before-block」的纪律太经典、现在就得讲明白——见设计现场 B。记住这个边界,免得你以为 008 已经用上了阻塞锁。
+**但这里必须诚实一句**:在 `08-filesystem/008`,`Mutex` 和 `Semaphore` **只被定义和测试,还没有任何生产代码用它们**。你 grep 整个 `kernel/`(排除 `sync.cpp`/`sync.hpp` 自身和测试目录)会发现一个 `.lock()` 调用都没有——这一章真正上线防护的,全是 `Spinlock`(`guard()` 或 `irq_guard()`)、`InterruptGuard` 和原子计数器。`Mutex`/`Semaphore` 是为后面那些需要「真 sleep」的场景(等磁盘、等信号、等条件)预备的弹药。我们仍然要讲它们的实现,因为里面有一条「release-before-block」的纪律太经典、现在就得讲明白——见设计现场 B。记住这个边界,免得你以为 `08-filesystem/008` 已经用上了阻塞锁。
 
 ## 三层加固落地

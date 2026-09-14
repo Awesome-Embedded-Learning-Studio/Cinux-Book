@@ -4,7 +4,7 @@ title: 参考 · 内存:PMM、VMM、内核堆与地址空间
 
 # 参考 · 内存:PMM、VMM、内核堆与地址空间
 
-> 查阅层。这一页是 Cinux 内存子系统的速查表,不按 tag 组织,给后续章节(堆分配、用户地址空间 022、CoW page fault 035、GUI 大缓冲 029……)查区段地址、页表 flag、分配器接口用。实现以最终 tag `035_multi_terminal` 的源码为准。
+> 查阅层。这一页是 Cinux 内存子系统的速查表,不按 tag 组织,给后续章节(堆分配、用户地址空间 `07-userland/001`、CoW page fault `10-multitasking/002`、GUI 大缓冲 `09-gui/001`……)查区段地址、页表 flag、分配器接口用。实现以最终 tag `035_multi_terminal` 的源码为准。
 >
 > 范围:物理页分配(PMM 位图)、4 级分页(VMM)、内核堆(首次适配 + 合并)、每进程地址空间(AddressSpace)、高半区 direct map。**不含 slab、不含 swap、不含内存压缩**——Cinux 是按需分页 + 简单 free-list 堆。
 
@@ -34,7 +34,7 @@ title: 参考 · 内存:PMM、VMM、内核堆与地址空间
 
 ## 内核虚拟内存布局
 
-`kernel/arch/x86_64/memory_layout.hpp` 把高半区(从 `KMEM_BASE = 0xFFFF800000000000`)切成连续区段,每段 = 前一段 base+size。区段别重叠是布局健全性的第一层(028e 收拢),区段**内部**有上限是第二层(029 补),direct map 覆盖全是第三层(029 补):
+`kernel/arch/x86_64/memory_layout.hpp` 把高半区(从 `KMEM_BASE = 0xFFFF800000000000`)切成连续区段,每段 = 前一段 base+size。区段别重叠是布局健全性的第一层(`08-filesystem/009` 收拢),区段**内部**有上限是第二层(`09-gui/001` 补),direct map 覆盖全是第三层(`09-gui/001` 补):
 
 | 区段 | 相对 KMEM_BASE 偏移 | 绝对基址 | 大小 | 用途 |
 |---|---|---|---|---|
@@ -103,7 +103,7 @@ title: 参考 · 内存:PMM、VMM、内核堆与地址空间
 
 TLB:`flush_tlb(virt)` 单页 `invlpg`;`flush_tlb_all()` 重写 CR3;`read_cr3()/write_cr3()`。`map_mmio(phys,size)` 是帧缓冲驱动用的旧接口。
 
-> **`FLAG_COW`(bit9)存在 ≠ CoW 完整。** 035 把 `handle_cow_fault` 接进了 `#PF`(present+write+user 路径),但 CoW 的引用计数仍有限;`split_2mb_page` 虽定义、guard-page 的 unmap 消费者**在 035 未接线**(死代码)。转述这两个机制前先 `git show <tag>:kernel/mm/...` 核对。
+> **`FLAG_COW`(bit9)存在 ≠ CoW 完整。** `10-multitasking/002` 把 `handle_cow_fault` 接进了 `#PF`(present+write+user 路径),但 CoW 的引用计数仍有限;`split_2mb_page` 虽定义、guard-page 的 unmap 消费者**在 `10-multitasking/002` 未接线**(死代码)。转述这两个机制前先 `git show <tag>:kernel/mm/...` 核对。
 
 ## 内核堆 Heap
 
@@ -112,7 +112,7 @@ TLB:`flush_tlb(virt)` 单页 `invlpg`;`flush_tlb_all()` 重写 CR3;`read_cr3()/w
 - **块头 32 字节**(`BlockHeader`):`magic`、`size`(payload,不含头)、`free`、`_pad[12]`、`next`。`magic` 在 `free()` 时校验,防双重释放/越界。
 - **首次适配 + 分裂**:`alloc(size, align=16)` 顺 free list 找第一个够大的块,太大就分裂。
 - **合并**:`free()` 把块标空闲,并与相邻空闲块合并降碎片。
-- **自动扩容 + 硬上限**:`expand(min_bytes) → bool`——free list 不够时经 VMM 映射新页。**029 起扩容前查 `size_ + 增量 <= max_size_`(`=KMEM_HEAP_SIZE=128MB`),失败返 `false`、不递归硬冲**。这是 canvas 3MB 事件后补的洞一。
+- **自动扩容 + 硬上限**:`expand(min_bytes) → bool`——free list 不够时经 VMM 映射新页。**`09-gui/001` 起扩容前查 `size_ + 增量 <= max_size_`(`=KMEM_HEAP_SIZE=128MB`),失败返 `false`、不递归硬冲**。这是 canvas 3MB 事件后补的洞一。
 - 并发:`Spinlock lock_` 保护;`alloc_locked`/内部路径在持锁态跑。
 
 ## 地址空间 AddressSpace
@@ -127,11 +127,11 @@ TLB:`flush_tlb(virt)` 单页 `invlpg`;`flush_tlb_all()` 重写 CR3;`read_cr3()/w
 
 ## 约束与边界(本子系统的真实限制)
 
-- **`phys_to_virt(p)=p+KERNEL_VMA` 成立的前提:direct map 覆盖了 PMM 可能返回的全部物理地址。** loader 只映射内核镜像不够;PMM 管多少 RAM,direct map 就得映射多少(029 改成全量映射,用 2MB/1GB 大页低开销盖住)。否则 `alloc_page` 返回高地址页,`phys_to_virt` 给个没人映射的虚拟地址,一访问就 PF。
+- **`phys_to_virt(p)=p+KERNEL_VMA` 成立的前提:direct map 覆盖了 PMM 可能返回的全部物理地址。** loader 只映射内核镜像不够;PMM 管多少 RAM,direct map 就得映射多少(`09-gui/001` 改成全量映射,用 2MB/1GB 大页低开销盖住)。否则 `alloc_page` 返回高地址页,`phys_to_virt` 给个没人映射的虚拟地址,一访问就 PF。
 - **堆有 128MB 硬上限。** 超过 `max_size_` 的 `expand` 返 false、`alloc` 返 `nullptr`。预留 128MB 虚拟不等于吃 128MB 物理(按需分页)。
 - **`unmap` 不还物理页。** 谁映射谁还;漏还 = 内存泄漏。
 - **`alloc_page_locked`/`map_nolock` 不上锁**,只能在关中断、无并发时用(典型:中断门里的 PF handler)。普通路径必须走带锁版本,否则与别的核/别的中断踩踏位图与页表。
-- **CoW / guard page 在 035 是半成品**(见上)。引用「写时复制已工作」「guard page 会触发」前先核对源码。
+- **CoW / guard page 在 `10-multitasking/002` 是半成品**(见上)。引用「写时复制已工作」「guard page 会触发」前先核对源码。
 - **单核假设。** PMM/VMM/Heap 的 Spinlock 在单核 + 中断串行下够用;真上 SMP 要重新审页表自旋与 per-CPU 缓存。
 
 ## 验证入口

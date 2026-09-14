@@ -6,7 +6,7 @@ title: 02 · 主线一:从字符串规范化到 vfs_lookup 组件遍历
 
 ### 以前 `path_resolve` 干了什么、没干什么
 
-[path.cpp](../../../kernel/fs/path.cpp) 的 `path_resolve(cwd, path, out)` 做的事:把相对路径拼到 cwd 上,再 `path_canonicalize` 压掉 `.`/`..` 和多余斜杠,输出一个绝对规范路径字符串。比如 `path_resolve("/a", "b/../c")` → `/a/c`。
+`kernel/fs/path.cpp` 的 `path_resolve(cwd, path, out)` 做的事:把相对路径拼到 cwd 上,再 `path_canonicalize` 压掉 `.`/`..` 和多余斜杠,输出一个绝对规范路径字符串。比如 `path_resolve("/a", "b/../c")` → `/a/c`。
 
 它没干的事:**没有真的去找任何 inode**。它只产出一个字符串,不验证 `/a/c` 这条路上的 `a`、`c` 是不是真的存在、是不是目录、有没有符号链接。真正「字符串 → inode」的步骤散在各 syscall 里(`fs->lookup(rel_path)`),而且 `lookup` 是把整条相对路径丢给底层文件系统一次性的——底层要么自己走完、要么走不全。
 
@@ -14,7 +14,7 @@ title: 02 · 主线一:从字符串规范化到 vfs_lookup 组件遍历
 
 ### `vfs_lookup`:挂载点感知的组件遍历
 
-[vfs_lookup.cpp](../../../kernel/fs/vfs_lookup.cpp) 重写了路径解析,核心是一个**按组件(component)遍历**的循环。`/a/b/c` 被拆成 `a`、`b`、`c` 三个组件,逐个 `lookup_child`:
+`kernel/fs/vfs_lookup.cpp` 重写了路径解析,核心是一个**按组件(component)遍历**的循环。`/a/b/c` 被拆成 `a`、`b`、`c` 三个组件,逐个 `lookup_child`:
 
 ```cpp
 // resolved 是规范化的绝对路径;vfs_resolve 找到它落在哪个挂载的哪个 FileSystem

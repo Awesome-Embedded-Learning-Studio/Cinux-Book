@@ -4,7 +4,7 @@ title: Lab 012 · ext2 间接块验证
 
 # Lab 012 · ext2 间接块验证
 
-> 对应 `document/book/08-filesystem/012/`。验证档 **A 档**:这一章兑现 065 的承诺——把 ext2 的 double-indirect(`i_block[13]`)真做了,撤掉 065 的 4096 块 workaround。punchline 是 822 KB 文件(远超 single-indirect 268 KB 上限)真能在 1024 块的 ext2 上完整读写。验证靠 host 单测(算法门)+ dyn smoke(真内核门)双覆盖——run-kernel-test 自己守不住这层(测试文件都太小,走 direct)。
+> 对应 `document/book/08-filesystem/012/`。验证档 **A 档**:这一章兑现 `07-userland/006` 的承诺——把 ext2 的 double-indirect(`i_block[13]`)真做了,撤掉 `07-userland/006` 的 4096 块 workaround。punchline 是 822 KB 文件(远超 single-indirect 268 KB 上限)真能在 1024 块的 ext2 上完整读写。验证靠 host 单测(算法门)+ dyn smoke(真内核门)双覆盖——run-kernel-test 自己守不住这层(测试文件都太小,走 direct)。
 
 ## 目标
 
@@ -14,7 +14,7 @@ title: Lab 012 · ext2 间接块验证
 2. **double-indirect 三层算术**:`offset/ptrs` + `offset%ptrs` 两层除余定位;
 3. **写路径二次 read-modify-write**:scratch buffer 单块,写下层后改上层前必须重新读回(头号坑);
 4. **write 放开了 file_block 上限**:原来只让写 direct,现在到 double-indirect;
-5. **撤了 065 的 4096 块 workaround**:改回 1024(ext2 默认);
+5. **撤了 `07-userland/006` 的 4096 块 workaround**:改回 1024(ext2 默认);
 6. **double-indirect 双覆盖**:host 单测(算法 round-trip)+ dyn smoke(真内核 822 KB ldso 走 `i_block[13]`)。
 
 ## 步骤
@@ -49,7 +49,7 @@ sed -n '428,440p' kernel/fs/ext2_inode.cpp
 sed -n '52,60p' scripts/create_ext2_disk.sh
 ```
 
-应看到 `BLOCK_SIZE=1024` + 注释从「workaround:double-indirect 截断」改成「double-indirect 已支持,1024 块是 ext2 默认」。065 为了绕过 double-indirect 缺失改成 4096(把 single-indirect 上限从 268 KB 推到 4 MB);这一章真修完,改回 1024,让 double-indirect 真有文件走。
+应看到 `BLOCK_SIZE=1024` + 注释从「workaround:double-indirect 截断」改成「double-indirect 已支持,1024 块是 ext2 默认」。`07-userland/006` 为了绕过 double-indirect 缺失改成 4096(把 single-indirect 上限从 268 KB 推到 4 MB);这一章真修完,改回 1024,让 double-indirect 真有文件走。
 
 ### 5. write 放开了 file_block 上限
 
@@ -61,7 +61,7 @@ grep -nE "file_block|max_file_block|EXT2_DIRECT_BLOCKS" kernel/fs/ext2_common.cp
 
 ### 6. dyn smoke:真内核走 double-indirect(需 musl 工具链)
 
-这是「真内核门」,要构建 musl 动态工具链(同 065):
+这是「真内核门」,要构建 musl 动态工具链(同 `07-userland/006`):
 
 ```bash
 tools/musl/build-musl.sh
@@ -88,7 +88,7 @@ cmake --build build --target run-kernel-test-all 2>&1 | grep -E "Tests: 9[0-9][0
 - [ ] `ext2_inode.cpp:371` 三层算术(`offset/ptrs` + `offset%ptrs`),`ptrs_per_block=block_size/4`。
 - [ ] `ext2_inode.cpp:431` 写路径重新 `read_block`(二次 read-modify-write,scratch buffer 单块的坑)。
 - [ ] `ext2_common.cpp` write 的 `file_block` 门放开到 double-indirect 上限(原只 direct)。
-- [ ] `create_ext2_disk.sh:60` `BLOCK_SIZE=1024`(撤 065 的 4096 workaround)。
+- [ ] `create_ext2_disk.sh:60` `BLOCK_SIZE=1024`(撤 `07-userland/006` 的 4096 workaround)。
 - [ ] (编了 musl)`CINUX_MUSL_DYN_SMOKE=ON` 跑出 822 KB ldso 走 `i_block[13]`、5× Hello、无 `segment read failed`;两腿 997/0。
 
 ## 别做这些
@@ -96,5 +96,5 @@ cmake --build build --target run-kernel-test-all 2>&1 | grep -E "Tests: 9[0-9][0
 - **别**指望 run-kernel-test 守得住这一层——测试文件(shell 17 KB、motd)都太小走 direct,碰不到 indirect;CI 也不跑 musl dyn smoke。这一层靠 host 单测(算法)+ dyn smoke(真内核)双覆盖,run-kernel-test 只证零回归。
 - **别**在写路径省掉「重新读回上层块」——scratch buffer 单块,写下层后 buffer 已被覆盖,直接改上层指针就是改垃圾,毁 inode 元数据。必须二次 read-modify-write,跟 single-indirect 既有写法对齐。
 - **别**以为 triple-indirect(`i_block[14]`)也做了——那是 `256³` > 16 GB 文件的事,显式不做。hobby OS 的盘才 8 MB,连 single-indirect 都用不满(除了那个 ldso)。
-- **别**留 065 的 4096 块 workaround——真修完就该改回 1024(ext2 默认)。4096 只是绕过,不是正解;留着会让 double-indirect 一直没人走(822 KB 落 single-indirect 4 MB 上限内),真修就白做了。
+- **别**留 `07-userland/006` 的 4096 块 workaround——真修完就该改回 1024(ext2 默认)。4096 只是绕过,不是正解;留着会让 double-indirect 一直没人走(822 KB 落 single-indirect 4 MB 上限内),真修就白做了。
 - **别**以为 host 单测能验 scratch-dance——host sim 直访 `data_blocks[]`,没有 kernel 的单缓冲 dance。它守的是三层**算术**,scratch-dance 的正确性靠 dyn smoke(真内核)那道门。

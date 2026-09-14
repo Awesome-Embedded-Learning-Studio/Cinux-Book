@@ -16,4 +16,4 @@ title: 01 · 导引:范式与点亮什么
 
 ## 同一个范式:ProcFs 是另一个虚拟 FS
 
-DevFS 那章立的范式,这里照搬:`ProcFs : FileSystem`,设备/伪文件行为写成 `InodeOps` 的匿名 namespace 子类,boot 接线(`procfs::init()` 挂 `/proc`)单独放 `procfs_init.cpp`。所以这一章不重复讲范式本身(看 010),只讲 ProcFS 比 DevFS 多出来的两个新问题:**动态的根** 和 **伪文件的内容生成**。
+DevFS 那章立的范式,这里照搬:`ProcFs : FileSystem`,设备/伪文件行为写成 `InodeOps` 的匿名 namespace 子类,boot 接线(`procfs::init()` 挂 `/proc`)单独放 `procfs_init.cpp`。所以这一章不重复讲范式本身(看 `08-filesystem/010`),只讲 ProcFS 比 DevFS 多出来的两个新问题:**动态的根** 和 **伪文件的内容生成**。

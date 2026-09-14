@@ -14,7 +14,7 @@ flock(2) 给的是**建议锁(advisory lock)**:内核只记录「这个 inode �
 
 ### 两种模式 + 非阻塞
 
-[file_lock.hpp](../../../kernel/fs/file_lock.hpp) 定义的 operation 位:
+`kernel/fs/file_lock.hpp` 定义的 operation 位:
 
 ```cpp
 kLockSh = 1;  // LOCK_SH 共享:多个任务能同时持有(适合「我要读,不希望别人写」)

@@ -60,7 +60,7 @@ int64_t sys_read(uint64_t fd, uint64_t buf_virt, uint64_t count, ...) {
 }
 ```
 
-为什么 fd 0 要特殊处理?因为 stdin 不是「VFS 里的一个文件」——它没有 inode、不在挂载表里,FDTable 也不给 fd 0 分配 File(003 里 FDTable 从 fd 3 起算,0/1/2 是空的)。stdin 的数据来自键盘,所以 fd 0 的 read 直接走键盘驱动那条老路(014 写的 PS/2 键盘)。而 fd > 0 都是 VFS 里 open 出来的真实文件,走「File → inode 操作」。这两条路并存,是 stdin/stdout 这对「假文件」和真文件的本质差异。
+为什么 fd 0 要特殊处理?因为 stdin 不是「VFS 里的一个文件」——它没有 inode、不在挂载表里,FDTable 也不给 fd 0 分配 File(`08-filesystem/003` 里 FDTable 从 fd 3 起算,0/1/2 是空的)。stdin 的数据来自键盘,所以 fd 0 的 read 直接走键盘驱动那条老路(`03-big-kernel/008` 写的 PS/2 键盘)。而 fd > 0 都是 VFS 里 open 出来的真实文件,走「File → inode 操作」。这两条路并存,是 stdin/stdout 这对「假文件」和真文件的本质差异。
 
 那一行 `file->offset += result` 是 sequential read 能工作的关键。后端的 `read(inode, offset, buf, count)` 是**无状态**的——它只认传进来的 offset,不记得「上次读到哪」。所以「读到哪了」这个状态由 VFS 层的 `File::offset` 持有,每次 read 完由 sys_read 推进。漏了这行,read 会永远从 offset 0 开始,反复返回文件开头那几字节。
 
@@ -89,7 +89,7 @@ int64_t sys_getdents(uint64_t fd, uint64_t buf_virt, uint64_t count, ...) {
 }
 ```
 
-这里 `file->offset` 当**目录条目的下标**用(003 的 `ramdisk_readdir` 里,index 0 是 `.`、1 是 `..`、2 起是文件条目)。每次 getdents 读一条、offset++,循环到返回 0 就列完了。返回值是「这次读到的名字长度」(不是字节数、也不是条目数),调用方拿这个长度去切 buf 里的名字。这种「一次一条、靠 offset 推进」的接口,是最朴素的 getdents 形态(POSIX 的 `getdents` 返回的是结构体数组、一次多条,这里简化成一次一条)。
+这里 `file->offset` 当**目录条目的下标**用(`08-filesystem/003` 的 `ramdisk_readdir` 里,index 0 是 `.`、1 是 `..`、2 起是文件条目)。每次 getdents 读一条、offset++,循环到返回 0 就列完了。返回值是「这次读到的名字长度」(不是字节数、也不是条目数),调用方拿这个长度去切 buf 里的名字。这种「一次一条、靠 offset 推进」的接口,是最朴素的 getdents 形态(POSIX 的 `getdents` 返回的是结构体数组、一次多条,这里简化成一次一条)。
 
 ### 用户态 libc 包装
 
@@ -113,7 +113,7 @@ int64_t sys_read(int fd, void* buf, size_t count) {
 }
 ```
 
-就是一句内联汇编:把系统调用号放进 `rax`、参数放进 `rdi/rsi/rdx`(x86-64 syscall 调用约定),执行 `syscall` 陷入内核,内核返回后从 `rax` 取结果。`"rcx","r11"` 进 clobber 列表是因为 `syscall` 指令会破坏这两个寄存器(硬件行为,023 讲 syscall 机制时提过)。这层包装让 shell 这种用户程序写 `sys_open(path, 0)` 就像调普通函数,底下其实是特权级切换。
+就是一句内联汇编:把系统调用号放进 `rax`、参数放进 `rdi/rsi/rdx`(x86-64 syscall 调用约定),执行 `syscall` 陷入内核,内核返回后从 `rax` 取结果。`"rcx","r11"` 进 clobber 列表是因为 `syscall` 指令会破坏这两个寄存器(硬件行为,`07-userland/002` 讲 syscall 机制时提过)。这层包装让 shell 这种用户程序写 `sys_open(path, 0)` 就像调普通函数,底下其实是特权级切换。
 
 ### shell 的 cat 与 ls
 
@@ -149,6 +149,6 @@ void cmd_ls(int argc, char** argv) {
 }
 ```
 
-两个命令的模式一样:**open 拿 fd → 循环 read/getdents 到返回 ≤0 → close**。这是「读一个流」的标准骨架。`cat` 的 read 循环靠 sys_read 自动推进 offset,每次拿到下一块;`ls` 的 getdents 循环靠 offset 当下标自动推进,每次拿到下一个名字。两者都不用自己管「读到哪了」——VFS 层替它们管。这就是 003 那套「File 持有 offset」设计在用户态的回报:用户程序写得极简,状态全在内核。
+两个命令的模式一样:**open 拿 fd → 循环 read/getdents 到返回 ≤0 → close**。这是「读一个流」的标准骨架。`cat` 的 read 循环靠 sys_read 自动推进 offset,每次拿到下一块;`ls` 的 getdents 循环靠 offset 当下标自动推进,每次拿到下一个名字。两者都不用自己管「读到哪了」——VFS 层替它们管。这就是 `08-filesystem/003` 那套「File 持有 offset」设计在用户态的回报:用户程序写得极简,状态全在内核。
 
 ## 调试现场

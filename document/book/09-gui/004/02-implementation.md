@@ -172,9 +172,9 @@ int64_t sys_read(uint64_t fd, uint64_t buf_virt, uint64_t count, ...) {
 }
 ```
 
-031 把这个分支顺序**翻转**了:030 是"先判 `fd==0` 走键盘、再走 VFS",031 改成"先查 FDTable 走 VFS、再回退 `fd==0` 键盘"。`sys_write` 同理(先 VFS,再回退 `fd==1` 串口)。
+`09-gui/003` 把这个分支顺序**翻转**了:`09-gui/002` 是"先判 `fd==0` 走键盘、再走 VFS",`09-gui/003` 改成"先查 FDTable 走 VFS、再回退 `fd==0` 键盘"。`sys_write` 同理(先 VFS,再回退 `fd==1` 串口)。
 
-为什么要翻?因为这一章 `init.cpp` 会把 fd 0 和 fd 1 **本身就绑成管道**(一个 `PipeReadOps`、一个 `PipeWriteOps`)。如果还按 030 的老顺序先判 `fd==0` 走键盘,那 `sys_read(0)` 就会一头扎进 PS/2 键盘路径,管道 stdin 永远读不到;`sys_write(1)` 会打到串口,管道 stdout 永远写不进。翻转之后,同一个 `fd==0` 既能是键盘(FDTable 无条目时),也能是管道读端(FDTable 有条目时),由"fd 是否在表里"决定走哪条路,而不是死看 fd 数字。这一翻,是整个回路能通的前提。
+为什么要翻?因为这一章 `init.cpp` 会把 fd 0 和 fd 1 **本身就绑成管道**(一个 `PipeReadOps`、一个 `PipeWriteOps`)。如果还按 `09-gui/002` 的老顺序先判 `fd==0` 走键盘,那 `sys_read(0)` 就会一头扎进 PS/2 键盘路径,管道 stdin 永远读不到;`sys_write(1)` 会打到串口,管道 stdout 永远写不进。翻转之后,同一个 `fd==0` 既能是键盘(FDTable 无条目时),也能是管道读端(FDTable 有条目时),由"fd 是否在表里"决定走哪条路,而不是死看 fd 数字。这一翻,是整个回路能通的前提。
 
 ### sys_pipe 系统调用:SYS_pipe = 22
 
@@ -208,7 +208,7 @@ int64_t sys_pipe(uint64_t pipefd_virt, uint64_t, uint64_t, uint64_t, uint64_t, u
 
 ### FDTable::set:把管道装进保留的 fd0/fd1
 
-`sys_pipe` 用的是 `FDTable::alloc`,它会从 `FD_FIRST = 3` 开始扫,**跳过保留的 0/1/2**。可 `init.cpp` 要把管道装到 fd 0 和 fd 1,`alloc` 装不了。所以 031 给 [file.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/fs/file.cpp) 的 `FDTable` 加了一个 `set`:
+`sys_pipe` 用的是 `FDTable::alloc`,它会从 `FD_FIRST = 3` 开始扫,**跳过保留的 0/1/2**。可 `init.cpp` 要把管道装到 fd 0 和 fd 1,`alloc` 装不了。所以 `09-gui/003` 给 [file.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/fs/file.cpp) 的 `FDTable` 加了一个 `set`:
 
 ```cpp
 bool FDTable::set(int fd, File* file) {
@@ -254,7 +254,7 @@ cinux::arch::launch_first_user();                    // 3. 起 ring-3 shell,它�
 
 ### 闭合回路
 
-现在把 031 和 031b 的两半拼起来,看一个按键怎么变成屏幕上的字符。你敲 `h`:IRQ1 → 键盘 handler → `Mouse::event_queue()` → tick → `handle_key` → `Terminal::on_key`。因为这时 `stdin_pipe_` 非空,`on_key` 走管道分支,`stdin_pipe_->try_write('h')`。shell 在另一头 `sys_read(0)` 阻塞读,经 `FDTable::get(0)` → `PipeReadOps::read` → `Pipe::read` 拿到 `'h'`,放进行编辑缓冲并回显——回显时 `sys_write(1)` → `FDTable::get(1)` → `PipeWriteOps::write` → `Pipe::write` 写进 stdout 管道。下一拍 tick 里,`Terminal::poll_output` 用 `try_read` 把 `'h'` 抽出来,`write()` 落进字符缓冲,`render_to_canvas` 光栅化,`composite` 上屏。你看到了那个 `h`。
+现在把 `09-gui/003` 和 `09-gui/004` 的两半拼起来,看一个按键怎么变成屏幕上的字符。你敲 `h`:IRQ1 → 键盘 handler → `Mouse::event_queue()` → tick → `handle_key` → `Terminal::on_key`。因为这时 `stdin_pipe_` 非空,`on_key` 走管道分支,`stdin_pipe_->try_write('h')`。shell 在另一头 `sys_read(0)` 阻塞读,经 `FDTable::get(0)` → `PipeReadOps::read` → `Pipe::read` 拿到 `'h'`,放进行编辑缓冲并回显——回显时 `sys_write(1)` → `FDTable::get(1)` → `PipeWriteOps::write` → `Pipe::write` 写进 stdout 管道。下一拍 tick 里,`Terminal::poll_output` 用 `try_read` 把 `'h'` 抽出来,`write()` 落进字符缓冲,`render_to_canvas` 光栅化,`composite` 上屏。你看到了那个 `h`。
 
 这一圈里,shell 始终在用标准的 `read`/`write` 操作字节流,它完全不知道对面是个 GUI 终端;终端也只在用 `try_write`/`try_read` 推/拉字节,它不认识 shell 的命令语义。两头都只对着"一根会回显的字节管道"编程,中间的解耦就是这整套设计的价值。
 

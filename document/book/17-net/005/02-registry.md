@@ -27,7 +27,7 @@ private:
 };
 ```
 
-定长表(16 条)、`Spinlock`、按 leaf-name 比较——这套范本 071 立过(`FifoRegistry`),`AF_UNIX` 这里照搬。`register_listener` 塞记录、`lookup` 查记录、`unregister` 删记录(`unix_registry.cpp:44-89`):
+定长表(16 条)、`Spinlock`、按 leaf-name 比较——这套范本 `14-process-advanced/005` 立过(`FifoRegistry`),`AF_UNIX` 这里照搬。`register_listener` 塞记录、`lookup` 查记录、`unregister` 删记录(`unix_registry.cpp:44-89`):
 
 ```cpp
 // register_listener: 已存在 -> AlreadyExists;表满 -> OutOfMemory

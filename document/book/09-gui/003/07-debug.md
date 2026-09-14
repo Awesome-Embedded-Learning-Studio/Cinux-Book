@@ -14,7 +14,7 @@ title: 07 · 调试现场 + 保留模式 vs 即时模式
 
 **根因。** ANSI 的 BS(`\b` 0x08)语义只移光标、不擦字符;真正删字是 DEL(0x7f)。可早期版本的 TerminalWidget 把 BS 当退格擦字用——`put_char_` 见到 `\b` 就 `--cur_col_` **并擦掉那一格的 cell`**。shell 行编辑发左箭头是 `\x1b[D`(光标左移,纯移不删),可有些 shell 把 Backspace 映射成 `\b`——一旦 BS 被实现成"移 + 擦",每收到一个 `\b` 就吃一个字。
 
-**解法**。源码现在的实现严格分开:BS 只 `--cur_col_`,DEL 才 `--cur_col_` + 清 cell。注释里写得很清楚:`ANSI BS only moves the cursor; ash line-edit shifts the cursor with \b, so erasing here wiped every glyph it passed`。源码见 [`terminal.cpp`](../../../libs/gui/core/widget/terminal.cpp#L286-L304)。这个判据要带走:**控制字符的语义不能靠猜,得查 ANSI/VT100 规范——BS 移、DEL 擦,是两件事**。
+**解法**。源码现在的实现严格分开:BS 只 `--cur_col_`,DEL 才 `--cur_col_` + 清 cell。注释里写得很清楚:`ANSI BS only moves the cursor; ash line-edit shifts the cursor with \b, so erasing here wiped every glyph it passed`。源码见 `libs/gui/core/widget/terminal.cpp:286-304`。这个判据要带走:**控制字符的语义不能靠猜,得查 ANSI/VT100 规范——BS 移、DEL 擦,是两件事**。
 
 ### 光标移动留拖影:dirty 没覆盖旧光标行
 
@@ -35,7 +35,7 @@ for (uint32_t i = 0u; i < 2u; ++i) {
 }
 ```
 
-`clear_dirty` 里把 `prev_cursor_row_` 更新成这一帧的 `cur_row_`,下一帧 `collect` 就能找到"光标刚离开的那一行"。源码见 [`terminal.cpp`](../../../libs/gui/core/widget/terminal.cpp#L366-L379)。这个判据也通用:**任何"位置会移动的可视元素"都要把旧位置 + 新位置都标脏,否则旧位置必然留残影**——光标如此、拖动窗口如此(`move_to_` 标 old + new)、鼠标指针也如此(`process_pointer` 里 `invalidate` old footprint + new footprint)。
+`clear_dirty` 里把 `prev_cursor_row_` 更新成这一帧的 `cur_row_`,下一帧 `collect` 就能找到"光标刚离开的那一行"。源码见 `libs/gui/core/widget/terminal.cpp:366-379`。这个判据也通用:**任何"位置会移动的可视元素"都要把旧位置 + 新位置都标脏,否则旧位置必然留残影**——光标如此、拖动窗口如此(`move_to_` 标 old + new)、鼠标指针也如此(`process_pointer` 里 `invalidate` old footprint + new footprint)。
 
 ### 关窗留残影:remove_window 漏标 stale footprint
 
@@ -61,17 +61,17 @@ void WindowManager::remove_window(Window* w) {
 }
 ```
 
-源码见 [`window_manager.cpp`](../../../libs/gui/core/widget/window_manager.cpp#L39-L62)。这跟 Window 的 `move_to_` 标 old footprint 是同一类问题:**保留模式下,"一个会消失/会移动的东西让出来的那块"必须有人显式标脏**——即时模式全屏重画自动解决、保留模式必须显式。这判据在本章里已经是第三次出现了(光标拖影、窗口移动、窗口关闭),值得记死。
+源码见 `libs/gui/core/widget/window_manager.cpp:39-62`。这跟 Window 的 `move_to_` 标 old footprint 是同一类问题:**保留模式下,"一个会消失/会移动的东西让出来的那块"必须有人显式标脏**——即时模式全屏重画自动解决、保留模式必须显式。这判据在本章里已经是第三次出现了(光标拖影、窗口移动、窗口关闭),值得记死。
 
 ## 保留模式 vs 即时模式:为什么换
 
-讲了这么多,值得回头问一句:029 的 `Canvas` 即时模式(DrawRect 当场写像素)有什么不好,非得换保留模式(PaintList 收集指令再批量落屏)?三个理由,正好对应这一章点亮的三个能力。
+讲了这么多,值得回头问一句:`09-gui/001` 的 `Canvas` 即时模式(DrawRect 当场写像素)有什么不好,非得换保留模式(PaintList 收集指令再批量落屏)?三个理由,正好对应这一章点亮的三个能力。
 
 **第一,脏区重绘。** 即时模式画一次就写一次像素,想"只重画变化的部分"得自己记哪些像素变了。保留模式天然有这个:控件改状态只标脏(`invalidate(Rect)`),`collect_dirty` 在帧边界把脏区收集成一组矩形,合成器只在这些矩形内重画。shell 输出一行字,只上传 704×16 那一小块,而不是整屏 720×440——上传量砍 90% 以上,WSLg 这种 streaming upload 慢的环境才能用。
 
 **第二,批量合成 + 裁剪。** 即时模式下每个 `draw_rect` 立刻写像素,没有"全局视角"。保留模式一帧的指令全在 PaintList 里,合成器可以裁剪(每条 cmd 跟 clip 求交)、可以重排(将来按纹理分批)、可以跳过(clip 外的 cmd O(1) 跳)。窗口层级裁剪也是这么来的——`flatten` 的 clip 栈保证控件画不出祖先矩形,即时模式要做到这点得每个 `draw_*` 自己算偏移 + 裁剪。
 
-**第三,跨进程共享。** 这是 087 把 GUI host 搬到用户态的地基。PaintList 是纯数据(`PaintCmd` 是 POD,无指针除了 `text` 借用的字符串),可以序列化进共享内存或 socket、丢给另一个进程的合成器落屏。087 那条 `/dev/fb0` mmap 路径——ring3 进程 mmap 显存、直接画像素——本质上就是 host 进程持有一个 staging Surface、由它自己的合成器执行 PaintList。即时模式下控件直接写物理显存,这是内核态才能干的活;保留模式把"产出指令"和"落屏"分开,前者任意进程能做、后者才需要显存访问权。这就是为什么 087 能让 GUI host 跑在用户态——它跑的就是这一章这套 Widget 树 + PaintList,只是 host 层从 SDL 换成了 `/dev/event0` + `/dev/fb0`。
+**第三,跨进程共享。** 这是 `09-gui/012` 把 GUI host 搬到用户态的地基。PaintList 是纯数据(`PaintCmd` 是 POD,无指针除了 `text` 借用的字符串),可以序列化进共享内存或 socket、丢给另一个进程的合成器落屏。`09-gui/012` 那条 `/dev/fb0` mmap 路径——ring3 进程 mmap 显存、直接画像素——本质上就是 host 进程持有一个 staging Surface、由它自己的合成器执行 PaintList。即时模式下控件直接写物理显存,这是内核态才能干的活;保留模式把"产出指令"和"落屏"分开,前者任意进程能做、后者才需要显存访问权。这就是为什么 `09-gui/012` 能让 GUI host 跑在用户态——它跑的就是这一章这套 Widget 树 + PaintList,只是 host 层从 SDL 换成了 `/dev/event0` + `/dev/fb0`。
 
-至于 shell 字节通道:这一章用的是 POSIX `forkpty`(host 进程和 shell 都在 ring3、同一个 Linux 主机)。真要搬到 Cinux 内核里跑,这条通道就得换成内核的 PTY 设备(`/dev/ptmx` + `/dev/pts/N`,066 立的)或者 AF_UNIX socket(083 立的)——字节从 GUI host 进程的 fd 出去、经内核 PTY/socket、到 shell 进程的 fd 0/1 进来。Widget 树和 PaintList 一行不用改,改的只是 host 层那条字节管道。
+至于 shell 字节通道:这一章用的是 POSIX `forkpty`(host 进程和 shell 都在 ring3、同一个 Linux 主机)。真要搬到 Cinux 内核里跑,这条通道就得换成内核的 PTY 设备(`/dev/ptmx` + `/dev/pts/N`,`07-userland/007` 立的)或者 AF_UNIX socket(`17-net/005` 立的)——字节从 GUI host 进程的 fd 出去、经内核 PTY/socket、到 shell 进程的 fd 0/1 进来。Widget 树和 PaintList 一行不用改,改的只是 host 层那条字节管道。
 

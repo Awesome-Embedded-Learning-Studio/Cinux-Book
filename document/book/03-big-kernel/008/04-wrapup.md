@@ -8,7 +8,7 @@ title: 04 · 调试现场、验证与下一站
 
 这一章没有 notes 文件,但键盘驱动有四个高频坑,几乎每个第一次写 PS/2 驱动的人都会撞上至少一个。
 
-**第一个,也是最经典的:「按一下就哑了」。** 你按下第一个键,屏幕回显出来了;再按第二个,没反应;之后怎么按都没反应。十有八九是 handler 里漏了 `PIC::send_eoi(1)`。EOI(End-Of-Interrupt)是告诉 PIC「这个中断我处理完了,你可以再发下一个了」。不发 EOI,PIC 就认为这个 IRQ 还没处理完,再也不给你送同优先级及以下的中断——键盘(IRQ1)就此哑掉。注意 011 时就立过规矩:EOI 由 C handler 自己发,不是汇编 stub 发。所以 `irq1_handler` 的最后一行 `PIC::send_eoi(1)` 是命脉,漏了或写错了 IRQ 号(写成 `send_eoi(0)`),键盘就只响一下。遇到「按一下就没反应」,第一件事就是查 EOI。
+**第一个,也是最经典的:「按一下就哑了」。** 你按下第一个键,屏幕回显出来了;再按第二个,没反应;之后怎么按都没反应。十有八九是 handler 里漏了 `PIC::send_eoi(1)`。EOI(End-Of-Interrupt)是告诉 PIC「这个中断我处理完了,你可以再发下一个了」。不发 EOI,PIC 就认为这个 IRQ 还没处理完,再也不给你送同优先级及以下的中断——键盘(IRQ1)就此哑掉。注意 `03-big-kernel/004` 时就立过规矩:EOI 由 C handler 自己发,不是汇编 stub 发。所以 `irq1_handler` 的最后一行 `PIC::send_eoi(1)` 是命脉,漏了或写错了 IRQ 号(写成 `send_eoi(0)`),键盘就只响一下。遇到「按一下就没反应」,第一件事就是查 EOI。
 
 **第二个:「字符全是乱的」。** 你按 `a` 出来的是别的字母,或者一堆乱码。这通常是 config 的 **bit6(set2→set1 翻译)没开**。前面说过,键盘默认发 set 2,我们的查找表是 set 1 的。bit6 没置位,你从 `0x60` 读到的就是 set 2 的码,拿它去查 set 1 的表,当然全错。验法是:在 `init` 改完 config 后,把那个 `config` 字节用 kprintf 打出来,确认 bit6(0x40)被置上了。值得一提的是,QEMU 的 PS/2 模拟在某些配置下默认行为和真机略有差异,所以这个 bit 在 QEMU 上可能「不开也碰巧能工作」,但搬到真机就乱——养成「显式置位、不依赖默认」的习惯,能少踩这种「QEMU 上好好的、真机上崩」的坑。
 
@@ -71,5 +71,5 @@ cmake --build build --target run-big-kernel-test
 
 - OSDev — [PS/2 Keyboard](https://wiki.osdev.org/PS/2_Keyboard):scan code set 1 的 make/break 编码(bit7 区分)、`0x60` 数据口与 `0x64` 状态/命令口、set 1 与 set 2 的差异。本章的扫描码解码以此为准。
 - OSDev — [8042 PS/2 Controller](https://wiki.osdev.org/I8042_PS/2_Controller):控制器 config 字节各位含义(bit0 第一口中断、bit1 第二口中断、bit6 set2→set1 翻译)、self-test 命令 `0xAA` 期待 `0x55`、命令 `0xD2`(写第一口输出缓冲,本章测试用它注入扫描码)、初始化仪式。
-- 011 章 · [big kernel PIC/PIT](../004/):PIC remap、IRQ0-15 → vector 0x20-0x2F、EOI 由 C handler 发送的规矩。本章 IRQ1 接线建立在那套中断体系之上。
+- `03-big-kernel/004` 章 · [big kernel PIC/PIT](../004/):PIC remap、IRQ0-15 → vector 0x20-0x2F、EOI 由 C handler 发送的规矩。本章 IRQ1 接线建立在那套中断体系之上。
 - 本 tag 源码:[keyboard.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/drivers/keyboard/keyboard.hpp) / [keyboard.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/drivers/keyboard/keyboard.cpp)、[interrupts.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/interrupts.S)(`irq1_stub` 改接)、[main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/main.cpp)(Step 10-12 回显循环)、[pit.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/drivers/pit/pit.cpp)(删 `[TICK]` 噪声);测试 [test_keyboard.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/test/unit/test_keyboard.cpp)(host 镜像)、[test_keyboard.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/test/test_keyboard.cpp)(QEMU `0xD2` 注入)。

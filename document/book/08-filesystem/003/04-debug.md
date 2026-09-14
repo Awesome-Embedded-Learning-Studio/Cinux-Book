@@ -4,7 +4,7 @@ title: 04 · 调试现场与验证
 
 # 调试现场与验证
 
-003 没有 notes 文件,但 VFS 这套类型擦除 + 前缀匹配有几个经典坑,值得当调试现场。
+`08-filesystem/003` 没有 notes 文件,但 VFS 这套类型擦除 + 前缀匹配有几个经典坑,值得当调试现场。
 
 一是 **最长前缀匹配漏了边界判定**。`vfs_resolve` 光用 `strncmp` 比前缀,挂载点 `/fo` 会误匹配 `/foo`、`/etc` 误匹配 `/eternity`。症状是「明明挂的是 `/`,查 `/foo` 却解析到了错误的后端」或「多个挂载点时路由到错的那个」。那道 `path[mlen]` 必须是 `/` 或 `\0`(或挂载前缀本身以 `/` 结尾)的判定不能省——它把「字符串前缀」收窄成「路径分量前缀」。
 
@@ -24,7 +24,7 @@ VFS 的逻辑能在 host 上镜像测一部分。挂载表的 resolve(最长前�
 ctest --test-dir build -R 'vfs_mount|fd_table' --output-on-failure
 ```
 
-「真归档、真挂载、真 lookup/read」在 QEMU 里验。机内测 [test_ramdisk.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/test/test_ramdisk.cpp) 在 002 基础上扩了一大块(这一章加了三百多行):验 `mount` 建出条目表、`lookup` 按名找到 inode、通过 `inode->ops->read` 读出文件内容、`readdir` 列出条目。跑它:
+「真归档、真挂载、真 lookup/read」在 QEMU 里验。机内测 [test_ramdisk.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/test/test_ramdisk.cpp) 在 `08-filesystem/002` 基础上扩了一大块(这一章加了三百多行):验 `mount` 建出条目表、`lookup` 按名找到 inode、通过 `inode->ops->read` 读出文件内容、`readdir` 列出条目。跑它:
 
 ```bash
 cmake --build build --target run-kernel-test

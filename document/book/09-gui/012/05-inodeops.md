@@ -6,7 +6,7 @@ title: 05 · InodeOps 差异化 + 调试 + 收尾
 
 ## 设备 InodeOps 差异化:同一基类,两套 override
 
-把前面两节收拢成一条设计主线。同一个 `InodeOps` 基类,见 [inode.hpp](../../../kernel/fs/inode.hpp#L77-L116) 的虚函数表(`read`/`write`/`mmap`/`ioctl`/`poll_events`/`create`/`mkdir`/…),`InputEventDevOps` 和 `FramebufferDevOps` 各 override 一个**不同子集**:
+把前面两节收拢成一条设计主线。同一个 `InodeOps` 基类,见 `kernel/fs/inode.hpp:77-116` 的虚函数表(`read`/`write`/`mmap`/`ioctl`/`poll_events`/`create`/`mkdir`/…),`InputEventDevOps` 和 `FramebufferDevOps` 各 override 一个**不同子集**:
 
 ```cpp
 // input_event_device.hpp:81-88
@@ -25,7 +25,7 @@ public:
 };
 ```
 
-没 override 的 `write`/`create`/`mkdir`/`stat`/… 走基类默认 `NotImplemented`,见 [inode.cpp](../../../kernel/fs/inode.cpp#L46-L59):
+没 override 的 `write`/`create`/`mkdir`/`stat`/… 走基类默认 `NotImplemented`,见 `kernel/fs/inode.cpp:46-59`:
 
 ```cpp
 cinux::lib::ErrorOr<int64_t> InodeOps::ioctl(const Inode*, uint32_t, uint64_t) {
@@ -39,11 +39,11 @@ cinux::lib::ErrorOr<uint64_t> InodeOps::mmap(const Inode*, uint64_t, uint64_t) {
 }
 ```
 
-所以「`/dev/fb0` 没有 read 语义」**不是写了个空 read 返 0 或返 EINVAL,而是压根没 override**——基类替你拒掉了。这是面向对象 VFS 的标准玩法:**设备多样性 = override 子集不同**,加新设备不动基类,只给它写新子类。064 那里 NullDevOps/ZeroDevOps/ConsoleDevOps 也是这个套路——本章是给 DevFS 再加两个**真设备** inode 子类,不重讲 add_node 机制。
+所以「`/dev/fb0` 没有 read 语义」**不是写了个空 read 返 0 或返 EINVAL,而是压根没 override**——基类替你拒掉了。这是面向对象 VFS 的标准玩法:**设备多样性 = override 子集不同**,加新设备不动基类,只给它写新子类。`08-filesystem/010` 那里 NullDevOps/ZeroDevOps/ConsoleDevOps 也是这个套路——本章是给 DevFS 再加两个**真设备** inode 子类,不重讲 add_node 机制。
 
-### DevFS 投影:跟 064 同一张 nodes_[] 表
+### DevFS 投影:跟 `08-filesystem/010` 同一张 nodes_[] 表
 
-两个设备节点怎么挂上 `/dev`?跟 064 的 null/zero/console 同一个 `add_node` 机制,见 [devfs_init.cpp](../../../kernel/fs/devfs/devfs_init.cpp#L161-L172):
+两个设备节点怎么挂上 `/dev`?跟 `08-filesystem/010` 的 null/zero/console 同一个 `add_node` 机制,见 `kernel/fs/devfs/devfs_init.cpp:161-172`:
 
 ```cpp
 // PTY: /dev/ptmx is a cloning device (open() allocates a pair); /dev/pts/<N>
@@ -63,7 +63,7 @@ for (uint32_t i = 0; i < cinux::drivers::BlockRegistry::count(); ++i) {
 }
 ```
 
-`add_node` 是字符设备路径,`add_block_node` 是块设备路径(085 讲过),底层都走 [devfs.cpp](../../../kernel/fs/devfs/devfs.cpp#L319-L330) 的 `register_node`:
+`add_node` 是字符设备路径,`add_block_node` 是块设备路径(`08-filesystem/018` 讲过),底层都走 `kernel/fs/devfs/devfs.cpp:319-330` 的 `register_node`:
 
 ```cpp
 void DevFs::add_node(const char* name, InodeOps* ops) {
@@ -78,11 +78,11 @@ void DevFs::add_block_node(const char* name, cinux::drivers::IBlockDevice* dev) 
 }
 ```
 
-字符设备的 ops 是写死的全局单例(`g_input_event_ops`、`g_fb_dev_ops`),块设备每次 `new` 一个 `BlockDevOps` 包住 `IBlockDevice`。两条路径、一张 `nodes_[]` 表。子目录(`/dev/pts/<N>`)走的是另一条 `set_dynamic_lookup` 路径——084 讲过 PTY 的 dynamic resolver,本章的 `/dev/event0` 是 flat 节点,不走那条。
+字符设备的 ops 是写死的全局单例(`g_input_event_ops`、`g_fb_dev_ops`),块设备每次 `new` 一个 `BlockDevOps` 包住 `IBlockDevice`。两条路径、一张 `nodes_[]` 表。子目录(`/dev/pts/<N>`)走的是另一条 `set_dynamic_lookup` 路径——`07-userland/007` 讲过 PTY 的 dynamic resolver,本章的 `/dev/event0` 是 flat 节点,不走那条。
 
 ### input 源分层(只画到接缝)
 
-最后把输入侧的分层画清楚——014 详讲过 PS/2 scancode 不重讲,这里只点到 push_event 是接缝:
+最后把输入侧的分层画清楚——`03-big-kernel/008` 详讲过 PS/2 scancode 不重讲,这里只点到 push_event 是接缝:
 
 ```text
 硬件层    8042 PS/2 端口常量(ps2.hpp)        USB HID boot descriptor(hid_boot.hpp)
@@ -148,7 +148,7 @@ struct Event {
 
 `read` 返 24 字节也对,但解出来的 `type` 是乱码,鼠标坐标也错位。
 
-**根因**。先说**不是 padding 的锅**——这是最常见的误判。Cinux 内核的 `cinux::gui::Event` 是 `EventType type_;` 后跟一个 union,见 [event.hpp](../../../kernel/gui/event.hpp#L89-L96):
+**根因**。先说**不是 padding 的锅**——这是最常见的误判。Cinux 内核的 `cinux::gui::Event` 是 `EventType type_;` 后跟一个 union,见 `kernel/gui/event.hpp:89-96`:
 
 ```cpp
 struct Event {
@@ -174,7 +174,7 @@ struct Event {
 
 **根因**(进阶,串内存管理章)。`fork` 时默认会把父进程的可写页标 CoW(Copy-on-Write)——清 `FLAG_WRITABLE`、设 COW 标志,这样父或子任一方写时触发 `#PF`,fault handler 分配新 RAM 页、复制内容、改映射。可 IoPhys VMA 的「物理页」是**设备显存**,不是 RAM——CoW 截胡的话,父进程写的是新分配的 RAM 副本,根本没写到真 framebuffer,屏幕自然不更新。
 
-**解法**。`fork` 对 `FLAG_PCD` leaf 跳 CoW(直接共享原物理映射,设备内存本来就该共享)。见 [fork.cpp](../../../kernel/proc/fork.cpp#L89-L94):
+**解法**。`fork` 对 `FLAG_PCD` leaf 跳 CoW(直接共享原物理映射,设备内存本来就该共享)。见 `kernel/proc/fork.cpp:89-94`:
 
 ```cpp
 // F-GUI-USERSPACE batch 1: device (IoPhys) pages -- identified by
@@ -188,7 +188,7 @@ if (entry_flags & FLAG_PCD) {
 }
 ```
 
-这条在 v1.0.0 已经落地(execve 路径对 IoPhys 页也有同款跳过,见 [execve.cpp](../../../kernel/proc/execve.cpp#L122-L123))。`IoPhys` 标志的另一重含义——不仅 page-fault 看它跳 PMM,fork/execve 也看它跳 CoW——是「设备内存不归 PMM 管」这条规矩在三处入口(fault/fork/execve)的一致体现。
+这条在 v1.0.0 已经落地(execve 路径对 IoPhys 页也有同款跳过,见 `kernel/proc/execve.cpp:122-123`)。`IoPhys` 标志的另一重含义——不仅 page-fault 看它跳 PMM,fork/execve 也看它跳 CoW——是「设备内存不归 PMM 管」这条规矩在三处入口(fault/fork/execve)的一致体现。
 
 ## 验证
 
@@ -196,11 +196,11 @@ if (entry_flags & FLAG_PCD) {
 
 **第一层:host 单测,纯逻辑。** input event 的纯逻辑是 `RingBuffer` 算术(push/pop 边界、满静默丢)、`FbScreenInfo` 字段填充(4 字段对)、`FramebufferDevOps::mmap` 的边界检查(越界返 `EINVAL`、`offset+length` 溢出保护)。这层靠的是 host 可链的纯逻辑,不碰 scheduler/wait_queue/copy_to_user——那些是 kernel-only。host 单测罩不到 read/poll 的阻塞语义(那要 scheduler)。
 
-**第二层:kernel 内测,QEMU 里跑真码。** test kernel 注入事件(`smoke_entry` mock push `MouseMove(123,45)` + `KeyDown('A')`),fork+execve 一个用户态 demo `/input_event_test`,demo `open("/dev/event0")` + `read` 2 个事件,验 type 和 payload 对——这一层把 push_event → RingBuffer → read → memcpy staging → sys_read copy_to_user 全链路跑通。dev note 记录这条 smoke 在两腿(单核 + `-smp 2`)各 5/5 iters PASS。同时还有一条平行的 `/dev/fb0` smoke:test kernel fork+execve `/fb_mmap_test`,demo `open("/dev/fb0")` + `ioctl(FBIOGET_SCREENINFO)` 拿屏几何 + `mmap` 拿虚拟地址 + 写读一个像素——验证 ioctl + mmap + page-fault IoPhys 分支全链路。两条 smoke 在 test kernel 里都真跑了,见 [main_test.cpp](../../../kernel/test/main_test.cpp#L300-L345) 的 `/fb_mmap_test` 段和 [main_test.cpp](../../../kernel/test/main_test.cpp#L352-L414) 的 `/input_event_test` 段。
+**第二层:kernel 内测,QEMU 里跑真码。** test kernel 注入事件(`smoke_entry` mock push `MouseMove(123,45)` + `KeyDown('A')`),fork+execve 一个用户态 demo `/input_event_test`,demo `open("/dev/event0")` + `read` 2 个事件,验 type 和 payload 对——这一层把 push_event → RingBuffer → read → memcpy staging → sys_read copy_to_user 全链路跑通。dev note 记录这条 smoke 在两腿(单核 + `-smp 2`)各 5/5 iters PASS。同时还有一条平行的 `/dev/fb0` smoke:test kernel fork+execve `/fb_mmap_test`,demo `open("/dev/fb0")` + `ioctl(FBIOGET_SCREENINFO)` 拿屏几何 + `mmap` 拿虚拟地址 + 写读一个像素——验证 ioctl + mmap + page-fault IoPhys 分支全链路。两条 smoke 在 test kernel 里都真跑了,见 `kernel/test/main_test.cpp:300-345` 的 `/fb_mmap_test` 段和 `kernel/test/main_test.cpp:352-414` 的 `/input_event_test` 段。
 
-**第三层:`make run` 冒烟。** `ls /dev` 见 `event0`/`fb0`,用户态 GUI host(`/cinux_gui_host`)open + mmap + read 端到端跑起来——见 [desktop_launch.cpp](../../../kernel/gui/desktop_launch.cpp#L36-L58),`launch_userspace` fork+execve 这个 host 进程,它 open `/dev/fb0` + `/dev/event0` 构 widget tree。
+**第三层:`make run` 冒烟。** `ls /dev` 见 `event0`/`fb0`,用户态 GUI host(`/cinux_gui_host`)open + mmap + read 端到端跑起来——见 `kernel/gui/desktop_launch.cpp:36-58`,`launch_userspace` fork+execve 这个 host 进程,它 open `/dev/fb0` + `/dev/event0` 构 widget tree。
 
-**boot 与 test kernel 的真实差异**。前面几章(064 那批)常说「test kernel 不走 boot,验不了 boot 那个 init」——本章这条不适用。test kernel 在 [main_test.cpp](../../../kernel/test/main_test.cpp#L237) 显式调了 `cinux::fs::devfs::init()`(注释明说「re-mount /dev (vfs_mount_init cleared it) so /dev/fb0 resolves」),并且在 [main_test.cpp](../../../kernel/test/main_test.cpp#L179) `musl_hello_smoke_entry` 里初始化了一个 test framebuffer——所以 `/dev/event0`、`/dev/fb0` 在 test kernel 里都解析得到,smoke 才跑得起来。真正的 boot/test 差异在别处:boot 走真 bootloader 的 VBE mode 设置,framebuffer 是真显存;test kernel 的 framebuffer 是为 smoke 搭的测试实例(几何参数可能跟 boot 不同)。production 真显存 + 真鼠标键盘,还是得 `make run` 起真内核。
+**boot 与 test kernel 的真实差异**。前面几章(`08-filesystem/010` 那批)常说「test kernel 不走 boot,验不了 boot 那个 init」——本章这条不适用。test kernel 在 `kernel/test/main_test.cpp:237` 显式调了 `cinux::fs::devfs::init()`(注释明说「re-mount /dev (vfs_mount_init cleared it) so /dev/fb0 resolves」),并且在 `kernel/test/main_test.cpp:179` `musl_hello_smoke_entry` 里初始化了一个 test framebuffer——所以 `/dev/event0`、`/dev/fb0` 在 test kernel 里都解析得到,smoke 才跑得起来。真正的 boot/test 差异在别处:boot 走真 bootloader 的 VBE mode 设置,framebuffer 是真显存;test kernel 的 framebuffer 是为 smoke 搭的测试实例(几何参数可能跟 boot 不同)。production 真显存 + 真鼠标键盘,还是得 `make run` 起真内核。
 
 **诚实说哪些 headless 测不到**:
 
@@ -214,7 +214,7 @@ if (entry_flags & FLAG_PCD) {
 - **`bpp` 暴露给用户改**:VBE mode `0x144` 32-bpp XRGB 写死,不支持用户态切分辨率/像素格式。
 - **`poll` 实跑验证**:设计到位,QEMU 实跑待 ring3 GUI host 用 poll 时验。
 - **`fb_var_screeninfo` 完整字段**:只回 4 个字段(width/height/pitch/bpp),`xoffset`/`red.length`/`pixclock` 那些 Linux 字段不建模。
-- **NVMe 设备接口**:077 讲过 NVMe 驱动,不放本章。
+- **NVMe 设备接口**:`12-storage/002` 讲过 NVMe 驱动,不放本章。
 
 ## 小结
 
@@ -223,7 +223,7 @@ if (entry_flags & FLAG_PCD) {
 - **`/dev/fb0` 的 mmap 只回物理地址**:真正建 PTE 是 page-fault 的活,带 `FLAG_PCD` uncached——显存是设备内存不是 RAM,cache 它会让写像素只动 cache line。`IoPhys` 标志是「这不是 RAM 页别动」的唯一标识,PMM/munmap/fork/execve 全绕开(fork 跳 CoW 已在 v1.0.0 落地)。
 - **read 的 buf 是 kernel staging 不是 user pointer**:必须 `std::memcpy`,绝不能 `copy_to_user`(`is_user_vaddr` 拒 kernel 地址)。对比 ioctl 的 `arg` 是真 user pointer,直接 `copy_to_user`——两种 buf 性质两样。
 - **MMIO 范式 `mmio32_read/write`**:`volatile uint32` deref + byte-offset,`volatile` 管编译器优化,uncached 管 CPU cache;byte-offset 跟硬件文档一字对齐(HPET Config 在 `0x010` 不在 `0x008`),32-bit 锁死访问宽度(QEMU 丢 64-bit 写)。
-- **诚实边界**:`/dev/event0` flat 不子目录、`Event` 自定义结构要 mirror(字段顺序/类型,padding 自动一致别上 packed)、`poll` level-triggered、队列满静默丢、`poll` 路径只设计未实跑、NVMe 不放(077)。
+- **诚实边界**:`/dev/event0` flat 不子目录、`Event` 自定义结构要 mirror(字段顺序/类型,padding 自动一致别上 packed)、`poll` level-triggered、队列满静默丢、`poll` 路径只设计未实跑、NVMe 不放(`12-storage/002`)。
 
 ---
 
@@ -233,13 +233,13 @@ if (entry_flags & FLAG_PCD) {
 - Intel SDM Vol.3 第 10 章 LAPIC、第 14 章 HPET(xAPIC MMIO 寄存器布局、HPET General Config 偏移权威)
 - QEMU 源码:`hw/timer/hpet.c`(`HPET_CFG = 0x010` 宏,诊断权威)
 - 本 tag 源码:
-  - [mmio.hpp](../../../kernel/drivers/mmio.hpp)(MMIO 32-bit 助手全文)
-  - [input_event_device.hpp](../../../kernel/drivers/input/input_event_device.hpp) / [input_event_device.cpp](../../../kernel/drivers/input/input_event_device.cpp)
-  - [fb_dev.hpp](../../../kernel/drivers/video/fb_dev.hpp) / [fb_dev.cpp](../../../kernel/drivers/video/fb_dev.cpp)
-  - [framebuffer.hpp](../../../kernel/drivers/video/framebuffer.hpp) / [framebuffer.cpp](../../../kernel/drivers/video/framebuffer.cpp)
-  - [page_fault.cpp](../../../kernel/arch/x86_64/page_fault.cpp) IoPhys 分支
-  - [fork.cpp](../../../kernel/proc/fork.cpp) / [execve.cpp](../../../kernel/proc/execve.cpp) IoPhys 跳 CoW
-  - [local_apic.cpp](../../../kernel/drivers/apic/local_apic.cpp) / [hpet.cpp](../../../kernel/drivers/hpet/hpet.cpp) MMIO 消费侧
-  - [devfs_init.cpp](../../../kernel/fs/devfs/devfs_init.cpp) 注册行
-  - [mouse.cpp](../../../kernel/drivers/mouse/mouse.cpp) / [gui_init.cpp](../../../kernel/gui/gui_init.cpp) dual-write
-  - [sys_mmap.cpp](../../../kernel/syscall/sys_mmap.cpp) device probe
+  - `kernel/drivers/mmio.hpp`(MMIO 32-bit 助手全文)
+  - `kernel/drivers/input/input_event_device.hpp` / `kernel/drivers/input/input_event_device.cpp`
+  - `kernel/drivers/video/fb_dev.hpp` / `kernel/drivers/video/fb_dev.cpp`
+  - `kernel/drivers/video/framebuffer.hpp` / `kernel/drivers/video/framebuffer.cpp`
+  - `kernel/arch/x86_64/page_fault.cpp` IoPhys 分支
+  - `kernel/proc/fork.cpp` / `kernel/proc/execve.cpp` IoPhys 跳 CoW
+  - `kernel/drivers/apic/local_apic.cpp` / `kernel/drivers/hpet/hpet.cpp` MMIO 消费侧
+  - `kernel/fs/devfs/devfs_init.cpp` 注册行
+  - `kernel/drivers/mouse/mouse.cpp` / `kernel/gui/gui_init.cpp` dual-write
+  - `kernel/syscall/sys_mmap.cpp` device probe

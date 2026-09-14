@@ -92,4 +92,4 @@ P L J 1 2 3 4 G ===CPP C1 1 V 2 3 B ===END
 - `cmake --build build` 成功,`mini_kernel.bin` 等三段产出,`cinux.img` 拼好。
 - `make run` 后 `debug.log` 出现完整序列,含 `B`(BootInfo 校验通过)和 `1/2/3`(C++ 冒烟测试通过)。
 - GDB 能断在 `mini_kernel_main`,`rdi=0x7000`、`rip` 在高半。
-- 全程没有 PMM/堆/中断——内核还只是个"会跑 C++ 的空壳",那些是 [02-mini-kernel 卷](../../book/02-mini-kernel/005-mini-kernel-entry.md) 的 lab。
+- 全程没有 PMM/堆/中断——内核还只是个"会跑 C++ 的空壳",那些是 [02-mini-kernel 卷](../../book/02-mini-kernel/001/) 的 lab。

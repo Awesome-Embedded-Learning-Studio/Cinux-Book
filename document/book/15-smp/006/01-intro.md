@@ -4,11 +4,11 @@ title: 01 · 导引:点亮什么
 
 # 导引:点亮什么
 
-> 053 把「调度迁移写花 ctx」这个最显眼的雷扫了,可 SMP 上会写花状态的地方远不止 runqueue。`ext2` 把读过的 inode 缓在一张跨核共享的表里,入口函数 `get_cached_inode` 全程裸奔——两核同时 miss 同一个 ino,一头在 `evict` 把某 slot 删了,另一头手里还攥着指向那个 slot 的 `Inode*` 在用,slot 一被释放或被重填成另一个文件,指针就成了别名 UAF,读到的字节不属于你那个文件。这种错连 ASAN 都看不见(对象还活着,只是内容被换了),是比 panic 难抓十倍的静默别名。
+> `15-smp/005` 把「调度迁移写花 ctx」这个最显眼的雷扫了,可 SMP 上会写花状态的地方远不止 runqueue。`ext2` 把读过的 inode 缓在一张跨核共享的表里,入口函数 `get_cached_inode` 全程裸奔——两核同时 miss 同一个 ino,一头在 `evict` 把某 slot 删了,另一头手里还攥着指向那个 slot 的 `Inode*` 在用,slot 一被释放或被重填成另一个文件,指针就成了别名 UAF,读到的字节不属于你那个文件。这种错连 ASAN 都看不见(对象还活着,只是内容被换了),是比 panic 难抓十倍的静默别名。
 >
-> 这一章咱们要做的事,不是「把这一处修了就收工」,而是把 SMP 上「抓竞态」这件事拧成一条红线——它贯穿四个阶段:一是先造一台跨核交错报警器(`race-detect`),盯着「这块共享状态压根没锁」这类设计缺陷;二是拿 `ext2 inode_cache` 当靶子,看报警器真能抓;三是给病灶上真锁、把报警器换成 `lockdep_assert_held` 当回归护栏,顺手清三笔旧债;四是在纵深阶段推导出「同步 TLB shootdown 跑在缺页中断的 IF=0 里会确定性互锁」——正是这个结论逼出了 deferred CoW 设计范式,把跨核 free 从会互锁的中断上下文挪到可阻塞的 drain 内核线程,把 044 章那两本账(`pte_count`/`refcount`)的 `no_free` 变体兑现掉。
+> 这一章咱们要做的事,不是「把这一处修了就收工」,而是把 SMP 上「抓竞态」这件事拧成一条红线——它贯穿四个阶段:一是先造一台跨核交错报警器(`race-detect`),盯着「这块共享状态压根没锁」这类设计缺陷;二是拿 `ext2 inode_cache` 当靶子,看报警器真能抓;三是给病灶上真锁、把报警器换成 `lockdep_assert_held` 当回归护栏,顺手清三笔旧债;四是在纵深阶段推导出「同步 TLB shootdown 跑在缺页中断的 IF=0 里会确定性互锁」——正是这个结论逼出了 deferred CoW 设计范式,把跨核 free 从会互锁的中断上下文挪到可阻塞的 drain 内核线程,把 `13-memory-advanced/005` 章那两本账(`pte_count`/`refcount`)的 `no_free` 变体兑现掉。
 >
-> 诚实边界先摆前面:三个 `ext2` 盘元数据的 race(`block_buf_` 共享 buffer 互踩、位图分配 RMW 无锁、与之绑定的样式整理)依赖 `KmBuf` RAII 和 `ext2_dirops` 拆分这块地基,划给 080/081;deferred CoW 的**基建与接线**(`handle_cow_fault` 走 `_no_free` + `enqueue_pending_shootdown`、drain 线程已起、`CINUX_TLB_DRAIN` option 默认 ON、0xE1 shootdown IPI 已注册进 IDT)在本机工作树均已落地。WSL2 上 `-smp 2` 靠 KVM 能跑,但 host 的 SMAP/CPUID 透传限制对 race-detect 本身无影响(race-detect 不依赖 SMAP),真机上的 heisenbug 会单独说。
+> 诚实边界先摆前面:三个 `ext2` 盘元数据的 race(`block_buf_` 共享 buffer 互踩、位图分配 RMW 无锁、与之绑定的样式整理)依赖 `KmBuf` RAII 和 `ext2_dirops` 拆分这块地基,划给 `08-filesystem/016-017`;deferred CoW 的**基建与接线**(`handle_cow_fault` 走 `_no_free` + `enqueue_pending_shootdown`、drain 线程已起、`CINUX_TLB_DRAIN` option 默认 ON、0xE1 shootdown IPI 已注册进 IDT)在本机工作树均已落地。WSL2 上 `-smp 2` 靠 KVM 能跑,但 host 的 SMAP/CPUID 透传限制对 race-detect 本身无影响(race-detect 不依赖 SMAP),真机上的 heisenbug 会单独说。
 
 ## 这章咱们要点亮什么
 

@@ -28,7 +28,7 @@ Cinux 借的是 Linux 的**模型**(注意,只是模型,不是 Linux init 的全
    idle task (Scheduler::init 创建):hlt 空转
 ```
 
-- **idle task**:调度器自己的,`Scheduler::init()` 里就建好了,运行队列空时由它 `hlt` 空转(008 已有)。
+- **idle task**:调度器自己的,`Scheduler::init()` 里就建好了,运行队列空时由它 `hlt` 空转(`08-filesystem/008` 已有)。
 - **boot task**:`run_first(boot_task)` 把 boot CPU 当前的执行流「认领」成一个 task,作为 handoff 的起点。它的 entry 是个只打印 `UNEXPECTED` 然后 `hlt` 的 lambda——正常情况下控制权一交出去就再也不回来,真回到它说明哪里错了。
 - **kernel_init**:`init.cpp` 里的 `kernel_init_thread`,干 PID 1 的活:挂 ext2、挂 VFS、`launch_first_user` 起 shell,最后 `exit_current`。
 

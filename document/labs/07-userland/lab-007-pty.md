@@ -96,7 +96,7 @@ boot 冒烟(test kernel 不走 `devfs::init`,要起真内核):
 cmake --build build --target run
 ```
 
-应看到 `[DEVFS] mounted at /dev (4 nodes)`——比 064(3 nodes)多一个 `ptmx`。
+应看到 `[DEVFS] mounted at /dev (4 nodes)`——比 `08-filesystem/010`(3 nodes)多一个 `ptmx`。
 
 两腿汇总:
 

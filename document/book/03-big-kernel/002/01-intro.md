@@ -24,7 +24,7 @@ mini kernel 为了把 big kernel 跑起来,顺手塞了一张临时 GDT 进去�
 
 所以结论有点反直觉:long mode 不是不要 GDT,而是 GDT 的角色从"管内存分段"退化成了"管段属性、特权、TSS 的查表入口"。地基换了种铺法,但还是地基,这一章铺的就是它。
 
-那 009 的时候为什么没崩?因为 mini kernel 留下的临时 GDT 恰好够 big kernel 用 `kprintf` 蹭两步。可一旦要碰特权级、碰中断、碰 TSS,那张临时表就不够看了——必须自己来。
+那 `03-big-kernel/001` 的时候为什么没崩?因为 mini kernel 留下的临时 GDT 恰好够 big kernel 用 `kprintf` 蹭两步。可一旦要碰特权级、碰中断、碰 TSS,那张临时表就不够看了——必须自己来。
 
 > 外部依据:Intel SDM Vol.3A 在 Segment Descriptors 一节说明,long mode 下代码段描述符的 L 位为 1 时进入 64 位模式,此时 base/limit 被视为 0/无限。OSDev 的 Global Descriptor Table 页对"64 位下 GDT 的精简角色"有社区视角的总结。(精确章节号我们在写完后用本地 SDM 核实,见篇末参考。)
 

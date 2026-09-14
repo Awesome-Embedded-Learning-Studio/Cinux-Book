@@ -4,11 +4,11 @@ title: Lab 009 · init 线程化与一次潜伏碰撞的复盘
 
 # Lab 009 · init 线程化与一次潜伏碰撞的复盘
 
-> 009 是「重构 + 排错」双主题,所以这个 lab 也分两半:前半让你把 init 线程模型和新内存布局**在纸上吃透**——画启动流程对照、手算区段地址、回答「如果改一个常量会撞到谁」;后半是排错演练——给你一个「MMIO 寄存器读出全零」的现象,让你独立走一遍假设→验证→定位的链路,把 009 那次硬核排错变成可复用的方法。没有新代码要写,全是理解与推理。
+> `08-filesystem/009` 是「重构 + 排错」双主题,所以这个 lab 也分两半:前半让你把 init 线程模型和新内存布局**在纸上吃透**——画启动流程对照、手算区段地址、回答「如果改一个常量会撞到谁」;后半是排错演练——给你一个「MMIO 寄存器读出全零」的现象,让你独立走一遍假设→验证→定位的链路,把 `08-filesystem/009` 那次硬核排错变成可复用的方法。没有新代码要写,全是理解与推理。
 
 ## 实验目标
 
-- 画出 008「一根筋」与 009「init 线程」两套启动流程的对照,能标出「调度器启动」这道分界线前后分别干了什么——并解释为什么这道分界线决定了 mmio 碰撞**发不发作**。
+- 画出 `08-filesystem/008`「一根筋」与 `08-filesystem/009`「init 线程」两套启动流程的对照,能标出「调度器启动」这道分界线前后分别干了什么——并解释为什么这道分界线决定了 mmio 碰撞**发不发作**。
 - 手算 `memory_layout.hpp` 五个区段的 `[base, end)`,验证栈不再与 MMIO 重叠。
 - 能回答「改一个布局常量,会撞到谁」这类链式推理。
 - 独立完成一次「MMIO 读全零」的排错演练,写出至少三条假设与各自的验证手段。
@@ -16,15 +16,15 @@ title: Lab 009 · init 线程化与一次潜伏碰撞的复盘
 
 ## 前置条件
 
-- 008 通过;理解 `Scheduler::run_first` / `schedule` / idle task、AHCI BAR5 是 MMIO、`VMM::map` 如何改页表。
-- 009 代码已构建:`cmake --build build`,`make run` 能起。
-- 读懂主书第 009 章的「Linux init 模型对齐」和「调试现场」两节,以及 [009-mmio-stack-collision.md](../../debug-notes/009-mmio-stack-collision.md)。
+- `08-filesystem/008` 通过;理解 `Scheduler::run_first` / `schedule` / idle task、AHCI BAR5 是 MMIO、`VMM::map` 如何改页表。
+- `08-filesystem/009` 代码已构建:`cmake --build build`,`make run` 能起。
+- 读懂主书 `08-filesystem/009` 章的「Linux init 模型对齐」和「调试现场」两节,以及 [009-mmio-stack-collision.md](../../debug-notes/028e-mmio-stack-collision.md)。
 
 ## 任务分解
 
 ### 任务 1:画两套启动流程的对照图
 
-纸上画两张时序图,横向是时间,纵向是「谁在执行 / 在干什么」。第一张是 008 的 `kernel_main`:
+纸上画两张时序图,横向是时间,纵向是「谁在执行 / 在干什么」。第一张是 `08-filesystem/008` 的 `kernel_main`:
 
 ```text
 kernel_main: ...初始化 → AHCI init → ext2.mount() → vfs_mount → run_concurrent_stress()
@@ -32,7 +32,7 @@ kernel_main: ...初始化 → AHCI init → ext2.mount() → vfs_mount → run_c
                                               （调度器在这里面才 init，建第一个内核栈）
 ```
 
-第二张是 009:
+第二张是 `08-filesystem/009`:
 
 ```text
 kernel_main: ...初始化 → AHCI init → Scheduler::init() → spawn kernel_init / boot → run_first(boot)
@@ -43,7 +43,7 @@ kernel_init 线程: ext2.mount() → vfs_mount → launch_first_user → exit_cu
                   （此时内核栈已经映射过了）
 ```
 
-在两张图上各标出**「第一次建立内核栈映射」**和**「第一次读 AHCI MMIO(挂载)」**的相对先后。然后回答:为什么 008 的顺序里,即使两个魔法地址早就相等,挂载也不会炸?为什么 009 一换顺序就炸?——这正是「重排顺序激活潜伏 bug」的核肉,要能用一句话讲清。
+在两张图上各标出**「第一次建立内核栈映射」**和**「第一次读 AHCI MMIO(挂载)」**的相对先后。然后回答:为什么 `08-filesystem/008` 的顺序里,即使两个魔法地址早就相等,挂载也不会炸?为什么 `08-filesystem/009` 一换顺序就炸?——这正是「重排顺序激活潜伏 bug」的核肉,要能用一句话讲清。
 
 ### 任务 2:手算内存布局,验证不重叠
 
@@ -70,7 +70,7 @@ ext2 DMA  [0x...______, 0x...______)   size = ______
 
 - 如果把 `KMEM_MMIO_SIZE` 从 `0x40000` 改成 `0x10000`(64 KB),栈的 base 会变成多少?它会不会和谁重叠?(提示:栈 base = `MMIO_BASE + 新 MMIO_SIZE`,但 MMIO 区段实际占多大由谁说了算?)
 - 如果未来要加一个「帧缓冲保留区」,插在 DMA 和 ext2 DMA **之间**,`KMEM_EXT2_DMA_BASE` 会自动顺延吗?为什么?(看布局表是 `base + size` 链式的含义。)
-- 如果有人图省事,在某个新驱动里又写了个 `static constexpr MMIO = 0xFFFF800000100000`,会发生什么?——这正是 009 修复要杜绝的事。
+- 如果有人图省事,在某个新驱动里又写了个 `static constexpr MMIO = 0xFFFF800000100000`,会发生什么?——这正是 `08-filesystem/009` 修复要杜绝的事。
 
 ### 任务 4:读 init.cpp,理解跨翻译单元的实例访问
 
@@ -87,10 +87,10 @@ ext2 DMA  [0x...______, 0x...______)   size = ______
 参考方向(自己先写再看):
 
 - 假设 A:页表映射被覆盖(有别的 `g_vmm.map()` 把这段虚拟地址重新映射了)——验证:打印可疑路径上所有 `map()` 的目标虚拟地址,看有没有落进这段 MMIO 区间;或在该寄存器读取前后打印 `VMM::translate(那个虚拟地址)` 看物理地址有没有变。
-- 假设 B:被抢占/中断打断——验证:在该路径外包 `InterruptGuard` 关中断复现,问题消失则成立(009 正是这样**证伪**了这条)。
+- 假设 B:被抢占/中断打断——验证:在该路径外包 `InterruptGuard` 关中断复现,问题消失则成立(`08-filesystem/009` 正是这样**证伪**了这条)。
 - 假设 C:执行顺序变了、这段读取发生在「映射还没建好/已被改」的时刻——验证:对比重构前后的时序,标出「第一次 map 这段地址」与「第一次读它」的先后。
 
-把这套假设→验证→定位的链路写成一段复盘,核心是:**先证伪最直觉的那个假设(009 是「抢占」),别一路错下去。**
+把这套假设→验证→定位的链路写成一段复盘,核心是:**先证伪最直觉的那个假设(`08-filesystem/009` 是「抢占」),别一路错下去。**
 
 ## 接口约束
 
@@ -103,7 +103,7 @@ ext2 DMA  [0x...______, 0x...______)   size = ______
 ## 验证步骤
 
 - **任务 1–4**:纸上完成;任务 2 的地址表可对照 `memory_layout.hpp` 源码自检。
-- **任务 5**:写完假设链路后,对照主书「调试现场」和 [009-mmio-stack-collision.md](../../debug-notes/009-mmio-stack-collision.md),看你的假设是否覆盖了「页表覆盖」这条真根因、以及是否正确地**先证伪了「抢占」这条红鲱鱼**。
+- **任务 5**:写完假设链路后,对照主书「调试现场」和 [009-mmio-stack-collision.md](../../debug-notes/028e-mmio-stack-collision.md),看你的假设是否覆盖了「页表覆盖」这条真根因、以及是否正确地**先证伪了「抢占」这条红鲱鱼**。
 - **端到端**:`make run` 启动生产内核,串口应看到 `[INIT] kernel_init started` → ext2 挂载**成功**(无 command timeout)→ `[VFS] ext2 mounted at /` → shell。
 - **回归点**:在 init 线程里读 Port 1 的 `SSTS`,应保持 `0x113`(不再是 `0x0`)——直接证明「栈盖 MMIO」没了。
 

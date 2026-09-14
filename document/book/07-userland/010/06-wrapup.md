@@ -6,7 +6,7 @@ title: 06 · 收尾:验证、诚实边界、没做的与小结
 
 ## 验证(教程即验证)
 
-验证口径——跟 059/073 同款「客观陈述看到什么」。本章做了两条验证路径。
+验证口径——跟 `07-userland/004`/`07-userland/008` 同款「客观陈述看到什么」。本章做了两条验证路径。
 
 ### 路径一:静态核实(本章做了的)
 
@@ -26,7 +26,7 @@ title: 06 · 收尾:验证、诚实边界、没做的与小结
 
 **busybox sh 的 Ctrl+C 转发**:靠 `tkill` 把 `SIGINT` 发给前台子进程——若 `tkill` 是 stub,信号发不出去,Ctrl+C 失灵。
 
-**带 SSP 的 musl 程序能启动**:`getrandom` 被 glibc/musl 启动用来填 canary——若返 ENOSYS 或不真给字节,带 SSP 的程序会启动失败或 canary 全零。hello/busybox 都能跑(059/073 立过)就是 `getrandom` 真给字节的间接证据。
+**带 SSP 的 musl 程序能启动**:`getrandom` 被 glibc/musl 启动用来填 canary——若返 ENOSYS 或不真给字节,带 SSP 的程序会启动失败或 canary 全零。hello/busybox 都能跑(`07-userland/004`/`07-userland/008` 立过)就是 `getrandom` 真给字节的间接证据。
 
 > **本章止于静态核实。** 源码头注释和 `cmake/qemu.cmake:604-618` 的 gate 文档声称这些 syscall 被用到,但「声称」≠「实测」——本章没在 QEMU 上跑 `run-buildroot-usability` 端到端坐实「musl/glibc/busybox 真发这个号、真命中这个 handler」(那需要 strace 或串口日志 grep)。lab 留给读者做这件事。
 

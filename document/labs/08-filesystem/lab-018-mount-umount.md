@@ -10,9 +10,9 @@ title: Lab 018 · mount/umount 验证
 
 确认五件事:
 
-1. **mount factory 是 fstype 驱动的四类分发**——`do_mount_kernel` 按 `fstype` 字符串走路由(tmpfs / proc·devfs / ext2·ext4 / 未知 `ENODEV`),跟 017 tmpfs 章是同一张表的不同行;
-2. **块设备挂载链是三层解析**(015 deferred 的核心)——source 路径 → `vfs_lookup(NoFollow)` 拿 `Inode` → `block_device()` 虚方法抽 `IBlockDevice` → `new Ext2(dev)`;
-3. **`owned` bool 统一三类生命周期**(承 017)——堆 owned / 单例 unowned / 未知 ENODEV;
+1. **mount factory 是 fstype 驱动的四类分发**——`do_mount_kernel` 按 `fstype` 字符串走路由(tmpfs / proc·devfs / ext2·ext4 / 未知 `ENODEV`),跟 `08-filesystem/017` tmpfs 章是同一张表的不同行;
+2. **块设备挂载链是三层解析**(`08-filesystem/015` deferred 的核心)——source 路径 → `vfs_lookup(NoFollow)` 拿 `Inode` → `block_device()` 虚方法抽 `IBlockDevice` → `new Ext2(dev)`;
+3. **`owned` bool 统一三类生命周期**(承 `08-filesystem/017`)——堆 owned / 单例 unowned / 未知 ENODEV;
 4. **四个 errno 精确分工**——`EINVAL`/`ENOENT`/`ENXIO`/`ENODEV`;
 5. **boot 真挂 ext2 根盘**:`make run` 见 `[VFS] ext2 mounted at /`,busybox 能在运行时 mount/umount tmpfs(owned 真回收)。
 

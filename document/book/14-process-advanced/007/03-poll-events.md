@@ -95,8 +95,8 @@ uint32_t Pipe::poll_read_events([[maybe_unused]] cinux::proc::Task* waiter) {
 
 socket 那边的 override 是同一个虚方法——它们的就绪判据(rx 环、accept 队列、peer EOF)思路与 pipe 镜像,本章不展开实现细节,只点出它们 override 的就是 `InodeOps::poll_events`:
 
-- `UnixSocket::poll_events`(`unix_socket.cpp:391`):listening 态看 accept 队列、connected 态看 rx 环 + POLLHUP(`peer_eof_` 在 `unix_socket.cpp:409`),waiter 排进 `accept_waiters_`/`recv_waiters_`。083 章讲过它的细节。
-- `TcpSocket::poll_events`(`tcp_socket.cpp:291`):listening 态看 accept 队列、connected 态看 rx 环 + POLLHUP(`peer_closed_` 在 `tcp_socket.cpp:311`),waiter 排进 `accept_waiters_`/`recv_waiters_`。这个 override 跟 poll 一同落地(069 章只做 TCP 协议骨架,socket API 留到后续,没碰 poll_events),实现思路与 UnixSocket 镜像。
+- `UnixSocket::poll_events`(`unix_socket.cpp:391`):listening 态看 accept 队列、connected 态看 rx 环 + POLLHUP(`peer_eof_` 在 `unix_socket.cpp:409`),waiter 排进 `accept_waiters_`/`recv_waiters_`。`17-net/005` 章讲过它的细节。
+- `TcpSocket::poll_events`(`tcp_socket.cpp:291`):listening 态看 accept 队列、connected 态看 rx 环 + POLLHUP(`peer_closed_` 在 `tcp_socket.cpp:311`),waiter 排进 `accept_waiters_`/`recv_waiters_`。这个 override 跟 poll 一同落地(`17-net/004` 章只做 TCP 协议骨架,socket API 留到后续,没碰 poll_events),实现思路与 UnixSocket 镜像。
 - `UdpSocket::poll_events`(`udp_socket.cpp`):同款。
 - `SocketOps::poll_events`(`socket.cpp:129-138`)是 `InodeOps` 到 `Socket` 的委托桥——socket fd 的 Inode 是 `SocketOps`,它把 `poll_events` 转给绑定的 `Socket` 子类的 `poll_events`。
 

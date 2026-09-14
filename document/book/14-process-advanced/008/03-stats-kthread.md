@@ -4,9 +4,9 @@ title: 03 · stats_kthread:周期采样的常驻 kthread + §14 file gate
 
 # stats_kthread:周期采样的常驻 kthread + §14 file gate
 
-timer_queue 是给「别人」用的——084 poll 用它挂 deadline。stats_kthread 不一样,它**自己**是个常驻内核线程,目的是给「g++ hello.cpp 卡顿」这类 workload 做 ad-hoc 性能剖析:每 ~1 秒调一次 `dump_memory_stats()`,把 PMM free 页数 / slab 页数 / PageCache 占用 / 累计 #PF / ext2 I/O 打到串口,形成一条曲线。读趋势(哪一秒 cache 暴涨、哪一秒 #PF 飙到 +18272)就能定位根因,而不是猜——这是 Cinux memory 那条「debuggability over perf」铁律的落地。
+timer_queue 是给「别人」用的——`14-process-advanced/007` poll 用它挂 deadline。stats_kthread 不一样,它**自己**是个常驻内核线程,目的是给「g++ hello.cpp 卡顿」这类 workload 做 ad-hoc 性能剖析:每 ~1 秒调一次 `dump_memory_stats()`,把 PMM free 页数 / slab 页数 / PageCache 占用 / 累计 #PF / ext2 I/O 打到串口,形成一条曲线。读趋势(哪一秒 cache 暴涨、哪一秒 #PF 飙到 +18272)就能定位根因,而不是猜——这是 Cinux memory 那条「debuggability over perf」铁律的落地。
 
-采样体 `stats_thread_entry`([stats_kthread.cpp:48](../../../kernel/mm/stats_kthread.cpp#L48)):
+采样体 `stats_thread_entry`(`kernel/mm/stats_kthread.cpp:48`):
 
 ```cpp
 // kernel/mm/stats_kthread.cpp:48-78
@@ -45,13 +45,13 @@ void stats_thread_entry() {
 
 整个 entry 是个 `while(true)`:每轮先 `Scheduler::yield()` 让出 CPU,醒来后查 HPET `monotonic_ns()` 是否过了 `next_deadline`(初始 = 启动时刻 + 1e9 ns);到了就 `dump_memory_stats()` 并把 deadline 推后 1 秒;没到就回去再 yield。HPET 不可用时退化成数 tick(`++ticks_since_dump >= 100`,~100 Hz PIT 凑 ~1 秒)。
 
-计时基准用 HPET free-running counter,不依赖 PIT IRQ 频率——ns 级粒度。1 秒间隔是粗放有意的:编译几十秒,1 Hz 够画曲线又不刷爆串口(注释 [stats_kthread.cpp:44-46](../../../kernel/mm/stats_kthread.cpp#L44) 写明「Coarse on purpose: a compile takes tens of seconds, so a ~1 Hz sample yields plenty of points without flooding the serial log」)。
+计时基准用 HPET free-running counter,不依赖 PIT IRQ 频率——ns 级粒度。1 秒间隔是粗放有意的:编译几十秒,1 Hz 够画曲线又不刷爆串口(注释 `kernel/mm/stats_kthread.cpp:44` 写明「Coarse on purpose: a compile takes tens of seconds, so a ~1 Hz sample yields plenty of points without flooding the serial log」)。
 
 为什么这里用 yield 而不是用 timer_queue?这看起来反直觉——既然有了 timer_queue 这么漂亮的定时唤醒原语,为什么 stats_kthread 不 park 自己挂个 1 秒 deadline?下一节专门讲。
 
 ## spawn 路径
 
-`start_stats_thread`([stats_kthread.cpp:80](../../../kernel/mm/stats_kthread.cpp#L80)):
+`start_stats_thread`(`kernel/mm/stats_kthread.cpp:80`):
 
 ```cpp
 // kernel/mm/stats_kthread.cpp:80-93
@@ -73,7 +73,7 @@ void start_stats_thread() {
 
 `TaskBuilder().set_entry(...).set_name("mm_stats").set_priority(0).build()`——`build()` 返 `nullptr` 时静默不 `add_task`、不 panic(内存紧张建不出 task 就算了,采样是 ad-hoc 增强不是关键路径)。`set_priority(0)` 进 band 0——下一节讲为什么必须 0。
 
-`init.cpp` 在 `launch_userspace` 之前无条件调它([init.cpp:155-158](../../../kernel/proc/init.cpp#L155)):
+`init.cpp` 在 `launch_userspace` 之前无条件调它(`kernel/proc/init.cpp:155`):
 
 ```cpp
 // kernel/proc/init.cpp:155-158
@@ -87,14 +87,14 @@ cinux::mm::start_stats_thread();
 
 ## §14 file gate:CMake 选链,源码零 #ifdef
 
-CMake option 在 [options.cmake:44](../../../cmake/options.cmake#L44):
+CMake option 在 `cmake/options.cmake:44`:
 
 ```cmake
 # cmake/options.cmake:44
 option(CINUX_STATS_KTHREAD "Spawn periodic 1 Hz memory-stats kthread for ad-hoc profiling" OFF)
 ```
 
-默认 OFF。选链逻辑在 [CMakeLists.txt:13-24](../../../kernel/mm/CMakeLists.txt#L13):
+默认 OFF。选链逻辑在 `kernel/mm/CMakeLists.txt:13`:
 
 ```cmake
 # kernel/mm/CMakeLists.txt:13-24
@@ -112,7 +112,7 @@ else()
 endif()
 ```
 
-ON 链 `stats_kthread.cpp`(真实现),OFF 链 `stats_kthread_stub.cpp`([stats_kthread_stub.cpp:15](../../../kernel/mm/stats_kthread_stub.cpp#L15)):
+ON 链 `stats_kthread.cpp`(真实现),OFF 链 `stats_kthread_stub.cpp`(`kernel/mm/stats_kthread_stub.cpp:15`):
 
 ```cpp
 // kernel/mm/stats_kthread_stub.cpp:13-17
@@ -125,4 +125,4 @@ void start_stats_thread() {}
 
 空函数,签名一模一样。链接器替 `init.cpp` 选 TU——`init.cpp` 完全不用关心开关,读起来和普通函数调用一样干净。这套模式和 `usb_stub.cpp`(USB 编译关时的空 init)/ `tlb_drain_stub`(TLB drain kthread 关时的空 spawn)是同一套——Cinux 把「可选增强」收进 file gate 的标准姿势。
 
-更细的一点:`PF` 计数器([page_fault.cpp:62](../../../kernel/arch/x86_64/page_fault.cpp#L62))和 `dump_memory_stats` 的 #PF 行([diagnostics.cpp:54](../../../kernel/mm/diagnostics.cpp#L54))是**无条件编的**——panic dump 也能看 #PF——只有「周期采样线程」被 gate。注释原文([CMakeLists.txt:16-17](../../../kernel/mm/CMakeLists.txt#L16)):「The PF counter + dump_memory_stats PF line are unconditional; only the periodic thread is gated」。理由很实在:panic 时调一次 `dump_memory_stats` 看 #PF 总数是 debuggability 基线,不该被一个 ad-hoc profiling 的开关牵连;而周期采样是「跑 workload 时多打一堆串口」的增强,默认关掉避免污染日常日志。
+更细的一点:`PF` 计数器(`kernel/arch/x86_64/page_fault.cpp:62`)和 `dump_memory_stats` 的 #PF 行(`kernel/mm/diagnostics.cpp:54`)是**无条件编的**——panic dump 也能看 #PF——只有「周期采样线程」被 gate。注释原文(`kernel/mm/CMakeLists.txt:16`):「The PF counter + dump_memory_stats PF line are unconditional; only the periodic thread is gated」。理由很实在:panic 时调一次 `dump_memory_stats` 看 #PF 总数是 debuggability 基线,不该被一个 ad-hoc profiling 的开关牵连;而周期采样是「跑 workload 时多打一堆串口」的增强,默认关掉避免污染日常日志。

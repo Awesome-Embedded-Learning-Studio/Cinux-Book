@@ -5,7 +5,7 @@ tag: 006_mini_kernel_pmm
 
 # 调试档案 006 · PMM 的两个工具链坑
 
-> 从 `notes/006/006-01-linker-symbol-access.md`、`notes/006/006-02-object-library-global-ctors-not-called.md` 提炼,配套 [006 · 物理内存管理](../book/02-mini-kernel/006-mini-kernel-pmm.md)。PMM 本身的算法不难,真正的坑在它依赖的两件工具链约定上:链接器符号怎么取、对象库的全局构造怎么保证被调。
+> 从 `notes/006/006-01-linker-symbol-access.md`、`notes/006/006-02-object-library-global-ctors-not-called.md` 提炼,配套 [`02-mini-kernel/002` · 物理内存管理](../book/02-mini-kernel/002/)。PMM 本身的算法不难,真正的坑在它依赖的两件工具链约定上:链接器符号怎么取、对象库的全局构造怎么保证被调。
 
 ## 案例一:链接器符号取值不带 &,读到的是字节不是大小
 

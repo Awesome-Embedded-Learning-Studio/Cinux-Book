@@ -20,7 +20,7 @@ bool peer_eof_  = false;     ///< the peer called close() -> recv EOF once drain
 - **监听端(server)**:`bind_path` 成功 → `bound_ = true`;`listen` 成功 → `listening_ = true`。`accept` 从 `accept_queue_` 取已连接的 child。
 - **已连接端(client connect 之后、或 accept 出来的 child)**:`connect_path`/`pair_with`/accept wiring 把 `connected_ = true`、`peer_` 指向对端。`send` 拷进**对端**的 RX 环,`recv` 排空**自己**的 RX 环。
 
-这跟 069 的 `TcpSocket` 镜像是同一套思路——一个类管两种状态,角色靠 bool 区分,而不是为「监听 socket」和「已连接 socket」各写一个类。好处是 `accept` 出来的 child 和 client 端用**同一个类型**(`UnixSocket`),只是 `peer_` 指向不同;`send`/`recv` 一份代码两种角色共用。
+这跟 `17-net/004` 的 `TcpSocket` 镜像是同一套思路——一个类管两种状态,角色靠 bool 区分,而不是为「监听 socket」和「已连接 socket」各写一个类。好处是 `accept` 出来的 child 和 client 端用**同一个类型**(`UnixSocket`),只是 `peer_` 指向不同;`send`/`recv` 一份代码两种角色共用。
 
 ## bind_path:登记 + 留名
 

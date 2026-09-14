@@ -15,7 +15,7 @@ title: Lab 003 · 原生终端应用:让窗口能打字
 ## 前置条件
 
 - 跑通 002:`Window` / `WindowManager` / `Canvas` / `EventQueue` / PS/2 鼠标 / PIT 滴答里的 `gui_tick_callback`。
-- 跑通 014:PS/2 键盘,键盘事件已经能经 `irq1_handler` 的双路分发塞进 `Mouse::event_queue()`(这条队列名字带 Mouse,实质是全局 GUI 事件队列)。
+- 跑通 `03-big-kernel/008`:PS/2 键盘,键盘事件已经能经 `irq1_handler` 的双路分发塞进 `Mouse::event_queue()`(这条队列名字带 Mouse,实质是全局 GUI 事件队列)。
 - 001 的 `Canvas` 离屏构造 `init(w, h)`(窗口双缓冲要用)。
 
 ## 任务分解

@@ -4,20 +4,20 @@ title: Lab 006 · 让 ext2 真的写进去:从命令到磁盘布局
 
 # Lab 006 · 让 ext2 真的写进去:从命令到磁盘布局
 
-> 006 给 ext2 加了「写」。这个 lab 不让你重写一遍 ext2 的写代码(那是主书的活),而是让你**亲眼看见每一次「建/写/删」在磁盘上到底改了什么**:位图里哪一位翻了、哪个 inode 出现了、目录项怎么插进去的、空闲计数怎么同步的。工具是 `debugfs`——e2fsprogs 里那个能直接读写 ext2 镜像的瑞士军刀,Cinux 自己的 `create_ext2_disk.sh` 就是靠它往盘里塞文件的。我们用它做对照:你在 `debugfs` 里做一步,再去主书里查「Cinux 内核的哪个方法做了同样的事」。做完你会对 ext2 的写路径有手感,而不是只记得几个函数名。
+> `08-filesystem/006` 给 ext2 加了「写」。这个 lab 不让你重写一遍 ext2 的写代码(那是主书的活),而是让你**亲眼看见每一次「建/写/删」在磁盘上到底改了什么**:位图里哪一位翻了、哪个 inode 出现了、目录项怎么插进去的、空闲计数怎么同步的。工具是 `debugfs`——e2fsprogs 里那个能直接读写 ext2 镜像的瑞士军刀,Cinux 自己的 `create_ext2_disk.sh` 就是靠它往盘里塞文件的。我们用它做对照:你在 `debugfs` 里做一步,再去主书里查「Cinux 内核的哪个方法做了同样的事」。做完你会对 ext2 的写路径有手感,而不是只记得几个函数名。
 
 ## 实验目标
 
 - 用 `debugfs` 在一块干净的 ext2 镜像上,亲手完成**建文件、写内容、建目录、删除**,并在每一步观察位图、inode、目录项、空闲计数的变化。
 - 把 `debugfs` 的每一步操作,对应到 Cinux ext2 驱动里的具体方法(`alloc_inode`/`alloc_block`/`write_disk_inode`/`add_dir_entry`/`Ext2FileOps::write`/`unlink`),说清楚内核里是哪个函数负责产生你看到的磁盘变化。
-- 撞上并理解三个 006 真实的坑:未重建镜像读到脏数据、分配后忘了同步空闲计数导致漂移、写的 13KB 截断。
+- 撞上并理解三个 `08-filesystem/006` 真实的坑:未重建镜像读到脏数据、分配后忘了同步空闲计数导致漂移、写的 13KB 截断。
 - (加分)在跑起来的 Cinux shell 里端到端走一遍,确认内核驱动的结果和 `debugfs` 观察到的一致。
 
 ## 前置条件
 
-- 005 的只读 ext2 能挂载、能读出 `/hello.txt`(说明超块/BGDT/inode/目录项的读路径都通)。
+- `08-filesystem/005` 的只读 ext2 能挂载、能读出 `/hello.txt`(说明超块/BGDT/inode/目录项的读路径都通)。
 - host 装了 `e2fsprogs`(`mkfs.ext2`、`debugfs`)。验证:`command -v debugfs`。
-- 读懂主书第 006 章的「写回的统一姿势」和「两个分配器」两节,理解 read-modify-write 和位图计数同步。
+- 读懂主书 `08-filesystem/006` 章的「写回的统一姿势」和「两个分配器」两节,理解 read-modify-write 和位图计数同步。
 - 准备一块干净镜像:
 
   ```bash
@@ -26,7 +26,7 @@ title: Lab 006 · 让 ext2 真的写进去:从命令到磁盘布局
 
   这会生成一个 4MB、block_size=1024、128 个 inode(`-N 128`)、关闭所有可选特性(`-O none`)的 ext2 镜像,里面已有 `/etc/motd`、`/hello.txt`、`etc/`。
 
-> 全程我们只对这份**拷贝** `/tmp/lab.ext2` 操作,别动 build 目录里 CI 用的那份——006 的 `run-kernel-test` 每次跑前会 `regenerate-ext2-image` 重建它,你手动改了也会被冲掉。
+> 全程我们只对这份**拷贝** `/tmp/lab.ext2` 操作,别动 build 目录里 CI 用的那份——`08-filesystem/006` 的 `run-kernel-test` 每次跑前会 `regenerate-ext2-image` 重建它,你手动改了也会被冲掉。
 
 ## 任务分解
 
@@ -128,7 +128,7 @@ debugfs: show_super_stats         # Free inodes count、Free blocks count 应回
 
 **对应到内核**:目录项移除是 `remove_dir_entry`;inode/块释放是 `Ext2::unlink` 在 `i_links_count` 归零时,遍历直接块(0..11)和单间接块逐个 `free_block`,最后 `free_inode`。注意主书指出的不对称:**内核的 `unlink` 能释放单间接块,但 `write` 写不出单间接块**——能删的,写不进去。`debugfs` 这边没有这个限制,所以你在 `debugfs` 里能造出内核自己写不出来的大文件,别拿来反推内核能力。
 
-> 特别留意:**目录自身的「数据块」不会被回收**。即使你把一个目录里删空了,它占的那几个数据块还挂着。内核 `remove_dir_entry` 同样不回收目录块(主书「目录项增删」一节)。这是 006 一个有意的简化,不是 bug——但你要知道它在那里。
+> 特别留意:**目录自身的「数据块」不会被回收**。即使你把一个目录里删空了,它占的那几个数据块还挂着。内核 `remove_dir_entry` 同样不回收目录块(主书「目录项增删」一节)。这是 `08-filesystem/006` 一个有意的简化,不是 bug——但你要知道它在那里。
 
 ### 任务 5(边界):写一个「太大」的文件
 
@@ -138,7 +138,7 @@ debugfs: show_super_stats         # Free inodes count、Free blocks count 应回
 
 ## 接口约束
 
-下面是 Cinux ext2 驱动在 006 暴露的、和「写」相关的接口职责。lab 里你用 `debugfs` 做的每一步,内核里都由其中某个方法负责——对照着看,别只背函数名。
+下面是 Cinux ext2 驱动在 `08-filesystem/006` 暴露的、和「写」相关的接口职责。lab 里你用 `debugfs` 做的每一步,内核里都由其中某个方法负责——对照着看,别只背函数名。
 
 - `Ext2::alloc_inode()` / `alloc_block()`:遍历块组、读位图、找空闲位、置位、写回位图,并同步 `s_free_inodes_count`/`s_free_blocks_count`(超块)和 `bg_free_inodes_count`/`bg_free_blocks_count`(组描述符)。返回 0 = 失败(盘满)。
 - `Ext2::free_inode(ino)` / `free_block(blk)`:上述的逆操作,清位图位、计数 +1、写回。
@@ -147,7 +147,7 @@ debugfs: show_super_stats         # Free inodes count、Free blocks count 应回
 - `Ext2::remove_dir_entry(...)`:首项 inode 清 0 留空洞,否则把 `rec_len` 并入前一项;**不释放目录数据块**。
 - `Ext2FileOps::write(inode, offset, buf, count)`:逐块 `get_or_alloc_block` 取/分配块,部分块 read-modify-write,更新 `i_size`/`i_blocks`,`write_disk_inode`;`file_block > 12` 时 break(截断)。
 - `Ext2::create/mkdir/unlink`:编排上面这些原语,负责**失败回滚**(每步分配都要配一个释放)。
-- `InodeOps` 的 `write`/`create`/`mkdir`/`unlink` 四个虚方法是 006 新增的(005 只有 `read`/`readdir`)。`Ext2FileOps` 实现 `read`/`write`,`Ext2DirOps` 实现 `readdir`/`create`/`mkdir`/`unlink`。
+- `InodeOps` 的 `write`/`create`/`mkdir`/`unlink` 四个虚方法是 `08-filesystem/006` 新增的(`08-filesystem/005` 只有 `read`/`readdir`)。`Ext2FileOps` 实现 `read`/`write`,`Ext2DirOps` 实现 `readdir`/`create`/`mkdir`/`unlink`。
 
 ## 验证步骤
 

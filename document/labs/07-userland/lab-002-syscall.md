@@ -22,11 +22,11 @@ title: Lab 002 · 让用户态会说话:SYSCALL/SYSRET 系统调用
 
 ## 前置条件
 
-你得先过 Lab 001(Ring 3 跳转)、Lab 020(调度器骨架)、Lab 019(上下文切换)、Lab 018(地址空间)。关键依赖:
+你得先过 Lab 001(Ring 3 跳转),以及 06-process 卷的 `lab-002`(调度器骨架)、`lab-001`(上下文切换)和 05-memory 卷的 `lab-004`(地址空间)。关键依赖:
 
 - **001 的 `jump_to_usermode` / `usermode_init_asm`**:已经能从 Ring 0 跳进 Ring 3、已经写了一遍 STAR/SFMASK/EFER.SCE。这一关的 `syscall_init` 会**再写一遍** STAR/SFMASK(见接口约束「STAR 两个写入点」),别被绕晕。
-- **019 的 `CpuContext` / `context_switch`**:`sys_exit` 的 `Scheduler::yield()` 路径最终走到它(虽然这一关这条路径跑不到)。
-- **018 的 higher-half + 用户地址空间**:`launch_first_user` 要建用户页表、映射代码页和栈页、把内核高半区 PDPT 抄进用户空间。
+- **06-process 卷 `lab-001` 的 `CpuContext` / `context_switch`**:`sys_exit` 的 `Scheduler::yield()` 路径最终走到它(虽然这一关这条路径跑不到)。
+- **05-memory 卷 `lab-004` 的 higher-half + 用户地址空间**:`launch_first_user` 要建用户页表、映射代码页和栈页、把内核高半区 PDPT 抄进用户空间。
 - **System V AMD64 ABI**:参数寄存器顺序 `rdi/rsi/rdx/rcx/r8/r9`、第 7 参进栈、函数入口 `RSP ≡ 8 mod 16`。这一关 `syscall_entry` 六参挪位的全部依据、`USER_ABI_RSP_OFFSET` 的依据,都压在这一条 ABI 上。
 
 还要理解一条硬件事实(Intel SDM):`SYSCALL` 指令会自动做 `RCX := RIP`、`R11 := RFLAGS`、`RIP := LSTAR`、`CS := STAR[47:32] & FFFC`、`SS := STAR[47:32]+8`、`RFLAGS &= ~SFMASK`,**但它不保存 RSP**——所以入口必须自己把用户栈指针抢救下来。`SYSRETQ` 则做 `RIP := RCX`、`RFLAGS := (R11 & 3C7FD7H)|2`、`CS := STAR[63:48]+16|3`、`SS := (STAR[63:48]+8)|3`,**也不改 RSP**——所以返回前必须先把 RSP 切回用户栈。这两句「不保存/不改 RSP」是整段汇编为什么必须自己存 RSP、自己切栈的全部理由。

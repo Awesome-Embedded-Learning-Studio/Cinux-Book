@@ -28,7 +28,7 @@ cmake --build build --target run-big-kernel-test
 cmake --build build --target run
 ```
 
-预期:进桌面,点 shell 图标,弹出一个终端、里面是新 shell(`cinux> ` 提示符、`pwd` 输出 `/`、能 `help`);**再点一次**,弹出第二个终端、第二个独立 shell。在 A 里敲 `ls`,B 里毫无反应——两个独立 shell 进程,各自走各自的管道。这是 033 做不到的(那时它们共享一个 shell),也是 034+035 通电 fork/exec 的最终回报。
+预期:进桌面,点 shell 图标,弹出一个终端、里面是新 shell(`cinux> ` 提示符、`pwd` 输出 `/`、能 `help`);**再点一次**,弹出第二个终端、第二个独立 shell。在 A 里敲 `ls`,B 里毫无反应——两个独立 shell 进程,各自走各自的管道。这是 `09-gui/006` 做不到的(那时它们共享一个 shell),也是 `10-multitasking/001`+`10-multitasking/002` 通电 fork/exec 的最终回报。
 
 ```text
 [INIT] ===== Milestone 035: Multi-Terminal =====     ← 这条里程碑在 init.cpp 打印
@@ -43,12 +43,12 @@ cmake --build build --target run
 
 ## 下一站
 
-到 035b,Cinux 的 GUI/多任务弧画上句号。回头看整条路:从 MBR 引导(001)起步,进保护模式(002)、长模式(003),搭 mini kernel(005-007),再进 big kernel 的 GDT/IDT(010)、中断(011)、驱动(012-014)、内存管理(015-018)、进程与调度(019-021)、用户态与 syscall(022-023)、shell(024)、磁盘与文件系统(025-028),然后是图形(029-033)、进程原语(034)、通电与多终端(035)——一台从零搭起来的、有窗口、有图标、能开多个独立终端的小操作系统,跑在眼前。
+到 `10-multitasking/003`,Cinux 的 GUI/多任务弧画上句号。回头看整条路:从 MBR 引导(`01-boot/001`)起步,进保护模式(`01-boot/002`)、长模式(`01-boot/003`),搭 mini kernel(`02-mini-kernel/001-003`),再进 big kernel 的 GDT/IDT(`03-big-kernel/002`)、中断(`03-big-kernel/004`)、驱动(`03-big-kernel/005-008`)、内存管理(`05-memory/001-004`)、进程与调度(`06-process/001-003`)、用户态与 syscall(`07-userland/001-002`)、shell(`07-userland/003`)、磁盘与文件系统(`08-filesystem/001-005`),然后是图形(`09-gui/001-006`)、进程原语(`10-multitasking/001`)、通电与多终端(`10-multitasking/002-003`)——一台从零搭起来的、有窗口、有图标、能开多个独立终端的小操作系统,跑在眼前。
 
-这之后的事(更完善的 IPC、真正的阻塞 waitpid、USB 鼠标、网络……)是新的一章了,不在 milestone 035 之内。
+这之后的事(更完善的 IPC、真正的阻塞 waitpid、USB 鼠标、网络……)是新的一章了,不在 milestone `035` 之内。
 
 ## 参考
 
-- Linux man-pages `fork(2)` / `execve(2)` / `waitpid(2)`:fork 生进程、execve 换映像、waitpid 收尸——035b 把这三者第一次端到端用起来。https://man7.org/linux/man-pages/man2/fork.2.html
+- Linux man-pages `fork(2)` / `execve(2)` / `waitpid(2)`:fork 生进程、execve 换映像、waitpid 收尸——`10-multitasking/003` 把这三者第一次端到端用起来。https://man7.org/linux/man-pages/man2/fork.2.html
 - Linux man-pages `pipe(2)` / `read(2)` / `write(2)`:管道 + 标准流(fd0/fd1)语义,每个终端一对私有管道即此模型。https://man7.org/linux/man-pages/man2/pipe.2.html
-- Linux man-pages `open(2)` / `fcntl(2)`:每个进程有自己的文件描述符表(fd0/fd1/...),035b 子进程新建私有 `FDTable`、用 `set(0/1)` 占据标准流即此模型的体现。https://man7.org/linux/man-pages/man2/open.2.html
+- Linux man-pages `open(2)` / `fcntl(2)`:每个进程有自己的文件描述符表(fd0/fd1/...),`10-multitasking/003` 子进程新建私有 `FDTable`、用 `set(0/1)` 占据标准流即此模型的体现。https://man7.org/linux/man-pages/man2/open.2.html

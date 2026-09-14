@@ -4,11 +4,11 @@ title: Lab 008 · timer_queue 与 stats_kthread:定时唤醒 + 周期采样的�
 
 # Lab 008 · timer_queue 与 stats_kthread:定时唤醒 + 周期采样的两条验证路径
 
-> 008 章把两件内核基础设施的源码过了一遍——`timer_queue` 的固定表 + tick 扫过期 + 锁外唤醒,`stats_kthread` 的 band-0 yield 解法 + §14 file gate。这个 lab 不发答案,只给两条验证路径,你任选其一跑通即算过关。路径一(无需开 gate)用 007 的 `test_poll_finite_timeout_parks_then_returns_zero` 间接证 timer_queue 端到端;路径二(需开 gate)用 ON + make run + 真实 workload 看 stats_kthread 的周期采样曲线。两条都诚实标注边界——timer_queue 没有独立单测,stats_kthread 的曲线数字来自 CinuxOS dev note,Book 本地未重跑。
+> `14-process-advanced/008` 章把两件内核基础设施的源码过了一遍——`timer_queue` 的固定表 + tick 扫过期 + 锁外唤醒,`stats_kthread` 的 band-0 yield 解法 + §14 file gate。这个 lab 不发答案,只给两条验证路径,你任选其一跑通即算过关。路径一(无需开 gate)用 `14-process-advanced/007` 的 `test_poll_finite_timeout_parks_then_returns_zero` 间接证 timer_queue 端到端;路径二(需开 gate)用 ON + make run + 真实 workload 看 stats_kthread 的周期采样曲线。两条都诚实标注边界——timer_queue 没有独立单测,stats_kthread 的曲线数字来自 CinuxOS dev note,Book 本地未重跑。
 
 ## 你要确认的事
 
-开始之前,先在 Book 工作树(`/home/charliechen/Cinux`)上核这几样源码都在、行号对得上 008 章:
+开始之前,先在 Book 工作树(`/home/charliechen/Cinux`)上核这几样源码都在、行号对得上 `14-process-advanced/008` 章:
 
 1. `kernel/proc/timer_queue.hpp` 和 `kernel/proc/timer_queue.cpp` 存在,`kMaxTimers = 32` 在 `.cpp:34`,三接口 `arm`/`disarm`/`tick` 在 `:54` / `:77` / `:90`。
 2. `kernel/proc/scheduler.cpp` 的 `Scheduler::tick` 在 `:367`,内部 `timer_queue_tick()` 调用在 `:379`。
@@ -28,13 +28,13 @@ grep -n "CINUX_STATS_KTHREAD" cmake/options.cmake kernel/mm/CMakeLists.txt
 grep -n "start_stats_thread" kernel/proc/init.cpp
 ```
 
-如果上面七样有对不上的,先回头核路径——008 章的链接全是 `kernel/proc/timer_queue.cpp` 这种,别被旧 dev note 误导。
+如果上面七样有对不上的,先回头核路径——`14-process-advanced/008` 章的链接全是 `kernel/proc/timer_queue.cpp` 这种,别被旧 dev note 误导。
 
 ---
 
 ## 路径一:timer_queue 端到端(无需开 gate)
 
-这条路径不用动 CMake,直接 build kernel test 跑 007 的那条用例。它的妙处是「不点名 timer_queue 却只可能是 timer_queue 干的」。
+这条路径不用动 CMake,直接 build kernel test 跑 `14-process-advanced/007` 的那条用例。它的妙处是「不点名 timer_queue 却只可能是 timer_queue 干的」。
 
 ### 第一步:读 timer_queue 三接口
 
@@ -171,7 +171,7 @@ sed -n '12,30p' kernel/mm/stats_kthread.cpp   # 头注释:三版尝试
 - priority 提高 → 抢占 user code 扭曲测量;
 - band 0 + sti/hlt → tick 唤醒后 quantum 没耗尽继续选自己,init/child 永远 Ready,gate 卡在第一次 fork。
 
-**思考题**:为什么 `yield` 能同时满足「不饿死编译」「不扭曲测量」「不垄断 CPU」三个约束,而 `sti/hlt` 不能?(提示:`yield` 是协作式让出——让出 CPU 给下一个 band-0 task,它干活、你睡;PIT tick 切回你,你查 deadline。`sti/hlt` 把 CPU 交给中断,但带优先级的调度器在中断返回时不一定切走,导致 halt 的线程反复被选中——跟 005 章那个 sti/hlt 坑同族,但机制不同:005 是 syscall 里 sti 撞陷阱帧出 #DF,这里是 band-0 hlt 让调度器反复选自己饿死同级任务。)
+**思考题**:为什么 `yield` 能同时满足「不饿死编译」「不扭曲测量」「不垄断 CPU」三个约束,而 `sti/hlt` 不能?(提示:`yield` 是协作式让出——让出 CPU 给下一个 band-0 task,它干活、你睡;PIT tick 切回你,你查 deadline。`sti/hlt` 把 CPU 交给中断,但带优先级的调度器在中断返回时不一定切走,导致 halt 的线程反复被选中——跟 `14-process-advanced/005` 章那个 sti/hlt 坑同族,但机制不同:`14-process-advanced/005` 是 syscall 里 sti 撞陷阱帧出 #DF,这里是 band-0 hlt 让调度器反复选自己饿死同级任务。)
 
 **反直觉点**:stats_kthread 为什么不用 timer_queue park 自己挂 1 秒 deadline?读 timer_queue 的 park 语义(`prepare_to_wait` 翻 Blocked),想清楚 park 的 task 在 band 0 里会不会撞上「谁来叫醒它」的问题。
 
@@ -250,9 +250,9 @@ sec  PMM_free   Cache   #PF_tot  +delta    阶段
 
 ## 收尾:把 008 章的声明逐条对上
 
-跑完任一路径,回头逐条核 008 章的「咱们要点亮什么」七条,每条都能在源码或测试里找到证据:
+跑完任一路径,回头逐条核 `14-process-advanced/008` 章的「咱们要点亮什么」七条,每条都能在源码或测试里找到证据:
 
-| 008 章声明 | 证据位置 |
+| `14-process-advanced/008` 章声明 | 证据位置 |
 |---|---|
 | timer_queue 固定表 + tick 扫过期 | `timer_queue.cpp:34` kMaxTimers=32、`:90-112` tick 锁内收集锁外 unblock |
 | 锁外唤醒的锁序纪律 | `timer_queue.cpp:11-14` 头注释、`:106` 注释「Wake outside the timer lock」、`scheduler_block.cpp:48-70` unblock 拿 run-queue 锁 |
@@ -262,14 +262,14 @@ sec  PMM_free   Cache   #PF_tot  +delta    阶段
 | dump 四条正交维度 + PF delta | `diagnostics.cpp:36/40/43/45/54/66` 六行(1 timestamp + 5 数据行)、`:53` static last_pf |
 | 诚实验证边界 | `test_poll.cpp:191-204` 间接证 timer、`test_memory_stats.cpp:21` 只测 dump 非 kthread、CinuxOS dev note 曲线 |
 
-七条全对上,008 章的「教程即验证」才算闭环。如果某条对不上(比如 grep 不到 `timer_queue_tick` 在 `scheduler.cpp:379`、或者 `init.cpp:158` 那行被 `#ifdef` 包了),回头读 008 章对应小节,看是源码演进了还是章节写错了——教程是 tag-bound 的,以当前工作树的源码真值为准。
+七条全对上,`14-process-advanced/008` 章的「教程即验证」才算闭环。如果某条对不上(比如 grep 不到 `timer_queue_tick` 在 `scheduler.cpp:379`、或者 `init.cpp:158` 那行被 `#ifdef` 包了),回头读 `14-process-advanced/008` 章对应小节,看是源码演进了还是章节写错了——教程是 tag-bound 的,以当前工作树的源码真值为准。
 
 ### 进一步的折腾(可选)
 
-- 把 `kMaxTimers`(`timer_queue.cpp:34`)从 32 改成 1,跑 007 的 `test_poll_finite_timeout`——仍能过(单次 arm 不会撞表满)。再改 poll 测试同时 poll 多个 fd 各带 timeout(若有的话),第二个 arm 会返 `false`,poller 降级成无 timeout park。这能让你亲手触发「表满降级」的边界。**验完还原。**
+- 把 `kMaxTimers`(`timer_queue.cpp:34`)从 32 改成 1,跑 `14-process-advanced/007` 的 `test_poll_finite_timeout`——仍能过(单次 arm 不会撞表满)。再改 poll 测试同时 poll 多个 fd 各带 timeout(若有的话),第二个 arm 会返 `false`,poller 降级成无 timeout park。这能让你亲手触发「表满降级」的边界。**验完还原。**
 - 读 `Scheduler::unblock`(`scheduler_block.cpp:48-70`)的幂等注释(`:53`「Idempotent (F4-M4 prepare-to-wait)」),思考「如果 unblock 不是幂等,timer 和 fd 双唤醒源会怎样」——fd 那侧叫了一次,timer 这侧又叫一次,后者若 enqueue 就 double-add 进运行队列。这条幂等是 timer_queue 锁外唤醒能安全跑的前提。
 - 读 `dump_memory_stats` 的 `static last_pf`(`diagnostics.cpp:53`),思考「如果哪天加了第二个并发调用者(比如某个 syscall 也调 dump),这个 static 会怎样」——会 race。这就是注释里「no concurrent callers in practice (panic once + the single stats thread)」这条不变量的分量。如果真要加第二个调用者,得把这个 static 改成 per-caller state 或加锁。
-- grep `sys_nanosleep` 在 `kernel/syscall/`——确认它仍是 yield 自旋(`sys_nanosleep.cpp:50-55`),没迁 timer_queue。这是 008 章标的「nanosleep 这条现在其实没生效」。如果你想给 nanosleep 接 timer_queue,这是个 DEBT 入口——但那是单独的活,不混进 lab。
+- grep `sys_nanosleep` 在 `kernel/syscall/`——确认它仍是 yield 自旋(`sys_nanosleep.cpp:50-55`),没迁 timer_queue。这是 `14-process-advanced/008` 章标的「nanosleep 这条现在其实没生效」。如果你想给 nanosleep 接 timer_queue,这是个 DEBT 入口——但那是单独的活,不混进 lab。
 - 对照 `usb_stub.cpp`(USB 编译关时的空 init)和 `tlb_drain_stub`(TLB drain kthread 关时的空 spawn)——它们和 `stats_kthread_stub.cpp` 是同一套 file gate 模式。grep `stub.cpp` 在整棵树,数数 Cinux 有多少个这种「可选增强收进 file gate」的先例。
 
-这些折腾不要求做完,挑一个顺眼的深挖。008 章主线是 timer_queue 内部 + stats_kthread 调度难点 + §14 gate,这几个延伸是「顺手吃下的并发/调试入口」。
+这些折腾不要求做完,挑一个顺眼的深挖。`14-process-advanced/008` 章主线是 timer_queue 内部 + stats_kthread 调度难点 + §14 gate,这几个延伸是「顺手吃下的并发/调试入口」。

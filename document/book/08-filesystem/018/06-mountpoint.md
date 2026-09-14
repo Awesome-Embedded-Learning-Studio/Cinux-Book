@@ -6,7 +6,7 @@ title: 06 · 挂载表 MountPoint + owned 生命周期
 
 ## 挂载表 MountPoint + owned 生命周期(承 017)
 
-owned 这个 bool 的故事,017 tmpfs 章讲过——那里看的是 `owned=true` 在 tmpfs 通路怎么用(堆 `new TmpFs` → `release()` → `vfs_mount_add(owned=true)` → `umount2` 走 `free_tree` 回收整棵树)。这里看它在挂载表**全貌怎么收敛三类对象**。先看结构:
+owned 这个 bool 的故事,`08-filesystem/017` tmpfs 章讲过——那里看的是 `owned=true` 在 tmpfs 通路怎么用(堆 `new TmpFs` → `release()` → `vfs_mount_add(owned=true)` → `umount2` 走 `free_tree` 回收整棵树)。这里看它在挂载表**全貌怎么收敛三类对象**。先看结构:
 
 ```cpp
 struct MountPoint {
@@ -58,6 +58,6 @@ bool vfs_mount_remove(const char* path) {
 }
 ```
 
-(`vfs_mount.cpp:79-104`。)一个 `if (owned) delete fs` 就是全部分叉——`owned=true` 先 `delete fs` 再清槽,`owned=false` 只摘点。这一节短,核心就是「017 讲过的 owned,这里看它在挂载表全貌收敛三类」——tmpfs 通路的 RAII 细节(`unique_ptr` 守到 `mount()` 成功才 `release`、错误腿显式 `delete`)回 017 看,这里不重讲。
+(`vfs_mount.cpp:79-104`。)一个 `if (owned) delete fs` 就是全部分叉——`owned=true` 先 `delete fs` 再清槽,`owned=false` 只摘点。这一节短,核心就是「`08-filesystem/017` 讲过的 owned,这里看它在挂载表全貌收敛三类」——tmpfs 通路的 RAII 细节(`unique_ptr` 守到 `mount()` 成功才 `release`、错误腿显式 `delete`)回 `08-filesystem/017` 看,这里不重讲。
 
 > **新手会本能想给 `FileSystem` 加 `virtual Destroy()` / `shared_ptr` / deleter / `MountKind` 枚举。** Cinux 的解法极朴素:结构体里多一个 bool 默认 false。boot 接线和 `sys_mount` 走**同一个 `vfs_mount_add`**,差别只在第三个实参。这是「用默认参兼容旧调用者」的典型范例——加字段不破坏任何既有 2-arg 调用(所有 boot 接线 + 测试栈/mock FS 都不用改一行)。一个坑:若误把 boot 静态挂载标 `owned=true`,`umount` 时 `delete` 静态对象 → 双重释放/崩溃。`test_remount_after_umount_is_fresh`(`test_mount.cpp:104-125`)是 owned 语义最硬的证据——`umount` 后再 `mount` 同路径,文件不见了,证明 owned 后端真被 `delete` 了,新 `mount` 是全新实例不是 stale 残留。

@@ -4,7 +4,7 @@ title: 参考 · 进程:上下文切换、调度器与同步原语
 
 # 参考 · 进程:上下文切换、调度器与同步原语
 
-> 查阅层。这一页是 Cinux 进程子系统的速查表,不按 tag 组织,给后续章节(调度器 020、同步 021、ring3 022、fork/exec 034、通电 fork 035……)查 `CpuContext` 布局、`context_switch` 序列、调度接口、锁原语用。实现以最终 tag `035_multi_terminal` 源码为准。
+> 查阅层。这一页是 Cinux 进程子系统的速查表,不按 tag 组织,给后续章节(调度器 `06-process/002`、同步 `06-process/003`、ring3 `07-userland/001`、fork/exec `10-multitasking/001`、通电 fork `10-multitasking/002`……)查 `CpuContext` 布局、`context_switch` 序列、调度接口、锁原语用。实现以最终 tag `035_multi_terminal` 源码为准。
 >
 > 范围:任务控制块(Task/TCB)、callee-saved 上下文切换、抢占式轮转调度、Spinlock/Mutex/Semaphore。**不含真 SMP(单核 + 中断串行假设)、不含 cgroup/优先级反转继承、不含用户态线程(pthread)**。
 
@@ -53,7 +53,7 @@ title: 参考 · 进程:上下文切换、调度器与同步原语
 
 `sizeof(CpuContext) == 80`。**只存 callee-saved(r15-r12、rbp、rbx)+ rsp + rip + gs_base/kgs_base。** 切换发生在已知调用边界,caller-saved 寄存器(rax、rcx、rdx、rsi、rdi、r8-r11)按 ABI 由调用方自己保存,不在快照里。
 
-> **诚实点:`CpuContext` 没有 `rax` 字段。** 这一点常被源码注释带偏——`fork()` 的文档说子进程返回值「set in the child's TCB via ctx.rax」,但 `CpuContext` 根本没有 rax。子进程返回 0 靠的是 `fork_child_trampoline`(`xor %rax,%rax; ret`),不是存进 ctx。引用任何「ctx 里存了某 caller-saved 寄存器」前,先 `git show <tag>:kernel/proc/process.hpp` 核对字段。`gs_base`/`kgs_base` 是 035 才加的(此前 80 字节是 64)。
+> **诚实点:`CpuContext` 没有 `rax` 字段。** 这一点常被源码注释带偏——`fork()` 的文档说子进程返回值「set in the child's TCB via ctx.rax」,但 `CpuContext` 根本没有 rax。子进程返回 0 靠的是 `fork_child_trampoline`(`xor %rax,%rax; ret`),不是存进 ctx。引用任何「ctx 里存了某 caller-saved 寄存器」前,先 `git show <tag>:kernel/proc/process.hpp` 核对字段。`gs_base`/`kgs_base` 是 `10-multitasking/002` 才加的(此前 80 字节是 64)。
 
 ## 上下文切换 `context_switch`
 
@@ -74,13 +74,13 @@ title: 参考 · 进程:上下文切换、调度器与同步原语
 .restore: ret                                   # 被切走的任务,回来时从这里 ret
 ```
 
-两个关键设计:一是 `rip` 存的是 `.restore` 的地址(而非任意代码点),所以「被切换出去的任务」下次被切回来时,从 `context_switch` 的 `ret` 正常返回到当初调用 `context_switch` 的地方——对调用方而言,`context_switch` 就像个普通函数调用,只是「返回」发生在很久以后。二是 `gs_base`/`kgs_base` 用 `rdmsr`/`wrmsr` 读写 `0xC0000101`/`0xC0000102`(配合 `swapgs` 实现 per-CPU 内核/用户 gs 切换),这是 035 为每 CPU 状态加的。
+两个关键设计:一是 `rip` 存的是 `.restore` 的地址(而非任意代码点),所以「被切换出去的任务」下次被切回来时,从 `context_switch` 的 `ret` 正常返回到当初调用 `context_switch` 的地方——对调用方而言,`context_switch` 就像个普通函数调用,只是「返回」发生在很久以后。二是 `gs_base`/`kgs_base` 用 `rdmsr`/`wrmsr` 读写 `0xC0000101`/`0xC0000102`(配合 `swapgs` 实现 per-CPU 内核/用户 gs 切换),这是 `10-multitasking/002` 为每 CPU 状态加的。
 
 ## fork 与子进程返回
 
 `kernel/proc/fork.cpp` 的 `fork()`:`memcpy` 拷父 TCB → 给子进程分配新 pid、新内核栈(STACK_PAGES=4 + 1 guard page)、置 `state=Ready`、`fd_table=nullptr`(共享全局内核表,或后续设私有)→ 把子的 `ctx.rip = fork_child_trampoline`、`ctx.rsp` 指向子栈上 fork() 的返回地址。
 
-`fork_child_trampoline`(`xor %rax,%rax; ret`)让子进程「第一次被调度时」从 fork() 调用点返回 0;父进程的 fork() 正常返回子 pid。**子进程返回 0 是靠 trampoline,不是靠 ctx 字段**(见上诚实点)。CoW:`handle_cow_fault` 在 035 接进了 `#PF`(present+write+user 路径),但引用计数有限——别把 CoW 写成「完整可用」。
+`fork_child_trampoline`(`xor %rax,%rax; ret`)让子进程「第一次被调度时」从 fork() 调用点返回 0;父进程的 fork() 正常返回子 pid。**子进程返回 0 是靠 trampoline,不是靠 ctx 字段**(见上诚实点)。CoW:`handle_cow_fault` 在 `10-multitasking/002` 接进了 `#PF`(present+write+user 路径),但引用计数有限——别把 CoW 写成「完整可用」。
 
 ## Task / TCB
 
@@ -94,7 +94,7 @@ title: 参考 · 进程:上下文切换、调度器与同步原语
 | `priority` | 调度类归属 |
 | `kernel_stack` / `kernel_stack_top` | 内核栈底 / 栈顶(初始 rsp) |
 | `kernel_stack_guard_page` | guard 页(溢出检测) |
-| `fd_table` | 文件描述符表(`nullptr` = 用全局内核表;非空 = 私有,035 多终端用) |
+| `fd_table` | 文件描述符表(`nullptr` = 用全局内核表;非空 = 私有,`10-multitasking/003` 多终端用) |
 | `fpu_state[512]` | FPU/SSE 状态(alignas 16) |
 | `wait_next` | 侵入式等待队列链表(Mutex/Semaphore 用,免堆分配) |
 
@@ -130,7 +130,7 @@ title: 参考 · 进程:上下文切换、调度器与同步原语
 | `block(Task*, reason)` / `unblock(Task*)` | 阻塞/唤醒(state ↔ Blocked) |
 | `exit_current()` | 当前任务退出 |
 
-调度类:`SchedulingClass`(抽象,`enqueue`/`dequeue`)→ `RoundRobin`(`MAX_TASKS=64` 固定数组)。`DEFAULT_TIME_SLICE=2`(每任务 2 拍)。抢占是 PIT tick 驱动的——这是 020 把「协作式」升级成「抢占式」的核心。
+调度类:`SchedulingClass`(抽象,`enqueue`/`dequeue`)→ `RoundRobin`(`MAX_TASKS=64` 固定数组)。`DEFAULT_TIME_SLICE=2`(每任务 2 拍)。抢占是 PIT tick 驱动的——这是 `06-process/002` 把「协作式」升级成「抢占式」的核心。
 
 ## 同步原语(`sync.hpp`)
 
@@ -148,9 +148,9 @@ title: 参考 · 进程:上下文切换、调度器与同步原语
 - **单核 + 中断串行假设。** Spinlock/Mutex 在单核 + 中断串行下成立;真上 SMP 要重审自旋页表/per-CPU。`IrqGuard` 是关中断保护,不是多核锁。
 - **`CpuContext` 无 caller-saved 寄存器(含 rax)。** 切换只在已知调用边界发生;任何「ctx 保存了 rax」的说法都是错的(子进程返回 0 走 trampoline)。
 - **RoundRobin 固定 64 任务上限。** 超过 `MAX_TASKS` 入队失败;`MAX_CLASSES=4`。
-- **`waitpid` 在早期非阻塞**(NotExited 返回 0),035 才接通有界收尸;引用阻塞语义前核对。
+- **`waitpid` 在早期非阻塞**(NotExited 返回 0),`10-multitasking/003` 才接通有界收尸;引用阻塞语义前核对。
 - **FPU 状态切换简单。** `fpu_state[512]` 按任务存,未做惰性 `cr0.TS` 切换(那是真 OS 的优化)。
-- **guard page 在 035 半成品。** `kernel_stack_guard_page` 字段存在,但「IST + unmap」的完整触发路径未全接线(见中断参考的 IST 诚实点)。
+- **guard page 在 `10-multitasking/002` 半成品。** `kernel_stack_guard_page` 字段存在,但「IST + unmap」的完整触发路径未全接线(见中断参考的 IST 诚实点)。
 
 ## 验证入口
 

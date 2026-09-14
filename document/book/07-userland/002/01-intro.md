@@ -4,21 +4,21 @@ title: 01 · 让用户态会说话:SYSCALL/SYSRET 系统调用
 
 # 让用户态会说话:SYSCALL/SYSRET 系统调用
 
-> 上一章(022)我们终于把脚伸进了 Ring 3——`usermode_init()` 配好 STAR/EFER,`launch_first_user()` 造出一段用户地址空间,`jump_to_usermode` 用 `sysretq` 把 CPU 弹进低特权级。可那条用户程序是**手写的 4 字节机器码**(`cli;hlt;jmp .-2`),除了证明「特权指令在 Ring 3 会触发 #GP」之外,什么都干不了。内核和用户之间没有一条「函数调用」式的受控通道——用户想干点正经事(哪怕只是往屏幕打一行字),都无处下嘴。这一章就把这条路接通:用户程序执行 `syscall` 指令,硬件瞬间把我们送到 Ring 0 的 `syscall_entry`;内核干完活,再用 `sysretq` 把它原样送回 Ring 3。做完,你会看到一行真正由 Ring 3 代码打印的 `[USER] Hello from Ring 3!`——不是内核替它打的,是它自己通过 `sys_write` 请求内核打的。
+> 上一章(`07-userland/001`)我们终于把脚伸进了 Ring 3——`usermode_init()` 配好 STAR/EFER,`launch_first_user()` 造出一段用户地址空间,`jump_to_usermode` 用 `sysretq` 把 CPU 弹进低特权级。可那条用户程序是**手写的 4 字节机器码**(`cli;hlt;jmp .-2`),除了证明「特权指令在 Ring 3 会触发 #GP」之外,什么都干不了。内核和用户之间没有一条「函数调用」式的受控通道——用户想干点正经事(哪怕只是往屏幕打一行字),都无处下嘴。这一章就把这条路接通:用户程序执行 `syscall` 指令,硬件瞬间把我们送到 Ring 0 的 `syscall_entry`;内核干完活,再用 `sysretq` 把它原样送回 Ring 3。做完,你会看到一行真正由 Ring 3 代码打印的 `[USER] Hello from Ring 3!`——不是内核替它打的,是它自己通过 `sys_write` 请求内核打的。
 
 ## 这一章我们要点亮什么
 
 核心是一件:在 Ring 3 和 Ring 0 之间架一条可来回走的、**受控的服务通道**。
 
-具体说,023 交付五块:
+具体说,`07-userland/002` 交付五块:
 
 - **SYSCALL/SYSRET 机制**:[syscall.S](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/syscall.S) 里 134 行的 `syscall_entry` 是整章灵魂。它一进来先 `swapgs`、把用户 RSP 藏进 per-CPU 的 `%gs:8`、用 `%gs:0` 载入内核栈,在内核栈上按固定顺序搭一个 12 槽的 trap frame,把第 6 个参数挪到栈上当第 7 个 C 参,按 SysV ABI 重排寄存器后 `call syscall_dispatch`,返回值绕道 `%rbx` 存起来,恢复现场、销毁 frame、切回用户栈、`swapgs` 回去、`sysretq`。配套的 [syscall.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/syscall.cpp) `syscall_init()` 写三只 MSR(STAR/LSTAR/SFMASK),把硬件指向这条入口。
 - **dispatch 表**:[syscall_nums.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/syscall/syscall_nums.hpp) 定义 `SyscallNr` 枚举(刻意对齐 Linux:`SYS_read=0 / SYS_write=1 / SYS_yield=24 / SYS_exit=60`)、`SYSCALL_TABLE_SIZE=256`、`SyscallFn = int64_t(*)(uint64_t×6)`。`syscall_register` 填表,`syscall_dispatch` 越界或空槽返回 `-1`。
 - **三个 handler**:`sys_write`、`sys_exit`、`sys_yield`。其中 `sys_write` 只认 `fd==1`、只做逐字节 `kprintf("%c")`,朴素到近乎寒酸——但够把那句问候打出来。
-- **用户态编译基建**:从 022 的「手写 4 字节」升级到「用 C++ 写一个真程序」。[CMakeLists.txt](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/user/CMakeLists.txt) 把 `hello.cpp` 编成 ELF、`objcopy` 抽成 flat binary、`ld -r -b binary` 包成可链接的 `.o`(`_binary_hello_bin_start/end`),嵌进大内核镜像。
+- **用户态编译基建**:从 `07-userland/001` 的「手写 4 字节」升级到「用 C++ 写一个真程序」。[CMakeLists.txt](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/user/CMakeLists.txt) 把 `hello.cpp` 编成 ELF、`objcopy` 抽成 flat binary、`ld -r -b binary` 包成可链接的 `.o`(`_binary_hello_bin_start/end`),嵌进大内核镜像。
 - **顺带打通的 FPU/SSE 与栈对齐**:为了让用户态 C++ 能用 SSE(GCC 把 `const char msg[]` 的初始化优化成 `movaps`),`boot.S` 置 CR0/CR4 开 OSFXSR/OSXMMEXCPT、清 EM/TS;`Task` 加 `alignas(16) uint8_t fpu_state[512]`;调度器三处 `context_switch` 前后配 `fxsave/fxrstor`;用户入口 RSP 用 `USER_ABI_RSP_OFFSET=8` 加一道 `static_assert` 锁死 SysV 对齐。
 
-合起来,这一章给了内核「被用户态请求做事」的能力。但期望要放正:023 是**单任务**——`launch_first_user` 之前没启动调度器,所以 `sys_exit` 实际走的是 `cli;hlt` 死循环分支,不是 yield;没有抢占、没有时钟中断驱动的 syscall 返回。`SyscallNr::SYS_read=0` 这个常量虽然在,但内核侧没人接它——dispatch 到它就返回 `-1`。真正的 read、真正的 shell、真正的常驻进程,是下一站(024)的事。
+合起来,这一章给了内核「被用户态请求做事」的能力。但期望要放正:`07-userland/002` 是**单任务**——`launch_first_user` 之前没启动调度器,所以 `sys_exit` 实际走的是 `cli;hlt` 死循环分支,不是 yield;没有抢占、没有时钟中断驱动的 syscall 返回。`SyscallNr::SYS_read=0` 这个常量虽然在,但内核侧没人接它——dispatch 到它就返回 `-1`。真正的 read、真正的 shell、真正的常驻进程,是下一站(`07-userland/003`)的事。
 
 ## 为什么现在需要它
 

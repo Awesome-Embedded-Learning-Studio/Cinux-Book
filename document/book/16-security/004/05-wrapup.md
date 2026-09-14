@@ -35,7 +35,7 @@ void test_copy_from_unmapped_returns_false() {
 
 最后交代一句,免得你 checkout 这个 tag 看到一堆「这章没讲」的东西犯迷糊。这一章对应的源码增量是个大块,除了上面两条主线,diff 里还夹带了几样别的东西,它们的教学分别留到后面的章节:
 
-- **TTY 行规范 + 阻塞读 + 键盘接通**(一批):用户态终端的行规范(termios UAPI、Ctrl+C 生成信号字符、stdin 阻塞读替忙等)。这是用户态运行时的下一块,单独成一章(062)细讲。
+- **TTY 行规范 + 阻塞读 + 键盘接通**(一批):用户态终端的行规范(termios UAPI、Ctrl+C 生成信号字符、stdin 阻塞读替忙等)。这是用户态运行时的下一块,单独成一章(`07-userland/005`)细讲。
 - **CoW 写时复制的 U 位门控松绑**:内核态写 CoW 用户页的 panic 门松了一点。
 - **`-smp 2` 下 fork exit/reap 的跨核修复**:子进程在另一个核上退出、父进程 reap 的时序竞态,AP idle 重建。
 - **几条 CI 红线**(测试调度器代码量、forktest 的 C99 写法)。

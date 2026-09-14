@@ -10,7 +10,7 @@ title: 02 · 代码路线:PID 1、execve 保 pid、rt_sigtimedwait、/dev/consol
 
 Cinux 的内核线程(`task_builder.cpp` 里建的)生来 `pid=0`——它压根不碰全局 PID 分配器 `g_pid_alloc`。`g_pid_alloc` 只在一个地方发号:`fork()`。那么在 boot 阶段,`fork()` 还一次都没被调用过,`g_pid_alloc.alloc()` 第一次被调用时,返回值必然是 1。
 
-谁来做这"第一次调用"?就是 init 线程自己。在 [init.cpp](../../../kernel/proc/init.cpp) 的 `kernel_init_thread()` 入口:
+谁来做这"第一次调用"?就是 init 线程自己。在 `kernel/proc/init.cpp` 的 `kernel_init_thread()` 入口:
 
 ```cpp
 auto* self = Scheduler::current();
@@ -32,7 +32,7 @@ if (self != nullptr) {
 
 领到 PID 1 之后,init 线程要做的事是:加载真正的 `/sbin/init`(busybox)并切到用户态。这里有个关键不变式:**`execve` 换的是程序映像,不是 pid**。所以 busybox init 接过映像的同时,也接过了 PID 1 这个身份。
 
-非 GUI 构建里,`launch_userspace()` 的实现在 [shell_launch.cpp](../../../kernel/proc/shell_launch.cpp),改写成了"init 线程亲自 execve、不 fork"的模式:
+非 GUI 构建里,`launch_userspace()` 的实现在 `kernel/proc/shell_launch.cpp`,改写成了"init 线程亲自 execve、不 fork"的模式:
 
 ```cpp
 void launch_userspace() {
@@ -57,7 +57,7 @@ void launch_userspace() {
 
 ### 顺带:USB 初始化得挪到 launch_userspace 前面
 
-[init.cpp](../../../kernel/proc/init.cpp) 里,`launch_userspace()` 之后的代码在非 GUI 构建里**永远不会执行**——因为 `launch_userspace` 内部 `execve`+跳用户态,init 再也不回内核线程这条控制流。所以原本放在 `launch_userspace()` 之后的 `usb::init()`,得挪到它前面:
+`kernel/proc/init.cpp` 里,`launch_userspace()` 之后的代码在非 GUI 构建里**永远不会执行**——因为 `launch_userspace` 内部 `execve`+跳用户态,init 再也不回内核线程这条控制流。所以原本放在 `launch_userspace()` 之后的 `usb::init()`,得挪到它前面:
 
 ```cpp
 // USB 输入得在 launch_userspace 之前 arm 好——非 GUI 的 launch_userspace
@@ -78,7 +78,7 @@ GUI 构建不受影响——它的 `desktop_launch.cpp` 会另起一个 `gui_wor
 
 busybox init 跑起来之后,它的主循环长这样(简化):**用 `rt_sigtimedwait` 等信号,靠它的返回值去决定"现在要不要 respawn sh、要不要 reap child"**。
 
-这就埋了一个反直觉的雷。先看咱们在 [sys_signal.cpp](../../../kernel/syscall/sys_signal.cpp) 里怎么实现 `sys_rt_sigtimedwait`:
+这就埋了一个反直觉的雷。先看咱们在 `kernel/syscall/sys_signal.cpp` 里怎么实现 `sys_rt_sigtimedwait`:
 
 ```cpp
 // busybox init 的主循环在这里轮询 SIGCHLD。没有匹配的 pending 信号时返 -EAGAIN——
@@ -111,13 +111,13 @@ if (avail != 0) {
 
 busybox init 起来后第一件事是 `open("/dev/console")`,把它 dup 成 0/1/2,再 `setsid` + `TIOCSCTTY` 挂控制终端。它 fork 出的 ash,判断"我是不是交互式终端"靠 `isatty`——本质是发一个 `TCGETS` ioctl;读命令行靠 `read`。这些全打到 `/dev/console` 这个 inode 的 ops 上。
 
-可 064 的 DevFS 里,`/dev/console` 的 `ConsoleDevOps` 只接 **write**(往串口 sink 输出),**read 返回错、ioctl 不答**。于是:
+可 `08-filesystem/010` 的 DevFS 里,`/dev/console` 的 `ConsoleDevOps` 只接 **write**(往串口 sink 输出),**read 返回错、ioctl 不答**。于是:
 
 > ash 发 `TCGETS` → 没人答 → `isatty` 返回 0 → ash 判定"我不是交互终端" → 当场退出 → busybox init 发现 child 死了 → respawn 一个新 ash → 新 ash 又退出 → ……
 
 死循环,串口上看到的就是 init 不停地 respawn、ash 不停地秒退。
 
-修法是给 `/dev/console` 接上真 console TTY 的后端,但**不能把 console TTY 的依赖直接塞进 `devfs.cpp`**——那样 DevFS 就没法在 host 上单测了(064 章立过的并行栅栏)。所以走注入:在 [devfs.hpp](../../../kernel/fs/devfs/devfs.hpp) 抽一个纯接口 `ConsoleInput`(只有 `read` + `ioctl` 两个虚函数),`DevFs` 构造收一个可选的 `ConsoleInput*`(默认 `nullptr`):
+修法是给 `/dev/console` 接上真 console TTY 的后端,但**不能把 console TTY 的依赖直接塞进 `devfs.cpp`**——那样 DevFS 就没法在 host 上单测了(`08-filesystem/010` 章立过的并行栅栏)。所以走注入:在 `kernel/fs/devfs/devfs.hpp` 抽一个纯接口 `ConsoleInput`(只有 `read` + `ioctl` 两个虚函数),`DevFs` 构造收一个可选的 `ConsoleInput*`(默认 `nullptr`):
 
 ```cpp
 /// /dev/console 的可选 read/ioctl 后端。注入 nullptr 时 read/ioctl 返 NotImplemented,
@@ -130,9 +130,9 @@ public:
 };
 ```
 
-`ConsoleDevOps` 持一个 `ConsoleInput*`,`read`/`ioctl` 委托给它;`nullptr` 时退回 `NotImplemented`(host 测的旧行为,零回归)。真正接线在 [devfs_init.cpp](../../../kernel/fs/devfs/devfs_init.cpp):一个 `ConsoleTtyInput` 把 `read` 接到 `console_tty().read(...)`,`ioctl` 接到共享的 `console_tty_ioctl(...)`,再把这个实例注入 DevFs。
+`ConsoleDevOps` 持一个 `ConsoleInput*`,`read`/`ioctl` 委托给它;`nullptr` 时退回 `NotImplemented`(host 测的旧行为,零回归)。真正接线在 `kernel/fs/devfs/devfs_init.cpp`:一个 `ConsoleTtyInput` 把 `read` 接到 `console_tty().read(...)`,`ioctl` 接到共享的 `console_tty_ioctl(...)`,再把这个实例注入 DevFs。
 
-`console_tty_ioctl` 这函数是专门抽出来的——[console_tty.cpp](../../../kernel/drivers/tty/console_tty.cpp) 里一个统一的 TCGETS/TCSETS/TIOCGWINSZ/TIOCGPGRP/TIOCSPGRP/TIOCSCTTY 分派,既给 `sys_ioctl`(fd 0/1/2 走 console 的 fallback)用,也给 `/dev/console` 这个 inode 用,同一套实现:
+`console_tty_ioctl` 这函数是专门抽出来的——`kernel/drivers/tty/console_tty.cpp` 里一个统一的 TCGETS/TCSETS/TIOCGWINSZ/TIOCGPGRP/TIOCSPGRP/TIOCSCTTY 分派,既给 `sys_ioctl`(fd 0/1/2 走 console 的 fallback)用,也给 `/dev/console` 这个 inode 用,同一套实现:
 
 ```cpp
 cinux::lib::ErrorOr<int64_t> console_tty_ioctl(uint32_t request, uint64_t arg) {
@@ -158,7 +158,7 @@ cinux::lib::ErrorOr<int64_t> console_tty_ioctl(uint32_t request, uint64_t arg) {
 
 过去 `copy_from/to_user` 拿到坏用户指针,只能返 `InvalidArgument`(≈ `EINVAL`)凑合当成 `EFAULT`。**大多数地方没事**——比如 PTY 路径,没有专门验 `-EFAULT` 的测试,凑合就凑合了。**可 console 这条路上有**:`test_syscall` 里专门有 `tcgets_unmapped`(传未映射地址)、`tiocspgrp_kernel_addr`(传内核地址)这种 EFAULT 闸。你返 `-EINVAL`,闸就红了。
 
-所以给 [expected.hpp](../../../libs/base/include/cinux/expected.hpp) 的 `Error` 枚举补一个 `Fault`,语义就是"坏地址(EFAULT):用户指针被 `access_ok` 拒了或 copy 时 fault":
+所以给 `libs/base/include/cinux/expected.hpp` 的 `Error` 枚举补一个 `Fault`,语义就是"坏地址(EFAULT):用户指针被 `access_ok` 拒了或 copy 时 fault":
 
 ```cpp
 enum class Error : uint32_t {

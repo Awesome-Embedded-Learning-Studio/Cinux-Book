@@ -12,7 +12,7 @@ title: 03 · 调试现场与收尾
 
 `draw_desktop_icons` 那一行调用的位置,是这一章最容易调错的地方。前面讲过它必须夹在 `clear` 和 blit 窗口之间,这里展开讲讲"画错位置会看到什么",方便你将来自己搭类似分层时对照排查。
 
-**画在 `clear` 之前。** 你会看到桌面完全是空的,和 030 一模一样——因为 clear 用 `DESKTOP_COLOR` 把整块 back buffer 涂了一遍,你刚才画的图标像素被原封不动覆盖。这种 bug 最迷惑:代码明明调了 `draw_desktop_icons`,单步进去也确实在写像素,可屏幕上就是没有图标。排查时别盯着 draw 函数本身看,去 composite 里数调用顺序——"先 clear 再画"这个顺序是硬约束,反了就等于白画。
+**画在 `clear` 之前。** 你会看到桌面完全是空的,和 `09-gui/002` 一模一样——因为 clear 用 `DESKTOP_COLOR` 把整块 back buffer 涂了一遍,你刚才画的图标像素被原封不动覆盖。这种 bug 最迷惑:代码明明调了 `draw_desktop_icons`,单步进去也确实在写像素,可屏幕上就是没有图标。排查时别盯着 draw 函数本身看,去 composite 里数调用顺序——"先 clear 再画"这个顺序是硬约束,反了就等于白画。
 
 **画在 blit 窗口之后、`draw_cursor` 之前。** 你会看到图标浮在所有窗口上面。拖一个窗口到 Shell 图标上方,图标不会被动窗口盖住,反而粘在窗口前面,像一张贴纸。视觉上极其违和,而且更糟的是命中逻辑会跟着错乱:`handle_mouse` 里窗口是优先命中的,可视觉上图标在窗口前面,用户点"看到的图标",实际点中的却是底下的窗口——视觉和命中对不上,体验崩坏。所以 composite 的分层顺序和 handle_mouse 的命中优先级必须一致:**视觉上谁在前,命中时就先查谁**。这两个方向凑在一起,才是"所见即所点"。
 
@@ -24,7 +24,7 @@ title: 03 · 调试现场与收尾
 
 点 Shell 图标会发生什么?`handle_mouse` 把 `OpenShell` 存进槽,`gui_tick_callback` 在下一个滴答 `consume_pending_icon_action()` 把它取出来,看到是 `OpenShell` 就调 `create_shell_terminal()`——一个新的 `Terminal` 被 new 出来、绑上管道、`add_window` 进 WM,屏幕上真的弹出一个跑 shell 的终端窗口,串口也打印 `[GUI] Shell terminal created and connected.`。所以 Shell 是"能点击、点击有结果"的那一个。
 
-Calculator 则是另一回事。`OpenCalculator` 这个动作在 033 里没有任何消费者:点 Calculator 图标,`handle_mouse` 把 `OpenCalculator` 存进槽,tick 回调取出来一看"这不是 OpenShell",直接忽略——动作被**静默吞掉**。所以 Calculator 图标是"能看见、能点中、但点了毫无反应"的摆设,而且这个摆设状态会持续相当长一段时间。
+Calculator 则是另一回事。`OpenCalculator` 这个动作在 `09-gui/006` 里没有任何消费者:点 Calculator 图标,`handle_mouse` 把 `OpenCalculator` 存进槽,tick 回调取出来一看"这不是 OpenShell",直接忽略——动作被**静默吞掉**。所以 Calculator 图标是"能看见、能点中、但点了毫无反应"的摆设,而且这个摆设状态会持续相当长一段时间。
 
 为什么要在这一章就注册一个"暂时没用"的 Calculator 图标?因为它让桌面看起来像个真桌面(不止一个图标),也因为它把"函数存在不等于功能接线"这件事摆到了台面上。点击链路、`consume_pending_icon_action`、`create_shell_terminal` 这些零件对 Shell 已经接通了,唯独 `OpenCalculator` 这一支缺一个消费者。这种"占位状态"在系统开发里太常见了——接口先定好、数据先流起来,真正的消费者后面再接。诚实地把它写出来,比假装"两个图标都能开窗"有价值得多。
 
@@ -32,9 +32,9 @@ Calculator 则是另一回事。`OpenCalculator` 这个动作在 033 里没有�
 
 ## 验证
 
-033 的验证分三层:纯逻辑用 host 单测、机内集成用 QEMU kernel 测试、视觉效果用 `run` 肉眼看。
+`09-gui/006` 的验证分三层:纯逻辑用 host 单测、机内集成用 QEMU kernel 测试、视觉效果用 `run` 肉眼看。
 
-**第一层:host 单元测试。** 图标注册、命中检测、`consume` 语义、点击设 action、空白点击不设 action、窗口压住图标时点不到图标——这些纯逻辑在 host 上 `-O2` 编、`CINUX_HOST_TEST` 门控跑。和 030 一样是"镜像"测法,ctest 名叫 `desktop`:
+**第一层:host 单元测试。** 图标注册、命中检测、`consume` 语义、点击设 action、空白点击不设 action、窗口压住图标时点不到图标——这些纯逻辑在 host 上 `-O2` 编、`CINUX_HOST_TEST` 门控跑。和 `09-gui/002` 一样是"镜像"测法,ctest 名叫 `desktop`:
 
 ```bash
 ctest --test-dir build -R "desktop" --output-on-failure
@@ -60,7 +60,7 @@ cmake --build build --target run-big-kernel-test
 cmake --build build --target run
 ```
 
-预期串口(此处只摘与桌面图标相关的前后文,管道接线相关的 `[GUI] Shell pipes stored...` 与 `[INIT] Terminal-shell pipes connected...` 两行实际打在 milestone 之前,留到 033b 讲):
+预期串口(此处只摘与桌面图标相关的前后文,管道接线相关的 `[GUI] Shell pipes stored...` 与 `[INIT] Terminal-shell pipes connected...` 两行实际打在 milestone 之前,留到 `09-gui/007` 讲):
 
 ```text
 [GUI] ===== Milestone 033: GUI Desktop =====
@@ -74,13 +74,13 @@ cmake --build build --target run
 
 ## 下一站
 
-到 033,桌面终于不再是光秃秃的背景色了:它有了图标,鼠标点上去能被识别,点 Shell 图标真的会通过 `consume_pending_icon_action` → `create_shell_terminal` 弹出一个跑 shell 的终端窗口,Calculator 图标则还没有消费者。
+到 `09-gui/006`,桌面终于不再是光秃秃的背景色了:它有了图标,鼠标点上去能被识别,点 Shell 图标真的会通过 `consume_pending_icon_action` → `create_shell_terminal` 弹出一个跑 shell 的终端窗口,Calculator 图标则还没有消费者。
 
-`create_shell_terminal`、`set_shell_pipes`、`is_terminal` 这套 gui_init 侧重构是怎么搭起来的——终端对象怎么 new、管道怎么绑、`is_terminal` 的虚函数怎么让 tick 回调认出窗口是终端——是 [下一章 007](../007/) 的主题。再往后,我们要离开 GUI 桌面、回到进程:给内核加上 `fork` / `execve`,让一个用户进程能生出另一个(见 [001](../10-multitasking/001/))。
+`create_shell_terminal`、`set_shell_pipes`、`is_terminal` 这套 gui_init 侧重构是怎么搭起来的——终端对象怎么 new、管道怎么绑、`is_terminal` 的虚函数怎么让 tick 回调认出窗口是终端——是 [下一章 007](../007/) 的主题。再往后,我们要离开 GUI 桌面、回到进程:给内核加上 `fork` / `execve`,让一个用户进程能生出另一个(见 [001](../../10-multitasking/001/))。
 
 ## 参考
 
 - C++ `enum class`(支撑 `IconAction` 的类型安全枚举与 `pending_icon_action_` 初值):https://en.cppreference.com/w/cpp/language/enum
 - C++ 指定初始化(designated initializers,支撑 `gui_start()` 里 `DesktopIcon{.x=40, .y=40, ...}` 这种按成员名构造的写法):https://en.cppreference.com/w/cpp/language/aggregate_initialization
-- 030 章确立的合成分层顺序(`clear` → blit 窗口 → `draw_cursor` → `flip`),033 在 `clear` 与 blit 之间插入 `draw_desktop_icons`:见 [002 · 窗口管理器](../002/)
-- 032 章的位图原语(`Canvas::draw_bitmap` 透明像素跳过)与 `DesktopIcon::contains` 左闭右开命中框:见 [005 · 位图图标](../005/)
+- `09-gui/002` 章确立的合成分层顺序(`clear` → blit 窗口 → `draw_cursor` → `flip`),`09-gui/006` 在 `clear` 与 blit 之间插入 `draw_desktop_icons`:见 [002 · 窗口管理器](../002/)
+- `09-gui/005` 章的位图原语(`Canvas::draw_bitmap` 透明像素跳过)与 `DesktopIcon::contains` 左闭右开命中框:见 [005 · 位图图标](../005/)

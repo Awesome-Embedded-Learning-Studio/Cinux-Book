@@ -4,7 +4,7 @@ title: 01 · ext2 间接块:double-indirect 真做
 
 # ext2 间接块:double-indirect 真做
 
-> 还记得 065(ELF 动态链接)那个藏得很深的坑吗?加载 822 KB 的 musl ldso 时,ext2 读到 offset 274432 处失败——`274432 = 268 × 1024`,正好是 ext2(1024 字节块)下 direct(12 块)+ single-indirect(256 块)的总和的**下一块**,也就是 **double-indirect 的起点**。当时 CinuxOS 的 ext2 驱动只处理 direct + single-indirect,double-indirect 那个分支直接 `break` 截断;065 为了不动 ext2,把盘改成 4096 字节块(single-indirect 上限推到 4 MB)绕过去了,把真修留作 follow-up。这一章兑现那笔债:**把 double-indirect(`i_block[13]`)的读和写都真做了,然后把盘改回 1024 字节块(ext2 默认)**,让 double-indirect 真正有人走。
+> 还记得 `07-userland/006`(ELF 动态链接)那个藏得很深的坑吗?加载 822 KB 的 musl ldso 时,ext2 读到 offset 274432 处失败——`274432 = 268 × 1024`,正好是 ext2(1024 字节块)下 direct(12 块)+ single-indirect(256 块)的总和的**下一块**,也就是 **double-indirect 的起点**。当时 CinuxOS 的 ext2 驱动只处理 direct + single-indirect,double-indirect 那个分支直接 `break` 截断;`07-userland/006` 为了不动 ext2,把盘改成 4096 字节块(single-indirect 上限推到 4 MB)绕过去了,把真修留作 follow-up。这一章兑现那笔债:**把 double-indirect(`i_block[13]`)的读和写都真做了,然后把盘改回 1024 字节块(ext2 默认)**,让 double-indirect 真正有人走。
 >
 > punchline 是 822 KB 的文件(那个 ldso)真能在 1024 字节块的 ext2 上完整读回来——822 KB 远超 single-indirect 的 268 KB 上限,必定走 double-indirect。这一章真正要讲的是 ext2 的**三级块映射**(direct / single-indirect / double-indirect)怎么用一层套一层的指针索引大文件,以及写路径里「新块零填写盘别擦掉父层指针」的陷阱怎么躲。
 
@@ -25,7 +25,7 @@ title: 01 · ext2 间接块:double-indirect 真做
 - `i_block[13]` —— **double-indirect**:指向一个「双重间接块」,里面装的是 `ptrs_per_block` 个**指向 single-indirect 块的指针**,每个 single-indirect 块又管 256 块。这一级管 `256 × 256 = 65536` 块。
 - `i_block[14]` —— **triple-indirect**:`256³` 块(>16 GB),这一章不做,hobby OS 用不到。
 
-加起来 direct + single + double = 12 + 256 + 65536 ≈ 65804 块,1024 字节块下约 64 MB——够大了。065 撞的就是:822 KB 的文件 = 803 块,超过了 direct(12)+ single(256)= 268 块,落进 double-indirect 区,而当时驱动那儿是 `break`。
+加起来 direct + single + double = 12 + 256 + 65536 ≈ 65804 块,1024 字节块下约 64 MB——够大了。`07-userland/006` 撞的就是:822 KB 的文件 = 803 块,超过了 direct(12)+ single(256)= 268 块,落进 double-indirect 区,而当时驱动那儿是 `break`。
 
 ## 三层算术:文件块号怎么落到数据块
 
@@ -72,7 +72,7 @@ const uint32_t idx2     = offset % ptrs_per_block;
 
 ## 撤 workaround:改回 1024 块
 
-真修做完,065 那个 4096 块的 workaround 就该撤了。`create_ext2_disk.sh` 的 `BLOCK_SIZE` 从 4096 改回 1024(ext2 默认),注释从「workaround:double-indirect 截断」改成「double-indirect 已支持」。现存盘上的文件(shell 17 KB、motd、hello.txt)远低于 268 KB 的 single-indirect 上限,纯走 direct,零行为变;只有 822 KB 的 ldso(本地 musl sysroot 装盘时才有)现在走 double-indirect——它就是 double-indirect 的 opportunistic 端到端验证。
+真修做完,`07-userland/006` 那个 4096 块的 workaround 就该撤了。`create_ext2_disk.sh` 的 `BLOCK_SIZE` 从 4096 改回 1024(ext2 默认),注释从「workaround:double-indirect 截断」改成「double-indirect 已支持」。现存盘上的文件(shell 17 KB、motd、hello.txt)远低于 268 KB 的 single-indirect 上限,纯走 direct,零行为变;只有 822 KB 的 ldso(本地 musl sysroot 装盘时才有)现在走 double-indirect——它就是 double-indirect 的 opportunistic 端到端验证。
 
 ## 验证:算法门 + 真内核门
 
@@ -91,8 +91,8 @@ const uint32_t idx2     = offset % ptrs_per_block;
 
 ## 小结
 
-- ext2 用三级指针索引文件:direct(`i_block[0-11]`)、single-indirect(`i_block[12]`,管 `ptrs_per_block` 块)、double-indirect(`i_block[13]`,管 `ptrs_per_block²` 块)。065 撞的就是 double-indirect 缺失。
+- ext2 用三级指针索引文件:direct(`i_block[0-11]`)、single-indirect(`i_block[12]`,管 `ptrs_per_block` 块)、double-indirect(`i_block[13]`,管 `ptrs_per_block²` 块)。`07-userland/006` 撞的就是 double-indirect 缺失。
 - double-indirect 三层算术:`offset = file_block - (direct + ptrs)`,`idx1 = offset/ptrs`(double 块里哪个 single 指针)、`idx2 = offset%ptrs`(那个 single 块里哪个数据指针)。读路径(`resolve_disk_block_`,hole 落零填)和写路径(`get_or_alloc_block`,hole 走 lazy-alloc)各自实现这套算术。
 - 写路径头号坑:旧实现只有一个共享 `block_buf_`,新块零填写盘会擦掉父层指针(旧解法是二次 read-modify-write);搬到 `libs/ext2/` 后给每个新分配块各自独立 `KmBuf zbuf` 零填写盘,父层指针待在自己的 `di_buf`/`child_buf` 里不被覆盖,免去重读。顺带放开 write 的 file_block 上限(原来只让写 direct)。
-- 撤 065 的 4096 块 workaround,改回 1024(ext2 默认),让 double-indirect 真有文件走(822 KB ldso)。
+- 撤 `07-userland/006` 的 4096 块 workaround,改回 1024(ext2 默认),让 double-indirect 真有文件走(822 KB ldso)。
 - 双覆盖验证:host 单测守三层算法(镜像 kernel resolver)+ dyn smoke 真内核让 822 KB ldso 走 `i_block[13]`;run-kernel-test 两腿零回归。triple-indirect 不做。

@@ -19,7 +19,7 @@ title: Lab 001 · 给内核一本物理内存账本:bitmap PMM
 
 ## 前置条件
 
-你得先过 Lab 014(内核稳定运行、中断能跑)。这一关依赖 bootloader 已经把 E820 内存图采好、填进 `BootInfo.mmap[]`(物理 0x7000),`mmap_count` 有效、`kernel_phys_base` 记录了内核加载位置。E820 的采集不是这关的活,假定它就位。
+你得先过 03-big-kernel 卷的 `lab-008`(内核稳定运行、中断能跑)。这一关依赖 bootloader 已经把 E820 内存图采好、填进 `BootInfo.mmap[]`(物理 0x7000),`mmap_count` 有效、`kernel_phys_base` 记录了内核加载位置。E820 的采集不是这关的活,假定它就位。
 
 另外要熟悉链接脚本提供的符号:`__kernel_stack_top`(栈顶虚拟地址)这一关要用,bitmap 就放在它后面。
 

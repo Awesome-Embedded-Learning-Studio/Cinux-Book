@@ -20,12 +20,12 @@ title: Lab 001 · 让内核长出第二条执行流:进程上下文
 
 ## 前置条件
 
-你得先过 Lab 015 / 016 / 017 / 018。关键依赖:
+你得先过 05-memory 卷的 `lab-001` / `lab-002` / `lab-003` / `lab-004`。关键依赖:
 
-- **015 的 `g_pmm`**:`alloc_pages(n)` / `alloc_page()` / `free_page()`——任务的内核栈要从 PMM 要物理页。
-- **016 的 `g_vmm.map(virt, phys, flags, uint64_t* pml4 = nullptr)`**:把任务的内核栈映射进内核虚拟地址空间。注意它带个可选的 `pml4` 根参数(018 用过)。
-- **017 的内核堆**(`new` / `kmalloc`):TCB 这种小结构从堆分配。
-- **018 的 higher-half 设计**:你得理解「内核映射在所有地址空间共享的高半区(`PML4[256..511]`),用户映射在各自私有的低半区」——任务栈要映射在高半区,这样无论将来切到哪个地址空间,栈都在。
+- **`05-memory/001` 的 `g_pmm`**:`alloc_pages(n)` / `alloc_page()` / `free_page()`——任务的内核栈要从 PMM 要物理页。
+- **`05-memory/002` 的 `g_vmm.map(virt, phys, flags, uint64_t* pml4 = nullptr)`**:把任务的内核栈映射进内核虚拟地址空间。注意它带个可选的 `pml4` 根参数(`05-memory/004` 用过)。
+- **`05-memory/003` 的内核堆**(`new` / `kmalloc`):TCB 这种小结构从堆分配。
+- **`05-memory/004` 的 higher-half 设计**:你得理解「内核映射在所有地址空间共享的高半区(`PML4[256..511]`),用户映射在各自私有的低半区」——任务栈要映射在高半区,这样无论将来切到哪个地址空间,栈都在。
 
 还得理解一个外部约定:**System V AMD64 ABI** 的寄存器分类——`rbx/rbp/r12-r15` 是 callee-saved(跨调用必须保持),其余通用寄存器是 caller-saved(跨调用不保证)。这一关的 `CpuContext` 只存 callee-saved,根因就在这条约定。
 

@@ -14,7 +14,7 @@ title: 04 · 收尾:TOCTOU 边界、文件门、验证与小结
 
 ## §14 文件门:这一章不能 host 单测
 
-010 DevFS 靠 `CharSink` 注入缝,让核心逻辑(host 能链的那份)可单测。ProcFS 不一样——它**直读 kernel registry**(`signal.hpp` / `process.hpp`),没有注入缝,host 链不了。所以这一章的测试走 kernel harness(QEMU 里 `run_procfs_tests`,12 测),不靠 host 单测。boot 接线(`kprintf`)照例独立 `procfs_init.cpp`,CMake 决定编不编,源码零 `#ifdef`(同 DevFS 的 §14 文件门)。
+`08-filesystem/010` DevFS 靠 `CharSink` 注入缝,让核心逻辑(host 能链的那份)可单测。ProcFS 不一样——它**直读 kernel registry**(`signal.hpp` / `process.hpp`),没有注入缝,host 链不了。所以这一章的测试走 kernel harness(QEMU 里 `run_procfs_tests`,12 测),不靠 host 单测。boot 接线(`kprintf`)照例独立 `procfs_init.cpp`,CMake 决定编不编,源码零 `#ifdef`(同 DevFS 的 §14 文件门)。
 
 ## 验证
 

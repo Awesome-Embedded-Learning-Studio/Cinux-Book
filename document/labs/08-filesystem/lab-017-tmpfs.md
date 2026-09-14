@@ -10,7 +10,7 @@ title: Lab 017 · tmpfs 验证
 
 确认五件事:
 
-1. **tmpfs 是内存型虚拟 FS 范式的第三次复用**(DevFS 010 / ProcFS 011 立的模子),但内容是真数据(住堆上的 `uint8_t* data`);
+1. **tmpfs 是内存型虚拟 FS 范式的第三次复用**(DevFS `08-filesystem/010` / ProcFS `08-filesystem/011` 立的模子),但内容是真数据(住堆上的 `uint8_t* data`);
 2. **写路径三件事**:4KB 对齐摊销扩容、gap 零填防 stale 堆字节、`is_page_cacheable()` 默认 false 绕开磁盘 PageCache;
 3. **目录树是单向兄弟链表**(`first_child`+`next_sibling`,无上限,头插),支持运行时 `create`/`mkdir`/`unlink`;
 4. **两条挂载通路**:boot 静态 `g_tmpfs` unowned、`sys_mount` 堆对象 owned=true,差别全在 `vfs_mount_add` 那个 bool;

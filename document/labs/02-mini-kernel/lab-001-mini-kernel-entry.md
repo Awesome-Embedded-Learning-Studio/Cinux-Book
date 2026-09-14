@@ -15,7 +15,7 @@ title: Lab 001 · 内核会说话了
 
 ## 前置条件
 
-- 完成 [Lab 004](../01-boot/lab-004-load-mini-kernel.md):内核能在长模式跑 C++、有 BootInfo。
+- 完成 01-boot 卷的 [`lab-004`](../01-boot/lab-004-load-mini-kernel.md):内核能在长模式跑 C++、有 BootInfo。
 - 会写 freestanding C++、看得懂 `va_list`/`va_arg`、会用 inline 汇编包 `in`/`out`。
 
 ## 任务分解

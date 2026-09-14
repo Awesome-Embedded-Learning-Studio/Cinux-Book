@@ -6,7 +6,7 @@ title: 02 · 代码路线:Spinlock / Mutex / Semaphore / 生产者-消费者
 
 ## Spinlock:为什么从内联搬出来,以及内存序
 
-020 的 [sync.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/sync.hpp) 里,`Spinlock` 整个类——包括 `acquire` / `release` 的函数体——都直接写在头文件里。这在「没人用它」时无所谓;可 021 要让 `Mutex` / `Semaphore` 各自持有一把 `Spinlock` 作为内部成员,如果 `Spinlock` 还是 inline 定义,那么每多一个翻译单元 include `sync.hpp`,这套原子操作就被复制一份,符号也满天飞。所以第一步,把 `acquire` / `release` 搬进新建的 [sync.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/sync.cpp),头文件里只留声明:
+`06-process/002` 的 [sync.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/sync.hpp) 里,`Spinlock` 整个类——包括 `acquire` / `release` 的函数体——都直接写在头文件里。这在「没人用它」时无所谓;可 `06-process/003` 要让 `Mutex` / `Semaphore` 各自持有一把 `Spinlock` 作为内部成员,如果 `Spinlock` 还是 inline 定义,那么每多一个翻译单元 include `sync.hpp`,这套原子操作就被复制一份,符号也满天飞。所以第一步,把 `acquire` / `release` 搬进新建的 [sync.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/proc/sync.cpp),头文件里只留声明:
 
 ```cpp
 // sync.cpp
@@ -21,7 +21,7 @@ void Spinlock::release() {
 }
 ```
 
-实现本身和 020 一字不差,重点是把它「落到实处」。`__atomic_test_and_set(&locked_, __ATOMIC_ACQUIRE)` 是 GCC 的标准原子内建:把目标字节原子地置 1、并返回它的旧值;在 x86 上它编译成带 `LOCK` 前缀的 `xchg` 或等价指令。套在 `while` 里就是「抢到了就出循环,没抢到就一直试」。每次抢失败插一条 `pause`,它是给超线程 CPU 的提示:告诉硬件「我在自旋,别把流水线占满」,顺便规避一段长自旋触发内存序违例惩罚(SDM 把它归为 "Spin-Wait Hint"——概念性说法,手册里那条目我没在本地 PDF 里定位到精确页,故不引页码)。`release` 的 `__atomic_clear` 就是原子地写 0。
+实现本身和 `06-process/002` 一字不差,重点是把它「落到实处」。`__atomic_test_and_set(&locked_, __ATOMIC_ACQUIRE)` 是 GCC 的标准原子内建:把目标字节原子地置 1、并返回它的旧值;在 x86 上它编译成带 `LOCK` 前缀的 `xchg` 或等价指令。套在 `while` 里就是「抢到了就出循环,没抢到就一直试」。每次抢失败插一条 `pause`,它是给超线程 CPU 的提示:告诉硬件「我在自旋,别把流水线占满」,顺便规避一段长自旋触发内存序违例惩罚(SDM 把它归为 "Spin-Wait Hint"——概念性说法,手册里那条目我没在本地 PDF 里定位到精确页,故不引页码)。`release` 的 `__atomic_clear` 就是原子地写 0。
 
 两端的内存序要配对:`ACQUIRE` 作用于 `acquire`,保证「拿到锁之后,读到的内存视图」包含此前所有 `RELEASE` 写入的值;`RELEASE` 作用于 `release`,保证「释放锁之前的写」在锁被别人拿走之前对它们可见。这两条把临界区从两头夹住——进去时能看见上一个持锁者的全部修改,出去时保证自己的修改已经落地。少了任何一端,临界区就漏气。
 
@@ -87,7 +87,7 @@ void Mutex::lock() {
 }
 ```
 
-`g_per_cpu.current` 就是 020 那个单核静态全局里的「当前任务」——Mutex / Semaphore 取「我是谁」全靠它。`Scheduler::block(self, "mutex")` 内部会 `task->state = Blocked`、把它从就绪队列移出,然后因为 `self == current_` 触发 `schedule()` 切走。也就是说,执行到 ⑤ 这一行之后,当前任务就睡过去了,`lock()` 这条调用栈被冻结,直到有人 `unlock` 把它唤醒。
+`g_per_cpu.current` 就是 `06-process/002` 那个单核静态全局里的「当前任务」——Mutex / Semaphore 取「我是谁」全靠它。`Scheduler::block(self, "mutex")` 内部会 `task->state = Blocked`、把它从就绪队列移出,然后因为 `self == current_` 触发 `schedule()` 切走。也就是说,执行到 ⑤ 这一行之后,当前任务就睡过去了,`lock()` 这条调用栈被冻结,直到有人 `unlock` 把它唤醒。
 
 `unlock()` 同样五步,精髓在「直接交接 owner」:
 
@@ -120,7 +120,7 @@ bool Mutex::try_lock() {
 }
 ```
 
-RAII 这块和 020 的 `Spinlock::Guard` 一个模子:`[[nodiscard]] auto guard() { return Guard(this); }`,构造时 `lock()`、析构时 `unlock()`,标记 `[[nodiscard]]` 是防止写出 `m.guard();` 漏接、临时对象立刻析构等于没加锁。
+RAII 这块和 `06-process/002` 的 `Spinlock::Guard` 一个模子:`[[nodiscard]] auto guard() { return Guard(this); }`,构造时 `lock()`、析构时 `unlock()`,标记 `[[nodiscard]]` 是防止写出 `m.guard();` 漏接、临时对象立刻析构等于没加锁。
 
 ## Semaphore:计数信号量,负 count 即等待者数
 
@@ -183,7 +183,7 @@ bool Semaphore::try_wait() {
 
 ## 生产者-消费者:把三件套拼起来
 
-[main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/main.cpp) 把 020 的「六个线程空转」demo 换成了生产者-消费者。全局三件套:
+[main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/main.cpp) 把 `06-process/002` 的「六个线程空转」demo 换成了生产者-消费者。全局三件套:
 
 ```cpp
 static constexpr int PC_BUF_SIZE = 4;

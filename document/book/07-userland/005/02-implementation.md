@@ -108,7 +108,7 @@ per-request 逻辑住在一个共享的 `console_tty_ioctl`(`console_tty.cpp:148
 - **TIOCGWINSZ**:返窗口尺寸,固定 80×25。
 - 只有 `fd` 0/1/2(stdin/stdout/stderr,都背靠 console TTY)才答;别的 fd 返 `-ENOTTY`;未知 cmd 也 `-ENOTTY`。
 
-每一命令的用户缓冲访问都走 061 那套 `copy_to_user`/`copy_from_user`(带 exception table 的 accessor):
+每一命令的用户缓冲访问都走 `16-security/004` 那套 `copy_to_user`/`copy_from_user`(带 exception table 的 accessor):
 
 ```cpp
 case kTcgets: {
@@ -120,7 +120,7 @@ case kTcgets: {
 
 > 这里把返回值压成 `Error::Fault` 为可读性——`console_tty_ioctl` 本身返回 `ErrorOr<int64_t>`,坏用户指针写的就是 `cinux::lib::Error::Fault`(`console_tty.cpp:152`);到了 `sys_ioctl` 的 fallback adapter 才 `to_errno` 成 `-EFAULT`。
 
-(`console_tty.cpp:148`。)这里正好用上 061 的成果——用户传个未映射的地址进来,accessor 的 `rep movsb` fault,exception table 拦下,返 `-EFAULT`,而不是把内核炸了。测试里专门有一条拿 `0x7000000000`(那个落用户半区但谁都没映射过的地址)探 TCGETS,期望就是 `-EFAULT`。
+(`console_tty.cpp:148`。)这里正好用上 `16-security/004` 的成果——用户传个未映射的地址进来,accessor 的 `rep movsb` fault,exception table 拦下,返 `-EFAULT`,而不是把内核炸了。测试里专门有一条拿 `0x7000000000`(那个落用户半区但谁都没映射过的地址)探 TCGETS,期望就是 `-EFAULT`。
 
 > 为什么 winsize 固定 80×25 不取真几何?因为 Console 现在是 `main.cpp` 里的局部变量,syscall 层够不着它,拿不到 framebuffer 的真实尺寸。这是个待解的结(全局化 Console,或者等 DevFS 给 fd 一个真设备身份),暂时固定 80×25 够用——musl 要的只是「探成功了、别退全缓冲」,尺寸是多少不那么要紧。
 

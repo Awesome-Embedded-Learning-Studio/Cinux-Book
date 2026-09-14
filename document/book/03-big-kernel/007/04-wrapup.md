@@ -18,7 +18,7 @@ title: 04 · 调试现场、验证与下一站
 
 这一章的验证,核心就是「双输出真的生效了」。
 
-最直接的现象验证:把内核 `make run`(或对应 CMake target)起来,你会看到 012 就有的那段 kprintf 格式回归输出,**现在不仅在串口、也在屏幕上**刷出来。关键看那句:
+最直接的现象验证:把内核 `make run`(或对应 CMake target)起来,你会看到 `03-big-kernel/005` 就有的那段 kprintf 格式回归输出,**现在不仅在串口、也在屏幕上**刷出来。关键看那句:
 
 ```text
 [BIG] Console initialised -- dual output active.
@@ -26,7 +26,7 @@ title: 04 · 调试现场、验证与下一站
 
 它出现在屏幕上,就证明 console sink 注册成功、fan-out 在工作。从这句之后,所有 `[BIG]` 开头的诊断都是串口和屏幕同步的。
 
-机内测里,[test_video.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/test/test_video.cpp) 也覆盖了 console,验证它能正确地 `putc`、能在写满后触发滚动。和 013 的 fb/font 测试一起跑:
+机内测里,[test_video.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/test/test_video.cpp) 也覆盖了 console,验证它能正确地 `putc`、能在写满后触发滚动。和 `03-big-kernel/006` 的 fb/font 测试一起跑:
 
 ```bash
 cmake --build build --target run-big-kernel-test
@@ -44,7 +44,7 @@ ctest --test-dir build -R console --output-on-failure
 
 到这里,内核第一次有了「脸」:它能在屏幕上画字,kprintf 的每一句话都能直接在屏幕上看见,不用再开串口窗口。诊断通道从一根线(串口)变成了两根线(串口 + 屏幕),双输出稳定工作。
 
-但你会发现一个明显的缺口:这台机器**只会说,不会听**。屏幕能显示,可键盘敲进去的字符,内核一个都收不到——IRQ1 上挂的还是那个只发 EOI 就把字符丢掉的 default handler,和 011 结束时一模一样。我们装了一整套中断体系,却还听不见键盘。
+但你会发现一个明显的缺口:这台机器**只会说,不会听**。屏幕能显示,可键盘敲进去的字符,内核一个都收不到——IRQ1 上挂的还是那个只发 EOI 就把字符丢掉的 default handler,和 `03-big-kernel/004` 结束时一模一样。我们装了一整套中断体系,却还听不见键盘。
 
 打破这个局限,就是下一站的事。键盘要接上真 handler,得搞定扫描码、IRQ1 的真处理、还有怎么把收到的字符送回屏幕(你会发现,刚搭好的 console 又要派上用场了)。不过那是 [下一章](../008/) 的故事,这里我们先享受一下「内核终于能在屏幕上说话」这个里程碑。
 
@@ -52,6 +52,6 @@ ctest --test-dir build -R console --output-on-failure
 
 ### 参考
 
-- 012 章 · [kprintf 重构与引导期 SSE 初始化](../005/):`vkprintf_impl` 回调式格式化引擎的来历。本章的多路 sink 正是建立在那层回调解耦之上——引擎未改,只换了输出分派。
+- `03-big-kernel/005` 章 · [kprintf 重构与引导期 SSE 初始化](../005/):`vkprintf_impl` 回调式格式化引擎的来历。本章的多路 sink 正是建立在那层回调解耦之上——引擎未改,只换了输出分派。
 - OSDev — [Text UI / Text Mode Console](https://wiki.osdev.org/Text_UI):在帧缓冲上手搓文本控制台时,光标跟踪、自动换行、滚动这几件事的常见做法。本章 Console 的状态机与此一致(只是画在图形帧缓冲上,而非 VGA 文本模式)。
 - 本 tag 源码:[console.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/drivers/video/console.hpp) / [console.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/drivers/video/console.cpp)、[kprintf.hpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/lib/kprintf.hpp) / [kprintf.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/lib/kprintf.cpp)(多路 sink)、[main.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/main.cpp)(装配序);驱动重组见 [pit](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/drivers/pit/)、[serial](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/drivers/serial/);测试 [test_console.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/test/unit/test_console.cpp)、[test_video.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/test/test_video.cpp)。

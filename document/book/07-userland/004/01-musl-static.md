@@ -4,7 +4,7 @@ title: 01 · musl 静态移植:对齐 Linux ABI、铺初始栈,以及一个被 S
 
 # musl 静态移植:对齐 Linux ABI、铺初始栈,以及一个被 SMAP 拦下的潜伏 bug
 
-> 之前用户态跑的是 Cinux 自己那个极简 libc(手写的 `syscall.h` 那几个壳)。这一章换一套做法:让内核能跑**用真 musl libc 编译的静态程序**——musl 是 Linux 世界里常用的轻量 libc,用它编译的程序(比如 `hello world`)静态链接一个 `libc.a` 进来,扔到内核上就能跑。要做到这件事,内核得**把自己对齐到 Linux 的 ABI**:syscall 号得和 Linux x86_64 一致、返回值得是负 errno、给程序铺的初始栈得带 musl 启动要读的辅助向量(auxv)。这一章把这三件事做了,然后跑 musl 的 hello——结果 hello 一跑,挖出一个在内核里**潜伏了很久的真 bug**,而这个 bug 之所以一直没被发现,正好和上一卷(056)讲的 SMAP / WSL2 那条边界有关。验证口径:punchline 是 musl 编译的 `hello` 真在内核里跑起来、打出 `Hello from musl`、干净退出。内核侧的 ABI + 初始栈靠测试验证;musl 程序的端到端跑通靠一个专门的 ring3 测试。
+> 之前用户态跑的是 Cinux 自己那个极简 libc(手写的 `syscall.h` 那几个壳)。这一章换一套做法:让内核能跑**用真 musl libc 编译的静态程序**——musl 是 Linux 世界里常用的轻量 libc,用它编译的程序(比如 `hello world`)静态链接一个 `libc.a` 进来,扔到内核上就能跑。要做到这件事,内核得**把自己对齐到 Linux 的 ABI**:syscall 号得和 Linux x86_64 一致、返回值得是负 errno、给程序铺的初始栈得带 musl 启动要读的辅助向量(auxv)。这一章把这三件事做了,然后跑 musl 的 hello——结果 hello 一跑,挖出一个在内核里**潜伏了很久的真 bug**,而这个 bug 之所以一直没被发现,正好和上一卷(`16-security/001`)讲的 SMAP / WSL2 那条边界有关。验证口径:punchline 是 musl 编译的 `hello` 真在内核里跑起来、打出 `Hello from musl`、干净退出。内核侧的 ABI + 初始栈靠测试验证;musl 程序的端到端跑通靠一个专门的 ring3 测试。
 >
 > 一条诚实的边界先说在前头:这一步的 musl 程序是**静态链接**的(把 musl 的 `libc.a` 整个链进可执行文件),不是动态链接(没有 `ldso`、没有 `PT_INTERP`)。动态链接是后面的事。而且 musl 的工具链(`build-musl.sh` 编出 sysroot)得先在宿主机上编一次,这一章讲的是内核侧怎么准备好接住 musl 程序,不是手把手教编 musl。
 
@@ -13,7 +13,7 @@ title: 01 · musl 静态移植:对齐 Linux ABI、铺初始栈,以及一个被 S
 1. **Linux ABI 对齐**:syscall 号、负 errno 返回约定、结构体布局(stat/sigaction)——musl 直接发原始 syscall,内核必须按 Linux 规矩应答。
 2. **一个撞号的真 bug**:`SYS_chdir` 和 `SYS_brk` 都被定义成 12,`cd` 命令发的 syscall 12 实际命中了 `sys_brk`。
 3. **初始栈 + auxv**:musl 启动时从栈上读辅助向量(`AT_PHDR`/`AT_RANDOM`/`AT_UID`...),内核的 `execve` 原来根本不铺栈内容。
-4. **那个被 SMAP 拦下的潜伏 bug**:跑 musl hello 时首次进 ring3 就 #DF(双重错误),根因是 `jump_to_usermode` 切到用户栈之后、在内核态写了一下用户内存设 RFLAGS——SMAP 一开就 #PF、#PF 推栈又失败变 #DF。它在 WSL2 上一直不发作,正是因为 WSL2 不透传 SMAP(056 讲过的那条边界)。
+4. **那个被 SMAP 拦下的潜伏 bug**:跑 musl hello 时首次进 ring3 就 #DF(双重错误),根因是 `jump_to_usermode` 切到用户栈之后、在内核态写了一下用户内存设 RFLAGS——SMAP 一开就 #PF、#PF 推栈又失败变 #DF。它在 WSL2 上一直不发作,正是因为 WSL2 不透传 SMAP(`16-security/001` 讲过的那条边界)。
 
 ## Linux ABI:把 syscall 号和返回约定对齐
 
@@ -79,9 +79,9 @@ jump_to_usermode:
     movq $0x202, %r11      # RFLAGS(IF|bit1),SYSRET 恢复
 ```
 
-（`usermode.S:96`。)问题在**修复前**的那一版:它切到用户栈(`mov %rsi,%rsp`,RSP 已经指向用户内存)之后,用的是 `pushq $0x202; popq %r11` 来设 RFLAGS。`pushq` 往**当前 RSP 指的内存**写——而此时 RSP 是用户栈,**这是内核态写用户内存**。SMAP(056 开的那个)一开,内核写用户内存 → #PF;而此时 RSP 指向用户栈,#PF 想往内核栈推错误码却推不进去(用户栈不让内核写)→ 推栈失败 → 升级成 #DF。修法就是上面那行 `movq $0x202, %r11`:用**立即数加载**设 RFLAGS,根本不碰内存,等价且安全。
+（`usermode.S:96`。)问题在**修复前**的那一版:它切到用户栈(`mov %rsi,%rsp`,RSP 已经指向用户内存)之后,用的是 `pushq $0x202; popq %r11` 来设 RFLAGS。`pushq` 往**当前 RSP 指的内存**写——而此时 RSP 是用户栈,**这是内核态写用户内存**。SMAP(`16-security/001` 开的那个)一开,内核写用户内存 → #PF;而此时 RSP 指向用户栈,#PF 想往内核栈推错误码却推不进去(用户栈不让内核写)→ 推栈失败 → 升级成 #DF。修法就是上面那行 `movq $0x202, %r11`:用**立即数加载**设 RFLAGS,根本不碰内存,等价且安全。
 
-> **这个 bug 为什么潜伏到现在?** 因为上一卷(056)讲过的那条边界:本机是 WSL2 嵌套 KVM,它不透传 CPUID.07H:EBX 的 SMAP 位,所以 `enable_smep_smap()` 的 CPUID gate **没开 CR4.SMAP**——SMAP 在开发机上压根没生效,`pushq` 写用户内存没被拦,程序照跑。换真机、或完整 KVM、或 TCG(SMAP 透传的环境),这个 bug 会让生产环境的 `/bin/sh` 一启动就 #DF。它是个**和 SMAP 强相关的、生产相关的真 bug**,只是被 WSL2 的环境限制挡住了,直到这一步跑 musl hello 的 ring3 测试才第一次暴露。这是「环境限制掩盖了真 bug」的典型——开发机上绿,不代表真机上对。
+> **这个 bug 为什么潜伏到现在?** 因为上一卷(`16-security/001`)讲过的那条边界:本机是 WSL2 嵌套 KVM,它不透传 CPUID.07H:EBX 的 SMAP 位,所以 `enable_smep_smap()` 的 CPUID gate **没开 CR4.SMAP**——SMAP 在开发机上压根没生效,`pushq` 写用户内存没被拦,程序照跑。换真机、或完整 KVM、或 TCG(SMAP 透传的环境),这个 bug 会让生产环境的 `/bin/sh` 一启动就 #DF。它是个**和 SMAP 强相关的、生产相关的真 bug**,只是被 WSL2 的环境限制挡住了,直到这一步跑 musl hello 的 ring3 测试才第一次暴露。这是「环境限制掩盖了真 bug」的典型——开发机上绿,不代表真机上对。
 
 修完之后,musl hello 的完整启动链在 Cinux ring3 跑通:
 

@@ -47,9 +47,9 @@ struct CmdEntry {
 };
 ```
 
-`cmd_echo(int argc, char** argv)`:从 `i = 1` 起,每个参数之间补一个单空格(`i > 1` 时先 `sys_write(1, " ", 1)`),用 `write_str(argv[i])` 输出,最后补一个 `\n`。`cmd_help` 打三行命令清单(固定字符串)。`cmd_clear` 只有一句:`sys_write(1, "\033[2J\033[H", 7)`——7 字节,`ESC[2J` 全屏擦除、`ESC[H` 光标归位。主循环里 `builtin_cmds[]` 就是 `{"echo", cmd_echo}, {"help", cmd_help}, {"clear", cmd_clear}, {nullptr, nullptr}`,遍历到 `name == nullptr` 停;命中就调 `handler(argc, argv)` 并 `break`,全没命中就打「command not found」。**这一关的 shell 只有这三个命令**;别照着 Linux 的 shell 脑补 `cat/ls/cd/重定向`——那些要等文件系统(025 以后)。
+`cmd_echo(int argc, char** argv)`:从 `i = 1` 起,每个参数之间补一个单空格(`i > 1` 时先 `sys_write(1, " ", 1)`),用 `write_str(argv[i])` 输出,最后补一个 `\n`。`cmd_help` 打三行命令清单(固定字符串)。`cmd_clear` 只有一句:`sys_write(1, "\033[2J\033[H", 7)`——7 字节,`ESC[2J` 全屏擦除、`ESC[H` 光标归位。主循环里 `builtin_cmds[]` 就是 `{"echo", cmd_echo}, {"help", cmd_help}, {"clear", cmd_clear}, {nullptr, nullptr}`,遍历到 `name == nullptr` 停;命中就调 `handler(argc, argv)` 并 `break`,全没命中就打「command not found」。**这一关的 shell 只有这三个命令**;别照着 Linux 的 shell 脑补 `cat/ls/cd/重定向`——那些要等文件系统(`08-filesystem/001` 以后)。
 
-**第五步:内核侧 `sys_read`(`kernel/syscall/sys_read.cpp`,全新)。** 签名照 `SyscallFn`:`int64_t sys_read(uint64_t fd, uint64_t buf_virt, uint64_t count, uint64_t, uint64_t, uint64_t)`。入口两道守卫:`buf_virt >= 0x800000000000`(用户地址上限)返回 -1;`fd != 0` 返回 -1(只认 stdin)。主体是个 `while (read_bytes < count)` 循环:先 `Keyboard::poll(ev)` 取事件,取不到时——若已经有数据(`read_bytes > 0`)就 `break` 把已读的返回,否则 `pause` 自旋等 `SPIN_WAIT_ITERS`(常量)次直到取到第一个字符。取到的事件只收 `pressed && ascii != 0` 的;把 `'\r'` 转成 `'\n'`;写进缓冲;遇 `'\n'` 立即 `break`(保证一次给 shell 一整行)。想清楚为什么**只认 fd=0**:这一关没有文件系统、没有别的 fd;为什么**自旋而不阻塞**:003 还是单任务、没有可阻塞唤醒的调度路径(阻塞唤醒是 021 的能力,但 shell 这条路不接它),`pause` 自旋是最朴素的「等键盘」。
+**第五步:内核侧 `sys_read`(`kernel/syscall/sys_read.cpp`,全新)。** 签名照 `SyscallFn`:`int64_t sys_read(uint64_t fd, uint64_t buf_virt, uint64_t count, uint64_t, uint64_t, uint64_t)`。入口两道守卫:`buf_virt >= 0x800000000000`(用户地址上限)返回 -1;`fd != 0` 返回 -1(只认 stdin)。主体是个 `while (read_bytes < count)` 循环:先 `Keyboard::poll(ev)` 取事件,取不到时——若已经有数据(`read_bytes > 0`)就 `break` 把已读的返回,否则 `pause` 自旋等 `SPIN_WAIT_ITERS`(常量)次直到取到第一个字符。取到的事件只收 `pressed && ascii != 0` 的;把 `'\r'` 转成 `'\n'`;写进缓冲;遇 `'\n'` 立即 `break`(保证一次给 shell 一整行)。想清楚为什么**只认 fd=0**:这一关没有文件系统、没有别的 fd;为什么**自旋而不阻塞**:003 还是单任务、没有可阻塞唤醒的调度路径(阻塞唤醒是 `06-process/003` 的能力,但 shell 这条路不接它),`pause` 自旋是最朴素的「等键盘」。
 
 **第六步:把 hello 换成 shell。** 002 的 `launch_first_user` 嵌的是 `_binary_hello_bin_*`;003 把这两个 `extern` 符号、以及拷贝循环用的 `_end - _start` 换成 `_binary_shell_bin_*`。二进制怎么来:`user/CMakeLists.txt` 用 `add_executable(user_shell ...)` 编 `main.cpp` + 三个 `cmd_*.cpp`、链 `user_libc`、`objcopy -O binary` 剥成 `shell.bin`、再用 `ld -r -b binary` 包成 `user_binary.o`(产生 `_binary_shell_bin_start/_end` 符号),内核链接时吃进去。`main.cpp` 里那一行 `[BIG] ===== Milestone 002 =====` 是**遗留字符串、本关没改它**,别被它误导——真正说明「跑到 shell」的是串口里冒出的 `Cinux shell - type 'help' for commands`。
 
@@ -118,4 +118,4 @@ cmake --build build --target run-big-kernel-test
 5. SYSRETQ 出口的 CS=0x33 / SS=0x2B 都带 RPL=3(STAR 基值用 0x23 自带 RPL),PIT 中断往返不再触发 `#GP(0x28)`。
 6. `syscall_entry` 出口不破坏用户 callee-saved:返回值走 `gs:16`、用户 RBX 从 trap frame `rsp+80` 恢复——shell 所有命令正常工作、`echo hello` 真的打出 `hello`。
 
-做到这六条,内核就第一次有了「能跟人对话」的用户态。但这个 shell 只在内存里转——它读的是键盘、写的是屏幕,没有任何东西落盘。下一站 025 接 AHCI/PCI,把数据真正写到 SATA 盘上,那才会带来真正的文件系统命令(`cat/ls/...`),也才会让 shell 从「会说话」变成「会管文件」。
+做到这六条,内核就第一次有了「能跟人对话」的用户态。但这个 shell 只在内存里转——它读的是键盘、写的是屏幕,没有任何东西落盘。下一站 `08-filesystem/001` 接 AHCI/PCI,把数据真正写到 SATA 盘上,那才会带来真正的文件系统命令(`cat/ls/...`),也才会让 shell 从「会说话」变成「会管文件」。

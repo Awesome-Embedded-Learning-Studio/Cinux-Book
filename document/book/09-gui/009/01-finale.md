@@ -4,9 +4,9 @@ title: 01 · GUI 解耦收尾:把源码里的 #ifdef 全赶到 CMake 那边去
 
 # GUI 解耦收尾:把源码里的 #ifdef 全赶到 CMake 那边去
 
-> 054 把 GUI 的核心拔成了一个 host-neutral 的库,但留了一笔账没收:源码里还散着几处 `#ifdef CINUX_GUI` / `#ifdef CINUX_USB`,读 `init.cpp` 读到一半会「分叉成两条路」。那一章把它们标成边界,说「等 xHCI 落地再收」。现在 xHCI(055)有了,夹在中间还顺手修了一个 SMP 迁移竞态(053)——这笔账该还了。这一章就做这件事,原则只有一句:**开关归 CMake,源码里不写 `#ifdef`**。做法叫 file gate:同一个接口写两份实现文件,CMake 按开关选编一份,调用处永远是一条直线。验证不靠新功能,靠 `grep` 证明 `init.cpp` / `main.cpp` / `irq_handlers.cpp` 三个文件里 `#ifdef CINUX_*` 归零,再靠四种构建组合(GUI/USB 开关各两档)全都链接通过——关掉 GUI 或 USB 时,靠一组空壳文件顶上,链接器照旧解析得了符号。
+> `09-gui/008` 把 GUI 的核心拔成了一个 host-neutral 的库,但留了一笔账没收:源码里还散着几处 `#ifdef CINUX_GUI` / `#ifdef CINUX_USB`,读 `init.cpp` 读到一半会「分叉成两条路」。那一章把它们标成边界,说「等 xHCI 落地再收」。现在 xHCI(`09-gui/011`)有了,夹在中间还顺手修了一个 SMP 迁移竞态(`15-smp/005`)——这笔账该还了。这一章就做这件事,原则只有一句:**开关归 CMake,源码里不写 `#ifdef`**。做法叫 file gate:同一个接口写两份实现文件,CMake 按开关选编一份,调用处永远是一条直线。验证不靠新功能,靠 `grep` 证明 `init.cpp` / `main.cpp` / `irq_handlers.cpp` 三个文件里 `#ifdef CINUX_*` 归零,再靠四种构建组合(GUI/USB 开关各两档)全都链接通过——关掉 GUI 或 USB 时,靠一组空壳文件顶上,链接器照旧解析得了符号。
 >
-> 一个诚实的小提醒:这一章里把启动逻辑抽成函数的那一步,正是 053 里那个「看起来人畜无害的重构踩出每次必现 panic」的重构本身。这一章讲它**为什么该抽**;053 讲它**抽完踩出的坑**。两章是同一件事的两面。
+> 一个诚实的小提醒:这一章里把启动逻辑抽成函数的那一步,正是 `15-smp/005` 里那个「看起来人畜无害的重构踩出每次必现 panic」的重构本身。这一章讲它**为什么该抽**;`15-smp/005` 讲它**抽完踩出的坑**。两章是同一件事的两面。
 
 ## 这章咱们要点亮什么
 
@@ -32,7 +32,7 @@ title: 01 · GUI 解耦收尾:把源码里的 #ifdef 全赶到 CMake 那边去
 
 那开关去哪?去 CMake。CMake 本来就在决定「哪些文件进编译」,让它在「编哪份实现」上做选择,是它的本职。于是正解形态是:**同一个接口,写两份实现文件,CMake 按开关选编一份**。调用处既不 `#include` 条件头,也不写 `#ifdef`,就是一句普通调用;链接器在链接期自动解析到被选中的那份实现。这叫 **file gate**(文件级开关),它和源码级 `#ifdef` 的区别是:file gate 切的是「编哪个文件」,源码读起来是一条直线;`#ifdef` 切的是「读哪段」,源码读起来要分叉。
 
-这一章干的就是把 054 留下的几处源码 `#ifdef` 全换成 file gate。先看改之前有多散:在 GUI 解耦前的 fork 点上,三个核心文件里一共 **7 处** `#ifdef CINUX_*`——`init.cpp` 3 处、`main.cpp` 3 处、`irq_handlers.cpp` 1 处。改完之后,这三个文件里 `#ifdef CINUX_GUI` / `#ifdef CINUX_USB` 的计数**全是 0**。下面挨个看怎么收。
+这一章干的就是把 `09-gui/008` 留下的几处源码 `#ifdef` 全换成 file gate。先看改之前有多散:在 GUI 解耦前的 fork 点上,三个核心文件里一共 **7 处** `#ifdef CINUX_*`——`init.cpp` 3 处、`main.cpp` 3 处、`irq_handlers.cpp` 1 处。改完之后,这三个文件里 `#ifdef CINUX_GUI` / `#ifdef CINUX_USB` 的计数**全是 0**。下面挨个看怎么收。
 
 ## file gate 长什么样:先看一个最小的
 
@@ -138,7 +138,7 @@ void kernel_init_thread() {
 
 （`init.cpp:51`。）函数从 91 行瘦到 34 行,`#ifdef` 全没了。两份实现各有各的去处:GUI 那份在 `desktop_launch.cpp`,非 GUI 那份在 `shell_launch.cpp`,接口在 `userspace.hpp` 里无条件声明(`userspace.hpp:29`)。CMake 那头前面已经看过——`if(NOT CINUX_GUI)` 编 `shell_launch.cpp`,GUI 那份走 `gui/` 子目录。
 
-两份实现各自干什么,读一眼就懂。GUI 这份(`desktop_launch.cpp:52`)起桌面、再 `TaskBuilder` 起一个 `gui_worker` 线程;那个线程的循环体,正是 054 讲过的 pump + yield,中间夹一句刚才封装好的 `usb::poll_input()`:
+两份实现各自干什么,读一眼就懂。GUI 这份(`desktop_launch.cpp:52`)起桌面、再 `TaskBuilder` 起一个 `gui_worker` 线程;那个线程的循环体,正是 `09-gui/008` 讲过的 pump + yield,中间夹一句刚才封装好的 `usb::poll_input()`:
 
 ```cpp
 void gui_worker_thread() {
@@ -150,9 +150,9 @@ void gui_worker_thread() {
 }
 ```
 
-（`desktop_launch.cpp:33`。)非 GUI 这份(`shell_launch.cpp:24`)简单得多:`fork`,子进程建个新地址空间,然后 `launch_user_program("/bin/sh", ...)` 一跳——这个 `launch_user_program` 是 054 里已经收敛好的「建栈 + 跳用户态」共享函数,这里直接复用,不重写第二遍。
+（`desktop_launch.cpp:33`。)非 GUI 这份(`shell_launch.cpp:24`)简单得多:`fork`,子进程建个新地址空间,然后 `launch_user_program("/bin/sh", ...)` 一跳——这个 `launch_user_program` 是 `09-gui/008` 里已经收敛好的「建栈 + 跳用户态」共享函数,这里直接复用,不重写第二遍。
 
-> **这一步抽函数,正是 053 那个 SMP bug 的触发点。** 053 讲过一个故事:把这段内联的启动逻辑抽成 `launch_userspace()`、把 `gui_worker` 挪进自己的 TU 之后,双核 `-smp 2` 从「偶发 panic」变成了「每次必 panic」。元凶不是抽出来的代码写错了——单核下测试一个个都过——而是「多了一个任务 + 双核并发」本身踩进了一个一直潜伏着的迁移竞态窗口(旧核存上下文、新核取同一份上下文,并发读写写花)。内联版不是没这个 bug,是时序恰好绕开了它。这一章讲的是「这个抽函数为什么该做」(因为它治好了 §14 的头号反例);053 讲的是「抽完踩出的坑怎么填」(给任务加 `on_cpu` 标记,跳过正在被别的核存上下文的任务)。两章合起来才是一个完整的故事:重构是对的,重构踩出来的潜伏 bug 也得一并治了。
+> **这一步抽函数,正是 `15-smp/005` 那个 SMP bug 的触发点。** `15-smp/005` 讲过一个故事:把这段内联的启动逻辑抽成 `launch_userspace()`、把 `gui_worker` 挪进自己的 TU 之后,双核 `-smp 2` 从「偶发 panic」变成了「每次必 panic」。元凶不是抽出来的代码写错了——单核下测试一个个都过——而是「多了一个任务 + 双核并发」本身踩进了一个一直潜伏着的迁移竞态窗口(旧核存上下文、新核取同一份上下文,并发读写写花)。内联版不是没这个 bug,是时序恰好绕开了它。这一章讲的是「这个抽函数为什么该做」(因为它治好了 §14 的头号反例);`15-smp/005` 讲的是「抽完踩出的坑怎么填」(给任务加 `on_cpu` 标记,跳过正在被别的核存上下文的任务)。两章合起来才是一个完整的故事:重构是对的,重构踩出来的潜伏 bug 也得一并治了。
 
 ## main.cpp 和 irq:把剩下的 #ifdef 收掉
 
@@ -169,7 +169,7 @@ void gui_worker_thread() {
 
 （`main.cpp:180`。)注意那个「kpanic re-enables all sinks」的细节:平时把控制台摘了是为了不挡桌面,但崩溃时 panic handler 会把所有 sink 重新打开,所以就算摘了控制台,崩溃栈照样能打到屏幕上——这是个容易看漏的容错设计。
 
-最后是 `irq_handlers.cpp`。到这次收尾前,它里头有两个 `#ifndef`(注意是 ifndef,反的)守着的空壳 handler:鼠标的 `mouse_irq12_handler`(`#ifndef CINUX_GUI`,fork 点就有)和 xHCI 的 `xhci_irq_handler`(`#ifndef CINUX_USB`,055 引入 xHCI 驱动时照着 mouse 的样子加的)。意思是「GUI/USB 没编时,在这里给个空实现,免得汇编那头的中断桩找不到符号」。收法还是 file gate:把这两个空壳各挪一个独立文件(`mouse_stub.cpp`、`usb_xhci_stub.cpp`),CMake 在对应开关关掉时编它们,`irq_handlers.cpp` 里那两段 `#ifndef` 整块删掉。
+最后是 `irq_handlers.cpp`。到这次收尾前,它里头有两个 `#ifndef`(注意是 ifndef,反的)守着的空壳 handler:鼠标的 `mouse_irq12_handler`(`#ifndef CINUX_GUI`,fork 点就有)和 xHCI 的 `xhci_irq_handler`(`#ifndef CINUX_USB`,`09-gui/011` 引入 xHCI 驱动时照着 mouse 的样子加的)。意思是「GUI/USB 没编时,在这里给个空实现,免得汇编那头的中断桩找不到符号」。收法还是 file gate:把这两个空壳各挪一个独立文件(`mouse_stub.cpp`、`usb_xhci_stub.cpp`),CMake 在对应开关关掉时编它们,`irq_handlers.cpp` 里那两段 `#ifndef` 整块删掉。
 
 为什么要挪成独立文件,而不是留在 `irq_handlers.cpp` 里继续 `#ifndef`?因为 `irq_handlers.cpp` 是**无条件编译**的核心文件——只要它里面还残留一个 `#ifndef`,§14 那个「三个核心文件 `#ifdef` 归零」的硬指标就过不去(`grep` 一抓一个准)。file gate 的判据是「调用处所在的文件零条件编译」,所以空壳和真实现必须各占一个独立的编译单元,由 CMake 在文件级二选一,而不是挤在同一个文件里靠预处理器切。
 
@@ -221,12 +221,12 @@ endif()
 
 ## 诚实的边界
 
-像 054 / 053 那样,把没收干净的摊子说清楚。
+像 `09-gui/008` / `15-smp/005` 那样,把没收干净的摊子说清楚。
 
 **`big_kernel_test` 在非 USB 下还是链接不过。** 这是套测试的债,不是这套收尾的债:`test_xhci.cpp` 无条件进了 `big_kernel_test` 的源列表,又没挂 `#ifdef CINUX_USB` 守卫,非 USB 构建时它引用的 `XHCIController` 等符号找不到。这是 GUI 解耦之前就破的,§14 的 file gate 只管**生产代码**的非 USB 兼容(默认的 `big_kernel` 在非 USB 下已经链接通过);测试那头的 gate 是另一条线,留后续。
 
 **`test/` 目录里还有约 40+ 处 `#ifdef CINUX_HOST_TEST`。** 这不违反 §14。§14 管的是**内核运行源码**里功能开关(开不开 GUI、开不开 USB)的调用处可读性,不约束测试基础设施。测试文件里挂的是 `CINUX_HOST_TEST`——宿主单测开关(如 `test/unit/test_window.cpp:15`),它选编的是「只在 host 单测里才跑的断言」,跟 GUI/USB 这种内核功能开关不是一个层级的东西。同理,`CINUX_LOCKDEP` 是 opt-in 的调试开关(顶层 CMakeLists 用 `option(...)` 声明),别拿 §14 的尺子去量它。
 
-**顺带补了 054 lab 里提到的那笔 host 单测债。** 更早 VFS 把 `read`/`write` 改成返回 `ErrorOr` 之后,调用方得用 `.value()` 解包,但有四个 host 单测的调用点漏改了,全量 `cmake --build build`(含 host 单测)从那时起一直编不过——054 的 lab 里因此专门写了句「别用 ALL 验证,host 单测有既有债」。这四个点现在补齐了,全量构建是绿的,那句提醒也用不着了。
+**顺带补了 `09-gui/008` lab 里提到的那笔 host 单测债。** 更早 VFS 把 `read`/`write` 改成返回 `ErrorOr` 之后,调用方得用 `.value()` 解包,但有四个 host 单测的调用点漏改了,全量 `cmake --build build`(含 host 单测)从那时起一直编不过——`09-gui/008` 的 lab 里因此专门写了句「别用 ALL 验证,host 单测有既有债」。这四个点现在补齐了,全量构建是绿的,那句提醒也用不着了。
 
-验证该看到什么,见配套 lab。下一章(056)转到安全卷——开 NX/SMEP/SMAP 和 ASLR,那是另一条线了。
+验证该看到什么,见配套 lab。下一章(`16-security/001`)转到安全卷——开 NX/SMEP/SMAP 和 ASLR,那是另一条线了。

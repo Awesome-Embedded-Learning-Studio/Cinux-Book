@@ -4,7 +4,7 @@ title: 01 · ProcFS 的 TOCTOU:锁内拷值,指针不逃出锁
 
 # ProcFS 的 TOCTOU:锁内拷值,指针不逃出锁
 
-> 011 立 ProcFS 的时候,诚实交代过一个窗口:`/proc/<pid>/stat` 读的时候,`signal_find_task_by_pid` 在 registry 锁内找到 Task 指针、**释放锁返回**,然后 `format_proc_stat` 在锁外解引用那个指针读字段。当时说「task 永不释放,窗口极小,hobby OS 可接受,真修等 registry RCU 化」。这一章兑现那笔债——但用的是比 RCU 轻得多的办法:**锁内把字段拷成一个自包含的 snapshot(POD),锁外用的是 snapshot 不是指针**,指针一出锁就没用了。根因比 011 当时以为的更严重:那个「task 永不释放」的前提**早就失效了**(Task 现在会真 delete),所以这个窗口不是「极小」,是「SMP 下真 UAF」。
+> `08-filesystem/011` 立 ProcFS 的时候,诚实交代过一个窗口:`/proc/<pid>/stat` 读的时候,`signal_find_task_by_pid` 在 registry 锁内找到 Task 指针、**释放锁返回**,然后 `format_proc_stat` 在锁外解引用那个指针读字段。当时说「task 永不释放,窗口极小,hobby OS 可接受,真修等 registry RCU 化」。这一章兑现那笔债——但用的是比 RCU 轻得多的办法:**锁内把字段拷成一个自包含的 snapshot(POD),锁外用的是 snapshot 不是指针**,指针一出锁就没用了。根因比 `08-filesystem/011` 当时以为的更严重:那个「task 永不释放」的前提**早就失效了**(Task 现在会真 delete),所以这个窗口不是「极小」,是「SMP 下真 UAF」。
 >
 > 这一章是个聚焦修复,没有新能力。验证靠新增的 snapshot 单测 + 既有 stat/cmdline 读测(自动验 snapshot 端到端)+ 两腿不回归。一条诚实的边界:这一章只闭了 ProcFS read 这一条路;registry 还有别的「锁内拿指针、锁外用」同族窗口(killpg、sys_pgrp),那些靠容忍 Zombie/Dead 兜着,全闭要等 refcount/RCU(长期)。
 
@@ -17,11 +17,11 @@ title: 01 · ProcFS 的 TOCTOU:锁内拷值,指针不逃出锁
 
 ## 根因:一个失效的前提 + 一个敞开的窗口
 
-先看 011 那个窗口为什么从「极小」变成「真 UAF」。
+先看 `08-filesystem/011` 那个窗口为什么从「极小」变成「真 UAF」。
 
 `/proc/<pid>/stat` 的 read 路径,原来调 `signal_find_task_by_pid(pid)` 拿 `Task*`。这个函数在 `g_registry_lock` 下找到指针、**释放锁、返回指针**;然后 `format_proc_stat(t, ...)` 在锁外读 `t->pid / name / state / ppid / tgid / uid / gid` 七个字段。
 
-011 当时(和 signal.cpp 的注释)都写着「tasks 永不释放,安全」。可这个前提**已经失效**了:早先的 task 释放修复改了这点——Task 现在经 `exit_current → signal_unregister_task → reap_deferred → delete t` **真释放**。于是 SMP(-smp 2)下:
+`08-filesystem/011` 当时(和 signal.cpp 的注释)都写着「tasks 永不释放,安全」。可这个前提**已经失效**了:早先的 task 释放修复改了这点——Task 现在经 `exit_current → signal_unregister_task → reap_deferred → delete t` **真释放**。于是 SMP(-smp 2)下:
 
 - CPU0:`cat /proc/<pid>/stat` → `find_by_pid` 拿到 `t` → unlock;
 - CPU1:那个 task `exit_current` → `reap_deferred` → `delete t`;
@@ -73,7 +73,7 @@ ProcFS 的 read 改走 snapshot:`ProcStatFileOps::read` / `ProcCmdlineFileOps::r
 
 ## 小结
 
-- 011 的 ProcFS TOCTOU 窗口,根因比想象严重:「task 永不释放」前提失效(task 开始真 delete),SMP 下是真 UAF(经 sys_open/sys_read 敞开窗口)。
+- `08-filesystem/011` 的 ProcFS TOCTOU 窗口,根因比想象严重:「task 永不释放」前提失效(task 开始真 delete),SMP 下是真 UAF(经 sys_open/sys_read 敞开窗口)。
 - snapshot 法:`TaskSnapshot` POD(pid/state/ppid/tgid/uid/gid + name 字节缓冲),`signal_snapshot_task` 锁内拷值;ProcFS read 改吃 snapshot,`format` 签名 `Task*`→`TaskSnapshot&`。指针不逃出锁,name 按字节拷(防御未来改堆存)。
 - 教训:别信赖「永不释放」这种过时契约——底层一改,所有依赖它的代码静默变错。signal.cpp 的注释从「safe」改成 WARNING。
 - 边界:只闭了 ProcFS read;killpg/sys_pgrp 的同族窗口靠容忍兜着,registry TOCTOU 全闭要等 refcount/RCU(长期)。`find_task_by_pid` 没删(还有别的调用方),只订正注释。

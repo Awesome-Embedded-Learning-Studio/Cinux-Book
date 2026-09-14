@@ -6,7 +6,7 @@ title: 03 · 代码路线:模型、init、链接器符号、alloc/free
 
 ## 1. 模型:一位一页,128KB 管 4GB
 
-常量都集中在 [pmm.h](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/mm/pmm.h),而且用了 001 引入的内存字面量让它一目了然:
+常量都集中在 [pmm.h](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/mini/mm/pmm.h),而且用了 `02-mini-kernel/001` 引入的内存字面量让它一目了然:
 
 ```cpp
 constexpr uint64_t PAGE_SIZE            = 4_KB;      // 每页 4KB
@@ -55,7 +55,7 @@ for (uint32_t i = 0; i < info->mmap_count; i++) {
 }
 ```
 
-这里有两个容易想当然的地方。一是低 1MB 必须滤掉:那里挤着 MBR、bootloader、BIOS 数据区、还有我们 004 加载内核的区域,谁都不能动。而且 E820 报告的区域可能正好横跨 1MB 边界(比如从 `0xC0000` 延伸到 `0x120000`),所以不是简单"整段丢",而是要算出重叠部分、把 `base` 抬到 1MB 之上。二是页对齐:分配的最小单位是 4KB 页,区域起止如果不是页边界,得向上取整对齐,否则会分出"半页"。
+这里有两个容易想当然的地方。一是低 1MB 必须滤掉:那里挤着 MBR、bootloader、BIOS 数据区、还有我们 `01-boot/004` 加载内核的区域,谁都不能动。而且 E820 报告的区域可能正好横跨 1MB 边界(比如从 `0xC0000` 延伸到 `0x120000`),所以不是简单"整段丢",而是要算出重叠部分、把 `base` 抬到 1MB 之上。二是页对齐:分配的最小单位是 4KB 页,区域起止如果不是页边界,得向上取整对齐,否则会分出"半页"。
 
 第三、四步把内核自己和 bootloader 区域标回占用。这里需要知道"内核有多大"——这就引出下一个关键技术点。
 

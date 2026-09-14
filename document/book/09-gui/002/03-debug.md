@@ -19,7 +19,7 @@ title: 03 · 调试现场与收尾
   RSP   = 0xFFFF800008047EF8   ...
 ```
 
-崩溃点不在鼠标代码里,而在**键盘**的 IRQ1 handler。这就很奇怪了——我们这一章动的是鼠标,键盘 014 就写好了、一直好好的,怎么现在炸?
+崩溃点不在鼠标代码里,而在**键盘**的 IRQ1 handler。这就很奇怪了——我们这一章动的是鼠标,键盘 `03-big-kernel/008` 就写好了、一直好好的,怎么现在炸?
 
 **触发链。** 顺着调用关系捋:`gui_start()` → `Mouse::init()` 去操作 8042 PS/2 控制器(发 `0xA8 / 0x20 / 0x60 / 0xD4 + 0xF4`)。这些控制器命令会让 8042 的状态翻转,**顺带产生一个虚假的 IRQ1**(键盘中断)——这是 PS/2 控制器的已知副作用。于是 CPU 跳进 `irq1_stub` → `Keyboard::irq1_handler()`。而在这一章,这个 handler 里多了一段 GUI 双路分发代码(往 `Mouse::event_queue()` 里 enqueue)。编译器为了优化这段,动用了 XMM 寄存器,生成了一条 `movaps %xmm0, (%rsp)`。`movaps` 要求操作数地址 **16 字节对齐**,而此刻 `(%rsp)` 没对齐,于是 `#GP`。
 
@@ -56,7 +56,7 @@ call handler 压入返回地址:                                   8 字节
 
 **为什么之前从来没炸?** 因为这个 bug 一直在那,只是以前的 IRQ handler 都没让编译器生成 `movaps`。直到这一章给键盘 handler 塞了双路分发、触发了 SSE 优化,才把这个潜伏的对齐问题顶出水面。这也是栈对齐 bug 最阴险的地方:它**静默**——简单 handler 不触发,只有编译器恰好用了对齐敏感的指令才暴露,排查难度高。教训很直接:**ISR stub 必须保证 handler 入口 `RSP ≡ 8 (mod 16)`,这是 ABI 的硬性要求,不是可选项**。
 
-> 顺带一提:修完 #GP 后,链接器还会因为另一个符号报错——`__dso_handle` 未定义。这是因为 030 当时的 `WindowManager::instance()` 里那个 `static WindowManager wm;` 单例**带析构函数**,编译器要把它通过 `__cxa_atexit(func, arg, __dso_handle)` 注册成程序退出时调用的析构。我们的 freestanding 内核没有动态链接,得自己提供这个符号。在 [crt_stub.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/crt_stub.cpp) 里补一个 `void* __dso_handle = nullptr;` 就够了(内核没有 DSO,空指针足矣)。一个对齐 bug 引出一个链接符号,这是「从零搭 GUI」这类大改动典型的连带效应。注:这个 `instance()` 单例是 tag 030 当时的实现,visor 解耦后该单例已随 `WindowManager` 整体外置移除;`crt_stub.cpp` 里的 `__dso_handle = nullptr`(line 115)本身至今仍在。
+> 顺带一提:修完 #GP 后,链接器还会因为另一个符号报错——`__dso_handle` 未定义。这是因为 `030` 当时的 `WindowManager::instance()` 里那个 `static WindowManager wm;` 单例**带析构函数**,编译器要把它通过 `__cxa_atexit(func, arg, __dso_handle)` 注册成程序退出时调用的析构。我们的 freestanding 内核没有动态链接,得自己提供这个符号。在 [crt_stub.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/kernel/arch/x86_64/crt_stub.cpp) 里补一个 `void* __dso_handle = nullptr;` 就够了(内核没有 DSO,空指针足矣)。一个对齐 bug 引出一个链接符号,这是「从零搭 GUI」这类大改动典型的连带效应。注:这个 `instance()` 单例是 tag `030` 当时的实现,visor 解耦后该单例已随 `WindowManager` 整体外置移除;`crt_stub.cpp` 里的 `__dso_handle = nullptr`(line 115)本身至今仍在。
 
 ### 双光标偏移:这不是 bug,是 PS/2 的宿命
 
@@ -71,21 +71,21 @@ call handler 压入返回地址:                                   8 字节
 
 两边从不同的起点出发、累积相同的位移,所以**偏移恒等于初始位置的差值**。PS/2 协议(1980 年代设计)根本没有「获取绝对位置」的命令,这不是我们代码的 bug。
 
-**怎么缓解。** 030 的办法是两手:一是 QEMU 配置加 `-usb -device usb-tablet`(见 [qemu.cmake](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/cmake/qemu.cmake)),让 VNC 的宿主光标改用绝对定位渲染,顺手解决鼠标抓取卡住的问题;二是 guest 侧把鼠标初始位置设成 `(0, 0)`,用户从左上角手动移入对齐。两个光标仍然各自独立,但至少可用。
+**怎么缓解。** `09-gui/002` 的办法是两手:一是 QEMU 配置加 `-usb -device usb-tablet`(见 [qemu.cmake](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/cmake/qemu.cmake)),让 VNC 的宿主光标改用绝对定位渲染,顺手解决鼠标抓取卡住的问题;二是 guest 侧把鼠标初始位置设成 `(0, 0)`,用户从左上角手动移入对齐。两个光标仍然各自独立,但至少可用。
 
 彻底的解法是写一个真正的 USB HID 驱动,读 USB tablet 的绝对坐标(0~width, 0~height)——但那已经超出这一章的范围了,留作长期目标。这条记录的价值在于:遇到「两个光标对不上」时,先别怀疑自己的绘图代码,去查输入协议本身能不能给绝对坐标。
 
 ## 验证
 
-和前面几章一样,030 的验证分三层:纯逻辑用 host 单测、机内集成用 QEMU kernel 测试、视觉效果用 `make run` 肉眼看。
+和前面几章一样,`09-gui/002` 的验证分三层:纯逻辑用 host 单测、机内集成用 QEMU kernel 测试、视觉效果用 `make run` 肉眼看。
 
-**第一层:host 单元测试。** 鼠标包解析、事件队列、窗口命中、窗口管理器的 Z 序/合成/拖拽,这些纯逻辑不碰真硬件,在 host 上 `-O2` 编、用 `CINUX_HOST_TEST` 门控跑。和 014 一样是「镜像」测法——把内核里的逻辑抄一份到测试里(因为带 `io_inb` 内联汇编、PIC 调用的内核代码在 host 上跑不起来),测「给我这个输入,算出来的事件/状态对不对」:
+**第一层:host 单元测试。** 鼠标包解析、事件队列、窗口命中、窗口管理器的 Z 序/合成/拖拽,这些纯逻辑不碰真硬件,在 host 上 `-O2` 编、用 `CINUX_HOST_TEST` 门控跑。和 `03-big-kernel/008` 一样是「镜像」测法——把内核里的逻辑抄一份到测试里(因为带 `io_inb` 内联汇编、PIC 调用的内核代码在 host 上跑不起来),测「给我这个输入,算出来的事件/状态对不对」:
 
 ```bash
 ctest --test-dir build -R "mouse|event_queue|window|canvas" --output-on-failure
 ```
 
-覆盖:`test_mouse`(3 字节包解析、9 位符号扩展、Y 轴翻转、边沿检测、clamp)、`test_event_queue`(环形满/空/回卷/丢弃)、`test_window`(构造、ID 自增、标题栏、内容、关闭按钮命中、`contains`、blit)、`test_window_manager`(create/destroy/raise、Z 序、composite、handle_mouse 拖拽)、`test_canvas`(029 已有 + 新的离屏 `init(w,h)`)。一次全跑也行:
+覆盖:`test_mouse`(3 字节包解析、9 位符号扩展、Y 轴翻转、边沿检测、clamp)、`test_event_queue`(环形满/空/回卷/丢弃)、`test_window`(构造、ID 自增、标题栏、内容、关闭按钮命中、`contains`、blit)、`test_window_manager`(create/destroy/raise、Z 序、composite、handle_mouse 拖拽)、`test_canvas`(`09-gui/001` 已有 + 新的离屏 `init(w,h)`)。一次全跑也行:
 
 ```bash
 cmake --build build --target test_host
@@ -99,7 +99,7 @@ cmake --build build --target run-big-kernel-test
 
 它会跑 `run_mouse_event_tests`(鼠标事件流:PS/2 包 → EventQueue → MouseEvent)、`run_window_tests`、`run_window_manager_tests`(create/destroy/raise/拖拽的端到端)、`run_gui_integration_tests`(`gui_init` 接线、键盘双路分发、PIT 滴答回调、鼠标事件经 EventQueue 流到窗口管理器)。这是把前面「镜像测」验证过的逻辑,放到真实的内核 + QEMU + PS/2 模拟器里再验一遍整条管线。
 
-> **tag-bound 说明**:`main_test.cpp` 注册这四个套是 030 当时的机内测布局。visor 解耦后,`Window` / `WindowManager` / GUI 集成测试随整个 GUI 外置到 `libs/gui/test/`,改用 standalone ctest 跑(`test_window.cpp` + `test_window_manager.cpp` 等,不再是 kernel 内 `main_test` 注册的套);`main_test.cpp` 里现存的 GUI 套只剩 `run_mouse_event_tests`(main_test.cpp:105/1198)。本章的机内测叙述按 tag 030 当时布局。
+> **tag-bound 说明**:`main_test.cpp` 注册这四个套是 `030` 当时的机内测布局。visor 解耦后,`Window` / `WindowManager` / GUI 集成测试随整个 GUI 外置到 `libs/gui/test/`,改用 standalone ctest 跑(`test_window.cpp` + `test_window_manager.cpp` 等,不再是 kernel 内 `main_test` 注册的套);`main_test.cpp` 里现存的 GUI 套只剩 `run_mouse_event_tests`(main_test.cpp:105/1198)。本章的机内测叙述按 tag `030` 当时布局。
 
 **第三层:视觉效果。** 想亲眼看到三个窗口、亲手拖一下:
 
@@ -124,7 +124,7 @@ cmake --build build --target run
 
 ## 下一站
 
-到 030,我们有了能拖动的窗口,但这些窗口**里面是空的**——内容区就一片浅灰,什么都干不了。键盘事件虽然已经能进事件队列,但 `handle_key()` 还是空的,没人消费。
+到 `09-gui/002`,我们有了能拖动的窗口,但这些窗口**里面是空的**——内容区就一片浅灰,什么都干不了。键盘事件虽然已经能进事件队列,但 `handle_key()` 还是空的,没人消费。
 
 下一步要解决的自然是:**让窗口里真的能跑东西**。具体说,我们希望键盘事件不再是「进了队列就石沉大海」,而是真正送到当前前台窗口、被它消费——比如在一个窗口里打字,字就出现在那个窗口里。这会把「窗口」从一个会动的矩形,变成一个真正能承载内容的容器。怎么实现,是下一章的事。
 

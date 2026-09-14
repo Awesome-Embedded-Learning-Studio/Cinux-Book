@@ -5,7 +5,7 @@ tag: 022_ring3_usermode
 
 # 调试档案 022 · 第一次跳进 Ring 3 的两个坑
 
-> 从 `document/notes/022/001_usermode_three_bugs.md`、`002_sfmask_qemu_msr.md` 提炼,配套 [022 · 第一次跳进 Ring 3:用户态与特权隔离](../book/07-userland/022-ring3-usermode.md)。022 把内核从「只有 Ring 0」推到「能真正进 Ring 3、并被特权隔离弹回来」。过程里两个坑最典型:一个是「进不去 Ring 3,串口炸成乱码」——其实是三个 bug 叠在一起互相掩盖,缺一不可地全修才进得去;一个是「SFMASK 写进去读回来是 0」——看着像 bug,其实是 QEMU 对这只 MSR 模拟不完整,得在测试层把"模拟器限制"和"真 bug"分清。两条都值得记成档案。
+> 从 `document/notes/022/001_usermode_three_bugs.md`、`002_sfmask_qemu_msr.md` 提炼,配套 [`07-userland/001` · 第一次跳进 Ring 3:用户态与特权隔离](../book/07-userland/001/)。`07-userland/001` 把内核从「只有 Ring 0」推到「能真正进 Ring 3、并被特权隔离弹回来」。过程里两个坑最典型:一个是「进不去 Ring 3,串口炸成乱码」——其实是三个 bug 叠在一起互相掩盖,缺一不可地全修才进得去;一个是「SFMASK 写进去读回来是 0」——看着像 bug,其实是 QEMU 对这只 MSR 模拟不完整,得在测试层把"模拟器限制"和"真 bug"分清。两条都值得记成档案。
 
 ## 案例一:SYSRET 之后串口吐一串 `[`,根本进不了 Ring 3
 
@@ -19,7 +19,7 @@ tag: 022_ring3_usermode
 
   注意两个细节:一是满屏 `[` 重复——这正好是 `[USER]`、`[VMM]` 那个方括号被反复打印;二是中间夹了 `Demand-paged ...` ——这是 `handle_pf` 里的 `kprintf`。两个细节合起来指向同一个方向:console 的写路径本身在崩。
 - **根因**:**三个独立 bug 叠加,任何一个单独修都不够**。下面逐个拆。
-  - **Bug A —— framebuffer 的 identity mapping 在用户地址空间里消失了。** 022 之前,内核的 framebuffer/MMIO 靠 `map_mmio()` 用 1 GB 大页做 identity mapping(物理地址直接当虚拟地址,挂在 `PDPT[3]`)。而 `AddressSpace` 构造时只复制 PML4 的高半区(`PML4[256..511]`,内核共享部分),低半区全清零。于是 `launch_first_user` 里 `user_space.activate()` 一切 CR3,`PDPT[3]` 那个 1 GB 大页就没了。后果是连环的:`kprintf` 往 console 写 → 写到那个虚拟地址触发 #PF → `handle_pf` 走 demand-page,给它**随便分配了一个普通 RAM 页**并 map 上去 → 写进的是个无关地址,console 当然不亮;更要命的是 `handle_pf` 内部又调 `kprintf` 打 `Demand-paged ...` 这条日志,而 console 还是坏的,于是 #PF handler 自己又 #PF,**重入**。串口那串 `[` 就是这么来的:`kprintf` 想打 `[USER]`,每次写到坏地址就 #PF,demand-page 又想打 `[VMM]`,如此循环,每条日志的第一个 `[` 被吐出来,后面就崩了。根子不在 console,在「切 CR3 把 identity mapping 切丢了」。
+  - **Bug A —— framebuffer 的 identity mapping 在用户地址空间里消失了。** `07-userland/001` 之前,内核的 framebuffer/MMIO 靠 `map_mmio()` 用 1 GB 大页做 identity mapping(物理地址直接当虚拟地址,挂在 `PDPT[3]`)。而 `AddressSpace` 构造时只复制 PML4 的高半区(`PML4[256..511]`,内核共享部分),低半区全清零。于是 `launch_first_user` 里 `user_space.activate()` 一切 CR3,`PDPT[3]` 那个 1 GB 大页就没了。后果是连环的:`kprintf` 往 console 写 → 写到那个虚拟地址触发 #PF → `handle_pf` 走 demand-page,给它**随便分配了一个普通 RAM 页**并 map 上去 → 写进的是个无关地址,console 当然不亮;更要命的是 `handle_pf` 内部又调 `kprintf` 打 `Demand-paged ...` 这条日志,而 console 还是坏的,于是 #PF handler 自己又 #PF,**重入**。串口那串 `[` 就是这么来的:`kprintf` 想打 `[USER]`,每次写到坏地址就 #PF,demand-page 又想打 `[VMM]`,如此循环,每条日志的第一个 `[` 被吐出来,后面就崩了。根子不在 console,在「切 CR3 把 identity mapping 切丢了」。
   - **Bug B —— 写 STAR MSR 用了 `shlq $32` 而不是 `shlq $16`。** `usermode_init_asm` 要把内核 CS 选择子 `0x08` 塞进 STAR 的 `[63:48]`(SYSRET 取这个字段算 user CS)。代码先 `movq $0x08, %rdx` 再 `shlq $32, %rdx`,想把 `0x08` 移到 RDX 的高 32 位。问题在于:`wrmsr` 只读 `EDX:EAX`——也就是只读 RDX 的**低 32 位**,高 32 位被直接丢弃。`shlq $32` 把 `0x08` 移到了 RDX 的 bit 32 以上,`wrmsr` 根本看不到:
 
     ```text
@@ -81,7 +81,7 @@ tag: 022_ring3_usermode
   - STAR、EFER 等其他 SYSCALL/SYSRET 相关 MSR 写入正常;
   - KVM 后端和 TCG 软件模拟后端**行为一致**,所以不是 KVM 的锅,是 QEMU 模拟层本身。
 
-  好在它对本 milestone 无功能影响:`IA32_FMASK` 只在执行 **SYSCALL** 时用来决定清掉 RFLAGS 的哪些位;022 只用 **SYSRET** 单向进 Ring 3,SYSRET 是从 R11 恢复 RFLAGS、不读 SFMASK,所以这只 MSR 写没写进去,都不影响进 Ring 3 和特权隔离的验证。
+  好在它对本 milestone 无功能影响:`IA32_FMASK` 只在执行 **SYSCALL** 时用来决定清掉 RFLAGS 的哪些位;`07-userland/001` 只用 **SYSRET** 单向进 Ring 3,SYSRET 是从 R11 恢复 RFLAGS、不读 SFMASK,所以这只 MSR 写没写进去,都不影响进 Ring 3 和特权隔离的验证。
 - **定位**:这案的排查链很典型,值得记下顺序,因为它示范了「怎么把模拟器限制和真 bug 区分开」。
   1. 先反汇编 `usermode_init_asm`,确认 `movabs $0xc0000084,%rcx / xor %rdx,%rdx / mov $0x200,%rax / wrmsr` 这段指令序列本身没写错——指令是对的。
   2. 把 SFMASK 的写入挪到 EFER 之后(最后执行),排除「EFER 的 `wrmsr` 覆盖了 SFMASK」——挪完仍然失败,排除顺序依赖。
@@ -106,13 +106,13 @@ tag: 022_ring3_usermode
   ```
 
   在真实硬件上,这只 MSR 的写入会正常持久化,`rdmsr` 应读回 `0x200`;真要在真机上加严校验,可以套一层 `#ifndef __QEMU__` 守卫做读回断言,但本 tag 不做。
-- **防复发**:两条。一是 **测试结果和代码正确性矛盾时,先在模拟器层面排除干扰**——不是所有 `wrmsr` 不报错就代表写入生效,QEMU 对部分 MSR(尤其是冷门的 `IA32_FMASK`)的模拟并不完整。判断「指令对不对」的一个好招是写一个**明知非法的值**看会不会 #GP:非法值 #GP、合法值不 #GP,就反证了指令编码正确,锅在模拟器。二是 **测试断言要对齐这只 MSR 在当前设计里的真实语义**:`IA32_FMASK` 只管 SYSCALL 方向,SYSRET 从 R11 恢复 RFLAGS 不读它;022 是 SYSRET-only 的演示,SFMASK 写没写进去对功能没影响,所以测试断「不 #GP」是恰当的,既覆盖了「指令编码正确」这个唯一需要验证的点,又不被模拟器的已知缺陷卡住。
+- **防复发**:两条。一是 **测试结果和代码正确性矛盾时,先在模拟器层面排除干扰**——不是所有 `wrmsr` 不报错就代表写入生效,QEMU 对部分 MSR(尤其是冷门的 `IA32_FMASK`)的模拟并不完整。判断「指令对不对」的一个好招是写一个**明知非法的值**看会不会 #GP:非法值 #GP、合法值不 #GP,就反证了指令编码正确,锅在模拟器。二是 **测试断言要对齐这只 MSR 在当前设计里的真实语义**:`IA32_FMASK` 只管 SYSCALL 方向,SYSRET 从 R11 恢复 RFLAGS 不读它;`07-userland/001` 是 SYSRET-only 的演示,SFMASK 写没写进去对功能没影响,所以测试断「不 #GP」是恰当的,既覆盖了「指令编码正确」这个唯一需要验证的点,又不被模拟器的已知缺陷卡住。
 
 ## 附:几个当下不发作、迟早要踩的隐形坑
 
 下面这几条在本 tag 的 demo 里不会爆(因为用户程序就四字节 `cli;hlt;jmp .-2`,触发 #GP 后直接 `fatal_halt`),但一旦后续真上系统调用、真跑多任务、真做异常返回,就会要命,先记在这里。
 
-- **`launch_first_user` 把 `TSS.RSP0` 设成了当前 `rsp`。** 022 里 `GDT::tss_set_rsp0(kernel_rsp0)` 用的 `kernel_rsp0` 就是 `movq %rsp, ...` 取到的当前内核栈。这只在「用户态触发异常后直接 halt、不返回 Ring 3」的 demo 里够用。等 023 接上系统调用、需要从 Ring 3 进内核再**回** Ring 3 时,RSP0 必须指向一个稳定、专属、栈顶干净的内核栈,不能再随手拿当前 rsp——否则异常/中断在烂栈上再炸一次就是 #DF。
+- **`launch_first_user` 把 `TSS.RSP0` 设成了当前 `rsp`。** `07-userland/001` 里 `GDT::tss_set_rsp0(kernel_rsp0)` 用的 `kernel_rsp0` 就是 `movq %rsp, ...` 取到的当前内核栈。这只在「用户态触发异常后直接 halt、不返回 Ring 3」的 demo 里够用。等 `07-userland/002` 接上系统调用、需要从 Ring 3 进内核再**回** Ring 3 时,RSP0 必须指向一个稳定、专属、栈顶干净的内核栈,不能再随手拿当前 rsp——否则异常/中断在烂栈上再炸一次就是 #DF。
 - **`launch_first_user` 不返回,`main.cpp` 里它后面的键盘 poll loop 不可达。** 用户代码 `cli` 一触发 #GP,`handle_gp` 走 `fatal_halt()` 永久 `cli;hlt`。所以 `main.cpp` 里 `Returned from user mode launch (unexpected)` 和后面的键盘轮询循环,在本 tag 是死代码,别以为「用户态跑完会回到 main 继续」。(顺带:`main.cpp` 头注释里还写着 `17. Scheduler init, create tasks`,但 Step 17 的 Scheduler init 在本 tag 的 diff 里**已经被删了**,实际只剩 `usermode_init` + `launch_first_user`;那条注释是没擦干净的遗留,别当成"调度器和用户态并存"的证据。)
 - **`#PF` 的 demand-page 在用户态访问内核地址时会乱映。** Bug A 暴露的是一个更深的问题:`handle_pf` 的 demand-page 分支对任何「页不存在」的 #PF 都一视同仁地 `g_vmm.map` 一页普通 RAM 上去,不区分这个地址该不该被映、是用户态访问还是内核态访问。在本 demo 里它只是把 console 写歪了;等真正跑用户程序时,用户态访问一个本不该存在的地址,demand-page 却默默给它建了个映射,等于**隔离被偷偷打穿**。这条在后续做系统调用/真用户程序时必须收紧(demand-page 只该服务合法的、用户地址空间内的缺页)。
 
@@ -120,4 +120,4 @@ tag: 022_ring3_usermode
 
 ### 一句话总结
 
-022 的两个坑,一个是「三个 bug 互相掩盖、得全修才进得了 Ring 3」——framebuffer identity mapping 切 CR3 后丢失引发 #PF 重入、STAR 用 `shlq $32` 写错位导致 `CS=0x13`、`walk_level` 中间页表缺 user 位导致 `#PF(0x05)`,分别修在「激活前复制 identity mapping」「`shlq $16`」「user 位逐级下传」;一个是「QEMU 对 SFMASK 写入静默丢弃」的模拟器限制——用「写全 1 触发 #GP」反证指令没错,再把测试从硬断言读回值改成「不 #GP 即通过」。前者是「x86-64 权限/地址空间切换」的必修课,后者是「测试要分清模拟器限制和真 bug」的典型样本。
+`07-userland/001` 的两个坑,一个是「三个 bug 互相掩盖、得全修才进得了 Ring 3」——framebuffer identity mapping 切 CR3 后丢失引发 #PF 重入、STAR 用 `shlq $32` 写错位导致 `CS=0x13`、`walk_level` 中间页表缺 user 位导致 `#PF(0x05)`,分别修在「激活前复制 identity mapping」「`shlq $16`」「user 位逐级下传」;一个是「QEMU 对 SFMASK 写入静默丢弃」的模拟器限制——用「写全 1 触发 #GP」反证指令没错,再把测试从硬断言读回值改成「不 #GP 即通过」。前者是「x86-64 权限/地址空间切换」的必修课,后者是「测试要分清模拟器限制和真 bug」的典型样本。

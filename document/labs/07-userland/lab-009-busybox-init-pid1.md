@@ -102,4 +102,4 @@ CinuxOS init: filesystems mounted                 ← /etc/inittab 的 ::sysinit
 1. **为什么 init 线程要在入口 `alloc()`,而不是像旧实现那样 fork 出 shell?** 提示:fork 出来的 shell 是 PID 2,它和"init respawn 我"是什么关系?谁该是 PID 1?
 2. **把 `rt_sigtimedwait` 改成纯阻塞(没信号就睡死)会怎样?** 提示:busybox init 还没 fork 任何 child 时,有没有 SIGCHLD?它靠什么返回值驱动 respawn?
 3. **`usb::init()` 为什么得挪到 `launch_userspace()` 前面?** 提示:非 GUI 的 `launch_userspace` 内部 `execve` + 跳用户态,它返回吗?
-4. **为什么 `/dev/console` 的 console 后端要走 `ConsoleInput` 接口注入,而不是直接在 `devfs.cpp` 里 `#include console_tty`?** 提示:064 章给 DevFS 立过的那条"host 可测"栅栏。
+4. **为什么 `/dev/console` 的 console 后端要走 `ConsoleInput` 接口注入,而不是直接在 `devfs.cpp` 里 `#include console_tty`?** 提示:`08-filesystem/010` 章给 DevFS 立过的那条"host 可测"栅栏。

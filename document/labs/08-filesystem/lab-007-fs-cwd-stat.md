@@ -4,7 +4,7 @@ title: Lab 007 · 路径规范化与 stat:把相对路径和文件信息跑通
 
 # Lab 007 · 路径规范化与 stat:把相对路径和文件信息跑通
 
-> 007 给文件系统加了工作目录和 stat。这个 lab 分两半:前半是「纸上练兵」——`path_canonicalize` 是个纯字符串函数,特别适合在 host 上拿一批刁钻输入去喂它、断言结果,把 `.`/`..`/根目录保护这些边界彻底搞懂;后半是「真刀真枪」——在跑起来的 Cinux 里 `cd`/`pwd`/`stat`,再用 `debugfs` 对照 stat 读出来的数字和磁盘上的是不是一致。最后留一个整洁度改进任务:把 ext2 里两份一模一样的 `stat` 收成一个。
+> `08-filesystem/007` 给文件系统加了工作目录和 stat。这个 lab 分两半:前半是「纸上练兵」——`path_canonicalize` 是个纯字符串函数,特别适合在 host 上拿一批刁钻输入去喂它、断言结果,把 `.`/`..`/根目录保护这些边界彻底搞懂;后半是「真刀真枪」——在跑起来的 Cinux 里 `cd`/`pwd`/`stat`,再用 `debugfs` 对照 stat 读出来的数字和磁盘上的是不是一致。最后留一个整洁度改进任务:把 ext2 里两份一模一样的 `stat` 收成一个。
 
 ## 实验目标
 
@@ -15,10 +15,10 @@ title: Lab 007 · 路径规范化与 stat:把相对路径和文件信息跑通
 
 ## 前置条件
 
-- 006 的写能力可用(`touch`/`echo >`/`mkdir` 能跑)。
-- 007 的代码已构建:`cmake --build build`,且 `ctest --test-dir build -R cwd_stat` 能跑。
+- `08-filesystem/006` 的写能力可用(`touch`/`echo >`/`mkdir` 能跑)。
+- `08-filesystem/007` 的代码已构建:`cmake --build build`,且 `ctest --test-dir build -R cwd_stat` 能跑。
 - host 有 `debugfs`(e2fsprogs)。准备一块干净镜像:`./scripts/create_ext2_disk.sh /tmp/lab.ext2`。
-- 读懂主书第 007 章的「路径规范化」和「struct stat 与 InodeOps::stat」两节。
+- 读懂主书 `08-filesystem/007` 章的「路径规范化」和「struct stat 与 InodeOps::stat」两节。
 
 ## 任务分解
 

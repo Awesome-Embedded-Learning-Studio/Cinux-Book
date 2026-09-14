@@ -36,7 +36,7 @@ grep -cE 'g_pmm\.alloc.*cmd|0xFFFFFFFF80000000' kernel/drivers/ahci/ahci.cpp
 # 期望:0(散装 DMA 的硬编码偏移没了)
 ```
 
-**思考**:为什么 command list 的 DmaBuffer 析构只 free 物理页、不 unmap?——见 037 的 GOTCHA #7:direct-map PTE 是永久对照表,unmap 它会拆永久槽 → demand paging 死循环。`DmaPool` 已把这条焊死。
+**思考**:为什么 command list 的 DmaBuffer 析构只 free 物理页、不 unmap?——见 `11-foundation/002` 的 GOTCHA #7:direct-map PTE 是永久对照表,unmap 它会拆永久槽 → demand paging 死循环。`DmaPool` 已把这条焊死。
 
 ### 3. IDENTIFY / FLUSH / block_count
 
@@ -61,4 +61,4 @@ grep -rn 'identify\|flush\|capacity_blocks_' kernel/drivers/ahci/
 ## 别做这些
 
 - **别**给 command list / FIS 的 DmaBuffer 加 `vmm.unmap`——GOTCHA #7,QEMU 卡死。
-- **别**假设 AHCI 容量 = img 文件大小(038 的 GOTCHA #8),以 IDENTIFY 报告为准。
+- **别**假设 AHCI 容量 = img 文件大小(`11-foundation/003` 的 GOTCHA #8),以 IDENTIFY 报告为准。

@@ -12,7 +12,7 @@ title: 04 · 调试现场、验证与下一站
 
 怎么确认你栽在这一步?最直接的办法是在 `Framebuffer::init` 调 `map_mmio` 之前,先把 `fb_addr` 用 kprintf 打出来(`fb_addr` 本身在 BootInfo 里,不依赖映射就能读)。如果它是个像 `0xe0000000` 这样的大数,你就知道一定得走 1GB 页那条路。然后确认 `map_mmio` 第二段的 `if (end > PAGE_1GB_SIZE && has_1gb_pages())` 真的进了、`pdpt[n]` 真的写进去了。`pdpt[n] == 0` 这个判断也别漏——它保证不覆盖已有映射,但反过来,如果你期望覆盖却没覆盖,就得查这个条件。
 
-**第二个,硬编码的页表地址是这整套方案最脆的地方。** `PD_VIRT_ADDR = 0xFFFFFFFF80003000`、`PDPT_VIRT_ADDR = 0xFFFFFFFF80002000` 这两个常数,是「bootloader 把页表放在了这里」这个约定的硬编码。它对的时侯一切都好;一旦 bootloader 那边动了页表的布局(比如换了链接地址、加了新表),这两个地址就指向了别处,你往里写表项等于在破坏随机内存,症状是各种莫名其妙的花屏、崩溃、甚至 triple fault,而且没有任何报错告诉你「页表地址错了」。这种 bug 极难定位,因为代码看起来完全没毛病。我们这里的对策是**明知它是临时的**——等 015、016 做了正经的页表管理器,这种摸黑改表的做法会被替掉。在那之前,如果你动了 boot 的页表布局,第一件事就是回来核这两个地址。
+**第二个,硬编码的页表地址是这整套方案最脆的地方。** `PD_VIRT_ADDR = 0xFFFFFFFF80003000`、`PDPT_VIRT_ADDR = 0xFFFFFFFF80002000` 这两个常数,是「bootloader 把页表放在了这里」这个约定的硬编码。它对的时侯一切都好;一旦 bootloader 那边动了页表的布局(比如换了链接地址、加了新表),这两个地址就指向了别处,你往里写表项等于在破坏随机内存,症状是各种莫名其妙的花屏、崩溃、甚至 triple fault,而且没有任何报错告诉你「页表地址错了」。这种 bug 极难定位,因为代码看起来完全没毛病。我们这里的对策是**明知它是临时的**——等 `05-memory/001`、`05-memory/002` 做了正经的页表管理器,这种摸黑改表的做法会被替掉。在那之前,如果你动了 boot 的页表布局,第一件事就是回来核这两个地址。
 
 **第三个,`pitch/4` 和「宽度 ≤ 8」这两个隐含假设。** `addr_[y * (pitch_/4) + x]`,少除了那个 4、或者误用 `width_`,画面就会整体歪斜错位(不是黑屏,是「能亮但全错」,反而更容易让人怀疑别的逻辑)。字体那边,如果哪天换了宽字体忘了改 `render_char` 的逐字节取位,字符就会只画出左半截。这两个都不是会崩的错,而是「安静地错」,排查时容易绕远路。把它们当成已知边界记在心里,撞上时能第一时间想到。
 
@@ -32,7 +32,7 @@ TEST("framebuffer: pixel index at (100, 50)") {
 }
 ```
 
-同理 [test_font.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/test/unit/test_font.cpp) 测 PSF2 header 解析和字形偏移,[test_console.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/test/unit/test_console.cpp) 测光标/换行逻辑(那部分属于 013b,但算术单测放在同一批)。这些用 `-O2` 编、由 `CINUX_HOST_TEST` 宏门控,直接:
+同理 [test_font.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/test/unit/test_font.cpp) 测 PSF2 header 解析和字形偏移,[test_console.cpp](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/blob/main/test/unit/test_console.cpp) 测光标/换行逻辑(那部分属于 `03-big-kernel/007`,但算术单测放在同一批)。这些用 `-O2` 编、由 `CINUX_HOST_TEST` 宏门控,直接:
 
 ```bash
 ctest --test-dir build -R 'font|framebuffer|console' --output-on-failure
@@ -63,13 +63,13 @@ void test_fb_put_pixel_readback() {
 cmake --build build --target run-big-kernel-test
 ```
 
-这组测试绿的,「显存能访问、像素能写能读、字体能画」就算点亮了。至于把这些像素组织成会换行、会滚动的文本终端,并让 kprintf 也往屏幕上吐——那是 013b 的活。
+这组测试绿的,「显存能访问、像素能写能读、字体能画」就算点亮了。至于把这些像素组织成会换行、会滚动的文本终端,并让 kprintf 也往屏幕上吐——那是 `03-big-kernel/007` 的活。
 
 ## 下一站
 
 到这一步,内核已经能在屏幕上画像素、画字了。但你会注意到一个落差的:我们画字的能力(`PSFFont::render_char`)和内核唯一的诊断通道(kprintf)之间,还隔着一层——kprintf 此刻依旧只走串口,我们刚搭好的屏幕画字能力,还没有人调用它。
 
-换句话说,这一章把「舞台」搭好了(像素、字体),但还没把「演员」(kprintf)请上来。下一站 [007](../007/) 就做这件事:我们会在 framebuffer + 字体之上盖一层文本控制台 `Console`,管好光标、换行、滚动,然后回头兑现 012 那个一直悬着的承诺——把 kprintf 的格式化引擎接上屏幕这第二个输出后端,让每一句诊断同时出现在串口和屏幕上。012 当初抽出来的那个回调式架构,到那时才真正显示出它的价值。
+换句话说,这一章把「舞台」搭好了(像素、字体),但还没把「演员」(kprintf)请上来。下一站 [007](../007/) 就做这件事:我们会在 framebuffer + 字体之上盖一层文本控制台 `Console`,管好光标、换行、滚动,然后回头兑现 `03-big-kernel/005` 那个一直悬着的承诺——把 kprintf 的格式化引擎接上屏幕这第二个输出后端,让每一句诊断同时出现在串口和屏幕上。`03-big-kernel/005` 当初抽出来的那个回调式架构,到那时才真正显示出它的价值。
 
 ---
 

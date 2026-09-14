@@ -13,7 +13,7 @@ title: Lab 003 · IBlockDevice 块设备抽象 验证
 1. `IBlockDevice` 接口在,走 `ErrorOr<void>`(不是 bool);
 2. 两个实现都在:`RAMBlockDevice`(内存/测试桩)+ `AHCIBlockDevice`(AHCI 适配器);
 3. ext2 真解耦了——构造函数吃 `IBlockDevice*`,自带 DMA 淘汰,`block_buf_[4096]` 固定数组替代;
-4. run-kernel-test 从 002 的 694 涨到 705。
+4. run-kernel-test 从 `11-foundation/002` 的 694 涨到 705。
 
 ## 步骤
 
@@ -37,7 +37,7 @@ grep -rn 'class RAMBlockDevice\|class AHCIBlockDevice' kernel/drivers/
 
 **期望**:`block_device.hpp:44 class IBlockDevice`,`read_blocks/write_blocks` 返 `ErrorOr<void>`;`ram_block_device.hpp:36`、`ahci/ahci_block_device.hpp:41` 两个实现。
 
-**思考**:为什么 `IBlockDevice` 的方法走 `ErrorOr<void>` 而不是 `bool`?——它是纯内核内部接口(不跨 syscall trap),可以直接用 `ErrorOr`,失败原因(IO 错)有名字有类型,比 `false` 强。对比 syscall 边界那层才翻 `-errno`(见 001)。
+**思考**:为什么 `IBlockDevice` 的方法走 `ErrorOr<void>` 而不是 `bool`?——它是纯内核内部接口(不跨 syscall trap),可以直接用 `ErrorOr`,失败原因(IO 错)有名字有类型,比 `false` 强。对比 syscall 边界那层才翻 `-errno`(见 `11-foundation/001`)。
 
 ### 3. ext2 解耦
 
