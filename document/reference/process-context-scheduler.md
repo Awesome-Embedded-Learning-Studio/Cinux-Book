@@ -1,5 +1,8 @@
 ---
 title: 参考 · 进程:上下文切换、调度器与同步原语
+tags: [process, context-switch, scheduler, spinlock]
+difficulty: intermediate
+platform: qemu
 ---
 
 # 参考 · 进程:上下文切换、调度器与同步原语

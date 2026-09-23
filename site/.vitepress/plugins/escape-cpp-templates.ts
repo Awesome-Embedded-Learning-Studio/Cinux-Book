@@ -32,7 +32,10 @@ const VUE_COMPONENTS = new Set([
   'ChapterNav', 'ChapterLink', 'HomeTipBanner', 'Badge', 
   'PageHeader', 'StatusTag', 'StepFlow', 'StepItem', 'InfoCard',
   'RoadMap', 'RoadMapPhase',
-  'HomeArchDiagram',
+  'HomeArchDiagram', 'DocNavCards',
+  // 对齐移植的组件(md 中可直接使用)
+  'DocTags', 'TagExplorer', 'ReferenceCard', 'ReferenceItem', 'RefLink',
+  'CheckpointProblem', 'CheckpointList', 'Anim', 'ScreenshotCarousel',
 ])
 
 function looksLikeCppTemplate(inner: string): boolean {

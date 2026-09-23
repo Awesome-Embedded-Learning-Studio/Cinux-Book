@@ -45,7 +45,7 @@ QEMU CC 宏(`include/block/nvme.h`,对齐 NVMe 1.4 spec):
 - `CC_IOCQES_SHIFT = 20` → IOCQES = bits[23:20]
 
 CinuxOS 批2a 的 `kCcEnable = (6u << 24) | (4u << 16) | 1u`(注释 `IOSQES[29:24]=6, IOCQES[21:16]=4`)实际写:
-- 6 进 reserved bits[27:24](浪费)
+- 6 进 reserved bits[27:24]（浪费）
 - IOSQES(bits[19:16])= 4(应 6)
 - IOCQES(bits[23:20])= 0(应 4)
 

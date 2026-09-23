@@ -1,11 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { withBase } from 'vitepress'
-
-// 截图来自仓库根 assets/README/(单一份源,README 与站点共用)。动画 WebP
-// (gif2webp 有损 + gifsicle 缩到 960):保留启动/多终端/文件操作的动态,比原 GIF 小 60%。
-// 跨 srcDir 边界用相对 import —— Vite 构建期处理成带 hash 的资源 URL(自动带 base),
-// 故图片用导入变量、不走 withBase;只有章节跳转链接(href)才用 withBase。
 import imgGui from '../../../../assets/README/gui.webp'
 import imgCli from '../../../../assets/README/cli.webp'
 import imgBoot from '../../../../assets/README/boot.webp'
@@ -13,359 +8,111 @@ import imgMulti from '../../../../assets/README/multi-terminal.webp'
 import imgParallel from '../../../../assets/README/parallel.webp'
 import imgFs from '../../../../assets/README/filesystem.webp'
 
-interface Slide {
-  img: string
-  href: string
-  title: string
-}
-
-const slides: Slide[] = [
-  { img: imgGui, href: withBase('/book/09-gui/033-gui-desktop'), title: 'GUI 桌面环境 · 窗口管理器' },
-  { img: imgCli, href: withBase('/book/07-userland/024-shell'), title: 'Shell 命令行 · Ring 3 用户态' },
-  { img: imgBoot, href: withBase('/book/01-boot/001-boot-real-mode'), title: '从 Bootloader 启动 · 实/保护/长模式' },
-  { img: imgMulti, href: withBase('/book/10-multitasking/035b-multi-terminal'), title: '多终端并发 · fork / exec' },
-  { img: imgParallel, href: withBase('/book/10-multitasking/034-process-fork-exec'), title: '多任务调度 · 独立地址空间' },
-  { img: imgFs, href: withBase('/book/08-filesystem/028-fs-ext2'), title: 'Ext2 文件系统读写 · VFS 抽象' },
+const slides = [
+  { img: imgBoot, code: 'BOOT', title: '从 0x7C00 点亮第一屏', note: '实模式、GDT、分页与 Long Mode', href: '/book/01-boot/' },
+  { img: imgParallel, code: 'TASK', title: '让进程真正并发运行', note: '上下文切换、独立地址空间与调度', href: '/book/10-multitasking/' },
+  { img: imgFs, code: 'VFS', title: '把磁盘接入统一文件世界', note: '块设备、VFS、Ext2 与路径解析', href: '/book/08-filesystem/' },
+  { img: imgCli, code: 'RING3', title: '从内核走进用户空间', note: '系统调用、ELF 加载与 Shell', href: '/book/07-userland/' },
+  { img: imgGui, code: 'GUI', title: '最终长成自己的桌面', note: '帧缓冲、窗口管理与输入系统', href: '/book/09-gui/' },
+  { img: imgMulti, code: 'TTY', title: '多终端同时工作', note: '会话、终端与 fork / exec', href: '/book/10-multitasking/' },
 ]
 
 const active = ref(0)
-const count = computed(() => slides.length)
-const current = computed(() => slides[active.value] ?? slides[0])
-
-// 每张图相对当前 active 的最短环绕偏移,据此决定它的位置类。
-// 用模运算算「最短距离」,翻到头会从另一侧无缝接上,不会跳变。
-function position(i: number): string {
-  const n = count.value
-  let d = i - active.value
-  if (d > n / 2) d -= n
-  else if (d < -n / 2) d += n
-  if (d === 0) return 'is-center'
-  if (d === 1) return 'is-right'
-  if (d === -1) return 'is-left'
-  return d > 0 ? 'is-far-right' : 'is-far-left'
-}
-
-function go(dir: 1 | -1) {
-  active.value = (active.value + dir + count.value) % count.value
-  restart()
-}
-function select(i: number) {
-  if (i === active.value) return
-  active.value = i
-  restart()
-}
-
-// 5s 自动翻页;悬停 / 标签页隐藏时暂停(reduced-motion 下改成无动效切换,仍轮播)
-const INTERVAL_MS = 5000
-let timer: ReturnType<typeof setInterval> | null = null
-function stop() {
-  if (timer) {
-    clearInterval(timer)
-    timer = null
-  }
-}
-function restart() {
-  stop()
-  timer = setInterval(() => {
-    active.value = (active.value + 1) % count.value
-  }, INTERVAL_MS)
-}
-function onVisibility() {
-  if (document.hidden) stop()
-  else restart()
-}
-
-onMounted(() => {
-  restart()
-  document.addEventListener('visibilitychange', onVisibility)
-})
-onBeforeUnmount(() => {
-  stop()
-  document.removeEventListener('visibilitychange', onVisibility)
-})
+const current = computed(() => slides[active.value])
+let timer: ReturnType<typeof setInterval> | undefined
+function stop() { if (timer) clearInterval(timer); timer = undefined }
+function start() { stop(); timer = setInterval(() => { active.value = (active.value + 1) % slides.length }, 6500) }
+function select(index: number) { active.value = index; start() }
+onMounted(start)
+onBeforeUnmount(stop)
 </script>
 
 <template>
-  <section class="shot-carousel" aria-roledescription="carousel">
-    <header class="shot-carousel__head">
-      <h2 class="shot-carousel__title">先睹为快</h2>
-      <p class="shot-carousel__sub">每 5 秒自动翻页 · 悬停暂停 · 点中间打开该页</p>
+  <section class="system-showcase" @mouseenter="stop" @mouseleave="start">
+    <header class="system-showcase__head">
+      <div>
+        <span class="showcase-kicker">RUNNING SYSTEM / NOT A TOY KERNEL</span>
+        <h2>你要构建的，不只是一句 Hello World</h2>
+      </div>
+      <p>教程中的每个画面都来自同一套 Cinux 源码。选择一个系统切面，直接进入对应章节。</p>
     </header>
 
-    <div
-      class="shot-carousel__stage"
-      @mouseenter="stop"
-      @mouseleave="restart"
-    >
-      <button
-        class="shot-carousel__arrow shot-carousel__arrow--prev"
-        aria-label="上一张"
-        @click="go(-1)"
-      >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-      </button>
+    <div class="system-showcase__body">
+      <a class="showcase-screen" :href="withBase(current.href)">
+        <img :key="current.img" :src="current.img" :alt="current.title" />
+        <span class="showcase-screen__scan" aria-hidden="true" />
+        <span class="showcase-screen__badge">CINUX / {{ current.code }}</span>
+        <span class="showcase-screen__caption">
+          <strong>{{ current.title }}</strong>
+          <small>{{ current.note }}</small>
+        </span>
+      </a>
 
-      <div
-        v-for="(s, i) in slides"
-        :key="i"
-        class="shot-carousel__cell"
-        :class="position(i)"
-      >
-        <a
-          class="shot-carousel__link"
-          :href="i === active ? s.href : undefined"
-          :aria-label="s.title"
-          :tabindex="i === active ? 0 : -1"
+      <div class="showcase-index" role="tablist" aria-label="系统功能预览">
+        <button
+          v-for="(slide, index) in slides"
+          :key="slide.code"
+          type="button"
+          role="tab"
+          :aria-selected="index === active"
+          :class="{ 'is-active': index === active }"
+          @click="select(index)"
         >
-          <img :src="s.img" :alt="s.title" loading="lazy" decoding="async" draggable="false" />
-        </a>
+          <span class="showcase-index__num">0{{ index + 1 }}</span>
+          <span class="showcase-index__copy"><b>{{ slide.code }}</b><small>{{ slide.title }}</small></span>
+          <span class="showcase-index__tick" aria-hidden="true" />
+        </button>
       </div>
-
-      <button
-        class="shot-carousel__arrow shot-carousel__arrow--next"
-        aria-label="下一张"
-        @click="go(1)"
-      >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-      </button>
-    </div>
-
-    <div class="shot-carousel__caption">
-      <span class="shot-carousel__cap-text">{{ current.title }}</span>
-      <a class="shot-carousel__cap-link" :href="current.href">查看 →</a>
-    </div>
-
-    <div class="shot-carousel__dots" role="tablist">
-      <button
-        v-for="(s, i) in slides"
-        :key="i"
-        class="shot-carousel__dot"
-        :class="{ 'is-active': i === active }"
-        :aria-label="`第 ${i + 1} 张`"
-        :aria-selected="i === active ? 'true' : 'false'"
-        @click="select(i)"
-      />
     </div>
   </section>
 </template>
 
 <style scoped>
-.shot-carousel {
-  max-width: 1152px;
-  margin: 8px auto 40px;
-  padding: 0 24px;
-  animation: shot-fade-up 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94) 0.1s both;
-}
+.system-showcase { max-width: 1152px; margin: 0 auto; padding: 58px 24px 70px; }
+.system-showcase__head { display: grid; grid-template-columns: 1.2fr 0.8fr; align-items: end; gap: 48px; margin-bottom: 26px; }
+.showcase-kicker { color: var(--vp-c-brand-1); font: 700 11px/1 var(--vp-font-family-mono); letter-spacing: 0.13em; }
+.system-showcase__head h2 { margin: 12px 0 0; color: var(--vp-c-text-1); font-size: clamp(25px, 3vw, 38px); line-height: 1.18; letter-spacing: -0.04em; }
+.system-showcase__head p { margin: 0; color: var(--vp-c-text-2); font-size: 14px; line-height: 1.8; }
+.system-showcase__body { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(260px, 0.75fr); gap: 14px; }
+.showcase-screen { position: relative; display: block; min-width: 0; overflow: hidden; aspect-ratio: 16 / 10; color: white; background: #07130f; border: 1px solid var(--vp-c-divider); border-radius: 18px 5px 18px 5px; box-shadow: 0 22px 55px rgba(8, 37, 30, 0.16); }
+.showcase-screen img { display: block; width: 100%; height: 100%; object-fit: cover; animation: screen-enter 0.36s ease-out both; }
+.showcase-screen::after { position: absolute; inset: 42% 0 0; background: linear-gradient(transparent, rgba(1, 10, 8, 0.84)); content: ''; }
+.showcase-screen__scan { position: absolute; inset: 0; z-index: 1; pointer-events: none; background: repeating-linear-gradient(to bottom, transparent 0 3px, rgba(141, 255, 231, 0.035) 4px); }
+.showcase-screen__badge { position: absolute; top: 16px; left: 16px; z-index: 2; padding: 7px 9px; color: #8ff1db; background: rgba(3, 20, 16, 0.76); border: 1px solid rgba(143, 241, 219, 0.34); border-radius: 7px 2px 7px 2px; backdrop-filter: blur(8px); font: 700 10px/1 var(--vp-font-family-mono); letter-spacing: 0.11em; }
+.showcase-screen__caption { position: absolute; right: 22px; bottom: 20px; left: 22px; z-index: 2; }
+.showcase-screen__caption strong,
+.showcase-screen__caption small { display: block; }
+.showcase-screen__caption strong { font-size: clamp(18px, 2.2vw, 28px); line-height: 1.25; }
+.showcase-screen__caption small { margin-top: 5px; color: rgba(230, 255, 249, 0.72); font-size: 12px; }
+.showcase-index { display: grid; grid-template-rows: repeat(6, 1fr); min-width: 0; overflow: hidden; border: 1px solid var(--vp-c-divider); border-radius: 5px 18px 5px 18px; background: var(--vp-c-bg-soft); }
+.showcase-index button { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr) 3px; align-items: center; gap: 10px; min-width: 0; padding: 10px 13px; color: var(--vp-c-text-3); text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--vp-c-divider); cursor: pointer; }
+.showcase-index button:last-child { border-bottom: 0; }
+.showcase-index button:hover,
+.showcase-index button.is-active { color: var(--vp-c-text-1); background: var(--vp-c-bg-elv); }
+.showcase-index__num { font: 600 10px/1 var(--vp-font-family-mono); }
+.showcase-index__copy { min-width: 0; }
+.showcase-index__copy b,
+.showcase-index__copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.showcase-index__copy b { color: inherit; font: 700 10px/1.3 var(--vp-font-family-mono); letter-spacing: 0.08em; }
+.showcase-index__copy small { margin-top: 3px; color: var(--vp-c-text-3); font-size: 11px; }
+.showcase-index__tick { width: 3px; height: 18px; background: transparent; border-radius: 99px; }
+.is-active .showcase-index__tick { background: var(--vp-c-brand-1); box-shadow: 0 0 12px var(--vp-c-brand-1); }
+@keyframes screen-enter { from { opacity: 0.55; transform: scale(1.015); } }
 
-.shot-carousel__head {
-  text-align: center;
-  margin-bottom: 14px;
+@media (max-width: 820px) {
+  .system-showcase { padding-block: 46px 56px; }
+  .system-showcase__head { grid-template-columns: 1fr; gap: 14px; }
+  .system-showcase__body { grid-template-columns: 1fr; }
+  .showcase-index { display: flex; overflow-x: auto; border-radius: 8px; scrollbar-width: none; }
+  .showcase-index::-webkit-scrollbar { display: none; }
+  .showcase-index button { flex: 0 0 145px; grid-template-columns: 24px minmax(0, 1fr); border-right: 1px solid var(--vp-c-divider); border-bottom: 0; }
+  .showcase-index__tick { position: absolute; right: 10px; bottom: 5px; left: 10px; width: auto; height: 2px; }
 }
-.shot-carousel__title {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: 0.3px;
-  color: var(--vp-c-text-1);
-}
-.shot-carousel__sub {
-  margin: 6px 0 0;
-  font-size: 13px;
-  color: var(--vp-c-text-2);
-}
-
-/* ── Stage:coverflow 容器,带透视 ─────────────────────────── */
-.shot-carousel__stage {
-  position: relative;
-  height: clamp(300px, 42vw, 430px);
-  perspective: 1400px;
-}
-
-/* 每个 cell 绝对居中,再按位置类施加变换 */
-.shot-carousel__cell {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  margin: 0 auto;
-  width: min(600px, 86%);
-  height: 100%;
-  transform-origin: center center;
-  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.45s ease;
-  will-change: transform, opacity;
-  cursor: pointer;
-}
-.shot-carousel__cell.is-center {
-  transform: translateX(0) scale(1) rotateY(0deg);
-  opacity: 1;
-  z-index: 3;
-  cursor: pointer;
-}
-.shot-carousel__cell.is-left {
-  transform: translateX(-58%) scale(0.76) rotateY(20deg);
-  opacity: 0.5;
-  z-index: 2;
-  pointer-events: none; /* 两侧纯展示、不可点击,杜绝点击→变正中→默认动作跳转的竞态 */
-}
-.shot-carousel__cell.is-right {
-  transform: translateX(58%) scale(0.76) rotateY(-20deg);
-  opacity: 0.5;
-  z-index: 2;
-  pointer-events: none;
-}
-.shot-carousel__cell.is-far-left {
-  transform: translateX(-95%) scale(0.6) rotateY(20deg);
-  opacity: 0;
-  z-index: 0;
-  pointer-events: none;
-}
-.shot-carousel__cell.is-far-right {
-  transform: translateX(95%) scale(0.6) rotateY(-20deg);
-  opacity: 0;
-  z-index: 0;
-  pointer-events: none;
-}
-
-.shot-carousel__link {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border-radius: 14px;
-  overflow: hidden;
-  border: 1px solid var(--vp-c-divider);
-  background: var(--vp-c-bg-soft);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
-  transition: border-color 0.25s, box-shadow 0.25s;
-}
-.shot-carousel__cell.is-center:hover .shot-carousel__link {
-  border-color: var(--vp-c-brand-1);
-  box-shadow: 0 20px 48px rgba(15, 52, 96, 0.26);
-}
-.shot-carousel__link img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  pointer-events: none; /* 点击交给 cell 处理 */
-}
-
-/* ── Arrows ─────────────────────────────────────────────── */
-.shot-carousel__arrow {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 5;
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: var(--vp-c-brand-1);
-  background: var(--vp-c-bg-soft);
-  border: 1px solid var(--vp-c-divider);
-  transition: background 0.2s, color 0.2s, border-color 0.2s, transform 0.1s;
-}
-.shot-carousel__arrow:hover {
-  background: var(--vp-c-brand-soft);
-  border-color: var(--vp-c-brand-1);
-}
-.shot-carousel__arrow:active {
-  transform: translateY(-50%) scale(0.94);
-}
-.shot-carousel__arrow:focus-visible {
-  outline: 2px solid var(--vp-c-brand-1);
-  outline-offset: 2px;
-}
-.shot-carousel__arrow--prev { left: max(4px, 1.5%); }
-.shot-carousel__arrow--next { right: max(4px, 1.5%); }
-
-/* ── Caption + dots ─────────────────────────────────────── */
-.shot-carousel__caption {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  margin-top: 16px;
-  min-height: 22px;
-}
-.shot-carousel__cap-text {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--vp-c-text-1);
-}
-.shot-carousel__cap-link {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--vp-c-brand-1);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.shot-carousel__cap-link:hover {
-  color: var(--vp-c-brand-2);
-}
-
-.shot-carousel__dots {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 14px;
-}
-.shot-carousel__dot {
-  width: 8px;
-  height: 8px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: var(--vp-c-divider);
-  cursor: pointer;
-  transition: background 0.2s, width 0.2s, border-radius 0.2s;
-}
-.shot-carousel__dot.is-active {
-  background: var(--vp-c-brand-1);
-  width: 22px;
-  border-radius: 999px;
-}
-
-@keyframes shot-fade-up {
-  from { opacity: 0; transform: translateY(16px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .shot-carousel { animation: none !important; }
-  /* 仍自动轮播(见 JS),但切换不带动效,尊重减少动态偏好 */
-  .shot-carousel__cell { transition: none !important; }
-}
-
 @media (max-width: 639px) {
-  .shot-carousel {
-    padding: 0 16px;
-    margin-bottom: 24px;
-  }
-  .shot-carousel__stage {
-    height: clamp(240px, 56vw, 320px);
-  }
-  .shot-carousel__cell.is-left {
-    transform: translateX(-46%) scale(0.66) rotateY(16deg);
-    opacity: 0.42;
-  }
-  .shot-carousel__cell.is-right {
-    transform: translateX(46%) scale(0.66) rotateY(-16deg);
-    opacity: 0.42;
-  }
-  .shot-carousel__cell.is-far-left {
-    transform: translateX(-78%) scale(0.55);
-  }
-  .shot-carousel__cell.is-far-right {
-    transform: translateX(78%) scale(0.55);
-  }
-  .shot-carousel__arrow {
-    width: 38px;
-    height: 38px;
-  }
-  .shot-carousel__title { font-size: 19px; }
-  .shot-carousel__sub { font-size: 12px; }
+  .system-showcase { padding: 38px 18px 46px; }
+  .system-showcase__head h2 { font-size: 27px; }
+  .showcase-screen { aspect-ratio: 4 / 3; border-radius: 13px 4px 13px 4px; }
+  .showcase-screen__caption { right: 15px; bottom: 14px; left: 15px; }
 }
+@media (prefers-reduced-motion: reduce) { .showcase-screen img { animation: none; } }
 </style>

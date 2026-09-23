@@ -207,6 +207,7 @@ function generateVolumeConfig(
   const relPlugins = relFromTmpVp(tmpVpDir, join(MAIN_VP, 'plugins'))
   const relBuildInfo = relFromTmpVp(tmpVpDir, join(MAIN_VP, 'config', 'build-info'))
   const relProjectConfig = relFromTmpVp(tmpVpDir, join(PROJECT_ROOT, 'project.config'))
+  const relShared = relFromTmpVp(tmpVpDir, join(MAIN_VP, 'config', 'shared'))
 
   const prefix = view.urlPrefix(vol)
   // 对非 default locale,把 locale 前缀注入 urlPrefix,让 volumeSidebar 生成的 link 自带前缀。
@@ -222,9 +223,15 @@ function generateVolumeConfig(
   return `import { defineConfig } from 'vitepress'
 import { resolve } from 'path'
 import { volumeSidebar } from '${relSidebar}'
-import { resolvePlugins } from '${relPlugins}'
 import { getBuildInfo } from '${relBuildInfo}'
 import projectConfig from '${relProjectConfig}'
+import {
+  sharedMarkdown,
+  localSearchBoxAlias,
+  localSearchOptions,
+  applySharedPageData,
+  SIDEBAR_WIDTH_SCRIPT,
+} from '${relShared}'
 
 const buildInfo = getBuildInfo()
 const docsRoot = ${JSON.stringify(view.docsRoot)}
@@ -258,17 +265,19 @@ export default defineConfig({
   },
   head: [
     ['link', { rel: 'icon', href: projectConfig.favicon || \`\${projectConfig.base}favicon.ico\` }],
+    ['meta', { name: 'theme-color', content: '#F5FAF8' }],
+    ['meta', { name: 'theme-color', content: '#0B1512', media: '(prefers-color-scheme: dark)' }],
     ['script', {}, ${JSON.stringify(FONT_SIZE_SCRIPT)}],
+    ['script', {}, SIDEBAR_WIDTH_SCRIPT],
   ],
-  markdown: {
-    lineNumbers: true,
-    math: projectConfig.plugins.math ?? false,
-    theme: { light: 'github-light', dark: 'github-dark' },
-    config(md) {
-      resolvePlugins(md, projectConfig)
-    },
+  markdown: sharedMarkdown,
+  async transformPageData(pageData) {
+    await applySharedPageData(pageData)
   },
   vite: {
+    resolve: {
+      alias: localSearchBoxAlias,
+    },
     publicDir: resolve(${JSON.stringify(MAIN_PUBLIC)}),
     build: { chunkSizeWarningLimit: 5000 },
     ssr: { external: ['mermaid'] },
@@ -278,7 +287,7 @@ export default defineConfig({
     sidebar: { '${prefix}/': volumeSidebar(docsRoot, ${JSON.stringify(volForSidebar)}) },
     // 关闭默认主题底部 prev/next 文字导航。开关是 themeConfig.docFooter(prevLinks/nextLinks 无效,usePrevNext 不读)。卡片版 DocNavCards 经 doc-after 插槽注入(theme symlink 共享)。与 index.ts 行为一致。
     docFooter: { prev: false, next: false },
-    search: { provider: 'local' },
+    search: { provider: 'local', options: localSearchOptions },
     editLink: {
       pattern: \`\${editPatternBase}${localeDirPart}/:path\`,
       text: 'Edit this page on GitHub',
@@ -299,20 +308,26 @@ function generateRootConfig(absSiteDir: string, absSrcDir: string): string {
   const relOut = relative(absSiteDir, join(BUILD_TMP, 'output', 'root')).replace(/\\/g, '/')
 
   const relSidebar = relFromTmpVp(tmpVpDir, join(MAIN_VP, 'config', 'sidebar'))
-  const relPlugins = relFromTmpVp(tmpVpDir, join(MAIN_VP, 'plugins'))
   const relBuildInfo = relFromTmpVp(tmpVpDir, join(MAIN_VP, 'config', 'build-info'))
   const relLocales = relFromTmpVp(tmpVpDir, join(MAIN_VP, 'config', 'locales'))
   const relProjectConfig = relFromTmpVp(tmpVpDir, join(PROJECT_ROOT, 'project.config'))
+  const relShared = relFromTmpVp(tmpVpDir, join(MAIN_VP, 'config', 'shared'))
 
   const primaryLocale = projectConfig.locales.find((l) => l.default)!
 
   return `import { defineConfig } from 'vitepress'
 import { resolve } from 'path'
 import { buildSidebar } from '${relSidebar}'
-import { resolvePlugins } from '${relPlugins}'
 import { getBuildInfo } from '${relBuildInfo}'
 import { buildLocales } from '${relLocales}'
 import projectConfig from '${relProjectConfig}'
+import {
+  sharedMarkdown,
+  localSearchBoxAlias,
+  localSearchOptions,
+  applySharedPageData,
+  SIDEBAR_WIDTH_SCRIPT,
+} from '${relShared}'
 
 const buildInfo = getBuildInfo()
 const docsRoot = ${JSON.stringify(DOCUMENTS)}
@@ -339,17 +354,19 @@ export default defineConfig({
   },
   head: [
     ['link', { rel: 'icon', href: projectConfig.favicon || \`\${projectConfig.base}favicon.ico\` }],
+    ['meta', { name: 'theme-color', content: '#F5FAF8' }],
+    ['meta', { name: 'theme-color', content: '#0B1512', media: '(prefers-color-scheme: dark)' }],
     ['script', {}, ${JSON.stringify(FONT_SIZE_SCRIPT)}],
+    ['script', {}, SIDEBAR_WIDTH_SCRIPT],
   ],
-  markdown: {
-    lineNumbers: true,
-    math: projectConfig.plugins.math ?? false,
-    theme: { light: 'github-light', dark: 'github-dark' },
-    config(md) {
-      resolvePlugins(md, projectConfig)
-    },
+  markdown: sharedMarkdown,
+  async transformPageData(pageData) {
+    await applySharedPageData(pageData)
   },
   vite: {
+    resolve: {
+      alias: localSearchBoxAlias,
+    },
     publicDir: resolve(${JSON.stringify(MAIN_PUBLIC)}),
     build: { chunkSizeWarningLimit: 5000 },
     ssr: { external: ['mermaid'] },
@@ -359,7 +376,7 @@ export default defineConfig({
     sidebar: buildSidebar(docsRoot, projectConfig),
     // 关闭默认主题底部 prev/next 文字导航。开关是 themeConfig.docFooter(prevLinks/nextLinks 无效,usePrevNext 不读)。卡片版 DocNavCards 经 doc-after 插槽注入。与 index.ts 行为一致。
     docFooter: { prev: false, next: false },
-    search: { provider: 'local' },
+    search: { provider: 'local', options: localSearchOptions },
     editLink: {
       pattern: \`\${editPatternBase}/:path\`,
       text: 'Edit this page on GitHub',
@@ -827,6 +844,14 @@ async function main() {
 
   // ── Step 3.5: Unify hash maps and site data ─────────────
   unifyCrossVolumeData(DIST_FINAL)
+
+  // ── Step 3.7: Copy checkpoint data (source outside srcDir, only copied once in final artifact) ─────
+  const CHECKPOINTS_SRC = join(PROJECT_ROOT, 'checkpoints')
+  if (existsSync(CHECKPOINTS_SRC)) {
+    const t7 = Date.now()
+    cpSync(CHECKPOINTS_SRC, join(DIST_FINAL, 'checkpoints'), { recursive: true })
+    log(`  Checkpoints: copied to dist/checkpoints (${((Date.now() - t7) / 1000).toFixed(1)}s)`)
+  }
 
   // ── Step 4: Finalize ────────────────────────────────────
   logStep('Step 4/4: Finalizing')

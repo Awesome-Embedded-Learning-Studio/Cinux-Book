@@ -1,5 +1,8 @@
 ---
 title: 参考 · 中断与异常:IDT、8259A PIC、8254 PIT 与 ISR 栈帧
+tags: [interrupt, idt, pic, pit, clock]
+difficulty: intermediate
+platform: qemu
 ---
 
 # 参考 · 中断与异常:IDT、8259A PIC、8254 PIT 与 ISR 栈帧

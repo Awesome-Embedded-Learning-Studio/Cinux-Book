@@ -55,7 +55,8 @@ export default defineProject({
   build: {
     concurrency: 4,
     cacheDir: '.build-cache',
-    rootPages: ['index.md'],
+    // 标签索引页是全站级页面(不属于任何卷),root 构建一并产出
+    rootPages: ['index.md', 'tags.md'],
     rootAssets: [],
   },
 

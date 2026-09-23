@@ -1,44 +1,21 @@
 ---
 layout: home
+title: Cinux · 从零构建 64 位操作系统
+description: 跟随可运行的 C++17 源码，从引导扇区一路构建到多终端桌面与网络栈。
 
 hero:
   name: "Cinux"
-  text: "64位OS教程"
-  tagline: C++17 驱动，从 Bootloader 到多终端桌面的完整操作系统学习路径
+  text: "从一条指令，到一套系统"
+  tagline: 跟随可运行的 C++17 源码，把 Bootloader、内存、进程、文件系统、桌面和网络真正连起来
   actions:
     - theme: brand
-      text: 主书 · 从零读起
-      link: /book/
+      text: 从第 01 卷开始
+      link: /book/01-boot/
     - theme: alt
-      text: 实验册 · 动手巩固
+      text: 查看 17 卷路线
+      link: /#roadmap
+    - theme: alt
+      text: 进入实验册
       link: /labs/
-    - theme: alt
-      text: GitHub
-      link: https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book
 
-features:
-  - icon: 🚀
-    title: 前置卷 · 读正文之前
-    details: 横切基础——工具链与 CMake、GAS/AT&T 汇编、内核向 C/C++。没读过 AT&T、不懂段/分页、没用过链接脚本?先补这块,再无障碍进正文 001
-    link: /primer/
-  - icon: 📖
-    title: 主书 · tag 绑定的主线教程
-    details: 每章绑定一个 git tag、从源码提炼，从 Real Mode bootloader 一路到多终端桌面，讲清设计、代码、踩坑与验证
-    link: /book/
-  - icon: 🛠️
-    title: 实验册 · 理解 + 手算 + 排错
-    details: 不贴答案，把每个子系统拆成可推导的任务——给你输入与接口，你来算、来验证、来定位故障
-    link: /labs/
-  - icon: 🔍
-    title: 参考 · 子系统速查表
-    details: 中断、内存、进程、文件系统、存储的跨章节速查：接口、寄存器、位常量、边界，附源码索引与权威依据
-    link: /reference/
-  - icon: 🖥️
-    title: 完整系统栈
-    details: 覆盖 Bootloader、内存管理、进程调度、VFS、设备驱动、GUI 到 Shell 的全栈实现
-    link: /book/
-  - icon: 🐛
-    title: 调试笔记 · 真实排错现场
-    details: 从真实开发笔记提炼的排错故事：症状 → 定位 → 根因 → 修复 → 防复发，不照抄原始笔记
-    link: /debug-notes/
 ---

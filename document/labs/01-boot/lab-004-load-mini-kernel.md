@@ -1,5 +1,6 @@
 ---
 title: Lab 004 · 加载第一个内核
+tags: [bootloader, mbr, disk]
 ---
 
 # Lab 004 · 加载第一个内核

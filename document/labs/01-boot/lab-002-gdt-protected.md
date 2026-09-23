@@ -1,5 +1,6 @@
 ---
 title: Lab 002 · 进入保护模式
+tags: [gdt, protected-mode, mode-switch, asm, beginner]
 ---
 
 # Lab 002 · 进入保护模式

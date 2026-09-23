@@ -54,6 +54,8 @@ export interface ProjectConfig {
     math?: boolean
     mermaid?: boolean
     codeFold?: boolean
+    /** 代码块文件名标签(对齐 code-label-plugin),默认开启 */
+    codeLabel?: boolean
   }
 
   homeBanner?: Record<string, string>

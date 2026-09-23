@@ -235,7 +235,7 @@ sec  PMM_free   Cache   #PF_tot  +delta    阶段
 
 ### 诚实标注
 
-路径二的曲线数字(PMM ~2.08M 页 / Cache 1767 页 / +18272 PF / 31s)**来自 CinuxOS dev note**(`/home/charliechen/CinuxOS/document/notes/2026-07-05-perf-b1-stats-profiling.md`),**Cinux-Book 本地未重跑**。注意 dev note 写的「126 行 dump (31 s × 4 行)」是 B2.5 加 ext2 I/O 行之前的计数(那时每次 dump 4 行 [MEM]);当前源码每次 dump 6 行 [MEM](t=/PMM/Slab/PageCache/#PF/I/O),所以同样 31s 复现会是 ~186 行——别看到 ~186 行就以为哪里错了,这是源码演进的正常结果。你若在本机 ON + make run 复现,数字会因 rootfs 配置(装了哪些共享库)、QEMU 配置(内存大小、CPU 数、是否 KVM)、workload(编什么文件)略有差异——但**趋势该一致**:编译期 PF delta 飙高、Cache 单调增长、PMM 余量稳定。读到这个趋势就算过关。
+路径二的曲线数字(PMM ~2.08M 页 / Cache 1767 页 / +18272 PF / 31s)**来自 CinuxOS dev note**(`/home/charliechen/CinuxOS/document/notes/2026-07-05-perf-b1-stats-profiling.md`),**Cinux-Book 本地未重跑**。注意 dev note 写的「126 行 dump (31 s × 4 行)」是 B2.5 加 ext2 I/O 行之前的计数(那时每次 dump 4 行 [MEM]);当前源码每次 dump 6 行 [MEM]（t=/PMM/Slab/PageCache/#PF/I/O）,所以同样 31s 复现会是 ~186 行——别看到 ~186 行就以为哪里错了,这是源码演进的正常结果。你若在本机 ON + make run 复现,数字会因 rootfs 配置(装了哪些共享库)、QEMU 配置(内存大小、CPU 数、是否 KVM)、workload(编什么文件)略有差异——但**趋势该一致**:编译期 PF delta 飙高、Cache 单调增长、PMM 余量稳定。读到这个趋势就算过关。
 
 ### 路径二的过关标准
 

@@ -1,5 +1,8 @@
 ---
 title: 参考 · 内存:PMM、VMM、内核堆与地址空间
+tags: [pmm, vmm, heap, paging, virtual-memory]
+difficulty: intermediate
+platform: qemu
 ---
 
 # 参考 · 内存:PMM、VMM、内核堆与地址空间

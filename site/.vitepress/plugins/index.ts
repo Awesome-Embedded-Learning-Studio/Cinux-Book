@@ -5,6 +5,7 @@ import { kbdPlugin } from './kbd-plugin'
 import { languageAliasPlugin } from './language-aliases'
 import { mermaidPlugin } from './mermaid-plugin'
 import { codeFoldPlugin } from './code-fold-plugin'
+import { codeLabelPlugin } from './code-label-plugin'
 
 export function resolvePlugins(md: MarkdownIt, config: ProjectConfig): void {
   md.use(languageAliasPlugin)
@@ -20,6 +21,10 @@ export function resolvePlugins(md: MarkdownIt, config: ProjectConfig): void {
   // cppTemplateEscape 的转义产物 + Shiki 高亮 + 复制按钮/行号)。
   if (config.plugins.mermaid) {
     md.use(mermaidPlugin)
+  }
+  // codeLabel 在 codeFold 之前:给 fence 加文件名标签(纯 fence.meta 增强,不覆写 renderer)
+  if (config.plugins.codeLabel !== false) {
+    md.use(codeLabelPlugin)
   }
   if (config.plugins.codeFold) {
     md.use(codeFoldPlugin)

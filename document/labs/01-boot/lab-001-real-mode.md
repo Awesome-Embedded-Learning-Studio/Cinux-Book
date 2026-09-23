@@ -1,5 +1,6 @@
 ---
 title: Lab 001 · 实模式引导
+tags: [real-mode, bios, mbr, asm, beginner]
 ---
 
 # Lab 001 · 实模式引导

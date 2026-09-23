@@ -1,0 +1,71 @@
+{
+  "difficulty_tags": ["beginner", "intermediate", "advanced"],
+  "platform_tags": ["qemu", "wsl", "real-machine", "bochs"],
+  "topic_categories": [
+    {
+      "key": "boot",
+      "zh": "引导与启动",
+      "tags": ["mbr", "bootloader", "real-mode", "bios", "uefi", "gdt", "protected-mode", "long-mode", "mode-switch", "grub"]
+    },
+    {
+      "key": "memory",
+      "zh": "内存管理",
+      "tags": ["paging", "pmm", "vmm", "heap", "slab", "buddy", "virtual-memory", "page-table", "tlb", "framebuffer-alloc"]
+    },
+    {
+      "key": "process",
+      "zh": "进程与调度",
+      "tags": ["process", "thread", "scheduler", "context-switch", "syscall", "ipc", "signal", "elf", "loader", "fork", "exec"]
+    },
+    {
+      "key": "interrupt",
+      "zh": "中断与时钟",
+      "tags": ["interrupt", "exception", "idt", "pic", "apic", "pit", "hpet", "clock", "msi", "ioapic"]
+    },
+    {
+      "key": "fs",
+      "zh": "文件系统",
+      "tags": ["vfs", "fat32", "ext2", "inode", "ramdisk", "block-device", "page-cache", "path-resolution"]
+    },
+    {
+      "key": "driver",
+      "zh": "设备与驱动",
+      "tags": ["pci", "ahci", "ata", "usb", "keyboard", "mouse", "serial-port", "dma", "nvme", "netcard"]
+    },
+    {
+      "key": "gui",
+      "zh": "图形界面",
+      "tags": ["framebuffer", "vbe", "window-manager", "font-rendering", "2d-rendering", "desktop", "widget", "input-stack"]
+    },
+    {
+      "key": "smp",
+      "zh": "多核与并发",
+      "tags": ["smp", "spinlock", "atomic", "per-cpu", "tlb-shootdown", "ipi", "cache-coherence", "memory-order"]
+    },
+    {
+      "key": "security",
+      "zh": "安全与隔离",
+      "tags": ["tss", "privilege-ring", "user-mode", "syscall-gate", "paging-isolation", "smep", "smap"]
+    },
+    {
+      "key": "network",
+      "zh": "网络协议栈",
+      "tags": ["tcp-ip", "udp", "arp", "ethernet", "socket", "loopback", "netstack"]
+    },
+    {
+      "key": "toolchain",
+      "zh": "工具链与构建",
+      "tags": ["makefile", "cmake", "nasm", "gcc", "ld", "cross-compile", "gdb", "qemu-script", "wsl-setup", "automate"]
+    },
+    {
+      "key": "debug",
+      "zh": "调试与排错",
+      "tags": ["debugging", "serial-log", "assert", "kernel-panic", "triple-fault", "ci", "unit-test", "code-review"]
+    },
+    {
+      "key": "arch",
+      "zh": "体系结构基础",
+      "tags": ["x86-64", "asm", "register", "instruction", "segmentation", "msr", "cpuid", "simd"]
+    }
+  ]
+}
