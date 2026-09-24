@@ -68,7 +68,4 @@ export default defineProject({
     codeFold: true,
   },
 
-  homeBanner: {
-    'zh-CN': '🚀 新手必读：从环境搭建开始，请查看 <a href="/Cinux-Book/book/">主书</a>，跟着从零构建你的第一个 x86_64 内核。',
-  },
 })

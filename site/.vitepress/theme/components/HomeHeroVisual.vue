@@ -60,13 +60,13 @@
   height: 316px;
   margin: 0 auto;
   overflow: hidden;
-  color: #d9fff6;
+  color: #def3ec;
   background:
     radial-gradient(circle at 18% 18%, rgba(48, 211, 178, 0.16), transparent 34%),
-    linear-gradient(145deg, #071713, #0b2a23 68%, #0b342b);
+    linear-gradient(145deg, #13100a, #0e2721 68%, #0d2f26);
   border: 1px solid rgba(93, 233, 202, 0.28);
   border-radius: 22px 8px 22px 8px;
-  box-shadow: 0 28px 70px rgba(2, 31, 25, 0.28), inset 0 0 0 1px rgba(255, 255, 255, 0.025);
+  box-shadow: 0 28px 70px rgba(35, 28, 13, 0.32), inset 0 0 0 1px rgba(255, 255, 255, 0.025);
   isolation: isolate;
 }
 
@@ -104,7 +104,7 @@
   width: 24px;
   height: 24px;
   place-items: center;
-  color: #071713;
+  color: #13100a;
   background: #49d9bb;
   border-radius: 7px 2px 7px 2px;
   font-size: 10px;
@@ -152,7 +152,7 @@
   gap: 10px;
   min-height: 44px;
   padding: 4px 0;
-  color: #78958e;
+  color: #8c8270;
   border-bottom: 1px solid rgba(129, 211, 194, 0.09);
 }
 .boot-board__trace li:last-child { border-bottom: 0; }
@@ -160,17 +160,17 @@
 .boot-board__trace b,
 .boot-board__trace small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .boot-board__trace b { font: 700 11px/1.35 var(--vp-font-family-mono); letter-spacing: 0.04em; }
-.boot-board__trace small { margin-top: 2px; color: #67877f; font: 10px/1.25 var(--vp-font-family-mono); }
+.boot-board__trace small { margin-top: 2px; color: #7a7160; font: 10px/1.25 var(--vp-font-family-mono); }
 .boot-board__trace em { font: 700 9px/1 var(--vp-font-family-mono); font-style: normal; letter-spacing: 0.08em; }
 .boot-board__trace .is-done { color: #b5d4cc; }
 .boot-board__trace .is-done em { color: #4dd7b9; }
 .boot-board__trace .is-active { color: #f2fffc; }
-.boot-board__trace .is-active em { padding: 5px 7px; color: #06221c; background: #54dfc0; border-radius: 4px; animation: boot-glow 1.8s ease-in-out infinite; }
+.boot-board__trace .is-active em { padding: 5px 7px; color: #0a231d; background: #54dfc0; border-radius: 4px; animation: boot-glow 1.8s ease-in-out infinite; }
 
 .boot-board__foot {
   height: 48px;
   padding: 0 18px;
-  color: #61867d;
+  color: #6e6553;
   border-top: 1px solid rgba(111, 230, 205, 0.12);
   background: rgba(0, 0, 0, 0.12);
   font-size: 9px;

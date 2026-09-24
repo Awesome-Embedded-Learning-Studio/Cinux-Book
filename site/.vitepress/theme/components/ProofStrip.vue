@@ -1,79 +1,71 @@
 <script setup lang="ts">
-const facts = [
-  { value: '17', label: '卷主线教程', note: '从引导扇区到网络栈' },
-  { value: '700+', label: '篇技术文档', note: '正文、实验与排错记录' },
-  { value: '42', label: '源码里程碑', note: '章节与 Git tag 对齐' },
-  { value: 'x86_64', label: '真实系统栈', note: 'C++17 · QEMU · Ring 3' },
+/**
+ * Hero 下方的规格行。
+ *
+ * 刻意不做成独立区块：它是 hero 的补充说明，不是一个需要标题和边框的
+ * 内容区。做成卡片网格会在首屏正下方再立一道横墙，把页面切得更碎。
+ */
+const specs = [
+  { value: '17', unit: '卷', label: '主线教程' },
+  { value: '700', unit: '+', label: '篇文档' },
+  { value: '42', unit: '', label: '源码里程碑' },
+  { value: 'C++17', unit: '', label: 'x86_64 · QEMU' },
 ]
 </script>
 
 <template>
-  <section class="system-facts" aria-label="教程规模">
-    <dl class="system-facts__inner">
-      <div v-for="fact in facts" :key="fact.label" class="system-fact">
-        <dt>{{ fact.value }}</dt>
-        <dd>
-          <strong>{{ fact.label }}</strong>
-          <span>{{ fact.note }}</span>
-        </dd>
-      </div>
-    </dl>
-  </section>
+  <div class="hero-specs">
+    <div class="hero-specs__inner">
+      <span v-for="spec in specs" :key="spec.label" class="spec">
+        <b>{{ spec.value }}<i v-if="spec.unit">{{ spec.unit }}</i></b>
+        <em>{{ spec.label }}</em>
+      </span>
+    </div>
+  </div>
 </template>
 
 <style scoped>
-.system-facts {
+.hero-specs {
   max-width: 1152px;
   margin: 0 auto;
-  padding: 0 24px 58px;
+  padding: 0 24px;
 }
-.system-facts__inner {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  border-block: 1px solid var(--vp-c-divider);
+.hero-specs__inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px 34px;
+  padding-top: 26px;
+  border-top: 1px solid var(--vp-c-divider);
 }
-.system-fact {
-  position: relative;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 13px;
+.spec {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
   min-width: 0;
-  padding: 20px 18px;
 }
-.system-fact:not(:last-child)::after {
-  position: absolute;
-  top: 18px;
-  right: 0;
-  bottom: 18px;
-  width: 1px;
-  background: var(--vp-c-divider);
-  content: '';
+.spec b {
+  color: var(--vp-c-text-1);
+  font: 700 17px/1 var(--vp-font-family-mono);
+  letter-spacing: -0.03em;
 }
-.system-fact dt {
+.spec i {
+  margin-left: 1px;
   color: var(--vp-c-brand-1);
-  font: 750 24px/1 var(--vp-font-family-mono);
-  letter-spacing: -0.06em;
+  font-style: normal;
+  font-size: 0.8em;
 }
-.system-fact dd { min-width: 0; margin: 0; }
-.system-fact strong,
-.system-fact span { display: block; }
-.system-fact strong { color: var(--vp-c-text-1); font-size: 13px; line-height: 1.35; }
-.system-fact span { margin-top: 3px; overflow: hidden; color: var(--vp-c-text-3); font-size: 11px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.spec em {
+  color: var(--vp-c-text-3);
+  font-size: 12.5px;
+  font-style: normal;
+  white-space: nowrap;
+}
 
-@media (max-width: 820px) {
-  .system-facts { padding-bottom: 40px; }
-  .system-facts__inner { grid-template-columns: repeat(2, 1fr); }
-  .system-fact:nth-child(2)::after { display: none; }
-  .system-fact:nth-child(-n + 2) { border-bottom: 1px solid var(--vp-c-divider); }
-}
-@media (max-width: 479px) {
-  .system-facts { padding-inline: 18px; }
-  .system-fact { gap: 10px; padding: 16px 10px; }
-  .system-fact dt { font-size: 20px; }
-  .system-fact span { display: none; }
+@media (max-width: 639px) {
+  .hero-specs { padding-inline: 18px; }
+  .hero-specs__inner { gap: 9px 20px; padding-top: 20px; }
+  .spec b { font-size: 15px; }
+  .spec em { font-size: 11.5px; }
 }
 </style>

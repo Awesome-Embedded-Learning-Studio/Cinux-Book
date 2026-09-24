@@ -2,8 +2,8 @@
 import { useData } from 'vitepress'
 import { computed } from 'vue'
 
-const { page, theme, site } = useData()
-const base = site.value.base // e.g. '/imx-forge/'
+const { page, theme, site, frontmatter } = useData()
+const base = site.value.base
 
 interface FlatPage {
   text: string
@@ -26,7 +26,27 @@ function normalize(link: string): string {
   return link.replace(/\.md$/, '').replace(/\/index$/, '/').replace(/\/$/, '')
 }
 
+const prefixLink = (p: FlatPage) => ({
+  text: p.text,
+  link: (base + p.link.replace(/^\//, '')).replace(/\/\//g, '/'),
+  raw: p.link,
+})
+
+// 构建期注入的邻居(config/shared.ts attachDocNav):SSR 与 hydration 拿到
+// 同一份数据,分卷构建的跨卷边界页也有卡片。注入缺失(异常页)时回退到
+// 从 theme.sidebar 摊平推导。
 const navInfo = computed(() => {
+  const fm = frontmatter.value.docNav as
+    | { prev: FlatPage | null; next: FlatPage | null }
+    | undefined
+
+  if (fm) {
+    return {
+      prev: fm.prev ? prefixLink(fm.prev) : null,
+      next: fm.next ? prefixLink(fm.next) : null,
+    }
+  }
+
   const sidebar = theme.value.sidebar
   if (!sidebar) return null
 
@@ -61,27 +81,36 @@ const navInfo = computed(() => {
 
   if (idx < 0) return null
 
-  const prefixLink = (p: FlatPage) => ({
-    text: p.text,
-    link: (base + p.link.replace(/^\//, '')).replace(/\/\//g, '/')
-  })
-
   return {
     prev: idx > 0 ? prefixLink(allPages[idx - 1]) : null,
     next: idx < allPages.length - 1 ? prefixLink(allPages[idx + 1]) : null
   }
 })
+
+// 跨册(primer ↔ book ↔ labs ↔ …)时标签换成「上/下一册」,
+// 读者从卷末翻到下一卷时能明确感知换了册,而不是误以为还是同一章。
+// 卷归属用注入的原始链接(不带 base)首段判断,与页面 relativePath 同一坐标系。
+function volOf(raw: string | null | undefined): string {
+  return raw ? raw.replace(/^\//, '').split('/')[0] : ''
+}
+const curVol = computed(() => page.value.relativePath.split('/')[0])
+const prevLabel = computed(() =>
+  navInfo.value?.prev && volOf((navInfo.value.prev as any).raw) !== curVol.value ? '← 上一册' : '← 上一章',
+)
+const nextLabel = computed(() =>
+  navInfo.value?.next && volOf((navInfo.value.next as any).raw) !== curVol.value ? '下一册 →' : '下一章 →',
+)
 </script>
 
 <template>
   <div v-if="navInfo && (navInfo.prev || navInfo.next)" class="doc-nav-cards">
     <a v-if="navInfo.prev" :href="navInfo.prev.link" class="doc-nav-card doc-nav-card--prev">
-      <span class="doc-nav-card-label">← 上一章</span>
+      <span class="doc-nav-card-label">{{ prevLabel }}</span>
       <span class="doc-nav-card-title">{{ navInfo.prev.text }}</span>
     </a>
     <span v-else class="doc-nav-card doc-nav-card--placeholder" />
     <a v-if="navInfo.next" :href="navInfo.next.link" class="doc-nav-card doc-nav-card--next">
-      <span class="doc-nav-card-label">下一章 →</span>
+      <span class="doc-nav-card-label">{{ nextLabel }}</span>
       <span class="doc-nav-card-title">{{ navInfo.next.text }}</span>
     </a>
   </div>
@@ -91,34 +120,31 @@ const navInfo = computed(() => {
 .doc-nav-cards {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 2.5em;
-  padding-top: 1.5em;
-  border-top: 1px dashed var(--vp-c-divider);
+  gap: 10px;
+  margin-top: 2.2em;
+  padding-top: 1.4em;
+  border-top: 1px solid var(--vp-c-divider);
 }
 
+/* 章节流转卡是页尾的"下一步",不做投影与抬起——
+   与正文其余元素保持同一套安静的语言。 */
 .doc-nav-card {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 16px 18px;
+  gap: 5px;
+  padding: 14px 16px;
   border: 1px solid var(--vp-c-divider);
-  border-radius: 12px;
-  background-color: var(--vp-c-bg);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04),
-              0 1px 2px rgba(0, 0, 0, 0.06);
+  border-radius: 9px;
+  background-color: var(--vp-c-bg-alt);
+  box-shadow: none;
   text-decoration: none !important;
   color: inherit;
-  transition: border-color 0.35s ease,
-              box-shadow 0.35s ease,
-              transform 0.35s ease;
+  transition: border-color 0.18s ease, background-color 0.18s ease;
 }
 
 .doc-nav-card:hover {
   border-color: var(--vp-c-brand-1);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.1),
-              0 4px 8px rgba(0, 0, 0, 0.06);
-  transform: translateY(-2px);
+  background-color: var(--vp-c-brand-soft);
 }
 
 .doc-nav-card--next {
@@ -153,15 +179,7 @@ const navInfo = computed(() => {
 }
 
 .dark .doc-nav-card {
-  background-color: var(--vp-c-bg-elv);
   border-color: var(--vp-c-border);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2),
-              0 1px 2px rgba(0, 0, 0, 0.15);
-}
-
-.dark .doc-nav-card:hover {
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3),
-              0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
 @media (max-width: 639px) {

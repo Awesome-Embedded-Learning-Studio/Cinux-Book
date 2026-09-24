@@ -147,3 +147,52 @@ export function buildSidebar(
 
   return sidebar
 }
+
+// ── 全站阅读序列(翻页卡用)────────────────────────────────────
+//
+// 分卷构建时每卷只带自己的 sidebar,跨卷边界(如 primer 末页 → 第 01 卷首页)
+// 在 SSR 阶段算不出「下一页」。序列在构建期一次性从 document/ 全量扫出,
+// 各卷共用,翻页邻居在 transformPageData 里写进页面 frontmatter。
+
+export interface DocNavEntry {
+  text: string
+  link: string
+}
+
+// sidebar 的 text 经 escapeHtml(侧栏走 v-html 渲染);翻页卡是文本插值,
+// 这里还原成原文,否则含 <T> 的 C++ 标题会显示成 &lt;T&gt;
+function unescapeHtml(s: string): string {
+  return s
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+}
+
+function flattenForDocNav(items: SidebarItem[], result: DocNavEntry[] = []): DocNavEntry[] {
+  for (const item of items) {
+    if (item.link) {
+      result.push({ text: unescapeHtml(item.text), link: item.link })
+    }
+    if (item.items) {
+      flattenForDocNav(item.items, result)
+    }
+  }
+  return result
+}
+
+/**
+ * 按 volumes 声明顺序把各卷侧栏摊平成一条全站阅读序列。
+ * 与 DocNavCards 组件的摊平语义一致(组链接在前、子项在后)。
+ */
+export function buildDocSequence(
+  docsRoot: string,
+  vols: { srcDir: string; urlPrefix: string }[]
+): DocNavEntry[] {
+  const seq: DocNavEntry[] = []
+  for (const vol of vols) {
+    flattenForDocNav(volumeSidebar(docsRoot, vol), seq)
+  }
+  return seq
+}

@@ -58,7 +58,6 @@ export interface ProjectConfig {
     codeLabel?: boolean
   }
 
-  homeBanner?: Record<string, string>
   favicon?: string
 }
 

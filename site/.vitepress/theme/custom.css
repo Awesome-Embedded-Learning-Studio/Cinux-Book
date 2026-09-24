@@ -1,10 +1,11 @@
 /* ════════════════════════════════════════════════════════════════
-   Cinux-Book 站点主题 — 「冰川青 Glacier Mint」
+   Cinux-Book 站点主题 — 「暖纸 · 冰川青 Warm Paper / Glacier Mint」
 
    设计取向(有意区别于默认 VitePress 绿与上游参考站蓝):
-   · 主色:冰川青(深薄荷),呼应「终端磷光 + 企鹅冰原」的 OS 教程身份
-   · 点缀:引导加载程序的琥珀色,仅用于 tip/高亮等轻量强调
-   · 明色模式底色带极淡冷青,暗色模式偏墨绿而非纯黑
+   · 纸面:暖米白,贴近实体技术书的纸页,长读比冷白更省眼
+   · 主色:冰川青(深薄荷)只当"墨"用——链接/强调/状态,不铺大面积底
+   · 暖纸配冷青是经典技术书组合:纸是暖的,品牌墨是冷的,互相衬托
+   · 暗色模式走"夜读暖棕"而非冷绿黑;Hero 启动面板保持深色屏幕身份
    · 文章代码/引用/标签各自独立 css(换色见对应文件顶部变量)
    ════════════════════════════════════════════════════════════════ */
 
@@ -22,45 +23,36 @@
   --vp-c-brand-darker: #075348;
   --vp-c-brand-next: var(--vp-c-brand-1);
 
-  /* ── 底色(冷青纸感) ── */
-  --vp-c-bg: #F7FAF9;
-  --vp-c-bg-alt: #F0F6F4;
-  --vp-c-bg-elv: #FBFDFC;
-  --vp-c-border: #DCE8E3;
-  --vp-c-divider: #E4EEEA;
-  --vp-c-gutter: #E9F2EF;
-  --vp-c-text-1: #1F2C29;
-  --vp-c-text-2: #42504C;
-  --vp-c-text-3: #6B7A75;
+  /* ── 底色(暖纸) ── */
+  --vp-c-bg: #FAF6ED;
+  --vp-c-bg-alt: #F1EBDD;
+  --vp-c-bg-elv: #FEFBF4;
+  --vp-c-bg-soft: #F1EBDD;
+  --vp-c-bg-soft-up: #FBF7EF;
+  --vp-c-border: #E4DBC7;
+  --vp-c-divider: #EAE2D0;
+  --vp-c-gutter: #F0E9D9;
+  --vp-c-text-1: #2C2620;
+  --vp-c-text-2: #57503F;
+  --vp-c-text-3: #8D8371;
 
   /* ── 琥珀点缀 ── */
   --vp-accent-amber: #B96A0B;
   --vp-accent-amber-soft: rgba(185, 106, 11, 0.12);
 
-  /* ── 首页 hero 视觉(终端卡片) ── */
-  --term-bg-from: #04211d;
-  --term-bg-to: #0a4a3f;
-  --term-cmd: #2dd4bf;
-  --term-glow: rgba(45, 212, 191, 0.35);
+  /* ── 首页 hero 名称渐变 ── */
   --hero-name-grad: linear-gradient(135deg, #0E8A76 10%, #1098a8 55%, #2596c4 90%);
 
   /* ── 侧栏可拖拽宽度(ResizableSidebar 写入) ── */
   --vp-sidebar-width: 240px;
   --vp-aside-width: 256px;
 
-  /* ── tip 条(HomeTipBanner) ── */
-  --vp-tip-text: #6b4a12;
-  --vp-tip-text-deep: #4d350c;
-  --vp-tip-soft: rgba(185, 106, 11, 0.09);
-  --vp-tip-soft-deep: rgba(185, 106, 11, 0.16);
+  /* ── 琥珀提示(检查点提示框复用) ── */
   --vp-tip-border: rgba(185, 106, 11, 0.24);
-  --vp-tip-border-strong: rgba(185, 106, 11, 0.38);
-  --vp-tip-accent: #B96A0B;
-  --vp-tip-accent-deep: #8f5109;
   --vp-tip-ink: #7a5a1c;
 
   /* ── 检查点卡片 ── */
-  --checkpoint-border: #D6E6E0;
+  --checkpoint-border: #E2D8C3;
   --checkpoint-passed: #12805f;
   --checkpoint-attempted: #b96a0b;
   --checkpoint-revealed: #7a5aa8;
@@ -74,36 +66,28 @@
   --vp-c-brand-soft-2: rgba(58, 214, 184, 0.2);
   --vp-c-brand: var(--vp-c-brand-1);
 
-  --vp-c-bg: #0C1513;
-  --vp-c-bg-alt: #101C19;
-  --vp-c-bg-elv: #142320;
-  --vp-c-border: #243933;
-  --vp-c-divider: #1D312B;
-  --vp-c-gutter: #182824;
-  --vp-c-text-1: #D9E7E2;
-  --vp-c-text-2: #A3B5AF;
-  --vp-c-text-3: #74867f;
+  /* ── 底色(夜读暖棕) ── */
+  --vp-c-bg: #191510;
+  --vp-c-bg-alt: #201B14;
+  --vp-c-bg-elv: #272119;
+  --vp-c-bg-soft: #211C15;
+  --vp-c-bg-soft-up: #191510;
+  --vp-c-border: #3B3428;
+  --vp-c-divider: #332D22;
+  --vp-c-gutter: #2A241B;
+  --vp-c-text-1: #EDE6D6;
+  --vp-c-text-2: #B5AB96;
+  --vp-c-text-3: #877E6A;
 
   --vp-accent-amber: #E8A33D;
   --vp-accent-amber-soft: rgba(232, 163, 61, 0.14);
 
-  --term-bg-from: #031b17;
-  --term-bg-to: #083a31;
-  --term-cmd: #2dd4bf;
-  --term-glow: rgba(45, 212, 191, 0.3);
   --hero-name-grad: linear-gradient(135deg, #3AD6B8 10%, #38c8d8 55%, #4db3e8 90%);
 
-  --vp-tip-text: #d8b97e;
-  --vp-tip-text-deep: #e6cd9c;
-  --vp-tip-soft: rgba(232, 163, 61, 0.1);
-  --vp-tip-soft-deep: rgba(232, 163, 61, 0.16);
   --vp-tip-border: rgba(232, 163, 61, 0.26);
-  --vp-tip-border-strong: rgba(232, 163, 61, 0.4);
-  --vp-tip-accent: #E8A33D;
-  --vp-tip-accent-deep: #f2bc63;
   --vp-tip-ink: #c8a565;
 
-  --checkpoint-border: #243933;
+  --checkpoint-border: #3B3428;
   --checkpoint-passed: #3ecf9e;
   --checkpoint-attempted: #e8a33d;
   --checkpoint-revealed: #b3a4dd;
@@ -117,7 +101,7 @@
   --vp-button-brand-hover-border: var(--vp-c-brand-2);
   --vp-button-brand-hover-text: #fff;
   --vp-button-brand-hover-bg: var(--vp-c-brand-2);
-  --vp-c-control-border: #c9dad4;
+  --vp-c-control-border: #D9CEB8;
 
   --vp-custom-block-tip-border: var(--vp-c-brand-2);
   --vp-custom-block-tip-text: var(--vp-c-text-2);
@@ -137,18 +121,13 @@ html[data-font-size='xxlarge'] .vp-doc { --vp-font-size-base: 20px; }
 
 .vp-doc {
   font-size: var(--vp-font-size-base, 17px);
-  line-height: 1.8;
   letter-spacing: 0.014em;
   color: var(--vp-c-text-1);
 }
 
 /* ════════════════════════════════════════════════════════════════
-   排版细节
+   行内元素细节(块级排版见 article-doc.css)
    ════════════════════════════════════════════════════════════════ */
-
-.vp-doc h1 {
-  letter-spacing: -0.015em;
-}
 
 .vp-doc :not(pre) > code {
   color: #0d6d5c;
@@ -164,20 +143,7 @@ html[data-font-size='xxlarge'] .vp-doc { --vp-font-size-base: 20px; }
   border-color: rgba(58, 214, 184, 0.18);
 }
 
-.vp-doc a {
-  font-weight: 550;
-  text-decoration: none;
-}
-.vp-doc a:hover { text-decoration: underline; text-underline-offset: 3px; }
-
-/* 表格呼吸感 */
-.vp-doc table { display: table; width: 100%; overflow: hidden; margin: 18px 0; }
-.vp-doc table th {
-  background: var(--vp-c-bg-alt);
-}
-.vp-doc table tr:nth-child(2n) {
-  background: rgba(14, 138, 118, 0.035);
-}
+/* 链接与表格规则已迁至 article-doc.css(单一来源,避免两处互相覆盖) */
 
 /* kbd(plugins/kbd-plugin 生成) */
 .vp-doc kbd, .kbd {
@@ -191,7 +157,7 @@ html[data-font-size='xxlarge'] .vp-doc { --vp-font-size-base: 20px; }
   border: 1px solid var(--vp-c-border);
   border-bottom-width: 2px;
   border-radius: 6px;
-  box-shadow: 0 1px 2px rgba(31, 44, 41, 0.06);
+  box-shadow: 0 1px 2px rgba(64, 53, 36, 0.08);
   vertical-align: middle;
 }
 
@@ -272,32 +238,14 @@ body.rs-resizing { cursor: col-resize !important; user-select: none !important; 
    站点识别与首页
    ════════════════════════════════════════════════════════════════ */
 
+/* 顶栏:阅读页常驻，只做轻微毛玻璃，不加徽标装饰(那是首页的事) */
 .VPNavBar {
-  background: color-mix(in srgb, var(--vp-c-bg) 86%, transparent) !important;
-  backdrop-filter: saturate(130%) blur(14px);
+  background: color-mix(in srgb, var(--vp-c-bg) 88%, transparent) !important;
+  backdrop-filter: saturate(120%) blur(12px);
 }
 .VPNavBarTitle .title {
-  gap: 9px;
-  font-family: var(--vp-font-family-mono);
-  letter-spacing: -0.03em;
-}
-.VPNavBarTitle .title::before {
-  display: grid;
-  width: 25px;
-  height: 25px;
-  place-items: center;
-  color: var(--vp-c-bg);
-  background: var(--vp-c-brand-1);
-  border-radius: 7px 2px 7px 2px;
-  font-size: 9px;
-  font-weight: 900;
-  letter-spacing: 0;
-  content: 'CX';
-}
-.VPHome {
-  background:
-    radial-gradient(circle at 82% 4%, color-mix(in srgb, var(--vp-c-brand-1) 8%, transparent), transparent 25rem),
-    linear-gradient(180deg, color-mix(in srgb, var(--vp-c-bg-alt) 54%, transparent), transparent 36rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 /* 首页只保留 Cinux 自己的信息架构，不让 VitePress 默认卡片重复一次入口。 */
@@ -373,55 +321,9 @@ body.rs-resizing { cursor: col-resize !important; user-select: none !important; 
   }
 }
 
-/* ════════════════════════════════════════════════════════════════
-   Mermaid:卡片化 + 点击放大 + 灯箱
-   ════════════════════════════════════════════════════════════════ */
-
-.vp-doc .mermaid-wrapper {
-  margin: 22px auto;
-  padding: 26px 20px;
-  background: var(--vp-c-bg-elv);
-  border: 1px solid var(--vp-c-border);
-  border-radius: 12px;
-  box-shadow: 0 2px 10px rgba(31, 44, 41, 0.04);
-  overflow-x: auto;
-  text-align: center;
-}
-.mermaid-wrapper .mermaid {
-  display: inline-block;
-}
-.mermaid-wrapper svg {
-  max-width: 100%;
-  height: auto;
-}
-
-.mermaid-zoomable { cursor: zoom-in; }
-
-.mermaid-fullscreen-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(7, 14, 12, 0.82);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 999;
-  animation: mermaid-fade 0.18s ease;
-  cursor: zoom-out;
-}
-.dark .mermaid-fullscreen-backdrop { background: rgba(2, 6, 5, 0.9); }
-
-.mermaid-fullscreen-backdrop .mermaid-fullscreen-inner {
-  max-width: min(94vw, 1500px);
-  max-height: 90vh;
-  overflow: auto;
-  padding: 30px;
-  background: var(--vp-c-bg-elv);
-  border-radius: 14px;
-  cursor: default;
-}
-.mermaid-fullscreen-backdrop svg { max-width: none; height: auto; }
-
-@keyframes mermaid-fade { from { opacity: 0 } to { opacity: 1 } }
+/* 图与流程图(含图注编号、放大按钮、灯箱)已统一迁至 article-figure.css。
+   原先这里的 .mermaid-wrapper / .mermaid-zoomable / .mermaid-fullscreen-* 与运行时
+   真实类名(.mermaid-diagram / .mermaid-lightbox__*)对不上,是一整段死样式。 */
 
 /* ════════════════════════════════════════════════════════════════
    代码折叠(code-fold-plugin)
@@ -429,7 +331,7 @@ body.rs-resizing { cursor: col-resize !important; user-select: none !important; 
 
 .vp-code-fold {
   --symbol-color: #0e8a76;
-  --fold-line-color: #d6e6e0;
+  --fold-line-color: #e2d8c3;
   --fold-bg: rgba(14, 138, 118, 0.05);
   color: var(--vp-c-text-2);
   display: flex;
@@ -446,7 +348,7 @@ body.rs-resizing { cursor: col-resize !important; user-select: none !important; 
   border: none;
   border-top: 1px dashed var(--fold-line-color);
 }
-.dark .vp-code-fold { --symbol-color: #3ad6b8; --fold-line-color: #243933; }
+.dark .vp-code-fold { --symbol-color: #3ad6b8; --fold-line-color: #3B3428; }
 
 .vp-code-fold:hover { background: var(--fold-bg); }
 .vp-code-fold::after { content: ''; }
@@ -497,11 +399,11 @@ body.rs-resizing { cursor: col-resize !important; user-select: none !important; 
    ════════════════════════════════════════════════════════════════ */
 
 .checkpoint {
-  margin: 22px 0;
-  border: 1px solid var(--checkpoint-border, #d6e6e0);
-  border-radius: 12px;
-  background: var(--vp-c-bg-elv);
-  box-shadow: 0 2px 10px rgba(31, 44, 41, 0.04);
+  margin: 1.6em 0;
+  border: 1px solid var(--checkpoint-border, #e2d8c3);
+  border-radius: 10px;
+  background: var(--vp-c-bg-alt);
+  box-shadow: none;
   overflow: hidden;
 }
 .checkpoint.is-passed { border-color: rgba(18, 128, 95, 0.45); }
@@ -513,7 +415,7 @@ body.rs-resizing { cursor: col-resize !important; user-select: none !important; 
   gap: 10px;
   padding: 9px 14px;
   background: rgba(14, 138, 118, 0.06);
-  border-bottom: 1px solid var(--checkpoint-border, #d6e6e0);
+  border-bottom: 1px solid var(--checkpoint-border, #e2d8c3);
   font-size: 13px;
 }
 .dark .checkpoint__bar { background: rgba(58, 214, 184, 0.07); }

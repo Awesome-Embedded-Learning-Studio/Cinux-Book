@@ -2,8 +2,11 @@ import DefaultTheme from 'vitepress/theme'
 import { h } from 'vue'
 import type { Theme } from 'vitepress'
 import './custom.css'
+import './article-doc.css'
 import './article-code.css'
 import './article-quote.css'
+import './article-figure.css'
+import './article-nav.css'
 import './tags.css'
 
 // Cinux 原有组件
@@ -15,7 +18,7 @@ import FontSizeSwitcher from './components/FontSizeSwitcher.vue'
 import NavSpinner from './components/NavSpinner.vue'
 import ReadingProgress from './components/ReadingProgress.vue'
 import ResizableSidebar from './components/ResizableSidebar.vue'
-import MermaidLightbox from './components/MermaidLightbox.vue'
+import MediaLightbox from './components/MediaLightbox.vue'
 // 对齐移植:首页
 import HomeHeroVisual from './components/HomeHeroVisual.vue'
 import ProofStrip from './components/ProofStrip.vue'
@@ -23,17 +26,18 @@ import HomePathExplorer from './components/HomePathExplorer.vue'
 // 对齐移植:内容系统
 import DocTags from './components/DocTags.vue'
 import { setupMermaid } from './mermaid-client'
+import { setupFigureZoom } from './figure-zoom'
 
 export default {
   extends: DefaultTheme,
   Layout() {
     return h(DefaultTheme.Layout, null, {
-      // 全局:路由切换 spinner + 阅读进度条 + 可拖拽侧栏 + mermaid 灯箱
+      // 全局:路由切换 spinner + 阅读进度条 + 可拖拽侧栏 + 图片/流程图灯箱
       'layout-top': () => [
         h(NavSpinner),
         h(ReadingProgress),
         h(ResizableSidebar),
-        h(MermaidLightbox),
+        h(MediaLightbox),
       ],
       // 文档页底部(上下页导航之前):主题标签徽章
       'doc-footer-before': () => h(DocTags),
@@ -56,9 +60,11 @@ export default {
     })
   },
   setup() {
-    // mermaid 图在客户端从 CDN 懒加载渲染,切路由后重渲新图;
+    // mermaid 图在客户端懒加载渲染,切路由后重渲新图;
     // 灯箱/路由钩子在组件内部自注册
     setupMermaid()
+    // 插图挂放大按钮(流程图的按钮由 mermaid-client 渲染完后挂,共用同一实现)
+    setupFigureZoom()
   },
   enhanceApp({ app }) {
     // md 正文中可全局使用的组件(escape-cpp-templates 的 VUE_COMPONENTS

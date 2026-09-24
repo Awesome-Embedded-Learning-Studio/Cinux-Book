@@ -8,6 +8,7 @@ import { resolvePlugins } from '../plugins'
 import { articleCodeThemes } from './article-code-theme'
 import { getGitTimestampMs } from './git-timestamp'
 import { applyTagsPageData } from './tags-manifest'
+import { buildDocSequence, type DocNavEntry } from './sidebar'
 
 // 单一 markdown 配置来源:config/index.ts(dev/单体构建)和 scripts/build.ts
 // 分卷构建的临时 config 都从这里取,改 markdown 只改这一处。
@@ -43,11 +44,72 @@ export const localSearchBoxAlias = {
 // 1) tags 页/文章页的标签注入(tags-manifest)
 // 2) 分卷构建把 md 复制到临时目录,VitePress 对副本跑 git log 拿不到历史,
 //    用 document/ 下真实源文件的提交时间覆盖 lastUpdated(详见 git-timestamp.ts)
+// 3) 翻页邻居注入:构建期从 document/ 全量序列里查表,写进 frontmatter.docNav
 export async function applySharedPageData(pageData: PageData): Promise<void> {
   applyTagsPageData(pageData)
   const ms = getGitTimestampMs(pageData.relativePath)
   if (ms) {
     pageData.lastUpdated = ms
+  }
+  attachDocNav(pageData)
+}
+
+// ── 翻页序列:构建期把每页的 prev/next 定死 ──────────────────────
+//
+// DocNavCards 原先从 theme.sidebar 摊平推导邻居。分卷构建每卷只带本卷
+// sidebar → 跨卷边界页(primer 末页、第 01 卷首页)SSR 算不出邻居,只能指望
+// hydration 后用统一 site data 补渲染:无 JS 时缺失,且 SSR/client 结构不一致。
+// 序列始终从 document/ 全量扫描(分卷构建虽然只拷贝本卷,源目录都在),
+// 与各卷 sidebar 的 link 生成规则同源,保证查得到。
+
+const DOCS_ROOT = fileURLToPath(new URL('../../../document', import.meta.url))
+const docSeqCache = new Map<string, DocNavEntry[]>()
+
+function normalizeNav(link: string): string {
+  return link.replace(/\.md$/, '').replace(/\/index$/, '/').replace(/\/$/, '')
+}
+
+function docSequenceFor(relPath: string): DocNavEntry[] {
+  // 非 default locale 的页面在 document/<locale.dir>/ 下,URL 带 prefix
+  const firstSeg = relPath.split('/')[0]
+  const locale = config.locales.find(
+    (l) => !l.default && firstSeg === (l.dir ?? l.prefix?.replace(/\//g, '')),
+  )
+  const cacheKey = locale ? (locale.dir ?? locale.code) : 'root'
+
+  let seq = docSeqCache.get(cacheKey)
+  if (!seq) {
+    const docsRoot = locale ? join(DOCS_ROOT, cacheKey) : DOCS_ROOT
+    const vols = config.sidebar.volumes
+      .map((vol) =>
+        locale
+          ? { srcDir: vol.srcDir, urlPrefix: `${locale.prefix}${vol.urlPrefix}` }
+          : { srcDir: vol.srcDir, urlPrefix: vol.urlPrefix },
+      )
+      .filter((vol) => existsSync(join(docsRoot, vol.srcDir)))
+    seq = buildDocSequence(docsRoot, vols)
+    docSeqCache.set(cacheKey, seq)
+  }
+  return seq
+}
+
+function attachDocNav(pageData: PageData): void {
+  try {
+    const relPath: string = pageData.relativePath
+    if (!relPath.endsWith('.md')) return
+    const seq = docSequenceFor(relPath)
+    if (seq.length === 0) return
+
+    const want = normalizeNav('/' + relPath)
+    const idx = seq.findIndex((e) => normalizeNav(e.link) === want)
+    if (idx < 0) return
+
+    pageData.frontmatter.docNav = {
+      prev: idx > 0 ? seq[idx - 1] : null,
+      next: idx < seq.length - 1 ? seq[idx + 1] : null,
+    }
+  } catch {
+    // 邻居注入失败不影响页面构建
   }
 }
 

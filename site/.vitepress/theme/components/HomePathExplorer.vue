@@ -1,171 +1,169 @@
 <script setup lang="ts">
+/**
+ * 首页 17 卷路线区（页尾）。
+ *
+ * 定位是「一张可读的目录」而非又一个营销区块，所以：
+ * - 只留一行朴素抬头，不再用 kicker + 大标题的组合（前面区块已用过）；
+ * - 阶段用行式布局而不是卡片网格 —— 读者在这里的动作是「找到一卷点进去」，
+ *   密集的行比带边框的卡片更快扫读；
+ * - 不使用切角、投影与等宽装饰，把签名视觉留给首屏的启动面板。
+ */
 import { withBase } from 'vitepress'
 
-interface Volume {
-  id: string
-  title: string
-  note: string
-  href: string
-}
-
-interface Phase {
-  id: string
-  title: string
-  summary: string
-  accent: string
-  volumes: Volume[]
-}
+interface Volume { id: string; title: string; note: string; href: string }
+interface Phase { id: string; title: string; summary: string; tone: string; volumes: Volume[] }
 
 const phases: Phase[] = [
   {
-    id: '01', title: '点亮机器', summary: '从第一条指令进入 64 位内核', accent: 'boot',
+    id: 'I', title: '点亮机器', summary: '从第一条指令到能跑 C++ 的内核', tone: 'boot',
     volumes: [
-      { id: '01', title: '引导扇区', note: 'Real → Protected → Long', href: '/book/01-boot/' },
-      { id: '02', title: '最小内核', note: '进入 kernel_main', href: '/book/02-mini-kernel/' },
-      { id: '03', title: '大内核', note: '建立工程骨架', href: '/book/03-big-kernel/' },
-      { id: '04', title: '开发环境', note: '工具链与调试闭环', href: '/book/04-developer/' },
+      { id: '01', title: '引导扇区', note: '实模式 → 保护模式 → 长模式', href: '/book/01-boot/' },
+      { id: '02', title: '最小内核', note: '入口、PMM、中断', href: '/book/02-mini-kernel/' },
+      { id: '03', title: '大内核', note: 'GDT/IDT、PIC/PIT、帧缓冲', href: '/book/03-big-kernel/' },
+      { id: '04', title: '开发环境', note: 'kallsyms、验证基建', href: '/book/04-developer/' },
     ],
   },
   {
-    id: '02', title: '让内核运转', summary: '管理内存、任务、用户态与文件', accent: 'kernel',
+    id: 'II', title: '让内核运转', summary: '内存、进程、用户态与文件系统', tone: 'core',
     volumes: [
-      { id: '05', title: '内存管理', note: 'PMM · VMM · Heap', href: '/book/05-memory/' },
-      { id: '06', title: '进程管理', note: '上下文与调度', href: '/book/06-process/' },
-      { id: '07', title: '用户态', note: 'Ring 3 · syscall · shell', href: '/book/07-userland/' },
-      { id: '08', title: '文件系统', note: 'VFS · Ext2 · 路径解析', href: '/book/08-filesystem/' },
+      { id: '05', title: '内存管理', note: 'PMM、VMM、内核堆', href: '/book/05-memory/' },
+      { id: '06', title: '进程管理', note: '上下文切换、抢占调度', href: '/book/06-process/' },
+      { id: '07', title: '用户态', note: 'ring3、syscall、shell', href: '/book/07-userland/' },
+      { id: '08', title: '文件系统', note: 'AHCI、VFS、ext2', href: '/book/08-filesystem/' },
     ],
   },
   {
-    id: '03', title: '长成完整系统', summary: '从可运行到可交互、可存储', accent: 'system',
+    id: 'III', title: '长成完整系统', summary: '能看、能交互、能存储', tone: 'system',
     volumes: [
-      { id: '09', title: '图形界面', note: '窗口、字体与输入', href: '/book/09-gui/' },
-      { id: '10', title: '多任务', note: 'fork · exec · 多终端', href: '/book/10-multitasking/' },
-      { id: '11', title: '内核基础', note: '通用机制回收整理', href: '/book/11-foundation/' },
-      { id: '12', title: '存储设备', note: 'PCI · AHCI · 块设备', href: '/book/12-storage/' },
+      { id: '09', title: '图形界面', note: '画布、窗口管理器、桌面', href: '/book/09-gui/' },
+      { id: '10', title: '多任务', note: 'fork/exec、多终端', href: '/book/10-multitasking/' },
+      { id: '11', title: '基础设施', note: 'RingBuffer、lockdep', href: '/book/11-foundation/' },
+      { id: '12', title: '存储设备', note: 'AHCI DMA、NVMe/VirtIO', href: '/book/12-storage/' },
     ],
   },
   {
-    id: '04', title: '进入深水区', summary: '并发、安全与网络把系统推向真实世界', accent: 'advanced',
+    id: 'IV', title: '进入深水区', summary: '并发、安全与网络', tone: 'deep',
     volumes: [
-      { id: '13', title: '内存进阶', note: '缓存与高级分配', href: '/book/13-memory-advanced/' },
-      { id: '14', title: '进程进阶', note: '时钟、队列与内核线程', href: '/book/14-process-advanced/' },
-      { id: '15', title: '多核 SMP', note: 'AP · IPI · 并发', href: '/book/15-smp/' },
-      { id: '16', title: '系统安全', note: '隔离与权限边界', href: '/book/16-security/' },
-      { id: '17', title: '网络栈', note: 'Ethernet → Socket', href: '/book/17-net/' },
+      { id: '13', title: '内存增强', note: 'mmap、PageCache、buddy/slab', href: '/book/13-memory-advanced/' },
+      { id: '14', title: '进程增强', note: '信号、futex、调度类', href: '/book/14-process-advanced/' },
+      { id: '15', title: '多核 SMP', note: 'APIC、per-CPU、多核调度', href: '/book/15-smp/' },
+      { id: '16', title: '系统安全', note: 'NX/SMEP/SMAP、ASLR', href: '/book/16-security/' },
+      { id: '17', title: '网络栈', note: 'e1000、IPv4、UDP/TCP', href: '/book/17-net/' },
     ],
   },
 ]
 </script>
 
 <template>
-  <section id="roadmap" class="kernel-roadmap">
-    <header class="kernel-roadmap__head">
-      <div>
-        <span class="section-kicker">CURRICULUM / 17 VOLUMES</span>
-        <h2>不是知识点清单，而是一台机器的生长顺序</h2>
-      </div>
-      <p>每一卷都对应可运行的源码阶段。沿主线读原理，切到实验册亲手验证，再从真实排错记录理解边界。</p>
+  <section id="roadmap" class="route">
+    <header class="route__head">
+      <h2>十七卷，一条路线</h2>
+      <p>按顺序读完是一台完整的机器；也可以从任意一卷切入，每卷自成体系。</p>
     </header>
 
-    <div class="phase-list">
-      <article v-for="phase in phases" :key="phase.id" class="phase" :class="`phase--${phase.accent}`">
-        <header class="phase__head">
-          <span class="phase__id">PHASE {{ phase.id }}</span>
+    <div class="route__phases">
+      <article v-for="phase in phases" :key="phase.id" class="phase" :class="`phase--${phase.tone}`">
+        <div class="phase__label">
+          <span class="phase__num">{{ phase.id }}</span>
           <h3>{{ phase.title }}</h3>
           <p>{{ phase.summary }}</p>
-        </header>
-        <div class="phase__volumes">
-          <a v-for="volume in phase.volumes" :key="volume.id" :href="withBase(volume.href)" class="volume-node">
-            <span class="volume-node__id">{{ volume.id }}</span>
-            <span class="volume-node__copy">
-              <strong>{{ volume.title }}</strong>
-              <small>{{ volume.note }}</small>
-            </span>
-            <span class="volume-node__arrow" aria-hidden="true">↗</span>
-          </a>
         </div>
+        <ul class="phase__vols">
+          <li v-for="vol in phase.volumes" :key="vol.id">
+            <a :href="withBase(vol.href)">
+              <span class="vol__id">{{ vol.id }}</span>
+              <span class="vol__title">{{ vol.title }}</span>
+              <span class="vol__note">{{ vol.note }}</span>
+            </a>
+          </li>
+        </ul>
       </article>
     </div>
 
-    <footer class="kernel-roadmap__footer">
-      <a :href="withBase('/primer/')"><b>需要补基础？</b><span>先读前置卷</span></a>
-      <a :href="withBase('/labs/')"><b>想立刻动手？</b><span>进入实验册</span></a>
-      <a :href="withBase('/tags')"><b>按问题查找？</b><span>打开主题索引</span></a>
+    <footer class="route__foot">
+      <a :href="withBase('/primer/')">需要补基础 · 前置卷</a>
+      <a :href="withBase('/tags')">按主题检索 · 标签索引</a>
+      <a :href="withBase('/notes/')">想看原始记录 · 开发笔记</a>
     </footer>
   </section>
 </template>
 
 <style scoped>
-.kernel-roadmap { max-width: 1152px; margin: 0 auto; padding: 78px 24px 72px; }
-.kernel-roadmap__head {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
-  gap: 48px;
-  align-items: end;
-  margin-bottom: 34px;
+.route { max-width: 1152px; margin: 0 auto; padding: 72px 24px 20px; }
+
+.route__head { margin-bottom: 8px; }
+.route__head h2 {
+  margin: 0;
+  color: var(--vp-c-text-1);
+  font-size: clamp(22px, 2.5vw, 31px);
+  font-weight: 700;
+  line-height: 1.26;
+  letter-spacing: -0.035em;
 }
-.section-kicker { color: var(--vp-c-brand-1); font: 700 11px/1 var(--vp-font-family-mono); letter-spacing: 0.14em; }
-.kernel-roadmap__head h2 { max-width: 660px; margin: 12px 0 0; color: var(--vp-c-text-1); font-size: clamp(25px, 3.2vw, 40px); line-height: 1.18; letter-spacing: -0.04em; }
-.kernel-roadmap__head > p { margin: 0; color: var(--vp-c-text-2); font-size: 14px; line-height: 1.85; }
-.phase-list { border-top: 1px solid var(--vp-c-divider); }
+.route__head p { max-width: 42em; margin: 11px 0 0; color: var(--vp-c-text-2); font-size: 13.5px; line-height: 1.8; }
+
 .phase {
-  --phase-color: var(--vp-c-brand-1);
+  --tone: var(--vp-c-brand-1);
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 28px;
-  padding: 30px 0;
+  grid-template-columns: 230px minmax(0, 1fr);
+  gap: 26px;
+  padding: 26px 0;
   border-bottom: 1px solid var(--vp-c-divider);
 }
-.phase--kernel { --phase-color: #168fa0; }
-.phase--system { --phase-color: #b56b20; }
-.phase--advanced { --phase-color: #7659af; }
-.phase__head { padding: 5px 0 0 17px; border-left: 3px solid var(--phase-color); }
-.phase__id { color: var(--phase-color); font: 700 10px/1 var(--vp-font-family-mono); letter-spacing: 0.13em; }
-.phase__head h3 { margin: 8px 0 5px; color: var(--vp-c-text-1); font-size: 19px; line-height: 1.3; }
-.phase__head p { margin: 0; color: var(--vp-c-text-3); font-size: 12px; line-height: 1.55; }
-.phase__volumes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.volume-node {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 11px;
-  min-width: 0;
-  padding: 13px 14px;
-  color: inherit;
-  background: color-mix(in srgb, var(--vp-c-bg-soft) 72%, transparent);
-  border: 1px solid transparent;
-  border-radius: 10px 3px 10px 3px;
-  text-decoration: none;
-  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
-}
-.volume-node:hover { background: var(--vp-c-bg-elv); border-color: color-mix(in srgb, var(--phase-color) 48%, var(--vp-c-divider)); transform: translateX(3px); }
-.volume-node__id { display: grid; width: 31px; height: 31px; place-items: center; color: var(--phase-color); border: 1px solid color-mix(in srgb, var(--phase-color) 38%, transparent); border-radius: 50%; font: 700 10px/1 var(--vp-font-family-mono); }
-.volume-node__copy { min-width: 0; }
-.volume-node__copy strong,
-.volume-node__copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.volume-node__copy strong { color: var(--vp-c-text-1); font-size: 13px; }
-.volume-node__copy small { margin-top: 3px; color: var(--vp-c-text-3); font-size: 11px; }
-.volume-node__arrow { color: var(--vp-c-text-3); font-size: 13px; transition: color 0.18s ease; }
-.volume-node:hover .volume-node__arrow { color: var(--phase-color); }
-.kernel-roadmap__footer { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin-top: 28px; overflow: hidden; background: var(--vp-c-divider); border: 1px solid var(--vp-c-divider); border-radius: 13px 4px 13px 4px; }
-.kernel-roadmap__footer a { display: flex; justify-content: space-between; gap: 12px; padding: 16px 18px; color: inherit; background: var(--vp-c-bg); text-decoration: none; }
-.kernel-roadmap__footer a:hover { background: var(--vp-c-brand-soft); }
-.kernel-roadmap__footer b { color: var(--vp-c-text-1); font-size: 12px; }
-.kernel-roadmap__footer span { color: var(--vp-c-brand-1); font-size: 12px; }
+.phase:first-child { border-top: 1px solid var(--vp-c-divider); margin-top: 26px; }
+.phase--core { --tone: #1490a1; }
+.phase--system { --tone: #b06a1f; }
+.phase--deep { --tone: #7659af; }
 
-@media (max-width: 820px) {
-  .kernel-roadmap { padding-block: 56px; }
-  .kernel-roadmap__head { grid-template-columns: 1fr; gap: 16px; }
-  .phase { grid-template-columns: 1fr; gap: 18px; }
-  .phase__head { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px 14px; }
-  .phase__head h3 { margin: 0; }
-  .phase__head p { grid-column: 1 / -1; }
+.phase__label { min-width: 0; }
+.phase__num {
+  color: var(--tone);
+  font: 700 11px/1 var(--vp-font-family-mono);
+  letter-spacing: 0.1em;
+}
+.phase__label h3 { margin: 9px 0 4px; color: var(--vp-c-text-1); font-size: 17px; font-weight: 650; line-height: 1.35; }
+.phase__label p { margin: 0; color: var(--vp-c-text-3); font-size: 12.5px; line-height: 1.6; }
+
+.phase__vols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 18px; margin: 0; padding: 0; list-style: none; }
+.phase__vols a {
+  display: grid;
+  grid-template-columns: 26px minmax(0, auto) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 9px 7px 0;
+  color: inherit;
+  border-radius: 6px;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+.phase__vols a:hover { background: var(--vp-c-bg-alt); }
+.vol__id { color: var(--tone); font: 600 11px/1.4 var(--vp-font-family-mono); }
+.vol__title { color: var(--vp-c-text-1); font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+.vol__note { overflow: hidden; color: var(--vp-c-text-3); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.phase__vols a:hover .vol__title { color: var(--tone); }
+
+.route__foot { display: flex; flex-wrap: wrap; gap: 8px 26px; padding-top: 26px; }
+.route__foot a {
+  color: var(--vp-c-text-2);
+  font-size: 12.5px;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.route__foot a:hover { color: var(--vp-c-brand-1); border-bottom-color: var(--vp-c-brand-1); }
+
+@media (max-width: 860px) {
+  .route { padding-top: 54px; }
+  .phase { grid-template-columns: 1fr; gap: 14px; }
+  .phase__label { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 4px 12px; }
+  .phase__label h3 { margin: 0; }
+  .phase__label p { grid-column: 1 / -1; }
 }
 @media (max-width: 639px) {
-  .kernel-roadmap { padding: 46px 18px 52px; }
-  .kernel-roadmap__head h2 { font-size: 27px; }
-  .phase { padding: 24px 0; }
-  .phase__volumes { grid-template-columns: 1fr; }
-  .kernel-roadmap__footer { grid-template-columns: 1fr; }
+  .route { padding: 42px 18px 16px; }
+  .phase__vols { grid-template-columns: 1fr; }
+  .vol__note { display: none; }
+  .phase__vols a { grid-template-columns: 26px minmax(0, 1fr); padding: 8px 0; }
 }
 </style>

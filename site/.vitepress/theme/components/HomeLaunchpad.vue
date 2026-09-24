@@ -1,105 +1,164 @@
 <script setup lang="ts">
+/**
+ * 首页入口区。
+ *
+ * 这里刻意没有「小标题 + 大标题」的区块头：它紧接 hero，是 hero 里那两个
+ * 按钮的展开，不是一个新话题。再加一道标题会让首屏下方连着出现三层抬头。
+ * 视觉重量差异本身就是信息：主入口占两倍宽，次入口是并列的窄条。
+ */
 import { withBase } from 'vitepress'
 
-const routes = [
-  {
-    id: '01', kind: 'primary', eyebrow: 'MAIN BOOK', title: '从第一条指令开始',
-    note: '顺着 17 卷主线，把启动、内存、进程、文件系统、桌面与网络连成一台完整的机器。',
-    action: '进入主书', href: '/book/', signal: 'BOOT → KERNEL → USERLAND',
-  },
-  {
-    id: '02', kind: 'lab', eyebrow: 'LABS', title: '亲手验证',
-    note: '手算地址、补全接口、复现实验。', action: '打开实验册', href: '/labs/', signal: 'BUILD / RUN / CHECK',
-  },
-  {
-    id: '03', kind: 'debug', eyebrow: 'DEBUG LOG', title: '走进故障现场',
-    note: '从症状到根因，看真实内核问题如何收敛。', action: '阅读排错笔记', href: '/debug-notes/', signal: 'TRACE / ISOLATE / FIX',
-  },
-  {
-    id: '04', kind: 'reference', eyebrow: 'REFERENCE', title: '快速查参数',
-    note: '寄存器、接口、边界与源码索引。', action: '查阅参考手册', href: '/reference/', signal: 'LOOKUP / VERIFY',
-  },
+const secondary = [
+  { title: '实验册', note: '手算、补全、复现，109 篇动手任务', href: '/labs/' },
+  { title: '排错笔记', note: '真实内核故障的定位与收敛过程', href: '/debug-notes/' },
+  { title: '参考手册', note: '寄存器、接口与边界速查', href: '/reference/' },
 ]
 </script>
 
 <template>
-  <section class="launchpad">
-    <header class="launchpad__head">
-      <span>CHOOSE YOUR ENTRY POINT</span>
-      <h2>第一次来，从主线开始；卡住时，切到实验和排错</h2>
-    </header>
-    <div class="launchpad__grid">
-      <a
-        v-for="route in routes"
-        :key="route.id"
-        :href="withBase(route.href)"
-        class="launch-card"
-        :class="`launch-card--${route.kind}`"
-      >
-        <span class="launch-card__id">{{ route.id }}</span>
-        <span class="launch-card__eyebrow">{{ route.eyebrow }}</span>
-        <strong>{{ route.title }}</strong>
-        <p>{{ route.note }}</p>
-        <span class="launch-card__signal">{{ route.signal }}</span>
-        <span class="launch-card__action">{{ route.action }} <i>↗</i></span>
+  <section class="entry">
+    <a class="entry__main" :href="withBase('/book/')">
+      <span class="entry__main-top">
+        <span class="entry__tag">主线</span>
+        <span class="entry__count">17 卷 · 从 0x7C00 起</span>
+      </span>
+      <strong>跟着源码，把一台机器从头建起来</strong>
+      <p>每一卷对应一个可运行的源码阶段：先讲清为什么需要它，再看关键实现，最后是真实踩坑与验证方式。</p>
+      <span class="entry__go">开始阅读<i aria-hidden="true">→</i></span>
+    </a>
+
+    <div class="entry__side">
+      <a v-for="item in secondary" :key="item.title" class="entry__item" :href="withBase(item.href)">
+        <span class="entry__item-head">
+          <strong>{{ item.title }}</strong>
+          <i aria-hidden="true">→</i>
+        </span>
+        <span class="entry__item-note">{{ item.note }}</span>
       </a>
     </div>
   </section>
 </template>
 
 <style scoped>
-.launchpad { max-width: 1152px; margin: 0 auto; padding: 12px 24px 68px; }
-.launchpad__head { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 28px; align-items: start; margin-bottom: 24px; }
-.launchpad__head > span { padding-top: 7px; color: var(--vp-c-brand-1); font: 700 11px/1 var(--vp-font-family-mono); letter-spacing: 0.13em; }
-.launchpad__head h2 { max-width: 720px; margin: 0; color: var(--vp-c-text-1); font-size: clamp(24px, 3vw, 36px); line-height: 1.22; letter-spacing: -0.035em; }
-.launchpad__grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; grid-template-rows: repeat(2, minmax(155px, auto)); gap: 10px; }
-.launch-card {
-  --card-accent: var(--vp-c-brand-1);
-  position: relative;
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  padding: 22px;
-  overflow: hidden;
-  color: inherit;
-  background: var(--vp-c-bg-soft);
-  border: 1px solid var(--vp-c-divider);
-  border-radius: 14px 4px 14px 4px;
-  text-decoration: none;
-  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+.entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+  gap: 16px;
+  max-width: 1152px;
+  margin: 0 auto;
+  padding: 64px 24px 0;
 }
-.launch-card::before { position: absolute; top: 0; right: 0; width: 54px; height: 3px; background: var(--card-accent); content: ''; }
-.launch-card:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--card-accent) 45%, var(--vp-c-divider)); box-shadow: 0 15px 36px rgba(14, 56, 47, 0.1); }
-.launch-card--primary { grid-row: 1 / 3; padding: 28px; color: #dffff7; background: linear-gradient(145deg, #071713, #0b3028); border-color: rgba(69, 211, 181, 0.28); }
-.launch-card--primary::after { position: absolute; right: -50px; bottom: -65px; width: 230px; height: 230px; border: 1px solid rgba(81, 223, 193, 0.16); border-radius: 50%; box-shadow: inset 0 0 0 24px rgba(81, 223, 193, 0.025), inset 0 0 0 52px rgba(81, 223, 193, 0.025); content: ''; }
-.launch-card--debug { --card-accent: #b56b20; }
-.launch-card--reference { --card-accent: #7659af; }
-.launch-card__id { position: absolute; top: 18px; right: 17px; color: var(--vp-c-text-3); font: 600 10px/1 var(--vp-font-family-mono); }
-.launch-card--primary .launch-card__id { color: rgba(201, 247, 237, 0.45); }
-.launch-card__eyebrow { color: var(--card-accent); font: 700 10px/1 var(--vp-font-family-mono); letter-spacing: 0.13em; }
-.launch-card--primary .launch-card__eyebrow { color: #55dfc1; }
-.launch-card strong { margin-top: 18px; color: var(--vp-c-text-1); font-size: 19px; line-height: 1.3; }
-.launch-card--primary strong { max-width: 330px; margin-top: 48px; color: #f1fffc; font-size: clamp(26px, 3vw, 39px); line-height: 1.12; letter-spacing: -0.04em; }
-.launch-card p { max-width: 400px; margin: 8px 0 20px; color: var(--vp-c-text-2); font-size: 13px; line-height: 1.7; }
-.launch-card--primary p { color: #9dc8bd; font-size: 14px; }
-.launch-card__signal { margin-top: auto; color: var(--vp-c-text-3); font: 600 9px/1 var(--vp-font-family-mono); letter-spacing: 0.1em; }
-.launch-card--primary .launch-card__signal { color: #55867b; }
-.launch-card__action { display: flex; align-items: center; justify-content: space-between; margin-top: 18px; color: var(--card-accent); font-size: 12px; font-weight: 700; }
-.launch-card--primary .launch-card__action { position: relative; z-index: 1; color: #59e1c3; }
-.launch-card__action i { font-style: normal; transition: transform 0.18s ease; }
-.launch-card:hover .launch-card__action i { transform: translate(2px, -2px); }
+
+/* ── 主入口 ── */
+.entry__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 30px 32px 26px;
+  color: inherit;
+  background: var(--vp-c-bg-alt);
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 14px;
+  text-decoration: none;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.entry__main:hover {
+  border-color: color-mix(in srgb, var(--vp-c-brand-1) 50%, var(--vp-c-divider));
+  background: var(--vp-c-bg-elv);
+}
+.entry__main-top { display: flex; align-items: center; gap: 11px; }
+.entry__tag {
+  padding: 3px 9px;
+  color: var(--vp-c-bg);
+  background: var(--vp-c-brand-1);
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.entry__count {
+  color: var(--vp-c-text-3);
+  font: 500 11.5px/1 var(--vp-font-family-mono);
+  letter-spacing: 0.04em;
+}
+.entry__main strong {
+  margin: 20px 0 0;
+  max-width: 19em;
+  color: var(--vp-c-text-1);
+  font-size: clamp(22px, 2.5vw, 31px);
+  font-weight: 700;
+  line-height: 1.28;
+  letter-spacing: -0.035em;
+}
+.entry__main p {
+  max-width: 34em;
+  margin: 12px 0 26px;
+  color: var(--vp-c-text-2);
+  font-size: 13.5px;
+  line-height: 1.8;
+}
+.entry__go {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: auto;
+  color: var(--vp-c-brand-1);
+  font-size: 13.5px;
+  font-weight: 650;
+}
+.entry__go i { transition: transform 0.18s ease; }
+.entry__main:hover .entry__go i { transform: translateX(4px); }
+
+/* ── 次入口:并列窄条,靠密度与主入口区分 ── */
+.entry__side {
+  display: grid;
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+.entry__item {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 16px 18px;
+  color: inherit;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 10px;
+  text-decoration: none;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.entry__item:hover {
+  border-color: color-mix(in srgb, var(--vp-c-brand-1) 50%, var(--vp-c-divider));
+  background: var(--vp-c-bg-alt);
+}
+.entry__item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.entry__item-head strong { color: var(--vp-c-text-1); font-size: 14.5px; font-weight: 650; }
+.entry__item-head i { color: var(--vp-c-text-3); font-size: 12px; transition: color 0.18s ease, transform 0.18s ease; }
+.entry__item:hover .entry__item-head i { color: var(--vp-c-brand-1); transform: translateX(3px); }
+.entry__item-note {
+  overflow: hidden;
+  color: var(--vp-c-text-3);
+  font-size: 12px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+}
 
 @media (max-width: 900px) {
-  .launchpad__grid { grid-template-columns: 1fr 1fr; grid-template-rows: auto; }
-  .launch-card--primary { grid-column: 1 / -1; grid-row: auto; min-height: 270px; }
-  .launch-card--reference { grid-column: 1 / -1; }
+  .entry { grid-template-columns: 1fr; padding-top: 48px; }
+  .entry__side { grid-template-rows: none; grid-template-columns: repeat(3, 1fr); }
+  .entry__item { gap: 6px; }
 }
 @media (max-width: 639px) {
-  .launchpad { padding: 8px 18px 48px; }
-  .launchpad__head { grid-template-columns: 1fr; gap: 10px; }
-  .launchpad__head h2 { font-size: 26px; }
-  .launchpad__grid { grid-template-columns: 1fr; }
-  .launch-card--primary,
-  .launch-card--reference { grid-column: auto; min-height: 235px; }
+  .entry { padding: 40px 18px 0; gap: 10px; }
+  .entry__main { padding: 24px 20px 22px; }
+  .entry__main strong { font-size: 22px; }
+  .entry__side { grid-template-columns: 1fr; }
+  .entry__item { padding: 14px 16px; }
 }
 </style>

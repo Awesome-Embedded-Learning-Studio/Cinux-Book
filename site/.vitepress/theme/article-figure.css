@@ -1,0 +1,329 @@
+/* ════════════════════════════════════════════════════════════════
+   图与流程图基建
+   ════════════════════════════════════════════════════════════════
+
+   一套图注语言，两类图共用：
+   · 插图   figure-plugin.ts   把「单图成段 + 紧随强调段落/alt」转成 figure
+   · 流程图 mermaid-plugin.ts  把 ```mermaid <图注> 转成同构 figure
+
+   因此编号计数器只有一个，同一页里插图与流程图的序号连续（图 1 → 图 2 →
+   图 3），不会各自从 1 开始。只有带图注的图才计数，避免「图 1、图 3」断号。
+
+   配色全部走 --vp-c-* 变量，跟着「暖纸 · 冰川青」一起变；流程图 SVG 的
+   内联配色由 mermaid-client.ts 从同一批变量派生。
+   ════════════════════════════════════════════════════════════════ */
+
+:root {
+  --figure-surface: var(--vp-c-bg-alt);
+  --figure-border: var(--vp-c-border);
+  --figure-cap-ink: var(--vp-c-text-2);
+  --figure-num-ink: var(--vp-c-brand-1);
+}
+
+/* 每篇正文重置计数器。
+   图(插图 + 流程图)与表各一套序列:读者检索「图 3」和「表 3」是分开找的。 */
+.vp-doc {
+  counter-reset: doc-figure doc-table-seq;
+}
+
+/* ── figure 外壳 ───────────────────────────────────────────── */
+
+.vp-doc .doc-figure {
+  margin: 1.9em 0;
+  padding: 0;
+}
+
+.vp-doc .doc-figure.is-numbered {
+  counter-increment: doc-figure;
+}
+
+/* 图片本体已被 figure 接管居中，去掉 article-doc.css 给裸 img 的外边距 */
+.vp-doc .doc-figure__body {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--figure-surface);
+  border: 1px solid var(--figure-border);
+  border-radius: 10px;
+}
+
+.vp-doc .doc-figure__body > p {
+  margin: 0;
+  line-height: 0;
+}
+
+.vp-doc .doc-figure img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0;
+  border-radius: 0;
+}
+
+/* ── 图注：编号是「墨色」的，说明文字退一层 ─────────────────── */
+
+.vp-doc .doc-figure__cap {
+  display: block;
+  max-width: 60ch;
+  margin: 0.72em auto 0;
+  padding: 0 2px;
+  color: var(--figure-cap-ink);
+  font-size: 0.875em;
+  line-height: 1.65;
+  text-align: center;
+  text-wrap: pretty;
+}
+
+.vp-doc .doc-figure.is-numbered > .doc-figure__cap::before {
+  margin-right: 0.5em;
+  color: var(--figure-num-ink);
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.92em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  content: '图 ' counter(doc-figure);
+}
+
+/* 图注里的行内代码不要再撑出一层底色块，图注本身已经是弱化层 */
+.vp-doc .doc-figure__cap code {
+  padding: 1px 4px;
+  font-size: 0.94em;
+}
+
+/* ── 截图类插图：纸面上的「屏幕」 ──────────────────────────── */
+
+/* 插图的框贴合图片本身居中（图小时不留大片空框）；
+   流程图的框则撑满栏宽，好容纳宽图并横向滚动。 */
+.vp-doc .doc-figure--image .doc-figure__body {
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+  /* 深色截图落在暖纸上会突兀，给一道内描边把它压进纸里 */
+  box-shadow: inset 0 0 0 1px rgb(64 53 36 / 4%);
+}
+
+.dark .vp-doc .doc-figure--image .doc-figure__body {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 4%);
+}
+
+/* ── 流程图容器 ────────────────────────────────────────────── */
+
+.vp-doc .doc-figure--diagram .doc-figure__body {
+  padding: 20px 16px;
+  overflow-x: auto;
+}
+
+.vp-doc .mermaid-diagram {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  min-height: 2em;
+}
+
+/* 关键约束：宽流程图必须缩进正文宽度，否则横向撑破版面 */
+.vp-doc .mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.vp-doc .mermaid-diagram[data-rendered='false'] {
+  min-height: 84px;
+  background:
+    linear-gradient(90deg, transparent, var(--vp-c-bg-elv), transparent) 0 0 / 220% 100% no-repeat;
+  animation: figure-skeleton 1.1s ease-in-out infinite;
+}
+
+@keyframes figure-skeleton {
+  0% { background-position: -60% 0; }
+  100% { background-position: 160% 0; }
+}
+
+.vp-doc .mermaid-error {
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  color: var(--vp-c-text-2);
+  background: none;
+  font-size: 0.84em;
+}
+
+/* ── 放大按钮：插图与流程图共用，常态隐形、hover 才浮现 ────── */
+
+/* 可放大态由 figure-zoom.ts 挂在 body 上（小图标不挂，放大没意义） */
+.vp-doc .doc-figure__body--zoomable,
+.vp-doc .doc-figure__body--zoomable img,
+.vp-doc .doc-figure__body--zoomable svg {
+  cursor: zoom-in;
+}
+
+.vp-doc .figure-zoom-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  color: var(--vp-c-text-2);
+  background: var(--vp-c-bg-elv);
+  border: 1px solid var(--figure-border);
+  border-radius: 7px;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  cursor: zoom-in;
+}
+
+.vp-doc .doc-figure:hover .figure-zoom-btn,
+.vp-doc .figure-zoom-btn:focus-visible {
+  opacity: 1;
+}
+
+.vp-doc .figure-zoom-btn:hover {
+  color: var(--vp-c-brand-1);
+  border-color: var(--vp-c-brand-1);
+}
+
+/* 触屏没有 hover，按钮常显但压低存在感 */
+@media (hover: none) {
+  .vp-doc .figure-zoom-btn { opacity: 0.65; }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   媒体灯箱（MediaLightbox.vue，组件内无 style，样式集中在此）
+   ════════════════════════════════════════════════════════════════ */
+
+.media-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  background: rgb(26 21 13 / 88%);
+  backdrop-filter: blur(3px);
+  animation: figure-fade 0.16s ease;
+}
+
+.dark .media-lightbox {
+  background: rgb(10 8 5 / 92%);
+}
+
+@keyframes figure-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.media-lightbox__toolbar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--vp-c-bg);
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+
+.media-lightbox__btn {
+  padding: 6px 13px;
+  color: var(--vp-c-text-1);
+  background: var(--vp-c-bg-elv);
+  border: 1px solid var(--vp-c-border);
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+  cursor: pointer;
+}
+
+.media-lightbox__btn:hover {
+  color: var(--vp-c-brand-1);
+  background: var(--vp-c-bg-alt);
+  border-color: var(--vp-c-brand-1);
+}
+
+.media-lightbox__hint {
+  margin-left: 6px;
+  overflow: hidden;
+  color: var(--vp-c-text-3);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 关闭按钮推到最右 */
+.media-lightbox__close {
+  margin-left: auto;
+  width: 32px;
+  padding: 6px 0;
+  font-size: 14px;
+}
+
+/* 舞台：panzoom 在 __target 上做变换，这里只负责居中与裁剪 */
+.media-lightbox__stage {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+}
+
+.media-lightbox__stage:active {
+  cursor: grabbing;
+}
+
+.media-lightbox__target {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+/* 灯箱里不再限制宽度——放大看细节才是点开的目的 */
+.media-lightbox__target svg,
+.media-lightbox__target img {
+  max-width: none;
+  height: auto;
+  border-radius: 0;
+  user-select: none;
+}
+
+/* 灯箱底部的图注:放大后仍知道自己在看哪张图 */
+.media-lightbox__cap {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 12px 20px calc(12px + env(safe-area-inset-bottom, 0px));
+  color: var(--vp-c-text-2);
+  background: var(--vp-c-bg);
+  border-top: 1px solid var(--vp-c-divider);
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+@media (max-width: 639px) {
+  .media-lightbox__toolbar {
+    gap: 6px;
+    padding: 10px 12px;
+  }
+
+  .media-lightbox__btn { padding: 6px 10px; font-size: 12.5px; }
+  .media-lightbox__hint { display: none; }
+  .media-lightbox__target { padding: 12px; }
+  .media-lightbox__cap { padding: 10px 14px; font-size: 12.5px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .media-lightbox { animation: none; }
+  .vp-doc .mermaid-diagram[data-rendered='false'] { animation: none; }
+}
+
+/* ── 窄屏：图撑满可读宽度，圆角收小 ────────────────────────── */
+
+@media (max-width: 639px) {
+  .vp-doc .doc-figure { margin: 1.6em 0; }
+  .vp-doc .doc-figure__body { border-radius: 8px; }
+  .vp-doc .doc-figure--diagram .doc-figure__body { padding: 14px 10px; }
+  .vp-doc .doc-figure__cap,
+  .vp-doc .doc-table__cap { font-size: 0.85em; }
+}
