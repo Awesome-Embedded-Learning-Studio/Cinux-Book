@@ -1,0 +1,180 @@
+/* ════════════════════════════════════════════════════════════════
+   阅读导航 — 侧栏 / 大纲 / 章节流转
+
+   长文教程的导航要回答三个问题，且不靠点击就能回答：
+     1. 我在整本书的哪一卷？(侧栏:祖先链常亮 + 当前项实心色条)
+     2. 我在这一章的哪一节？(大纲:活动项高亮 + 轨道线)
+     3. 读完了往哪走？(底部章节卡)
+   卷内动辄上百篇,所以侧栏走"窄行高 + 强层级 + 弱装饰"，靠密度换可扫读性。
+   ════════════════════════════════════════════════════════════════ */
+
+/* ── 左侧栏 ───────────────────────────────────────────────── */
+
+.VPSidebar {
+  padding-bottom: 96px;
+  scrollbar-width: thin;
+}
+
+/* 卷标题(level-0):作为分组抬头，加粗并与下方条目拉开 */
+.VPSidebarItem.level-0 > .item {
+  padding-bottom: 2px;
+}
+
+.VPSidebarItem.level-0 > .item > .text {
+  color: var(--vp-c-text-1);
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/* 含当前页的祖先分组:标题染成品牌色，形成"你在这条支线上"的线索 */
+.VPSidebarItem.level-0.has-active > .item > .text,
+.VPSidebarItem.level-1.has-active > .item > .text,
+.VPSidebarItem.level-2.has-active > .item > .text {
+  color: var(--vp-c-brand-1);
+}
+
+/* 子条目:压缩行高换取更多可见条目，左侧留出色条轨道 */
+.VPSidebarItem.level-1 > .item > .link,
+.VPSidebarItem.level-2 > .item > .link,
+.VPSidebarItem.level-3 > .item > .link {
+  padding: 1px 0;
+}
+
+.VPSidebarItem.level-1 .text,
+.VPSidebarItem.level-2 .text,
+.VPSidebarItem.level-3 .text {
+  padding: 3px 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* 当前页:实心色条 + 淡底 + 加粗，滚动回来能立刻找到自己 */
+.VPSidebarItem.is-active > .item {
+  position: relative;
+  border-radius: 0 5px 5px 0;
+  background: var(--vp-c-brand-soft);
+}
+
+.VPSidebarItem.is-active > .item::before {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: -10px;
+  width: 2.5px;
+  border-radius: 2px;
+  background: var(--vp-c-brand-1);
+  content: '';
+}
+
+.VPSidebarItem.is-active > .item > .link > .text,
+.VPSidebarItem.is-active > .item > .text {
+  color: var(--vp-c-brand-1);
+  font-weight: 650;
+}
+
+/* 默认 indicator 与自绘色条重复，关掉 */
+.VPSidebarItem.is-active > .item > .indicator { background: transparent; }
+
+/* 折叠箭头:静态压暗，hover 才显形，避免上百行箭头形成噪点墙 */
+.VPSidebarItem .caret {
+  color: var(--vp-c-text-3);
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+}
+.VPSidebarItem:hover > .item > .caret,
+.VPSidebarItem.has-active > .item > .caret { opacity: 1; }
+
+/* 分组之间的呼吸:顶级组之间加分隔，长侧栏才有段落感 */
+.VPSidebarItem.level-0:not(:first-child) {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--vp-c-divider);
+}
+
+/* ── 右侧大纲 ─────────────────────────────────────────────── */
+
+.VPDocAsideOutline .outline-title {
+  color: var(--vp-c-text-3);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* 轨道线:把大纲串成一条竖轴，活动项在轴上"亮起" */
+.VPDocAsideOutline .outline-marker { display: none; }
+
+.VPDocAsideOutline .content {
+  position: relative;
+  padding-left: 13px;
+  border-left: 1px solid var(--vp-c-divider);
+}
+
+.VPDocAsideOutline .outline-link {
+  position: relative;
+  padding: 4px 0;
+  color: var(--vp-c-text-3);
+  font-size: 12.5px;
+  line-height: 1.6;
+  font-weight: 400;
+  transition: color 0.15s ease;
+}
+
+.VPDocAsideOutline .outline-link:hover {
+  color: var(--vp-c-text-1);
+}
+
+.VPDocAsideOutline .outline-link.active {
+  color: var(--vp-c-brand-1);
+  font-weight: 600;
+}
+
+/* 活动项在轨道上的光点 */
+.VPDocAsideOutline .outline-link.active::before {
+  position: absolute;
+  top: 50%;
+  left: -17px;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 50%;
+  background: var(--vp-c-brand-1);
+  box-shadow: 0 0 0 3px var(--vp-c-bg);
+  content: '';
+}
+
+.VPDocAsideOutline .outline-link.nested {
+  padding-left: 13px;
+  font-size: 12px;
+}
+
+/* ── 顶栏与阅读进度 ───────────────────────────────────────── */
+
+/* 进度条压在顶栏下沿，不盖住 logo 与导航文字 */
+.reading-progress-bar {
+  height: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--vp-c-brand-1);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--vp-c-brand-1) 55%, transparent);
+}
+
+/* ── 底部章节流转 ─────────────────────────────────────────── */
+
+/* 正文与章节卡之间要有明确的"文章结束"信号 */
+.vp-doc + .doc-tags,
+.VPDocFooter { margin-top: 2.2em; }
+
+@media (max-width: 959px) {
+  /* 移动端抽屉里把行高放回舒适值，触摸目标不能太密 */
+  .VPSidebarItem.level-1 .text,
+  .VPSidebarItem.level-2 .text,
+  .VPSidebarItem.level-3 .text {
+    padding: 6px 0;
+    font-size: 13.5px;
+  }
+}
+
+@media print {
+  .VPDocAsideOutline { display: none; }
+}

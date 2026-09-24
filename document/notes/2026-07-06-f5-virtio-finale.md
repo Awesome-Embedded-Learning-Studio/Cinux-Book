@@ -51,4 +51,4 @@
 
 ROADMAP F5:**M2 ✅** + **M7 ✅**(driver + 真中断路径;attach/perf follow-up)。8 驱动。
 
-接 [[virtio-real-irq-after-poll-watch-smp]](用户约束,本弧落实)+ [[f5-m3-nvme-progress]](NVMe 弧,self-assign BAR + NvmeBlockDevice Spinlock 同根因)。F5-M2/M7 ✅。
+接 [[virtio-real-irq-after-poll-watch-smp]] （用户约束,本弧落实）+ [[f5-m3-nvme-progress]](NVMe 弧,self-assign BAR + NvmeBlockDevice Spinlock 同根因)。F5-M2/M7 ✅。

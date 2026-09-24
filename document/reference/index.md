@@ -15,3 +15,11 @@ title: 参考 · 子系统速查
 - [文件系统:VFS、ramdisk、ext2、文件描述符](filesystem-vfs-ext2.md) — VFS 三层抽象、FDTable、USTAR、ext2、syscall 号
 
 实现细节回查各 [主书](/book/) 章节;真实排错故事见 [调试笔记](/debug-notes/)。
+
+## 权威依据卡片
+
+各篇文末的参考文献统一用卡片登记,正文里用 `RefLink` 组件内联引用(如见 <RefLink :id="1" preview="Intel SDM Vol.3A §6.14" />)。示例:
+
+<ReferenceCard title="References">
+<ReferenceItem :id="1" author="Intel" title="Intel 64 and IA-32 Architectures Software Developer's Manual, Vol. 3A" year="2024" url="https://www.intel.com/sdm" chapter="§6.14 Exception and Interrupt Reference" :quotes="[' Interrupts and exceptions are events indicating... ']" />
+</ReferenceCard>

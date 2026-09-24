@@ -1,0 +1,514 @@
+/* ════════════════════════════════════════════════════════════════
+   正文阅读排版 — Cinux 长文基座
+
+   设计约束(为中文技术长文而非英文短文优化):
+   1. 一切纵向尺度用 em，跟随 --vp-font-size-base 的字号档位缩放。
+      VitePress 默认把 p 的 line-height 写成固定 28px，且特异性高于
+      .vp-doc，导致字号切换器调大字号后行高不变(20px 字 / 28px 行 = 1.4，
+      中文会挤死)。这里统一改成比例，字号档位才真正可用。
+   2. 正文保持"纸面"：语义区分靠留白、字重与左侧色条，不靠投影和悬浮位移。
+      代码/引用/图表的卡片化与 hover 抬起在长文里会不断抢注意力。
+   3. 标题层级要能在不读文字时就被看出来：h2 断章、h3 分节、h4 归组。
+   ════════════════════════════════════════════════════════════════ */
+
+.vp-doc {
+  --doc-lh: 1.85;              /* 中文正文行高 */
+  --doc-lh-tight: 1.5;         /* 标题行高 */
+  --doc-rhythm: 1.15em;        /* 基础段间距 */
+  --doc-rule: var(--vp-c-divider);
+}
+
+/* ── 段落与行内 ───────────────────────────────────────────── */
+
+.vp-doc p,
+.vp-doc summary {
+  margin: var(--doc-rhythm) 0;
+}
+
+/* 覆盖 VitePress 的固定 28px：行高必须是比例，否则字号档位失效 */
+.vp-doc p,
+.vp-doc li,
+.vp-doc td,
+.vp-doc th,
+.vp-doc dd {
+  line-height: var(--doc-lh);
+}
+
+/* 首段贴着标题，不额外拉开 */
+.vp-doc h1 + p,
+.vp-doc h2 + p,
+.vp-doc h3 + p,
+.vp-doc h4 + p {
+  margin-top: 0.7em;
+}
+
+.vp-doc strong {
+  font-weight: 650;
+  color: var(--vp-c-text-1);
+}
+
+/* ── 标题层级 ─────────────────────────────────────────────── */
+
+.vp-doc h1 {
+  margin: 0 0 0.6em;
+  font-size: 2.05em;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.022em;
+}
+
+/* h2 = 断章。整条分隔线 + 大留白，滚动时是最强的节奏点。 */
+.vp-doc h2 {
+  margin: 2.6em 0 0;
+  padding-top: 1.3em;
+  border-top: 1px solid var(--doc-rule);
+  font-size: 1.5em;
+  font-weight: 650;
+  line-height: var(--doc-lh-tight);
+  letter-spacing: -0.018em;
+}
+
+/* h3 = 分节。左侧短色条代替分隔线，比 h2 弱一档但仍可扫读。 */
+.vp-doc h3 {
+  position: relative;
+  margin: 2.1em 0 0;
+  padding-left: 0.62em;
+  font-size: 1.22em;
+  font-weight: 650;
+  line-height: var(--doc-lh-tight);
+  letter-spacing: -0.012em;
+}
+
+.vp-doc h3::before {
+  position: absolute;
+  top: 0.22em;
+  bottom: 0.22em;
+  left: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--vp-c-brand-1);
+  content: '';
+}
+
+/* h4 = 归组。只靠字重与色阶，不再加装饰。 */
+.vp-doc h4 {
+  margin: 1.7em 0 0;
+  font-size: 1.05em;
+  font-weight: 650;
+  line-height: var(--doc-lh-tight);
+  letter-spacing: 0;
+}
+
+.vp-doc h5,
+.vp-doc h6 {
+  margin: 1.5em 0 0;
+  color: var(--vp-c-text-2);
+  font-size: 0.97em;
+  font-weight: 650;
+}
+
+/* 锚点符号:悬停才出现，且不占据正文左边距 */
+.vp-doc .header-anchor {
+  margin-left: -0.75em;
+  font-weight: 400;
+}
+.vp-doc h3 .header-anchor { margin-left: -1.32em; }
+
+/* ── 列表 ─────────────────────────────────────────────────────
+   对齐要点:
+   1. 序号右对齐到同一条竖线。默认 marker 是左对齐的，「9.」和「10.」的
+      文字起点会错开一格，二十项以上的步骤列表看起来像抖动的楼梯。
+      这里用 ::marker + tabular-nums 让数字等宽，再给足 padding 容纳两位数。
+   2. 多级无序列表的标记要能区分层级(实心 → 空心 → 方块)，否则三级嵌套
+      在暖纸上全是一样的小圆点，读者分不清自己在哪一层。
+   3. 列表项内的块级内容(代码块、图、嵌套列表)左边缘与文字对齐。
+   ──────────────────────────────────────────────────────────── */
+
+.vp-doc ul,
+.vp-doc ol {
+  margin: var(--doc-rhythm) 0;
+  padding-left: 1.4em;
+}
+
+/* 有序列表要容纳两位数序号，缩进比无序略宽 */
+.vp-doc ol {
+  padding-left: 1.85em;
+}
+
+.vp-doc li + li {
+  margin-top: 0.42em;
+}
+
+.vp-doc li > ul,
+.vp-doc li > ol {
+  margin: 0.42em 0;
+}
+
+/* 层级标记:原生 disc/circle/square 在中文正文里偏小、基线发飘,是页面上
+   最"裸"的元素。改为自绘标记:一级实心青点、二级空心环、三级方点。
+   标记是空 content 的盒子,不进复制文本与无障碍树。 */
+.vp-doc ul {
+  list-style: none;
+}
+
+.vp-doc ul > li {
+  position: relative;
+}
+
+.vp-doc ul > li::before {
+  position: absolute;
+  left: -1.05em;
+  top: 0.72em;
+  width: 5px;
+  height: 5px;
+  background: var(--vp-c-brand-1);
+  border-radius: 50%;
+  content: '';
+}
+
+/* 二级空心环:层级退一档,但形状仍可辨 */
+.vp-doc ul ul > li::before {
+  background: none;
+  border: 1px solid var(--vp-c-text-3);
+}
+
+/* 三级及更深:小方点,退到底 */
+.vp-doc ul ul ul > li::before {
+  width: 4px;
+  height: 4px;
+  border: 0;
+  border-radius: 1px;
+  background: var(--vp-c-text-3);
+}
+
+/* 任务列表自带勾选框,勾选框就是标记,不要再叠圆点 */
+.vp-doc li.task-list-item::before {
+  display: none;
+}
+
+/* 序号是结构信息,用青墨立起来(淡灰序号读起来像水印);
+   等宽 + 右对齐,文字起点严格落在同一条竖线上 */
+.vp-doc ol > li::marker {
+  color: var(--vp-c-brand-1);
+  font-weight: 640;
+  font-feature-settings: 'tnum';
+  font-variant-numeric: tabular-nums;
+}
+
+/* 嵌套有序退一档 */
+.vp-doc ol ol > li::marker {
+  color: var(--vp-c-text-3);
+  font-weight: 500;
+}
+
+.vp-doc ol > li {
+  text-align: left;
+}
+
+/* 段落化的长列表项(li 内含 p)不要被压成紧排;
+   首段必须贴顶,否则自绘标记对不齐第一行文字 */
+.vp-doc li > p {
+  margin: 0.45em 0;
+}
+
+.vp-doc li > p:first-child {
+  margin-top: 0;
+}
+
+/* 列表项里的代码块/图/表贴合文字左边缘，并收掉多余外边距 */
+.vp-doc li > div[class*='language-'],
+.vp-doc li > .vp-code-group,
+.vp-doc li > .vp-code-fold,
+.vp-doc li > .doc-figure,
+.vp-doc li > .doc-table {
+  margin: 0.6em 0;
+}
+
+/* 任务列表(task-list-plugin.ts)。
+   复选框绝对定位在文字左侧，靠 padding 让出位置而不是用负 margin
+   ——负 margin 在嵌套任务列表里会层层左移，最终跑到正文外。 */
+.vp-doc .contains-task-list {
+  padding-left: 0.1em;
+  list-style: none;
+}
+
+.vp-doc .task-list-item {
+  position: relative;
+  padding-left: 1.6em;
+  list-style: none;
+}
+
+.vp-doc .task-list-checkbox {
+  position: absolute;
+  top: 0.4em;
+  left: 0.1em;
+  width: 0.92em;
+  height: 0.92em;
+  margin: 0;
+  accent-color: var(--vp-c-brand-1);
+  cursor: default;
+}
+
+/* 已完成项弱化，未完成项保持主墨色——扫一眼就知道还剩什么 */
+.vp-doc .task-list-checkbox:checked + .task-list-label {
+  color: var(--vp-c-text-3);
+}
+
+/* 定义列表(术语表/字段说明) */
+.vp-doc dl {
+  margin: var(--doc-rhythm) 0;
+}
+
+.vp-doc dt {
+  margin-top: 0.9em;
+  color: var(--vp-c-text-1);
+  font-weight: 600;
+}
+
+.vp-doc dd {
+  margin: 0.3em 0 0;
+  padding-left: 1.1em;
+  border-left: 2px solid var(--doc-rule);
+  color: var(--vp-c-text-2);
+}
+
+/* ── 表格:去竖线、留横线，密集数据也能扫读 ────────────────────
+   table-plugin.ts 把每张表包进 figure.doc-table > div.doc-table__scroll，
+   滚动能力由容器提供，因此 table 本身可以保持 display:table —— 这是列宽
+   自动分配的前提(display:block 会让列宽算法失效，长短列挤成一团)。
+   ──────────────────────────────────────────────────────────── */
+
+.vp-doc .doc-table {
+  margin: 1.7em 0;
+  counter-increment: doc-table-seq;
+}
+
+/* 宽表横滚:只滚表格自身，不带动整页 */
+.vp-doc .doc-table__scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border-bottom: 1px solid var(--doc-rule);
+}
+
+.vp-doc .doc-table__scroll:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 2px;
+}
+
+.vp-doc table {
+  display: table;
+  width: 100%;
+  margin: 0;
+  border-collapse: collapse;
+  font-size: 0.94em;
+  /* 数字等宽:版本号、地址、大小这类列必须能竖向对齐着扫 */
+  font-variant-numeric: tabular-nums;
+}
+
+.vp-doc th,
+.vp-doc td {
+  padding: 0.62em 0.9em;
+  border: 0;
+  border-bottom: 1px solid var(--doc-rule);
+  text-align: left;
+  vertical-align: top;
+}
+
+/* 首列常是字段名/寄存器名，贴着左边缘起排更好扫 */
+.vp-doc th:first-child,
+.vp-doc td:first-child {
+  padding-left: 0.2em;
+}
+
+.vp-doc th:last-child,
+.vp-doc td:last-child {
+  padding-right: 0.2em;
+}
+
+.vp-doc th {
+  border-bottom: 1.5px solid var(--vp-c-text-3);
+  color: var(--vp-c-text-1);
+  font-size: 0.93em;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.vp-doc tr { background: transparent !important; }
+.vp-doc tbody tr:hover { background: var(--vp-c-bg-alt) !important; }
+
+/* 最后一行的线交给 __scroll 的下边框，避免滚动时线跟着飘 */
+.vp-doc tbody tr:last-child td { border-bottom: 0; }
+
+/* 表格里的行内代码不要再套一层框，避免密集单元格糊成一片 */
+.vp-doc td :not(pre) > code,
+.vp-doc th :not(pre) > code {
+  padding: 0.05em 0.25em;
+  border: 0;
+  font-size: 0.9em;
+}
+
+/* 单元格里的段落不要撑开行距 */
+.vp-doc td > p:only-child,
+.vp-doc th > p:only-child {
+  margin: 0;
+}
+
+/* 表注:与图注同一形态，但编号是独立的「表 N」序列 */
+.vp-doc .doc-table__cap {
+  display: block;
+  max-width: 60ch;
+  margin: 0.72em auto 0;
+  padding: 0 2px;
+  color: var(--vp-c-text-2);
+  font-size: 0.875em;
+  line-height: 1.65;
+  text-align: center;
+  text-wrap: pretty;
+}
+
+.vp-doc .doc-table.is-numbered > .doc-table__cap::before {
+  margin-right: 0.5em;
+  color: var(--vp-c-brand-1);
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.92em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  content: '表 ' counter(doc-table-seq);
+}
+
+.vp-doc .doc-table__cap code {
+  padding: 1px 4px;
+  font-size: 0.94em;
+}
+
+/* ── 图片与分隔线 ─────────────────────────────────────────── */
+
+.vp-doc img {
+  display: block;
+  max-width: 100%;
+  margin: 1.5em auto;
+  border-radius: 8px;
+}
+
+/* 行内小图标(尺寸由 md 指定)不参与块级居中 */
+.vp-doc p > img:only-child { margin-block: 1.5em; }
+
+.vp-doc hr {
+  margin: 2.4em 0;
+  border: 0;
+  border-top: 1px solid var(--doc-rule);
+}
+
+/* ── 链接:正文内可辨识但不喧哗 ────────────────────────────── */
+
+.vp-doc a {
+  color: var(--vp-c-brand-1);
+  font-weight: 550;
+  text-decoration: none;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  border-bottom: 1px solid color-mix(in srgb, var(--vp-c-brand-1) 32%, transparent);
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.vp-doc a:hover {
+  color: var(--vp-c-brand-2);
+  border-bottom-color: var(--vp-c-brand-1);
+  text-decoration: none;
+}
+
+/* 标题里的链接、以及卡片类组件内的链接不加下边框 */
+.vp-doc h1 a, .vp-doc h2 a, .vp-doc h3 a, .vp-doc h4 a,
+.vp-doc .header-anchor,
+.vp-doc .doc-nav-card,
+.vp-doc .custom-block a {
+  border-bottom: 0;
+}
+
+/* ── 提示块:与正文同一套语言，靠左色条区分级别 ───────────── */
+
+.vp-doc .custom-block {
+  margin: 1.5em 0;
+  padding: 1em 1.15em;
+  border: 0;
+  border-left: 3px solid var(--vp-c-brand-1);
+  border-radius: 0 8px 8px 0;
+  background: var(--vp-c-bg-alt);
+  font-size: 0.95em;
+  line-height: var(--doc-lh);
+}
+
+.vp-doc .custom-block .custom-block-title {
+  margin-bottom: 0.35em;
+  font-size: 0.92em;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.vp-doc .custom-block p { margin: 0.45em 0; }
+.vp-doc .custom-block :first-child { margin-top: 0; }
+.vp-doc .custom-block :last-child { margin-bottom: 0; }
+
+.vp-doc .custom-block.tip { border-left-color: var(--vp-c-brand-1); }
+.vp-doc .custom-block.info { border-left-color: var(--vp-c-text-3); }
+.vp-doc .custom-block.warning { border-left-color: var(--vp-accent-amber); }
+.vp-doc .custom-block.danger { border-left-color: #c0392b; }
+.dark .vp-doc .custom-block.danger { border-left-color: #e8736a; }
+.vp-doc .custom-block.details {
+  border-left-color: var(--vp-c-border);
+  border-radius: 8px;
+}
+
+/* ── 阅读宽度:中文正文每行 36–40 字最舒服 ────────────────── */
+
+.vp-doc {
+  max-width: 46em;
+}
+
+/* 表格、代码、图表允许突破正文宽度上限，用满可用栏宽 */
+.vp-doc > table,
+.vp-doc > div[class*='language-'],
+.vp-doc > .vp-code-fold,
+.vp-doc > .vp-code-group,
+.vp-doc > .doc-figure,
+.vp-doc > .doc-table,
+.vp-doc > .checkpoint,
+.vp-doc > .cplist {
+  max-width: none;
+  width: 100%;
+}
+
+@media (max-width: 959px) {
+  .vp-doc { max-width: none; }
+}
+
+@media (max-width: 639px) {
+  .vp-doc {
+    --doc-lh: 1.8;
+    --doc-rhythm: 1.05em;
+  }
+  .vp-doc h1 { font-size: 1.72em; }
+  .vp-doc h2 { margin-top: 2.1em; padding-top: 1.1em; font-size: 1.32em; }
+  .vp-doc h3 { margin-top: 1.8em; font-size: 1.14em; }
+  .vp-doc ul, .vp-doc ol { padding-left: 1.2em; }
+  .vp-doc .task-list-item { margin-left: -1.2em; }
+  /* 窄屏表格横向滚动而不是挤成竖条 */
+  .vp-doc table { display: block; overflow-x: auto; white-space: nowrap; }
+  .vp-doc th, .vp-doc td { white-space: normal; min-width: 7em; }
+}
+
+@media print {
+  .vp-doc { max-width: none; }
+  .vp-doc h2 { break-after: avoid; }
+  .vp-doc h3 { break-after: avoid; }
+  .vp-doc h3::before { display: none; }
+  .vp-doc a { border-bottom: 0; color: inherit; }
+  /* 自绘圆点是背景色画出来的,打印默认丢弃背景,显式要求保留;
+     序号转墨色——青色过灰度后会发脏 */
+  .vp-doc ul > li::before {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  .vp-doc ol > li::marker { color: var(--vp-c-text-2); }
+}

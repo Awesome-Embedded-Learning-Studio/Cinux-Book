@@ -1,5 +1,8 @@
 ---
 title: 参考 · 文件系统:VFS、ramdisk、ext2 与文件描述符
+tags: [vfs, ext2, ramdisk, inode]
+difficulty: intermediate
+platform: qemu
 ---
 
 # 参考 · 文件系统:VFS、ramdisk、ext2 与文件描述符

@@ -9,11 +9,23 @@ function extractTitle(filePath: string): string | null {
   try {
     const content = readFileSync(filePath, 'utf-8')
     const fmMatch = content.match(/^---[\s\S]*?^title:\s*['"]?(.+?)['"]?\s*$/m)
-    if (fmMatch) return fmMatch[1]
+    if (fmMatch) return escapeHtml(fmMatch[1])
     const h1 = content.match(/^#\s+(.+)$/m)
-    if (h1) return h1[1].replace(/\{.*?\}/g, '').trim()
+    if (h1) return escapeHtml(h1[1].replace(/\{.*?\}/g, '').trim())
   } catch { /* ignore */ }
   return null
+}
+
+// 标题最终经 v-html 渲染(VitePress sidebar 默认行为),必须先转义——
+// 否则含 <T>、<Args> 的 C++ 模板标题会被浏览器当 HTML 标签解析吃掉后续文本
+// (对齐上游 Tutorial_AwesomeModernCPP 的安全修复)
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 function humanize(name: string): string {
@@ -21,6 +33,19 @@ function humanize(name: string): string {
     .replace(/^\d+[-]?/, '')
     .replace(/[-_]/g, ' ')
     .replace(/\b\w/g, c => c.toUpperCase())
+}
+
+// frontmatter 里的 sidebar_order:比数字前缀更细的排序控制(可选;按路径缓存,排序期间不重复读盘)
+const orderCache = new Map<string, number | null>()
+function extractSidebarOrder(filePath: string): number | null {
+  if (orderCache.has(filePath)) return orderCache.get(filePath) ?? null
+  let order: number | null = null
+  try {
+    const m = readFileSync(filePath, 'utf8').match(/^sidebar_order:\s*(\d+)\s*$/m)
+    order = m ? parseInt(m[1]) : null
+  } catch { /* ignore */ }
+  orderCache.set(filePath, order)
+  return order
 }
 
 // Directories to skip when scanning
@@ -32,13 +57,16 @@ const SKIP_DIRS = new Set([
   '.git',
 ])
 
-function sortEntries(a: string, b: string): number {
-  const na = a.match(/^(\d+)/)?.[1]
-  const nb = b.match(/^(\d+)/)?.[1]
-  if (na && nb) return parseInt(na) - parseInt(nb)
-  if (na) return -1
-  if (nb) return 1
-  return a.localeCompare(b, 'en')
+function entryOrder(name: string, fullPath: string): number {
+  return extractSidebarOrder(fullPath) ?? parseInt(name.match(/^(\d+)/)?.[1] ?? '0', 10)
+}
+
+function sortEntries(a: string, b: string, dir: string): number {
+  const oa = entryOrder(a, join(dir, a))
+  const ob = entryOrder(b, join(dir, b))
+  if (oa !== ob) return oa - ob
+  // 中文条目按拼音locale排序,数字前缀缺失时也稳定
+  return a.localeCompare(b, 'zh-CN')
 }
 
 function scanDir(dir: string, urlPrefix: string, depth = 0): SidebarItem[] {
@@ -57,7 +85,7 @@ function scanDir(dir: string, urlPrefix: string, depth = 0): SidebarItem[] {
     )
   } catch { return [] }
 
-  entries.sort(sortEntries)
+  entries.sort((a, b) => sortEntries(a, b, dir))
   const items: SidebarItem[] = []
 
   for (const name of entries) {
@@ -118,4 +146,53 @@ export function buildSidebar(
   }
 
   return sidebar
+}
+
+// ── 全站阅读序列(翻页卡用)────────────────────────────────────
+//
+// 分卷构建时每卷只带自己的 sidebar,跨卷边界(如 primer 末页 → 第 01 卷首页)
+// 在 SSR 阶段算不出「下一页」。序列在构建期一次性从 document/ 全量扫出,
+// 各卷共用,翻页邻居在 transformPageData 里写进页面 frontmatter。
+
+export interface DocNavEntry {
+  text: string
+  link: string
+}
+
+// sidebar 的 text 经 escapeHtml(侧栏走 v-html 渲染);翻页卡是文本插值,
+// 这里还原成原文,否则含 <T> 的 C++ 标题会显示成 &lt;T&gt;
+function unescapeHtml(s: string): string {
+  return s
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+}
+
+function flattenForDocNav(items: SidebarItem[], result: DocNavEntry[] = []): DocNavEntry[] {
+  for (const item of items) {
+    if (item.link) {
+      result.push({ text: unescapeHtml(item.text), link: item.link })
+    }
+    if (item.items) {
+      flattenForDocNav(item.items, result)
+    }
+  }
+  return result
+}
+
+/**
+ * 按 volumes 声明顺序把各卷侧栏摊平成一条全站阅读序列。
+ * 与 DocNavCards 组件的摊平语义一致(组链接在前、子项在后)。
+ */
+export function buildDocSequence(
+  docsRoot: string,
+  vols: { srcDir: string; urlPrefix: string }[]
+): DocNavEntry[] {
+  const seq: DocNavEntry[] = []
+  for (const vol of vols) {
+    flattenForDocNav(volumeSidebar(docsRoot, vol), seq)
+  }
+  return seq
 }

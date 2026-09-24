@@ -16,7 +16,7 @@
 
 ### ⭐ 三大坑(逐个诊断定位)
 
-1. **submit_chain NEXT bug**(`virtqueue.cpp`):单 out desc(n_in=0,virtio-net TX)误设 NEXT flag 指 desc[1](未初始化)→ QEMU `virtio: zero sized buffers are not allowed` → frame 丢 → ping `TX=200 RX=0 IRQ=0`。virtio-blk(2 out + 1 in)巧合 work(最后 in desc 不 NEXT)。**修**:`total`-based last desc(`d+1==total`)不 NEXT。
+1. **submit_chain NEXT bug**(`virtqueue.cpp`):单 out desc(n_in=0,virtio-net TX)误设 NEXT flag 指 desc[1]（未初始化）→ QEMU `virtio: zero sized buffers are not allowed` → frame 丢 → ping `TX=200 RX=0 IRQ=0`。virtio-blk(2 out + 1 in)巧合 work(最后 in desc 不 NEXT)。**修**:`total`-based last desc(`d+1==total`)不 NEXT。
 
 2. **RX buffer 首帧丢失**(`virtio_net.cpp`):`poll_rx` 第一次才 lazy supply RX buffer,但 SLIRP ARP reply 在 poll_rx 跑到前就到 → RX ring 空 → frame 丢 → ping 卡 ARP resolve。**修**:`prime_rx()` 在 create 后(DRIVER_OK 后)pre-fill 一个 RX buffer。
 

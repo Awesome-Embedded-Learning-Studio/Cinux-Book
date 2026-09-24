@@ -1,5 +1,6 @@
 ---
 title: Lab 003 · 跨进长模式
+tags: [long-mode, paging, mode-switch, x86-64]
 ---
 
 # Lab 003 · 跨进长模式

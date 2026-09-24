@@ -1,5 +1,8 @@
 ---
 title: 参考 · 存储:PCI 枚举与 AHCI 扇区读写
+tags: [pci, ahci, dma, block-device, driver]
+difficulty: advanced
+platform: qemu
 ---
 
 # 参考 · 存储:PCI 枚举与 AHCI 扇区读写

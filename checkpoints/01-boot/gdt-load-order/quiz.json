@@ -1,0 +1,24 @@
+{
+  "title": "保护模式三步曲的顺序",
+  "type": "find-bug",
+  "question": "哪一行放错了位置?",
+  "code": [
+    "lgdt  [gdt_desc]         ; 1. 加载 GDT",
+    "cli                      ; 2. 关中断",
+    "mov   eax, cr0",
+    "or    eax, 1             ; 3. 置 PE 位",
+    "mov   cr0, eax           ; 4. PE 生效",
+    "jmp   CODE_SEL:enter_pm  ; 5. 远跳转刷新流水线/CS",
+    "[bits 32]",
+    "enter_pm:",
+    "mov   ax, DATA_SEL       ; 6. 重载段寄存器",
+    "mov   ds, ax",
+    "mov   ss, ax",
+    "mov   esp, 0x90000       ; 7. 设内核栈"
+  ],
+  "bugLines": [1],
+  "hints": [
+    "cli 关的是可屏蔽中断;动 GDT/CR0 这类全局状态前,得先把世界静音。",
+    "真实历史 bug:Cinux 引导早期就是这个顺序,加载 GDT 时偶发被定时器中断打断。cli 应当是整个序列的第一条。"
+  ]
+}

@@ -27,12 +27,18 @@ const HTML_TAGS = new Set([
   'title','desc','image','pattern','mask','marker','symbol','foreignobject',
 ])
 
-// Only skip actual registered Vue components, not all PascalCase patterns
+// 只跳过「真正注册过」的 Vue 组件，不能凭 PascalCase 一律放过。
+// 必须与 theme/index.ts 的 enhanceApp 注册表保持一致：列在这里但没注册的
+// 组件，一旦有人在 md 里写出来就会变成未知标签而非被转义的文本。
 const VUE_COMPONENTS = new Set([
-  'ChapterNav', 'ChapterLink', 'HomeTipBanner', 'Badge', 
-  'PageHeader', 'StatusTag', 'StepFlow', 'StepItem', 'InfoCard',
-  'RoadMap', 'RoadMapPhase',
-  'HomeArchDiagram',
+  // VitePress 内置
+  'Badge',
+  // theme/index.ts enhanceApp 中注册
+  'ChapterNav', 'ChapterLink',
+  'TagExplorer', 'DocTags',
+  'ReferenceCard', 'ReferenceItem', 'RefLink',
+  'CheckpointProblem', 'CheckpointList', 'QuizProgressBackup',
+  'Anim',
 ])
 
 function looksLikeCppTemplate(inner: string): boolean {

@@ -1,0 +1,129 @@
+/* Markdown quotations in the article body. Keep the native blockquote markup.
+ *
+ * 阅读优先：引用在本项目里大量用作章节导语与旁注(几乎每篇开头一个)。
+ * 因此不做投影卡片、不做 hover 抬起、不加装饰引号图标——那是把静态
+ * 文本当可点击组件打扮。只做两件事:一道青色墨条 + 一层暖纸同族的
+ * 实色底(比页面纸深半档,像纸压过的痕),直角切边,印刷旁注的形态。
+ * 底色刻意不用品牌色 alpha 混合——青叠暖纸会发闷成灰绿。 */
+:root {
+  --article-quote-bg: #F3EDDF;
+  --article-quote-border: rgba(14, 138, 118, 0.55);
+  --article-quote-ink: #57503F;
+}
+
+.dark {
+  --article-quote-bg: #221D15;
+  --article-quote-border: rgba(58, 214, 184, 0.45);
+  --article-quote-ink: #B5AB96;
+}
+
+.vp-doc blockquote {
+  margin: 1.45em 0;
+  padding: 0.8em 1.1em;
+  border: 0;
+  border-left: 3px solid var(--article-quote-border);
+  border-radius: 0;
+  background: var(--article-quote-bg);
+  box-shadow: none;
+  color: var(--article-quote-ink);
+  font-size: 0.96em;
+  line-height: var(--doc-lh, 1.85);
+  overflow-wrap: anywhere;
+  transition: none;
+}
+
+.vp-doc blockquote > p {
+  margin: 0.5em 0;
+  font-size: inherit;
+  line-height: inherit;
+  transition: none;
+}
+
+.vp-doc blockquote > :first-child { margin-top: 0; }
+.vp-doc blockquote > :last-child { margin-bottom: 0; }
+
+/* 引用里的强调不要比正文更抢眼 */
+.vp-doc blockquote strong {
+  color: inherit;
+  font-weight: 650;
+}
+
+/* 嵌套引用:再退一档，只留细线 */
+.vp-doc blockquote blockquote {
+  margin: 0.8em 0;
+  padding: 0.15em 0 0.15em 0.9em;
+  border-left: 2px solid var(--vp-c-divider);
+  border-radius: 0;
+  background: none;
+  font-size: inherit;
+}
+
+/* 引用内的代码块回归中性底色，避免青上叠青 */
+.vp-doc blockquote div[class*='language-'] {
+  margin: 0.8em 0;
+  border-color: var(--vp-c-divider);
+  background: var(--vp-c-bg);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   章节导语（引言）
+
+   零语法负担：作者在页面标题下写一段引用，就得到导语。
+   导语不是旁注，所以刻意不用左侧色条与底色——那套语言留给正文中间的
+   旁注。这里改用略大的字号、略淡的墨色和一道短标记线，让读者在进入正文
+   前有一个"开篇停顿"。只认 h1 之后（页面级），h2/h3 下的引用仍是旁注，
+   否则长文里每节开头的引用都会被误当成导语。
+   ════════════════════════════════════════════════════════════════ */
+
+.vp-doc h1 + blockquote {
+  margin: 1.35em 0 2.3em;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--vp-c-text-2);
+  font-size: 1.075em;
+  line-height: 1.84;
+}
+
+.vp-doc h1 + blockquote::before {
+  display: block;
+  width: 34px;
+  height: 2px;
+  margin-bottom: 0.95em;
+  background: var(--vp-c-brand-1);
+  border-radius: 2px;
+  content: '';
+}
+
+.vp-doc h1 + blockquote > p {
+  margin: 0.6em 0;
+  line-height: inherit;
+}
+
+/* 导语里的强调回到主墨色：这是开篇，重点词该立得住 */
+.vp-doc h1 + blockquote strong {
+  color: var(--vp-c-text-1);
+  font-weight: 600;
+}
+
+/* 导语里嵌引用属于误用，退回普通旁注形态以免层层放大 */
+.vp-doc h1 + blockquote blockquote {
+  font-size: 0.93em;
+}
+
+@media (max-width: 639px) {
+  .vp-doc blockquote {
+    padding: 0.75em 0.95em;
+  }
+}
+
+@media print {
+  .vp-doc blockquote {
+    border-left-color: #c9bfa9;
+    background: none;
+    box-shadow: none;
+    color: inherit;
+    break-inside: auto;
+  }
+}
