@@ -4,6 +4,8 @@ helpers
 # Claude Code / AI 产物：目前全部不提交（含 CLAUDE.md 与整个 .claude/），稳定后再解除
 .claude/
 CLAUDE.md
+# .notes/ = 回溯档案与 v2 工作笔记（两仓关系档案、站材料包），本地查阅用
+.notes/
 
 # ============================================================
 # Python virtual environment & profiles
