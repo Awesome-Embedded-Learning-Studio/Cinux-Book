@@ -1,8 +1,0 @@
-/build/
-/build-*/
-*.o
-*.a
-*.ppm
-__pycache__/
-compile_commands.json
-.cache/

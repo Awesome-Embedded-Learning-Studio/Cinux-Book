@@ -54,8 +54,6 @@ export const PLATFORM_SET = new Set(PLATFORM_TAGS)
 
 const VOLUME_ORDER = [
   'primer',
-  ...Array.from({ length: 17 }, (_, i) => `book/${String(i + 1).padStart(2, '0')}`),
-  'labs',
   'reference',
   'notes',
   'debug-notes',
@@ -64,24 +62,6 @@ const VOLUME_ORDER = [
 
 const VOLUME_LABELS: Record<string, string> = {
   'primer': '前置知识',
-  'book/01-boot': '第 01 卷 · 引导扇区',
-  'book/02-mini-kernel': '第 02 卷 · 最小内核',
-  'book/03-big-kernel': '第 03 卷 · 大内核',
-  'book/04-developer': '第 04 卷 · 开发环境',
-  'book/05-memory': '第 05 卷 · 内存管理',
-  'book/06-process': '第 06 卷 · 进程管理',
-  'book/07-userland': '第 07 卷 · 用户态',
-  'book/08-filesystem': '第 08 卷 · 文件系统',
-  'book/09-gui': '第 09 卷 · 图形界面',
-  'book/10-multitasking': '第 10 卷 · 多任务',
-  'book/11-foundation': '第 11 卷 · 内核基础',
-  'book/12-storage': '第 12 卷 · 存储设备',
-  'book/13-memory-advanced': '第 13 卷 · 内存进阶',
-  'book/14-process-advanced': '第 14 卷 · 进程进阶',
-  'book/15-smp': '第 15 卷 · 多核',
-  'book/16-security': '第 16 卷 · 安全',
-  'book/17-net': '第 17 卷 · 网络',
-  'labs': '动手实验',
   'reference': '参考手册',
   'notes': '开发笔记',
   'debug-notes': '排错笔记',

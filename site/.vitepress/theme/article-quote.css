@@ -9,12 +9,16 @@
   --article-quote-bg: #F3EDDF;
   --article-quote-border: rgba(14, 138, 118, 0.55);
   --article-quote-ink: #57503F;
+  --article-quote-shadow: 0 2px 6px rgb(64 53 36 / 4%);
+  --article-quote-hover-shadow: 0 7px 18px -9px rgb(64 53 36 / 17%);
 }
 
 .dark {
   --article-quote-bg: #221D15;
   --article-quote-border: rgba(58, 214, 184, 0.45);
   --article-quote-ink: #B5AB96;
+  --article-quote-shadow: 0 2px 7px rgb(0 0 0 / 13%);
+  --article-quote-hover-shadow: 0 8px 20px -9px rgb(0 0 0 / 38%);
 }
 
 .vp-doc blockquote {
@@ -24,12 +28,12 @@
   border-left: 3px solid var(--article-quote-border);
   border-radius: 0;
   background: var(--article-quote-bg);
-  box-shadow: none;
+  box-shadow: var(--article-quote-shadow);
   color: var(--article-quote-ink);
   font-size: 0.96em;
   line-height: var(--doc-lh, 1.85);
   overflow-wrap: anywhere;
-  transition: none;
+  transition: color 0.18s ease;
 }
 
 .vp-doc blockquote > p {
@@ -55,6 +59,7 @@
   border-left: 2px solid var(--vp-c-divider);
   border-radius: 0;
   background: none;
+  box-shadow: none;
   font-size: inherit;
 }
 
@@ -81,6 +86,7 @@
   border: 0;
   border-radius: 0;
   background: none;
+  box-shadow: none;
   color: var(--vp-c-text-2);
   font-size: 1.075em;
   line-height: 1.84;
@@ -110,6 +116,17 @@
 /* 导语里嵌引用属于误用，退回普通旁注形态以免层层放大 */
 .vp-doc h1 + blockquote blockquote {
   font-size: 0.93em;
+}
+
+@media screen and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .vp-doc blockquote:not(blockquote *, h1 + blockquote) {
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+  }
+
+  .vp-doc blockquote:not(blockquote *, h1 + blockquote):hover {
+    transform: translateY(-1px);
+    box-shadow: var(--article-quote-hover-shadow);
+  }
 }
 
 @media (max-width: 639px) {

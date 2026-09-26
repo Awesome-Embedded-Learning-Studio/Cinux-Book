@@ -1,53 +1,90 @@
 ---
-# Cinux clang-tidy configuration (F-INFRA I-8).
-#
-# Curated allowlist for a freestanding C++17 kernel: high-signal checks only.
-# Hosted/RTTI/exception/STL-library assumptions are DISABLED (the kernel is
-# freestanding with no <vector>/<memory>/exceptions/RTTI). Cinux-Base library
-# headers (libs/base, in-tree) are excluded via HeaderFilterRegex (they are already -Wpedantic -Werror).
-#
-# Run locally:
-#   run-clang-tidy -p build -j$(nproc)
-# compile_commands.json is exported by CMake (CMAKE_EXPORT_COMPILE_COMMANDS ON);
-# clang-tidy reuses the GCC build commands. This is ADVISORY ONLY -- NOT a
-# blocking CI gate: clang-tidy version skew (local 22 vs CI runners) already
-# forced the clang-format CI off; a blocking gate waits on a pinned LLVM apt
-# version. See document/notes/2026-06-19-finfra-8-clang-tidy.md.
-
 Checks:
-  - '-*'
-  - 'clang-analyzer-core.*'            # null deref, stack-address-escape, call-and-message
-  - 'clang-analyzer-cplusplus.NewDelete'
-  - 'bugprone-narrowing-conversions'   # implicit narrowing (uint64 -> uint32)
-  - 'bugprone-suspicious-enum-usage'
-  - 'bugprone-sizeof-expression'       # sizeof(pointer), sizeof in arithmetic
-  - 'bugprone-integer-division'        # unintended int division in float context
-  - 'bugprone-unused-raii'             # discarded lock temporaries
-  - 'bugprone-bool-pointer-implicit-conversion'
-  - 'cppcoreguidelines-pro-type-cstyle-cast'  # complements -Wold-style-cast in headers
-  - 'cppcoreguidelines-slicing'        # object slicing through value semantics
-  - 'modernize-use-nullptr'            # NULL / 0 -> nullptr
-  - 'modernize-use-override'           # missing `override`
-  - 'modernize-use-using'              # typedef -> using
-  - 'modernize-loop-convert'           # index loops -> range-for where safe
-  - 'readability-function-size'
-  - 'readability-redundant-*'
-  - 'readability-simplify-boolean-expr'
-# Deliberately DISABLED (hosted/library/RTTI/exception assumptions a freestanding
-# kernel violates, or pure noise):
-#   modernize-deprecated-headers  -- kernel uses C headers (<stddef.h>) by convention
-#   hicpp-*, google-*, cert-err61-cpp, bugprone-exception-escape
-#   cppcoreguidelines-{avoid-c-arrays,no-malloc,pro-bounds-*,owning-memory,init-variables}
-#   alpha.webkit.NoUncountedMemberChecker -- no WebKit refcounted types
+  - 'bugprone-*'
+  - 'clang-analyzer-*'
+  - 'clang-diagnostic-*'
+  - 'misc-*'
+  - 'modernize-*'
+  - 'performance-*'
+  - 'portability-*'
+  - 'readability-*'
+  - 'cppcoreguidelines-pro-type-member-init'
+  - '-bugprone-easily-swappable-parameters'
+  - '-readability-magic-numbers'
+  - '-readability-use-anyofallof'
+  - '-misc-non-private-member-variables-in-classes'
+  - '-misc-no-recursion'
+  - '-modernize-avoid-c-arrays'
+  - '-modernize-avoid-variadic-functions'
+  - '-modernize-use-trailing-return-type'
+  - '-modernize-deprecated-headers'
+  - '-clang-diagnostic-unknown-warning-option'
+  - '-portability-avoid-pragma-once'
 
-WarningsAsErrors: ''
+WarningsAsErrors: '*'
 
-HeaderFilterRegex: '^kernel/(arch|drivers|fs|ipc|lib|mm|proc|syscall|gui)/'
+HeaderFilterRegex: '.*/(base|test|kernel|libs|boot|user)/.*\.h(pp)?$'
 
 FormatStyle: file
 
 CheckOptions:
-  - key:   readability-function-size.LineThreshold
-    value: '120'
-  - key:   readability-function-size.StatementThreshold
-    value: '80'
+  - key: readability-identifier-naming.TypeCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConceptCase
+    value: CamelCase
+  - key: readability-identifier-naming.TemplateParameterCase
+    value: CamelCase
+  - key: readability-identifier-naming.ScopedEnumConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.ScopedEnumConstantPrefix
+    value: 'k'
+  - key: readability-identifier-naming.EnumConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.ConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConstantPrefix
+    value: 'k'
+  - key: readability-identifier-naming.StaticConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.StaticConstantPrefix
+    value: 'k'
+  - key: readability-identifier-naming.GlobalVariableCase
+    value: lower_case
+  - key: readability-identifier-naming.GlobalVariablePrefix
+    value: 'g_'
+  - key: readability-identifier-naming.MemberCase
+    value: lower_case
+  - key: readability-identifier-naming.PublicMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: '_'
+  - key: readability-identifier-naming.ProtectedMemberSuffix
+    value: '_'
+  - key: readability-identifier-naming.FunctionCase
+    value: lower_case
+  - key: readability-identifier-naming.GlobalFunctionCase
+    value: CamelCase
+  - key: readability-identifier-naming.StaticFunctionCase
+    value: lower_case
+  - key: readability-identifier-naming.MethodCase
+    value: lower_case
+  - key: readability-identifier-naming.ClassMethodCase
+    value: lower_case
+  - key: readability-identifier-naming.ParameterCase
+    value: lower_case
+  - key: readability-identifier-naming.LocalVariableCase
+    value: lower_case
+  - key: readability-identifier-naming.LocalConstantPrefix
+    value: 'k'
+  - key: readability-identifier-naming.LocalConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE
+  - key: readability-implicit-bool-conversion.AllowPointerConditions
+    value: true
+  - key: readability-identifier-length.IgnoredVariableNames
+    value: '^(i|j|k)$'
+  - key: readability-function-size.ParameterThreshold
+    value: '4'

@@ -9,21 +9,21 @@
 import { withBase } from 'vitepress'
 
 const secondary = [
-  { title: '实验册', note: '手算、补全、复现，109 篇动手任务', href: '/labs/' },
   { title: '排错笔记', note: '真实内核故障的定位与收敛过程', href: '/debug-notes/' },
   { title: '参考手册', note: '寄存器、接口与边界速查', href: '/reference/' },
+  { title: '开发流程', note: 'CI 矩阵与工程约定', href: '/ci/' },
 ]
 </script>
 
 <template>
   <section class="entry">
-    <a class="entry__main" :href="withBase('/book/')">
+    <a class="entry__main" :href="withBase('/primer/')">
       <span class="entry__main-top">
-        <span class="entry__tag">主线</span>
-        <span class="entry__count">17 卷 · 从 0x7C00 起</span>
+        <span class="entry__tag">前置卷</span>
+        <span class="entry__count">工具链 · 编译 · 调试</span>
       </span>
-      <strong>跟着源码，把一台机器从头建起来</strong>
-      <p>每一卷对应一个可运行的源码阶段：先讲清为什么需要它，再看关键实现，最后是真实踩坑与验证方式。</p>
+      <strong>先把武器磨好，再一起从零重走</strong>
+      <p>主线正在重写：跟着真实的开发史把一台机器从头建起来。动工之前，先在前置卷把工具链与调试环境备齐。</p>
       <span class="entry__go">开始阅读<i aria-hidden="true">→</i></span>
     </a>
 
@@ -36,6 +36,16 @@ const secondary = [
         <span class="entry__item-note">{{ item.note }}</span>
       </a>
     </div>
+
+    <a class="entry__journey" :href="withBase('/journey/00-armory/')">
+      <span class="entry__main-top">
+        <span class="entry__tag">教程</span>
+        <span class="entry__count">第一站 · 武器库</span>
+      </span>
+      <strong>在写第一行内核代码之前,先把武器备齐</strong>
+      <p>错误处理、格式引擎、断言、测试框架,第一站咱们把这四件趁手工具造出来,后面照着真实的开发史一站一站往下走。</p>
+      <span class="entry__go">开始读<i aria-hidden="true">→</i></span>
+    </a>
   </section>
 </template>
 
@@ -148,6 +158,44 @@ const secondary = [
   line-height: 1.5;
   text-overflow: ellipsis;
 }
+
+.entry__journey {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 24px;
+  padding: 18px 26px;
+  color: inherit;
+  background: var(--vp-c-bg-alt);
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 14px;
+  text-decoration: none;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.entry__journey:hover {
+  border-color: color-mix(in srgb, var(--vp-c-brand-1) 50%, var(--vp-c-divider));
+  background: var(--vp-c-bg-elv);
+}
+.entry__journey .entry__main-top { flex-shrink: 0; }
+.entry__journey strong {
+  flex-shrink: 0;
+  margin: 0;
+  color: var(--vp-c-text-1);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.entry__journey p {
+  flex: 1;
+  min-width: 240px;
+  margin: 0;
+  color: var(--vp-c-text-2);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.entry__journey .entry__go { flex-shrink: 0; margin-top: 0; }
+.entry__journey:hover .entry__go i { transform: translateX(4px); }
 
 @media (max-width: 900px) {
   .entry { grid-template-columns: 1fr; padding-top: 48px; }

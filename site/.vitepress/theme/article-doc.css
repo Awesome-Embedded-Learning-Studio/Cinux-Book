@@ -6,8 +6,8 @@
       VitePress 默认把 p 的 line-height 写成固定 28px，且特异性高于
       .vp-doc，导致字号切换器调大字号后行高不变(20px 字 / 28px 行 = 1.4，
       中文会挤死)。这里统一改成比例，字号档位才真正可用。
-   2. 正文保持"纸面"：语义区分靠留白、字重与左侧色条，不靠投影和悬浮位移。
-      代码/引用/图表的卡片化与 hover 抬起在长文里会不断抢注意力。
+   2. 正文保持"纸面"：语义区分主要靠留白、字重与左侧色条；结构块只使用
+      纸张级浅投影与 1px hover 位移，提供反馈但不抢阅读注意力。
    3. 标题层级要能在不读文字时就被看出来：h2 断章、h3 分节、h4 归组。
    ════════════════════════════════════════════════════════════════ */
 
@@ -205,6 +205,44 @@
   text-align: left;
 }
 
+/* 顶层列表是一张很薄的便笺；嵌套列表仍保持纯文本，避免层层套卡。 */
+.vp-doc > ul,
+.vp-doc > ol {
+  padding-top: 0.72em;
+  padding-right: 1em;
+  padding-bottom: 0.72em;
+  border: 1px solid color-mix(in srgb, var(--vp-c-divider) 70%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--vp-c-bg-alt) 45%, transparent);
+  box-shadow: 0 2px 6px rgb(64 53 36 / 3%);
+}
+
+@media screen and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .vp-doc > ul,
+  .vp-doc > ol {
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  }
+
+  .vp-doc > ul:hover,
+  .vp-doc > ol:hover {
+    transform: translateY(-1px);
+    border-color: color-mix(in srgb, var(--vp-c-brand-1) 20%, var(--vp-c-divider));
+    box-shadow: 0 7px 18px -10px rgb(64 53 36 / 16%);
+  }
+}
+
+.dark .vp-doc > ul,
+.dark .vp-doc > ol {
+  box-shadow: 0 2px 7px rgb(0 0 0 / 12%);
+}
+
+@media screen and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .dark .vp-doc > ul:hover,
+  .dark .vp-doc > ol:hover {
+    box-shadow: 0 8px 20px -10px rgb(0 0 0 / 38%);
+  }
+}
+
 /* 段落化的长列表项(li 内含 p)不要被压成紧排;
    首段必须贴顶,否则自绘标记对不齐第一行文字 */
 .vp-doc li > p {
@@ -287,7 +325,10 @@
 .vp-doc .doc-table__scroll {
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  border-bottom: 1px solid var(--doc-rule);
+  border: 1px solid var(--doc-rule);
+  border-radius: 10px;
+  background: var(--vp-c-bg);
+  box-shadow: 0 2px 6px rgb(64 53 36 / 4%);
 }
 
 .vp-doc .doc-table__scroll:focus-visible {
@@ -339,6 +380,35 @@
 
 /* 最后一行的线交给 __scroll 的下边框，避免滚动时线跟着飘 */
 .vp-doc tbody tr:last-child td { border-bottom: 0; }
+
+@media screen and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .vp-doc .doc-table {
+    transition: transform 0.18s ease;
+  }
+
+  .vp-doc .doc-table__scroll {
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  }
+
+  .vp-doc .doc-table:hover {
+    transform: translateY(-1px);
+  }
+
+  .vp-doc .doc-table:hover .doc-table__scroll {
+    border-color: color-mix(in srgb, var(--vp-c-brand-1) 20%, var(--doc-rule));
+    box-shadow: 0 7px 18px -10px rgb(64 53 36 / 17%);
+  }
+}
+
+.dark .vp-doc .doc-table__scroll {
+  box-shadow: 0 2px 7px rgb(0 0 0 / 13%);
+}
+
+@media screen and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .dark .vp-doc .doc-table:hover .doc-table__scroll {
+    box-shadow: 0 8px 20px -10px rgb(0 0 0 / 40%);
+  }
+}
 
 /* 表格里的行内代码不要再套一层框，避免密集单元格糊成一片 */
 .vp-doc td :not(pre) > code,

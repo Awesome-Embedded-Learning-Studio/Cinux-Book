@@ -34,7 +34,7 @@ const VUE_COMPONENTS = new Set([
   // VitePress 内置
   'Badge',
   // theme/index.ts enhanceApp 中注册
-  'ChapterNav', 'ChapterLink',
+  'ChapterNav', 'ChapterLink', 'JourneyRoadmap', 'StationPanel',
   'TagExplorer', 'DocTags',
   'ReferenceCard', 'ReferenceItem', 'RefLink',
   'CheckpointProblem', 'CheckpointList', 'QuizProgressBackup',
