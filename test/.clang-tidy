@@ -1,0 +1,2 @@
+Checks: '-misc-use-anonymous-namespace'
+InheritParentConfig: true

@@ -1,9 +1,11 @@
 /build*/
 .cache
 helpers
-# Claude Code / AI 产物：目前全部不提交（含 CLAUDE.md 与整个 .claude/），稳定后再解除
 .claude/
 CLAUDE.md
+meta/
+.notes/
+FAILED_DOXYGEN.md
 
 # ============================================================
 # Python virtual environment & profiles
@@ -19,8 +21,6 @@ Makefile
 *.cmake
 !cmake/*.cmake
 
-# TODO: 忽略编译产物
-#   模式: *.o, *.a, *.so, *.elf, *.bin, *.img
 *.o
 *.a
 *.so
@@ -29,12 +29,7 @@ Makefile
 *.img
 !test/data/ext2_test.img
 
-# ============================================================
-# 磁盘镜像
-# ============================================================
-
-# TODO: 忽略生成的磁盘镜像
-#   模式: build/*.img, cinux.img
+# cinux 的编译产物
 cinux.img
 
 # ============================================================

@@ -11,7 +11,8 @@ import './tags.css'
 
 // Cinux 原有组件
 import DocNavCards from './components/DocNavCards.vue'
-import ScreenshotCarousel from './components/ScreenshotCarousel.vue'
+// v2 重走:轮播/卷地图暂离首页(见 home-features 挂载点注释),组件保留待改造
+// import ScreenshotCarousel from './components/ScreenshotCarousel.vue'
 import HomeLaunchpad from './components/HomeLaunchpad.vue'
 // 对齐移植:阅读体验
 import FontSizeSwitcher from './components/FontSizeSwitcher.vue'
@@ -21,8 +22,11 @@ import ResizableSidebar from './components/ResizableSidebar.vue'
 import MediaLightbox from './components/MediaLightbox.vue'
 // 对齐移植:首页
 import HomeHeroVisual from './components/HomeHeroVisual.vue'
-import ProofStrip from './components/ProofStrip.vue'
 import HomePathExplorer from './components/HomePathExplorer.vue'
+import ChapterNav from './components/ChapterNav.vue'
+import ChapterLink from './components/ChapterLink.vue'
+import JourneyRoadmap from './components/JourneyRoadmap.vue'
+import StationPanel from './components/StationPanel.vue'
 // 对齐移植:内容系统
 import DocTags from './components/DocTags.vue'
 import { setupMermaid } from './mermaid-client'
@@ -45,13 +49,11 @@ export default {
       'doc-after': () => h(DocNavCards),
       // 首页 hero 右侧视觉
       'home-hero-image': () => h(HomeHeroVisual),
-      // hero 下方:课程属性条
-      'home-hero-after': () => h(ProofStrip),
-      // 首页正文:入口控制台 → 实机画面 → 17 卷成长路线。
+      // 首页正文:入口控制台 + 可拖拽、可缩放的系统构建路线。
       // 默认 VPFeatures 隐藏,避免同一批入口被重复展示。
       'home-features-before': () => [
         h(HomeLaunchpad),
-        h(ScreenshotCarousel),
+        // h(ScreenshotCarousel),
       ],
       'home-features-after': () => h(HomePathExplorer),
       // 字号切换器:桌面顶栏 + 移动端抽屉各一份
@@ -69,8 +71,10 @@ export default {
   enhanceApp({ app }) {
     // md 正文中可全局使用的组件(escape-cpp-templates 的 VUE_COMPONENTS
     // 白名单与之保持同步)
-    app.component('ChapterNav', () => import('./components/ChapterNav.vue'))
-    app.component('ChapterLink', () => import('./components/ChapterLink.vue'))
+    app.component('ChapterNav', ChapterNav)
+    app.component('ChapterLink', ChapterLink)
+    app.component('JourneyRoadmap', JourneyRoadmap)
+    app.component('StationPanel', StationPanel)
     app.component('TagExplorer', () => import('./components/TagExplorer.vue'))
     app.component('ReferenceCard', () => import('./components/ReferenceCard.vue'))
     app.component('ReferenceItem', () => import('./components/ReferenceItem.vue'))

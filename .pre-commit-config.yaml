@@ -1,0 +1,20 @@
+repos:
+  - repo: local
+    hooks:
+      - id: clang-format
+        name: clang-format (auto-fix)
+        entry: clang-format -i
+        language: system
+        files: '\.(c|h|hpp|cpp|cc|cxx|hxx)$'
+      - id: doxygen-lint
+        name: doxygen lint (staged headers)
+        entry: python3 scripts/doxygen/lint.py --files
+        language: system
+        files: '\.(h|hpp)$'
+        exclude: '^test/'
+      - id: clang-tidy
+        name: clang-tidy (staged, requires build/)
+        entry: bash scripts/hooks/clang-tidy.sh
+        language: system
+        files: '\.(c|h|hpp|cpp|cc|cxx|hxx)$'
+        exclude: '^test/tools/'

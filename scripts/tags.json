@@ -1,6 +1,6 @@
 {
   "difficulty_tags": ["beginner", "intermediate", "advanced"],
-  "platform_tags": ["qemu", "wsl", "real-machine", "bochs"],
+  "platform_tags": ["host", "qemu", "wsl", "real-machine", "bochs"],
   "topic_categories": [
     {
       "key": "boot",

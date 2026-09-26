@@ -17,9 +17,8 @@ export default defineProject({
   nav: {
     'zh-CN': [
       { text: '首页', link: '/' },
+      { text: '教程', link: '/journey/' },
       { text: '前置卷', link: '/primer/' },
-      { text: '主书', link: '/book/' },
-      { text: '实验册', link: '/labs/' },
       {
         text: '参考',
         items: [
@@ -35,9 +34,8 @@ export default defineProject({
 
   sidebar: {
     volumes: [
+      { name: 'journey', srcDir: 'journey', urlPrefix: '/journey' },
       { name: 'primer', srcDir: 'primer', urlPrefix: '/primer' },
-      { name: 'book', srcDir: 'book', urlPrefix: '/book' },
-      { name: 'labs', srcDir: 'labs', urlPrefix: '/labs' },
       { name: 'reference', srcDir: 'reference', urlPrefix: '/reference' },
       { name: 'debug-notes', srcDir: 'debug-notes', urlPrefix: '/debug-notes' },
       { name: 'notes', srcDir: 'notes', urlPrefix: '/notes' },

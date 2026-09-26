@@ -45,7 +45,7 @@
 
     <footer class="boot-board__foot">
       <span>target: x86_64</span>
-      <span>lang: C++17</span>
+      <span>lang: C++23</span>
       <span>machine: QEMU</span>
     </footer>
   </div>

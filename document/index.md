@@ -1,21 +1,24 @@
 ---
 layout: home
 title: Cinux · 从零构建 64 位操作系统
-description: 跟随可运行的 C++17 源码，从引导扇区一路构建到多终端桌面与网络栈。
+description: 跟着真实开发史学操作系统——一次带着全部后见之明的从零重走。
 
 hero:
   name: "Cinux"
   text: "从一条指令，到一套系统"
-  tagline: 跟随可运行的 C++17 源码，把 Bootloader、内存、进程、文件系统、桌面和网络真正连起来
+  tagline: 主线正在重写：跟着真实的开发史——每一次返工——把 Bootloader、内存、进程、文件系统、桌面和网络亲手连起来
   actions:
     - theme: brand
-      text: 从第 01 卷开始
-      link: /book/01-boot/
+      text: 从第一站开始
+      link: /journey/
     - theme: alt
-      text: 查看 17 卷路线
-      link: /#roadmap
+      text: 前置卷
+      link: /primer/
     - theme: alt
-      text: 进入实验册
-      link: /labs/
+      text: 排错笔记
+      link: /debug-notes/
+    - theme: alt
+      text: 参考手册
+      link: /reference/
 
 ---
