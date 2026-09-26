@@ -326,43 +326,6 @@ body.rs-resizing { cursor: col-resize !important; user-select: none !important; 
    真实类名(.mermaid-diagram / .mermaid-lightbox__*)对不上,是一整段死样式。 */
 
 /* ════════════════════════════════════════════════════════════════
-   代码折叠(code-fold-plugin)
-   ════════════════════════════════════════════════════════════════ */
-
-.vp-code-fold {
-  --symbol-color: #0e8a76;
-  --fold-line-color: #e2d8c3;
-  --fold-bg: rgba(14, 138, 118, 0.05);
-  color: var(--vp-c-text-2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  padding: 7px 10px;
-  font-size: 13px;
-  line-height: 1;
-  text-align: center;
-  cursor: pointer;
-  background: linear-gradient(to bottom, transparent, var(--fold-bg));
-  border: none;
-  border-top: 1px dashed var(--fold-line-color);
-}
-.dark .vp-code-fold { --symbol-color: #3ad6b8; --fold-line-color: #3B3428; }
-
-.vp-code-fold:hover { background: var(--fold-bg); }
-.vp-code-fold::after { content: ''; }
-.vp-code-fold .fold-symbol {
-  transition: transform 0.15s ease;
-  display: inline-block;
-  font-size: 11px;
-}
-.vp-code-fold.fold-expanded .fold-symbol { transform: rotate(90deg); }
-.vp-code-fold .fold-text {
-  color: var(--vp-c-text-2);
-}
-
-/* ════════════════════════════════════════════════════════════════
    贡献者卡片(Cinux 原有)
    ════════════════════════════════════════════════════════════════ */
 
