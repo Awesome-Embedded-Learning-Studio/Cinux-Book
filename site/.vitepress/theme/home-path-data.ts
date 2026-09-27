@@ -69,21 +69,21 @@ export const HOME_PATH_NODES: PathNode[] = [
   },
   {
     id: 'toolchain', name: { cn: '工具链', en: 'Toolchain' },
-    sub: { cn: '编译 · 链接 · QEMU', en: 'Build · link · QEMU' },
+    sub: { cn: '编译 · 链接 · 裸镜像', en: 'Build · link · image' },
     x: 250, y: 206, w: 170, h: 58, kind: 'proj', status: 'done', tier: 'core',
     href: '/primer/01-toolchain/', badge: 'P1',
   },
   {
     id: 'assembly', name: { cn: '汇编基础', en: 'Assembly' },
-    sub: { cn: 'GAS · 寻址 · 系统指令', en: 'GAS · addressing' },
+    sub: { cn: 'GAS · AT&T 最小集', en: 'GAS · AT&T basics' },
     x: 545, y: 206, w: 170, h: 58, kind: 'proj', status: 'done', tier: 'core',
     href: '/primer/02-assembly/', badge: 'P2',
   },
   {
-    id: 'cpp', name: { cn: '受约束的 C++', en: 'Freestanding C++' },
-    sub: { cn: 'C 核心 · freestanding', en: 'C core · freestanding' },
-    x: 840, y: 206, w: 180, h: 58, kind: 'proj', status: 'done', tier: 'core',
-    href: '/primer/03-cpp/', badge: 'P3',
+    id: 'cpp', name: { cn: 'C 与现代 C++', en: 'C & Modern C++' },
+    sub: { cn: '重铸中', en: 'Re-casting' },
+    x: 840, y: 206, w: 180, h: 58, kind: 'proj', status: 'doing', tier: 'core',
+    href: '/primer/', badge: 'P3',
   },
   {
     id: 'tamcpp', name: { cn: '现代 C++ 补给站', en: 'Modern C++' },
