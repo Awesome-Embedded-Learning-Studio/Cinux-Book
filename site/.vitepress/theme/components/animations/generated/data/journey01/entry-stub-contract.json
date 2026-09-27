@@ -1,0 +1,554 @@
+{
+ "version": 1,
+ "id": "entry-stub-contract",
+ "title": "call 之前，先把世界铺好",
+ "subtitle": "入口桩的顺序就是 C++ 在实模式里的生存条件",
+ "source": "projects/journey-01-mbr/02-dsl/entry-stub-contract.yaml",
+ "backend": "web",
+ "template": "process_flow",
+ "frame": {
+  "w": 14.2222,
+  "h": 8.0
+ },
+ "palette": {
+  "bg": "#111521",
+  "bgRaised": "#171D2D",
+  "text": "#F4F6FB",
+  "muted": "#98A2B8",
+  "fill": "#66D9EF",
+  "fillEdge": "#2E9DC2",
+  "emptyEdge": "#43506A",
+  "grow": "#FFB86C",
+  "numOnFill": "#0B1E27",
+  "ok": "#72D49A",
+  "bad": "#FF6B7A",
+  "cardBg": "#1B2234"
+ },
+ "actors": {
+  "title": {
+   "kind": "text",
+   "text": "call 之前，先把世界铺好",
+   "x": 0.0,
+   "y": 3.4324,
+   "fs": 0.32,
+   "color": "#F4F6FB",
+   "mono": false,
+   "anchor": "middle",
+   "w": 4.7936,
+   "h": 0.4352
+  },
+  "sub": {
+   "kind": "text",
+   "text": "入口桩的顺序就是 C++ 在实模式里的生存条件",
+   "x": 0.0,
+   "y": 2.8988,
+   "fs": 0.2,
+   "color": "#98A2B8",
+   "mono": false,
+   "anchor": "middle",
+   "w": 5.372,
+   "h": 0.272
+  },
+  "show:handoff": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "muted",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.848,
+   "w": 2.7736,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "BIOS 交棒",
+     "w": 1.188
+    },
+    {
+     "text": "CS 不定·栈未知",
+     "w": 1.848
+    }
+   ],
+   "cx": -5.25,
+   "cy": 1.05
+  },
+  "show:edge_1": {
+   "kind": "arrow",
+   "x1": -3.6832,
+   "y1": 1.05,
+   "x2": -2.9868,
+   "y2": 1.05,
+   "cx": -3.335,
+   "cy": 1.05,
+   "w": 0.6964,
+   "h": 0.0,
+   "label": {
+    "text": "先定代码段",
+    "x": -3.335,
+    "y": 1.4024,
+    "fs": 0.18,
+    "color": "#98A2B8",
+    "mono": false,
+    "anchor": "middle",
+    "w": 1.188,
+    "h": 0.2448
+   }
+  },
+  "show:normalize": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "accent",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.188,
+   "w": 2.1136,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "ljmp 归一",
+     "w": 1.188
+    },
+    {
+     "text": "CS = 0",
+     "w": 0.792
+    }
+   ],
+   "cx": -1.75,
+   "cy": 1.05
+  },
+  "show:edge_2": {
+   "kind": "arrow",
+   "x1": -0.5132,
+   "y1": 1.05,
+   "x2": 0.4472,
+   "y2": 1.05,
+   "cx": -0.033,
+   "cy": 1.05,
+   "w": 0.9604,
+   "h": 0.0,
+   "label": {
+    "text": "再定数据段",
+    "x": -0.033,
+    "y": 1.4024,
+    "fs": 0.18,
+    "color": "#98A2B8",
+    "mono": false,
+    "anchor": "middle",
+    "w": 1.188,
+    "h": 0.2448
+   }
+  },
+  "show:segments": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "default",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.32,
+   "w": 2.2456,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "铺平地址",
+     "w": 1.056
+    },
+    {
+     "text": "DS=ES=SS=0",
+     "w": 1.32
+    }
+   ],
+   "cx": 1.75,
+   "cy": 1.05
+  },
+  "show:edge_3": {
+   "kind": "arrow",
+   "x1": 3.0528,
+   "y1": 1.05,
+   "x2": 3.6172,
+   "y2": 1.05,
+   "cx": 3.335,
+   "cy": 1.05,
+   "w": 0.5644,
+   "h": 0.0,
+   "label": {
+    "text": "栈与盘号就绪",
+    "x": 3.335,
+    "y": 1.4024,
+    "fs": 0.18,
+    "color": "#98A2B8",
+    "mono": false,
+    "anchor": "middle",
+    "w": 1.4256,
+    "h": 0.2448
+   }
+  },
+  "show:stack": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "default",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.98,
+   "w": 2.9056,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "立栈存档",
+     "w": 1.056
+    },
+    {
+     "text": "SP=7C00·保存 DL",
+     "w": 1.98
+    }
+   ],
+   "cx": 5.25,
+   "cy": 1.05
+  },
+  "show:edge_4": {
+   "kind": "arrow",
+   "x1": 5.25,
+   "y1": 0.242,
+   "x2": 5.25,
+   "y2": -0.742,
+   "cx": 5.25,
+   "cy": -0.25,
+   "w": 0.0,
+   "h": 0.984,
+   "label": {
+    "text": "进入 C++",
+    "x": 4.6392,
+    "y": -0.25,
+    "fs": 0.18,
+    "color": "#98A2B8",
+    "mono": false,
+    "anchor": "middle",
+    "w": 0.9216,
+    "h": 0.2448
+   }
+  },
+  "show:enter": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "success",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.848,
+   "w": 2.7736,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "call MbrMain",
+     "w": 1.584
+    },
+    {
+     "text": "C++ 此刻才开门",
+     "w": 1.848
+    }
+   ],
+   "cx": 5.25,
+   "cy": -1.55
+  },
+  "concl:0": {
+   "kind": "text",
+   "text": "call 不是准备工作的起点，而是准备完成的终点",
+   "x": 0.0,
+   "y": 0.0882,
+   "fs": 0.24,
+   "color": "#FFB86C",
+   "mono": false,
+   "anchor": "middle",
+   "w": 6.7632,
+   "h": 0.3264
+  },
+  "concl:1": {
+   "kind": "text",
+   "text": "设段 → 立栈 → 存盘号 → 进入 C++",
+   "x": 0.0,
+   "y": -0.4882,
+   "fs": 0.24,
+   "color": "#F4F6FB",
+   "mono": false,
+   "anchor": "middle",
+   "w": 5.2896,
+   "h": 0.3264
+  }
+ },
+ "steps": [
+  {
+   "kind": "intro",
+   "label": "开场",
+   "note": "",
+   "duration": 3.03,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "write",
+     "target": "title",
+     "t": 0.0,
+     "dur": 2.03
+    },
+    {
+     "type": "fadein",
+     "target": "sub",
+     "t": 2.03,
+     "dur": 0.5
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show handoff",
+   "note": "",
+   "duration": 1.83,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:handoff",
+     "cx": 0.0,
+     "cy": 0.4,
+     "t": 0.0,
+     "dur": 1.83
+    }
+   ]
+  },
+  {
+   "kind": "move",
+   "label": "move handoff",
+   "note": "to [-5.25, 1.05]",
+   "duration": 0.5,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "move",
+     "target": "show:handoff",
+     "frm": [
+      0.0,
+      0.4
+     ],
+     "to": [
+      -5.25,
+      1.05
+     ],
+     "t": 0.0,
+     "dur": 0.5
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show edge_1",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:edge_1",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show normalize",
+   "note": "",
+   "duration": 1.59,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:normalize",
+     "cx": -1.75,
+     "cy": 1.05,
+     "t": 0.0,
+     "dur": 1.59
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show edge_2",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:edge_2",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show segments",
+   "note": "",
+   "duration": 1.95,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:segments",
+     "cx": 1.75,
+     "cy": 1.05,
+     "t": 0.0,
+     "dur": 1.95
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show edge_3",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:edge_3",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show stack",
+   "note": "",
+   "duration": 2.31,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:stack",
+     "cx": 5.25,
+     "cy": 1.05,
+     "t": 0.0,
+     "dur": 2.31
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show edge_4",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:edge_4",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show enter",
+   "note": "",
+   "duration": 2.19,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:enter",
+     "cx": 5.25,
+     "cy": -1.55,
+     "t": 0.0,
+     "dur": 2.19
+    }
+   ]
+  },
+  {
+   "kind": "wait",
+   "label": "停顿",
+   "note": "0.5s",
+   "duration": 0.5,
+   "speed": 1.0,
+   "events": []
+  },
+  {
+   "kind": "conclude",
+   "label": "结论",
+   "note": "压轴结论墙",
+   "duration": 14.05,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "fadeout",
+     "target": "show:handoff",
+     "t": 0.0,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:edge_1",
+     "t": 0.3,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:normalize",
+     "t": 0.6,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:edge_2",
+     "t": 0.9,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:segments",
+     "t": 1.2,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:edge_3",
+     "t": 1.5,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:stack",
+     "t": 1.8,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:edge_4",
+     "t": 2.1,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:enter",
+     "t": 2.4,
+     "dur": 0.3
+    },
+    {
+     "type": "write",
+     "target": "concl:0",
+     "t": 2.7,
+     "dur": 2.4
+    },
+    {
+     "type": "write",
+     "target": "concl:1",
+     "t": 5.45,
+     "dur": 2.4
+    }
+   ]
+  }
+ ]
+}

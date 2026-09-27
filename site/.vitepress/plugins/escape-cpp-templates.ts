@@ -32,7 +32,9 @@ const HTML_TAGS = new Set([
 // 组件，一旦有人在 md 里写出来就会变成未知标签而非被转义的文本。
 const VUE_COMPONENTS = new Set([
   // VitePress 内置
-  'Badge',
+  'Badge', 'ClientOnly',
+  // @dhlx/vitepress-plugin-drawio 注入
+  'DrawioViewer',
   // theme/index.ts enhanceApp 中注册
   'ChapterNav', 'ChapterLink', 'JourneyRoadmap', 'StationPanel',
   'TagExplorer', 'DocTags',

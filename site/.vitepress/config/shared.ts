@@ -1,4 +1,5 @@
 import type { PageData } from 'vitepress'
+import withDrawio from '@dhlx/vitepress-plugin-drawio'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -9,6 +10,20 @@ import { articleCodeThemes } from './article-code-theme'
 import { getGitTimestampMs } from './git-timestamp'
 import { applyTagsPageData } from './tags-manifest'
 import { buildDocSequence, type DocNavEntry } from './sidebar'
+
+// drawio 保持为唯一源文件：构建时按静态资产收录，页面由 diagrams.net viewer
+// 在客户端渲染，不提交第二份 SVG/PNG 导出物。
+export function withSharedDrawio(config: any) {
+  return withDrawio(config, {
+    width: '100%',
+    height: '520px',
+    darkMode: 'auto',
+    resize: true,
+    zoom: true,
+    lightbox: true,
+    transparent: true,
+  })
+}
 
 // 单一 markdown 配置来源:config/index.ts(dev/单体构建)和 scripts/build.ts
 // 分卷构建的临时 config 都从这里取,改 markdown 只改这一处。
