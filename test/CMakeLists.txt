@@ -3,6 +3,7 @@ enable_testing()
 set(TEST_INCLUDE_DIRS
     ${CMAKE_SOURCE_DIR}/test/framework
     ${CMAKE_SOURCE_DIR}/base/include
+    ${CMAKE_SOURCE_DIR}
 )
 
 function(add_cinux_test name)
@@ -17,6 +18,7 @@ function(add_cinux_test name)
     set(ALL_HOST_TESTS ${ALL_HOST_TESTS} PARENT_SCOPE)
 endfunction()
 
+add_cinux_test(e820)
 add_cinux_test(format)
 add_cinux_test(framework)
 add_cinux_test(result)
