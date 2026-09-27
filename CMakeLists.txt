@@ -22,6 +22,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(cmake/compilers/warning_standard.cmake)
+include(cmake/compilers/boot_modes.cmake)
+
+message("Configuring Boot")
+add_subdirectory(boot)
 
 add_subdirectory(base)
+
 add_subdirectory(test)
