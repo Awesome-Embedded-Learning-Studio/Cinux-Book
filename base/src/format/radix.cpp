@@ -9,7 +9,7 @@
  * @ingroup base_format
  */
 
-#include <cstdint>
+#include <stdint.h>
 
 #include "detail.hpp"
 
