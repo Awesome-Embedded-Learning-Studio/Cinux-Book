@@ -1,0 +1,801 @@
+{
+ "version": 1,
+ "id": "result-lifetime",
+ "title": "同一块 union，换两次住户",
+ "subtitle": "以 Result<std::string> 为例：上面切到错误，下面切回成功",
+ "source": "projects/journey-00-armory/02-dsl/result-lifetime.yaml",
+ "backend": "web",
+ "template": "comparison_flow",
+ "frame": {
+  "w": 14.2222,
+  "h": 8.0
+ },
+ "palette": {
+  "bg": "#111521",
+  "bgRaised": "#171D2D",
+  "text": "#F4F6FB",
+  "muted": "#98A2B8",
+  "fill": "#66D9EF",
+  "fillEdge": "#2E9DC2",
+  "emptyEdge": "#43506A",
+  "grow": "#FFB86C",
+  "numOnFill": "#0B1E27",
+  "ok": "#72D49A",
+  "bad": "#FF6B7A",
+  "cardBg": "#1B2234"
+ },
+ "actors": {
+  "title": {
+   "kind": "text",
+   "text": "同一块 union，换两次住户",
+   "x": 0.0,
+   "y": 3.4324,
+   "fs": 0.32,
+   "color": "#F4F6FB",
+   "mono": false,
+   "anchor": "middle",
+   "w": 4.992,
+   "h": 0.4352
+  },
+  "sub": {
+   "kind": "text",
+   "text": "以 Result<std::string> 为例：上面切到错误，下面切回成功",
+   "x": 0.0,
+   "y": 2.8988,
+   "fs": 0.2,
+   "color": "#98A2B8",
+   "mono": false,
+   "anchor": "middle",
+   "w": 7.092,
+   "h": 0.272
+  },
+  "show:ok_before": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "success",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.98,
+   "w": 2.9056,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "成功态",
+     "w": 0.792
+    },
+    {
+     "text": "string(‘alive’)",
+     "w": 1.98
+    }
+   ],
+   "cx": -5.25,
+   "cy": 1.05
+  },
+  "show:to_error_edge_1": {
+   "kind": "arrow",
+   "x1": -3.6172,
+   "y1": 1.05,
+   "x2": -3.0528,
+   "y2": 1.05,
+   "cx": -3.335,
+   "cy": 1.05,
+   "w": 0.5644,
+   "h": 0.0,
+   "label": {
+    "text": "准备换人",
+    "x": -3.335,
+    "y": 1.4024,
+    "fs": 0.18,
+    "color": "#98A2B8",
+    "mono": false,
+    "anchor": "middle",
+    "w": 0.9504,
+    "h": 0.2448
+   }
+  },
+  "show:drop_value": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "danger",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.32,
+   "w": 2.2456,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "送走 value",
+     "w": 1.32
+    },
+    {
+     "text": "~string()",
+     "w": 1.188
+    }
+   ],
+   "cx": -1.75,
+   "cy": 1.05
+  },
+  "show:to_error_edge_2": {
+   "kind": "arrow",
+   "x1": -0.4472,
+   "y1": 1.05,
+   "x2": 0.2492,
+   "y2": 1.05,
+   "cx": -0.099,
+   "cy": 1.05,
+   "w": 0.6964,
+   "h": 0.0,
+   "label": {
+    "text": "存储已空",
+    "x": -0.099,
+    "y": 1.4024,
+    "fs": 0.18,
+    "color": "#98A2B8",
+    "mono": false,
+    "anchor": "middle",
+    "w": 0.9504,
+    "h": 0.2448
+   }
+  },
+  "show:flag_error": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "danger",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.716,
+   "w": 2.6416,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "翻门牌",
+     "w": 0.792
+    },
+    {
+     "text": "is_ok_: false",
+     "w": 1.716
+    }
+   ],
+   "cx": 1.75,
+   "cy": 1.05
+  },
+  "show:to_error_edge_3": {
+   "kind": "arrow",
+   "x1": 3.2508,
+   "y1": 1.05,
+   "x2": 4.0132,
+   "y2": 1.05,
+   "cx": 3.632,
+   "cy": 1.05,
+   "w": 0.7624,
+   "h": 0.0,
+   "label": {
+    "text": "写入枚举",
+    "x": 3.632,
+    "y": 1.4024,
+    "fs": 0.18,
+    "color": "#98A2B8",
+    "mono": false,
+    "anchor": "middle",
+    "w": 0.9504,
+    "h": 0.2448
+   }
+  },
+  "show:error_after": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "accent",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.188,
+   "w": 2.1136,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "失败态",
+     "w": 0.792
+    },
+    {
+     "text": "kNotFound",
+     "w": 1.188
+    }
+   ],
+   "cx": 5.25,
+   "cy": 1.05
+  },
+  "show:err_before": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "accent",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.188,
+   "w": 2.1136,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "失败态",
+     "w": 0.792
+    },
+    {
+     "text": "kNotFound",
+     "w": 1.188
+    }
+   ],
+   "cx": -5.25,
+   "cy": -1.55
+  },
+  "show:to_value_edge_1": {
+   "kind": "arrow",
+   "x1": -4.0132,
+   "y1": -1.55,
+   "x2": -3.3168,
+   "y2": -1.55,
+   "cx": -3.665,
+   "cy": -1.55,
+   "w": 0.6964,
+   "h": 0.0,
+   "label": {
+    "text": "准备换人",
+    "x": -3.665,
+    "y": -1.1976,
+    "fs": 0.18,
+    "color": "#98A2B8",
+    "mono": false,
+    "anchor": "middle",
+    "w": 0.9504,
+    "h": 0.2448
+   }
+  },
+  "show:no_value": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "muted",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.848,
+   "w": 2.7736,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "release_self",
+     "w": 1.584
+    },
+    {
+     "text": "无 value，返回",
+     "w": 1.848
+    }
+   ],
+   "cx": -1.75,
+   "cy": -1.55
+  },
+  "show:to_value_edge_2": {
+   "kind": "arrow",
+   "x1": -0.1832,
+   "y1": -1.55,
+   "x2": 0.3152,
+   "y2": -1.55,
+   "cx": 0.066,
+   "cy": -1.55,
+   "w": 0.4984,
+   "h": 0.0,
+   "label": {
+    "text": "存储可复用",
+    "x": 0.066,
+    "y": -1.1976,
+    "fs": 0.18,
+    "color": "#98A2B8",
+    "mono": false,
+    "anchor": "middle",
+    "w": 1.188,
+    "h": 0.2448
+   }
+  },
+  "show:flag_value": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "success",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.584,
+   "w": 2.5096,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "翻门牌",
+     "w": 0.792
+    },
+    {
+     "text": "is_ok_: true",
+     "w": 1.584
+    }
+   ],
+   "cx": 1.75,
+   "cy": -1.55
+  },
+  "show:to_value_edge_3": {
+   "kind": "arrow",
+   "x1": 3.1848,
+   "y1": -1.55,
+   "x2": 3.3532,
+   "y2": -1.55,
+   "cx": 3.269,
+   "cy": -1.55,
+   "w": 0.1684,
+   "h": 0.0,
+   "label": {
+    "text": "原地构造",
+    "x": 3.269,
+    "y": -1.1976,
+    "fs": 0.18,
+    "color": "#98A2B8",
+    "mono": false,
+    "anchor": "middle",
+    "w": 0.9504,
+    "h": 0.2448
+   }
+  },
+  "show:value_after": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "success",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 2.508,
+   "w": 3.4336,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "成功态",
+     "w": 0.792
+    },
+    {
+     "text": "new string(‘alive’)",
+     "w": 2.508
+    }
+   ],
+   "cx": 5.25,
+   "cy": -1.55
+  },
+  "concl:0": {
+   "kind": "text",
+   "text": "动作并不对称：复杂 value 要析构，枚举 error 不用",
+   "x": 0.0,
+   "y": 0.0882,
+   "fs": 0.24,
+   "color": "#FFB86C",
+   "mono": false,
+   "anchor": "middle",
+   "w": 7.4688,
+   "h": 0.3264
+  },
+  "concl:1": {
+   "kind": "text",
+   "text": "规矩始终相同：is_ok_ 指向谁，谁才允许活着",
+   "x": 0.0,
+   "y": -0.4882,
+   "fs": 0.24,
+   "color": "#F4F6FB",
+   "mono": false,
+   "anchor": "middle",
+   "w": 6.4272,
+   "h": 0.3264
+  }
+ },
+ "steps": [
+  {
+   "kind": "intro",
+   "label": "开场",
+   "note": "",
+   "duration": 3.15,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "write",
+     "target": "title",
+     "t": 0.0,
+     "dur": 2.15
+    },
+    {
+     "type": "fadein",
+     "target": "sub",
+     "t": 2.15,
+     "dur": 0.5
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show ok_before",
+   "note": "",
+   "duration": 2.55,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:ok_before",
+     "cx": 0.0,
+     "cy": 0.4,
+     "t": 0.0,
+     "dur": 2.55
+    }
+   ]
+  },
+  {
+   "kind": "move",
+   "label": "move ok_before",
+   "note": "to [-5.25, 1.05]",
+   "duration": 0.5,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "move",
+     "target": "show:ok_before",
+     "frm": [
+      0.0,
+      0.4
+     ],
+     "to": [
+      -5.25,
+      1.05
+     ],
+     "t": 0.0,
+     "dur": 0.5
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show to_error_edge_1",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:to_error_edge_1",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show drop_value",
+   "note": "",
+   "duration": 1.83,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:drop_value",
+     "cx": -1.75,
+     "cy": 1.05,
+     "t": 0.0,
+     "dur": 1.83
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show to_error_edge_2",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:to_error_edge_2",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show flag_error",
+   "note": "",
+   "duration": 2.31,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:flag_error",
+     "cx": 1.75,
+     "cy": 1.05,
+     "t": 0.0,
+     "dur": 2.31
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show to_error_edge_3",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:to_error_edge_3",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show error_after",
+   "note": "",
+   "duration": 1.83,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:error_after",
+     "cx": 5.25,
+     "cy": 1.05,
+     "t": 0.0,
+     "dur": 1.83
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show err_before",
+   "note": "",
+   "duration": 1.83,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:err_before",
+     "cx": 0.0,
+     "cy": -0.55,
+     "t": 0.0,
+     "dur": 1.83
+    }
+   ]
+  },
+  {
+   "kind": "move",
+   "label": "move err_before",
+   "note": "to [-5.25, -1.55]",
+   "duration": 0.5,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "move",
+     "target": "show:err_before",
+     "frm": [
+      0.0,
+      -0.55
+     ],
+     "to": [
+      -5.25,
+      -1.55
+     ],
+     "t": 0.0,
+     "dur": 0.5
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show to_value_edge_1",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:to_value_edge_1",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show no_value",
+   "note": "",
+   "duration": 2.19,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:no_value",
+     "cx": -1.75,
+     "cy": -1.55,
+     "t": 0.0,
+     "dur": 2.19
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show to_value_edge_2",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:to_value_edge_2",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show flag_value",
+   "note": "",
+   "duration": 2.19,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:flag_value",
+     "cx": 1.75,
+     "cy": -1.55,
+     "t": 0.0,
+     "dur": 2.19
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show to_value_edge_3",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:to_value_edge_3",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show value_after",
+   "note": "",
+   "duration": 2.8,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:value_after",
+     "cx": 5.25,
+     "cy": -1.55,
+     "t": 0.0,
+     "dur": 2.8
+    }
+   ]
+  },
+  {
+   "kind": "wait",
+   "label": "停顿",
+   "note": "0.5s",
+   "duration": 0.5,
+   "speed": 1.0,
+   "events": []
+  },
+  {
+   "kind": "conclude",
+   "label": "结论",
+   "note": "压轴结论墙",
+   "duration": 16.05,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "fadeout",
+     "target": "show:ok_before",
+     "t": 0.0,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:to_error_edge_1",
+     "t": 0.3,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:drop_value",
+     "t": 0.6,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:to_error_edge_2",
+     "t": 0.9,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:flag_error",
+     "t": 1.2,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:to_error_edge_3",
+     "t": 1.5,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:error_after",
+     "t": 1.8,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:err_before",
+     "t": 2.1,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:to_value_edge_1",
+     "t": 2.4,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:no_value",
+     "t": 2.7,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:to_value_edge_2",
+     "t": 3.0,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:flag_value",
+     "t": 3.3,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:to_value_edge_3",
+     "t": 3.6,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:value_after",
+     "t": 3.9,
+     "dur": 0.3
+    },
+    {
+     "type": "write",
+     "target": "concl:0",
+     "t": 4.2,
+     "dur": 2.4
+    },
+    {
+     "type": "write",
+     "target": "concl:1",
+     "t": 6.95,
+     "dur": 2.4
+    }
+   ]
+  }
+ ]
+}

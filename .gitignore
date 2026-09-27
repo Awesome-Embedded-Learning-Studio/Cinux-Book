@@ -102,6 +102,7 @@ site/.vitepress/.temp/
 site/.vitepress/.build-cache/
 site/.vitepress/.build-tmp/
 site/.vitepress/config/.search-cache/
+site/.vitepress/theme/components/animations/generated/posters/
 document/_build/
 dist-single/
 

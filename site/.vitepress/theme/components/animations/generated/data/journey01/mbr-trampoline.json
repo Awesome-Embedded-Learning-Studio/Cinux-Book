@@ -1,0 +1,554 @@
+{
+ "version": 1,
+ "id": "mbr-trampoline",
+ "title": "512 字节跳板的一生",
+ "subtitle": "从上电到 stage2 应答，MBR 干的五件事",
+ "source": "projects/journey-01-mbr/02-dsl/mbr-trampoline.yaml",
+ "backend": "web",
+ "template": "process_flow",
+ "frame": {
+  "w": 14.2222,
+  "h": 8.0
+ },
+ "palette": {
+  "bg": "#111521",
+  "bgRaised": "#171D2D",
+  "text": "#F4F6FB",
+  "muted": "#98A2B8",
+  "fill": "#66D9EF",
+  "fillEdge": "#2E9DC2",
+  "emptyEdge": "#43506A",
+  "grow": "#FFB86C",
+  "numOnFill": "#0B1E27",
+  "ok": "#72D49A",
+  "bad": "#FF6B7A",
+  "cardBg": "#1B2234"
+ },
+ "actors": {
+  "title": {
+   "kind": "text",
+   "text": "512 字节跳板的一生",
+   "x": 0.0,
+   "y": 3.4324,
+   "fs": 0.32,
+   "color": "#F4F6FB",
+   "mono": false,
+   "anchor": "middle",
+   "w": 3.7504,
+   "h": 0.4352
+  },
+  "sub": {
+   "kind": "text",
+   "text": "从上电到 stage2 应答，MBR 干的五件事",
+   "x": 0.0,
+   "y": 2.8988,
+   "fs": 0.2,
+   "color": "#98A2B8",
+   "mono": false,
+   "anchor": "middle",
+   "w": 4.656,
+   "h": 0.272
+  },
+  "show:bios": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "muted",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.98,
+   "w": 2.9056,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "BIOS 读盘",
+     "w": 1.188
+    },
+    {
+     "text": "第一扇区→0x7C00",
+     "w": 1.98
+    }
+   ],
+   "cx": -5.25,
+   "cy": 1.05
+  },
+  "show:edge_1": {
+   "kind": "arrow",
+   "x1": -3.6172,
+   "y1": 1.05,
+   "x2": -3.5808,
+   "y2": 1.05,
+   "cx": -3.599,
+   "cy": 1.05,
+   "w": 0.0364,
+   "h": 0.0,
+   "label": {
+    "text": "跳入",
+    "x": -3.599,
+    "y": 1.4024,
+    "fs": 0.18,
+    "color": "#98A2B8",
+    "mono": false,
+    "anchor": "middle",
+    "w": 0.4752,
+    "h": 0.2448
+   }
+  },
+  "show:stub": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "default",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 2.376,
+   "w": 3.3016,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "入口桩",
+     "w": 0.792
+    },
+    {
+     "text": "段归一·栈顶 0x7C00",
+     "w": 2.376
+    }
+   ],
+   "cx": -1.75,
+   "cy": 1.05
+  },
+  "show:edge_2": {
+   "kind": "arrow",
+   "x1": 0.0808,
+   "y1": 1.05,
+   "x2": 0.1172,
+   "y2": 1.05,
+   "cx": 0.099,
+   "cy": 1.05,
+   "w": 0.0364,
+   "h": 0.0,
+   "label": {
+    "text": "世界就绪",
+    "x": 0.099,
+    "y": 1.4024,
+    "fs": 0.18,
+    "color": "#98A2B8",
+    "mono": false,
+    "anchor": "middle",
+    "w": 0.9504,
+    "h": 0.2448
+   }
+  },
+  "show:main": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "default",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.98,
+   "w": 2.9056,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "MbrMain",
+     "w": 0.924
+    },
+    {
+     "text": "扩展读拉 stage2",
+     "w": 1.98
+    }
+   ],
+   "cx": 1.75,
+   "cy": 1.05
+  },
+  "show:edge_3": {
+   "kind": "arrow",
+   "x1": 3.3828,
+   "y1": 1.05,
+   "x2": 3.8812,
+   "y2": 1.05,
+   "cx": 3.632,
+   "cy": 1.05,
+   "w": 0.4984,
+   "h": 0.0,
+   "label": {
+    "text": "第二棒就位",
+    "x": 3.632,
+    "y": 1.4024,
+    "fs": 0.18,
+    "color": "#98A2B8",
+    "mono": false,
+    "anchor": "middle",
+    "w": 1.188,
+    "h": 0.2448
+   }
+  },
+  "show:handoff": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "accent",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.452,
+   "w": 2.3776,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "ljmp 交棒",
+     "w": 1.188
+    },
+    {
+     "text": "跳去 0x7E00",
+     "w": 1.452
+    }
+   ],
+   "cx": 5.25,
+   "cy": 1.05
+  },
+  "show:edge_4": {
+   "kind": "arrow",
+   "x1": 5.25,
+   "y1": 0.242,
+   "x2": 5.25,
+   "y2": -0.742,
+   "cx": 5.25,
+   "cy": -0.25,
+   "w": 0.0,
+   "h": 0.984,
+   "label": {
+    "text": "接班",
+    "x": 4.8624,
+    "y": -0.25,
+    "fs": 0.18,
+    "color": "#98A2B8",
+    "mono": false,
+    "anchor": "middle",
+    "w": 0.4752,
+    "h": 0.2448
+   }
+  },
+  "show:echo": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "success",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.584,
+   "w": 2.5096,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "stage2 回声",
+     "w": 1.452
+    },
+    {
+     "text": "打标记即 hlt",
+     "w": 1.584
+    }
+   ],
+   "cx": 5.25,
+   "cy": -1.55
+  },
+  "concl:0": {
+   "kind": "text",
+   "text": "MBR 是跳板不是程序",
+   "x": 0.0,
+   "y": 0.0882,
+   "fs": 0.24,
+   "color": "#FFB86C",
+   "mono": false,
+   "anchor": "middle",
+   "w": 2.8128,
+   "h": 0.3264
+  },
+  "concl:1": {
+   "kind": "text",
+   "text": "拉起下一个，自己退场",
+   "x": 0.0,
+   "y": -0.4882,
+   "fs": 0.24,
+   "color": "#F4F6FB",
+   "mono": false,
+   "anchor": "middle",
+   "w": 3.168,
+   "h": 0.3264
+  }
+ },
+ "steps": [
+  {
+   "kind": "intro",
+   "label": "开场",
+   "note": "",
+   "duration": 2.67,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "write",
+     "target": "title",
+     "t": 0.0,
+     "dur": 1.67
+    },
+    {
+     "type": "fadein",
+     "target": "sub",
+     "t": 1.67,
+     "dur": 0.5
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show bios",
+   "note": "",
+   "duration": 2.07,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:bios",
+     "cx": 0.0,
+     "cy": 0.4,
+     "t": 0.0,
+     "dur": 2.07
+    }
+   ]
+  },
+  {
+   "kind": "move",
+   "label": "move bios",
+   "note": "to [-5.25, 1.05]",
+   "duration": 0.5,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "move",
+     "target": "show:bios",
+     "frm": [
+      0.0,
+      0.4
+     ],
+     "to": [
+      -5.25,
+      1.05
+     ],
+     "t": 0.0,
+     "dur": 0.5
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show edge_1",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:edge_1",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show stub",
+   "note": "",
+   "duration": 2.31,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:stub",
+     "cx": -1.75,
+     "cy": 1.05,
+     "t": 0.0,
+     "dur": 2.31
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show edge_2",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:edge_2",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show main",
+   "note": "",
+   "duration": 2.07,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:main",
+     "cx": 1.75,
+     "cy": 1.05,
+     "t": 0.0,
+     "dur": 2.07
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show edge_3",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:edge_3",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show handoff",
+   "note": "",
+   "duration": 1.83,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:handoff",
+     "cx": 5.25,
+     "cy": 1.05,
+     "t": 0.0,
+     "dur": 1.83
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show edge_4",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:edge_4",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show echo",
+   "note": "",
+   "duration": 1.83,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:echo",
+     "cx": 5.25,
+     "cy": -1.55,
+     "t": 0.0,
+     "dur": 1.83
+    }
+   ]
+  },
+  {
+   "kind": "wait",
+   "label": "停顿",
+   "note": "0.5s",
+   "duration": 0.5,
+   "speed": 1.0,
+   "events": []
+  },
+  {
+   "kind": "conclude",
+   "label": "结论",
+   "note": "压轴结论墙",
+   "duration": 10.32,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "fadeout",
+     "target": "show:bios",
+     "t": 0.0,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:edge_1",
+     "t": 0.3,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:stub",
+     "t": 0.6,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:edge_2",
+     "t": 0.9,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:main",
+     "t": 1.2,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:edge_3",
+     "t": 1.5,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:handoff",
+     "t": 1.8,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:edge_4",
+     "t": 2.1,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:echo",
+     "t": 2.4,
+     "dur": 0.3
+    },
+    {
+     "type": "write",
+     "target": "concl:0",
+     "t": 2.7,
+     "dur": 1.67
+    },
+    {
+     "type": "write",
+     "target": "concl:1",
+     "t": 4.72,
+     "dur": 1.55
+    }
+   ]
+  }
+ ]
+}

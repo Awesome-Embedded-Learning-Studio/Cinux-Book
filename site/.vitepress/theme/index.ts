@@ -1,5 +1,5 @@
 import DefaultTheme from 'vitepress/theme'
-import { h } from 'vue'
+import { defineAsyncComponent, h } from 'vue'
 import type { Theme } from 'vitepress'
 import './custom.css'
 import './article-doc.css'
@@ -75,13 +75,13 @@ export default {
     app.component('ChapterLink', ChapterLink)
     app.component('JourneyRoadmap', JourneyRoadmap)
     app.component('StationPanel', StationPanel)
-    app.component('TagExplorer', () => import('./components/TagExplorer.vue'))
-    app.component('ReferenceCard', () => import('./components/ReferenceCard.vue'))
-    app.component('ReferenceItem', () => import('./components/ReferenceItem.vue'))
-    app.component('RefLink', () => import('./components/RefLink.vue'))
-    app.component('Anim', () => import('./components/Anim.vue'))
-    app.component('CheckpointProblem', () => import('./components/CheckpointProblem.vue'))
-    app.component('CheckpointList', () => import('./components/CheckpointList.vue'))
-    app.component('QuizProgressBackup', () => import('./components/QuizProgressBackup.vue'))
+    app.component('TagExplorer', defineAsyncComponent(() => import('./components/TagExplorer.vue')))
+    app.component('ReferenceCard', defineAsyncComponent(() => import('./components/ReferenceCard.vue')))
+    app.component('ReferenceItem', defineAsyncComponent(() => import('./components/ReferenceItem.vue')))
+    app.component('RefLink', defineAsyncComponent(() => import('./components/RefLink.vue')))
+    app.component('Anim', defineAsyncComponent(() => import('./components/Anim.vue')))
+    app.component('CheckpointProblem', defineAsyncComponent(() => import('./components/CheckpointProblem.vue')))
+    app.component('CheckpointList', defineAsyncComponent(() => import('./components/CheckpointList.vue')))
+    app.component('QuizProgressBackup', defineAsyncComponent(() => import('./components/QuizProgressBackup.vue')))
   },
 } satisfies Theme

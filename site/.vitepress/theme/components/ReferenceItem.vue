@@ -9,7 +9,7 @@ const props = withDefaults(defineProps<{
   year?: number | string
   chapter?: string
   url?: string
-  quotes?: string
+  quotes?: string | string[]
 }>(), {
   author: '',
   publisher: '',
@@ -31,6 +31,9 @@ const publicationInfo = computed(() => {
 
 const quoteList = computed(() => {
   if (!props.quotes) return []
+  if (Array.isArray(props.quotes)) {
+    return props.quotes.map(q => q.trim()).filter(Boolean)
+  }
   return props.quotes.split('||').map(q => q.trim()).filter(Boolean)
 })
 </script>

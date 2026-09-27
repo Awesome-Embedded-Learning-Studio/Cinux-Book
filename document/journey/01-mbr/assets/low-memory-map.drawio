@@ -1,0 +1,37 @@
+<mxfile host="app.diagrams.net" modified="2026-09-27T00:00:00.000Z" agent="cinux-journey-01" version="24.7.7">
+  <diagram id="low-memory-map" name="低内存地图">
+    <mxGraphModel dx="800" dy="600" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="500" pageHeight="760" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="低内存地图：本章的一百万字节" style="text;html=1;align=center;verticalAlign=middle;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="24" y="8" width="420" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="ivt" value="&lt;b&gt;中断向量表 IVT&lt;/b&gt;&lt;br&gt;0x00000 - 0x003FF · 1KB&lt;br&gt;256 个中断的入口地址，BIOS 的电话簿" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;verticalAlign=top;spacing=8;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="24" y="48" width="420" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="bda" value="&lt;b&gt;BIOS 数据区 BDA&lt;/b&gt;&lt;br&gt;0x00400 - 0x004FF · 256B&lt;br&gt;BIOS 自己的记事本" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;verticalAlign=top;spacing=8;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="24" y="128" width="420" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="free-low" value="&lt;b&gt;自由区（常规内存）&lt;/b&gt;&lt;br&gt;0x00500 - 0x7BFF · 约 30KB&lt;br&gt;谁都能用的一块空地；MBR 的栈就钉在 0x7C00，从这里向下生长" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;align=left;verticalAlign=top;spacing=8;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="24" y="208" width="420" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="mbr" value="&lt;b&gt;引导扇区 MBR——本章主角&lt;/b&gt;&lt;br&gt;0x07C00 - 0x07DFF · 512B&lt;br&gt;代码 + DAP + 启动盘号，全家挤在 510 字节里；第 510 字节起是 0xAA55 签名" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;spacing=8;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="24" y="304" width="420" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="stage2" value="&lt;b&gt;stage2 落点&lt;/b&gt;&lt;br&gt;0x07E00 - 0x085FF · 4 扇区&lt;br&gt;MBR 用扩展读把第二棒拉到这里，ljmp 过去接班" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;verticalAlign=top;spacing=8;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="24" y="400" width="420" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="free-high" value="&lt;b&gt;剩余自由区&lt;/b&gt;&lt;br&gt;stage2 之后 - EBDA 之前&lt;br&gt;实际边界由 BIOS 决定" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;align=left;verticalAlign=top;spacing=8;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="24" y="496" width="420" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="ebda" value="&lt;b&gt;EBDA · BIOS 扩展数据区&lt;/b&gt;&lt;br&gt;常见起点约 0x9FC00，长度与起点不固定&lt;br&gt;贴着 0xA0000 向下生长，不要写入" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;verticalAlign=top;spacing=8;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="24" y="576" width="420" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="reserved" value="&lt;b&gt;VGA 显存 / 视频 BIOS / 主板 ROM&lt;/b&gt;&lt;br&gt;0xA0000 - 0xFFFFF&lt;br&gt;0xFFFFF 是 1MB 的天花板" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left;verticalAlign=top;spacing=8;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="24" y="656" width="420" height="72" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

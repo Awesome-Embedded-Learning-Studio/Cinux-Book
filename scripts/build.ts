@@ -230,6 +230,7 @@ import {
   localSearchBoxAlias,
   localSearchOptions,
   applySharedPageData,
+  withSharedDrawio,
   SIDEBAR_WIDTH_SCRIPT,
 } from '${relShared}'
 
@@ -238,7 +239,7 @@ const docsRoot = ${JSON.stringify(view.docsRoot)}
 const githubUrl = \`https://github.com/\${projectConfig.github.owner}/\${projectConfig.github.repo}\`
 const editPatternBase = \`\${githubUrl}/edit/\${projectConfig.github.branch}/\${projectConfig.documentsPath}\`
 
-export default defineConfig({
+export default withSharedDrawio(defineConfig({
   base: projectConfig.base,
   cleanUrls: true,
   lastUpdated: true,
@@ -298,7 +299,7 @@ export default defineConfig({
     },
     socialLinks: [{ icon: 'github', link: githubUrl }],
   },
-})
+}))
 `
 }
 
@@ -326,6 +327,7 @@ import {
   localSearchBoxAlias,
   localSearchOptions,
   applySharedPageData,
+  withSharedDrawio,
   SIDEBAR_WIDTH_SCRIPT,
 } from '${relShared}'
 
@@ -334,7 +336,7 @@ const docsRoot = ${JSON.stringify(DOCUMENTS)}
 const githubUrl = \`https://github.com/\${projectConfig.github.owner}/\${projectConfig.github.repo}\`
 const editPatternBase = \`\${githubUrl}/edit/\${projectConfig.github.branch}/\${projectConfig.documentsPath}\`
 
-export default defineConfig({
+export default withSharedDrawio(defineConfig({
   base: projectConfig.base,
   cleanUrls: true,
   lastUpdated: true,
@@ -387,7 +389,7 @@ export default defineConfig({
     },
     socialLinks: [{ icon: 'github', link: githubUrl }],
   },
-})
+}))
 `
 }
 

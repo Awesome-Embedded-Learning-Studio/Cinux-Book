@@ -15,7 +15,7 @@ tags:
 
 <StationPanel tag="r00_armory" build="cmake -B build && cmake --build build --target test_host" />
 
-这一站不写内核;四件武器一件件开箱,每件都从它自己的现场讲起,再立自己的做法。
+本站不写内核,咱们把四件武器一件件开箱,每件都从它自己的现场讲起,再立自己的做法。
 
 <ChapterNav variant="sub">
   <ChapterLink num="1" href="01-why-now" desc="无声重启的事故现场,和『第一敌人不是不会写,是不知道哪错了』">为什么是现在</ChapterLink>
@@ -26,4 +26,4 @@ tags:
   <ChapterLink num="6" href="06-test-framework" desc="一行登记、快照计数、框架考自己;三十五个用例一条命令跑完">测试框架:三十五个用例,一条命令</ChapterLink>
 </ChapterNav>
 
-下一站,就是那 512 字节的引导扇区。机器上什么都没有——但咱们手里,已经有武器了。
+咱们的下一站,就是那 512 字节的引导扇区。机器上什么都没有——但咱们手里,已经有武器了。

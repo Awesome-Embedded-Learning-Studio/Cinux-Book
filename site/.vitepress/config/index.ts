@@ -12,6 +12,7 @@ import {
   localSearchBoxAlias,
   localSearchOptions,
   applySharedPageData,
+  withSharedDrawio,
   FONT_SIZE_SCRIPT,
   SIDEBAR_WIDTH_SCRIPT,
 } from './shared'
@@ -60,7 +61,7 @@ function serveCheckpointsInDev() {
   }
 }
 
-export default defineConfig({
+export default withSharedDrawio(defineConfig({
   base: config.base,
   cleanUrls: true,
   lastUpdated: true,
@@ -163,4 +164,4 @@ export default defineConfig({
       text: '最后更新',
     },
   },
-})
+}))
