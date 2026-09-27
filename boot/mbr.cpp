@@ -6,9 +6,9 @@
 namespace {
 cinux::boot::Dap g_dap = {.size     = 16,
                           .reserved = 0,
-                          .count    = cinux::boot::kStage2Sectors,
-                          .offset   = cinux::boot::kStage2LoadOff,
-                          .segment  = cinux::boot::kStage2LoadSeg,
+                          .count    = cinux::boot::kStage2Spot.sectors,
+                          .offset   = cinux::boot::kStage2Spot.offset,
+                          .segment  = cinux::boot::kStage2Spot.segments,
                           .lba      = 1};
 }
 /* Seems wired, right? */
@@ -72,7 +72,7 @@ extern "C" [[noreturn]] void MbrMain() {
 
     asm volatile("ljmp %0, %1"
                  :
-                 : "i"(cinux::boot::kStage2LoadSeg), "i"(cinux::boot::kStage2LoadOff)
+                 : "i"(cinux::boot::kStage2Spot.segments), "i"(cinux::boot::kStage2Spot.offset)
                  : "memory");
     // And if, we failed, runs into the unreachable
     returned_from_stage2();

@@ -1,5 +1,6 @@
 add_executable(mbr mbr.cpp)
 target_link_libraries(mbr PRIVATE cinux_warnings cinux_boot16)
+target_include_directories(mbr PRIVATE ${CMAKE_SOURCE_DIR}/base/include)
 target_link_options(mbr PRIVATE
     -m32
     -no-pie
@@ -19,16 +20,28 @@ add_custom_target(mbr_bin
 )
 
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/layout.hpp layout_src)
-string(REGEX MATCH "kStage2Sectors = ([0-9]+)" layout_match "${layout_src}")
+string(REGEX MATCH "\\.sectors = ([0-9]+)" layout_match "${layout_src}")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/layout.hpp)
 
-add_executable(stage2 stage2.cpp)
+add_executable(stage2
+    stage2.cpp
+    bios.cpp
+    early/libc.cpp
+    ${CMAKE_SOURCE_DIR}/base/src/format/entry.cpp
+    ${CMAKE_SOURCE_DIR}/base/src/format/radix.cpp)
 target_link_libraries(stage2 PRIVATE cinux_warnings cinux_boot16)
+target_include_directories(stage2 PRIVATE
+    ${CMAKE_SOURCE_DIR}/base/include
+    ${CMAKE_SOURCE_DIR}/base/src)
+target_compile_options(stage2 PRIVATE -ffunction-sections)
 target_link_options(stage2 PRIVATE
     -m32
     -no-pie
     -nostdlib
     -Wl,-T,${CMAKE_CURRENT_SOURCE_DIR}/stage2.ld
     -Wl,--build-id=none
+    -Wl,--gc-sections
 )
 
 add_custom_command(
