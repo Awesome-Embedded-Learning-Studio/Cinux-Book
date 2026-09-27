@@ -1,12 +1,12 @@
 ---
-title: 工具链与 CMake
+title: 工具链
 ---
 
-# 工具链与 CMake
+# 工具链
 
-> 四章回答一路的四个问题:咱们怎么把它跑起来?这套工具凭什么能编出内核?代码怎么变成 BIOS 认的裸二进制?跑完又怎么知道它对了?按顺序走完,`make run` 背后的每一环咱们都亲手摸过一遍。
+> 手搓系统的人,一半的功夫花在工具上。这一卷咱们把家什一件件装齐、点亮,再看看 g++ 背后指挥了谁,把 host、target、freestanding 三个词认成手里的开关,最后亲手链出一枚 BIOS 认的裸镜像。
 
-- [01 · 装机与首胜](01-toolchain-install.md) — 三十分钟,从 apt 到 QEMU 黑屏
-- [02 · 工具链第一课](02-compiler-first-lesson.md) — 交叉编译、freestanding,与那串 flag 的逐条为什么
-- [03 · 目标 / 链接脚本 / 裸镜像](03-targets-linker-objcopy.md) — 把代码"摆"到它该在的地址
-- [04 · QEMU、磁盘镜像与主机测试](04-qemu-image-test.md) — 跑起来,并让内核自报成败
+- [01 · 装什么](01-what-to-install.md) — 装一件,点亮一件,过两道闸
+- [02 · 编译驱动解剖](02-anatomy-of-gxx.md) — 一条 g++ 命令背后的四道工序
+- [03 · 目标三重奏](03-host-target-freestanding.md) — host、target 与 freestanding 三个词
+- [04 · 链接脚本与裸镜像](04-linker-flat-image.md) — 从 .o 到一枚 512 字节的镜像

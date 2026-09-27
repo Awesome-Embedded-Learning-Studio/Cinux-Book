@@ -1,11 +1,10 @@
 ---
-title: x86 汇编速通(GAS)
+title: x86 汇编:读与写的最小集
 ---
 
-# x86 汇编速通(GAS)
+# x86 汇编:读与写的最小集
 
-> 以 **GAS/AT&T 为本位**:讲清语法骨架、寻址与系统指令(CR/MSR/lgdt/iretq 的 AT&T 形态),最后给一张 AT&T↔Intel 速查表。读完能逐行读懂 `mbr.S`/`interrupts.S`/`context_switch.S`。本模块不讲 NASM——遇到 NASM 例子一律翻译成 AT&T。
+> 咱们以 AT&T 为本位:您认脸、读码,亲手把一行行汇编喂给机器、验它吐出的字节,排错的眼睛也一并养起来。
 
-- [01 · GAS 语法骨架](01-gas-syntax-skeleton.md)
-- [02 · 寻址、远转移与系统指令](02-addressing-system-instr.md)
-- [03 · AT&T↔Intel 速查表与 GAS 实战](03-cheatsheet-and-practice.md)
+- [01 · 为什么汇编劝退人,以及只需要学多少](01-why-assembly.md)
+- [02 · 读:AT&T 语法最小集](02-read-att-syntax.md)
