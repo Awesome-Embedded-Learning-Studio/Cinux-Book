@@ -1,0 +1,46 @@
+<mxfile host="app.diagrams.net" modified="2026-09-29T00:00:00.000Z" agent="cinux-journey-02" version="24.7.7">
+  <diagram id="stage2-memory-map" name="stage2 内存地图">
+    <mxGraphModel dx="800" dy="600" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="560" pageHeight="980" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="stage2 眼中的低内存：谁住哪儿" style="text;html=1;align=center;verticalAlign=middle;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="24" y="8" width="480" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="ivt-bda" value="&lt;b&gt;IVT 和 BDA&lt;/b&gt;&lt;br&gt;0x00000 - 0x004FF&lt;br&gt;BIOS 的电话簿和记事本，一个字节都动不得" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;verticalAlign=top;spacing=8;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="24" y="48" width="480" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="lowfree" value="&lt;b&gt;自由区 kLowFree&lt;/b&gt;&lt;br&gt;0x00500 - 0x07BFF · 低内存里真正没主的地" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;align=left;verticalAlign=top;spacing=8;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="24" y="132" width="480" height="248" as="geometry" />
+        </mxCell>
+        <mxCell id="pagetables" value="&lt;b&gt;页表区 kPageTables（占位）&lt;/b&gt;&lt;br&gt;0x01000 - 0x04000 · 12KB&lt;br&gt;长模式要用的 PML4、PDPT、PD 三张 4K" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=top;spacing=8;fontSize=12;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="44" y="176" width="440" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="vesa" value="&lt;b&gt;VESA buffer kVesaBuffers（占位）&lt;/b&gt;&lt;br&gt;0x06000 - 0x06400 · 1KB&lt;br&gt;下一站 VBE 的控制器信息 512B 加模式信息 256B，凑 1KB" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=top;spacing=8;fontSize=12;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="44" y="248" width="440" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="stack" value="&lt;b&gt;stage2 的栈 kStage2Stack&lt;/b&gt;&lt;br&gt;0x7000 ↓ · 从 0x7000 向下长" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left;verticalAlign=top;spacing=8;fontSize=12;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="44" y="320" width="440" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="mbr" value="&lt;b&gt;MBR&lt;/b&gt;&lt;br&gt;0x07C00 - 0x07DFF · 一个扇区（kMbrBase）" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;spacing=8;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="24" y="392" width="480" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="stage2win" value="&lt;b&gt;stage2 的 8 扇区预算窗口 kStage2Spot&lt;/b&gt;&lt;br&gt;0x07E00 - 0x08DFF · .sectors = 8，是上限不是实际边界" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;verticalAlign=top;spacing=8;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="24" y="468" width="480" height="232" as="geometry" />
+        </mxCell>
+        <mxCell id="image" value="&lt;b&gt;镜像实际内容&lt;/b&gt;&lt;br&gt;0x08B30 止 · bin 实测 3376 字节" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;verticalAlign=top;spacing=8;fontSize=12;fontColor=#333333;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="44" y="512" width="440" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="bss" value="&lt;b&gt;.bss：E820 的存档&lt;/b&gt;&lt;br&gt;0x08B40 起 · 772B&lt;br&gt;跟 0x08B30 之间那 0x10 的空隙，&lt;br&gt;是 .bss 的 32 字节对齐垫出来的" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;verticalAlign=top;spacing=8;fontSize=12;fontColor=#333333;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="44" y="576" width="440" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="kernel" value="&lt;b&gt;内核加载地址 kKernelLoadLma（占位）&lt;/b&gt;&lt;br&gt;0x20000 起再往上 · 内核那一站启用" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=top;spacing=8;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="24" y="712" width="480" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="gap1" value="（0x08E00 - 0x1FFFF：暂无人认领）" style="text;html=1;align=center;verticalAlign=middle;fontSize=11;fontColor=#999999;" vertex="1" parent="1">
+          <mxGeometry x="24" y="784" width="480" height="24" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
