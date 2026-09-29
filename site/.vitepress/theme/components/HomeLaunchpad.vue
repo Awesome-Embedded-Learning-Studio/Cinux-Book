@@ -40,7 +40,7 @@ const secondary = [
     <div class="entry__journey">
       <div class="entry__journey-head">
         <span class="entry__tag">教程</span>
-        <span class="entry__count">已开放三站 · 沿真实开发史一站一站走</span>
+        <span class="entry__count">已开放四站 · 沿真实开发史一站一站走</span>
       </div>
       <div class="entry__stations">
         <a class="entry__station" :href="withBase('/journey/00-armory/')">
@@ -59,12 +59,20 @@ const secondary = [
           <span class="entry__station-note">512 字节的引导扇区、实模式世界观、第一段 C++ 起手式</span>
           <span class="entry__go">开始读<i aria-hidden="true">→</i></span>
         </a>
-        <a class="entry__station is-latest" :href="withBase('/journey/02-e820/')">
+        <a class="entry__station" :href="withBase('/journey/02-e820/')">
           <span class="entry__station-top">
             <strong>stage2 起居</strong>
             <span class="entry__station-id">02</span>
           </span>
-          <span class="entry__station-note">自己的栈、打开的 A20、一张内存图谱——回声长成居所</span>
+          <span class="entry__station-note">自己的栈、打开的 A20、一张内存图谱——借来的世界住成了自己的</span>
+          <span class="entry__go">开始读<i aria-hidden="true">→</i></span>
+        </a>
+        <a class="entry__station is-latest" :href="withBase('/journey/03-vesa/')">
+          <span class="entry__station-top">
+            <strong>VESA 配屏</strong>
+            <span class="entry__station-id">03</span>
+          </span>
+          <span class="entry__station-note">不背模式号、逐个问价——向显卡要一块 1024×768 的线性画布</span>
           <span class="entry__go">最新一站<i aria-hidden="true">→</i></span>
         </a>
       </div>

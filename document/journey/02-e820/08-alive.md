@@ -21,7 +21,7 @@ tags:
 cmake -B build && cmake --build build --target run
 ```
 
-这回终端里给咱们落下来的,是这么一串:
+这回终端里等着咱们的,是这么一串:
 
 ```text
 Ready to call bios
@@ -123,7 +123,7 @@ stage2 说的每一行字,您都能在这两段里找到它的出处。`E820: %u
 
 个子是跳着长的。探测件刚拼好的那会儿,镜像九百多个字节、4 个扇区、2048 字节的预算绰绰有余。格式引擎一搬进来的当天,镜像就量出了 2672 字节,超线——构建那道闸当场把咱们拦下,报错信息还附了修法:去 `layout.hpp` 抬 `.sectors`,并告诉您 MBR 的 DAP 会自动跟上。咱们把它抬到 8,预算变成了 4096 字节。DAP 那边是一个字都不用改的,它读的是 `kStage2Spot` 的字段。闸门那边:上一站讲过的正则——匹配 `kStage2Sectors = ` 抓预算——也随着收拢迁到了 `.sectors = ` 上,报错文案指名的还是 `kStage2Spot`。咱们只改了一处,DAP 和闸门都跟着走——画地图的时候收拢成的一个值,好处当天就见了效。还有一茬要交代:闸门的预算是 configure 期从 `layout.hpp` 里抓的,改了 `.sectors` 的值,闸门得重新 configure 一遍才看得见新的值。这层洞就是抬 `.sectors` 那天现的形:依赖没登记,构建一声不响地吃着旧值。仓库里咱们用 `CMAKE_CONFIGURE_DEPENDS` 把这层依赖登记上了:`layout.hpp` 一动,CMake 自己就把 configure 重跑了。您要是自己手搭构建,这茬您得自己记着。
 
-接线的变化,一路跟着敲的您马上会用到:base 的源件头一回进了 boot 的构建。`stage2` 目标的源清单从单文件长成了五件。include 路径添了两条:`base/include` 供头文件,`base/src` 供引擎自用的内部头。编译期多了 `-ffunction-sections`,把每个函数分进自己的节,链接期的 `--gc-sections` 这才有得裁——这俩开关是一对的,少了前一个,后一个就没了可裁的,没被调用的代码照样进镜像:
+接线的变化,一路跟着敲的您马上会用到:base 的源件头一回进了 boot 的构建。`stage2` 目标的源清单从单件变成了五件。include 路径添了两条:`base/include` 供头文件,`base/src` 供引擎自用的内部头。编译期多了 `-ffunction-sections`,把每个函数分进自己的节,链接期的 `--gc-sections` 这才有得裁——这俩开关是一对的,少了前一个,后一个就没了可裁的,没被调用的代码照样进镜像:
 
 ```cmake
 add_executable(stage2

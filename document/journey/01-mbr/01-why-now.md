@@ -45,7 +45,7 @@ C++ 进了场,图的是什么?不为赶时髦。图的是武器库里磨出来�
 cmake -B build && cmake --build build --target run
 ```
 
-配置、编译、链接、拼镜像、拉起 QEMU——全在它里头的！咱们等它跑完,您的终端里会落下来三行字:
+配置、编译、链接、拼镜像、拉起 QEMU——全在它里头的！咱们等它跑完,您的终端里会印出三行字:
 
 ```text
 Ready to call bios

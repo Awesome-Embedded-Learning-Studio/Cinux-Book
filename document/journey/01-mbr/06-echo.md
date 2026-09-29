@@ -55,7 +55,7 @@ extern "C" [[noreturn]] void Stage2Main() {
 cmake -B build && cmake --build build --target run
 ```
 
-配置、构建、链接、拼镜像、一路滚了过去,然后 QEMU 悄悄启动——咱们没开图形窗口,机器就活在您的终端里。然后就是它了。三行字落了下来:
+配置、构建、链接、拼镜像、一路滚了过去,然后 QEMU 悄悄启动——咱们没开图形窗口,机器就活在您的终端里。然后就是它了。三行字印了出来:
 
 ```text
 Ready to call bios

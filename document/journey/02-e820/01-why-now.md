@@ -26,7 +26,7 @@ tags:
 cmake -B build && cmake --build build --target run
 ```
 
-终端里给咱们落下来的不再只有三行了,而是一整串起居序列:
+终端里等着咱们的不再只有三行了,而是一整串起居序列:
 
 ```text
 Ready to call bios

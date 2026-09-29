@@ -1,0 +1,576 @@
+{
+ "version": 1,
+ "id": "vbe-three-asks",
+ "title": "VBE 三道问答，各递进什么",
+ "subtitle": "4F00 拿列表 · 4F01 挨个问详情 · 4F02 带 bit14 切过去",
+ "source": "projects/journey-03-vesa/02-dsl/vbe-three-asks.yaml",
+ "backend": "web",
+ "template": "process_flow",
+ "frame": {
+  "w": 14.2222,
+  "h": 8.0
+ },
+ "palette": {
+  "bg": "#111521",
+  "bgRaised": "#171D2D",
+  "text": "#F4F6FB",
+  "muted": "#98A2B8",
+  "fill": "#66D9EF",
+  "fillEdge": "#2E9DC2",
+  "emptyEdge": "#43506A",
+  "grow": "#FFB86C",
+  "numOnFill": "#0B1E27",
+  "ok": "#72D49A",
+  "bad": "#FF6B7A",
+  "cardBg": "#1B2234"
+ },
+ "actors": {
+  "title": {
+   "kind": "text",
+   "text": "VBE 三道问答，各递进什么",
+   "x": 0.0,
+   "y": 3.4324,
+   "fs": 0.32,
+   "color": "#F4F6FB",
+   "mono": false,
+   "anchor": "middle",
+   "w": 5.0176,
+   "h": 0.4352
+  },
+  "sub": {
+   "kind": "text",
+   "text": "4F00 拿列表 · 4F01 挨个问详情 · 4F02 带 bit14 切过去",
+   "x": 0.0,
+   "y": 2.8988,
+   "fs": 0.2,
+   "color": "#98A2B8",
+   "mono": false,
+   "anchor": "middle",
+   "w": 6.64,
+   "h": 0.272
+  },
+  "show:sign": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "accent",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.584,
+   "w": 2.5096,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "先写 VBE2",
+     "w": 1.188
+    },
+    {
+     "text": "调用方先表态",
+     "w": 1.584
+    }
+   ],
+   "cx": -3.5,
+   "cy": 1.05
+  },
+  "show:edge_1": {
+   "kind": "arrow",
+   "x1": -2.0652,
+   "y1": 1.05,
+   "x2": -1.6328,
+   "y2": 1.05,
+   "cx": -1.849,
+   "cy": 1.05,
+   "w": 0.4324,
+   "h": 0.0
+  },
+  "show:controller": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "default",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.98,
+   "w": 2.9056,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "4F00 问控制器",
+     "w": 1.716
+    },
+    {
+     "text": "DI 指 512B 缓冲",
+     "w": 1.98
+    }
+   ],
+   "cx": 0.0,
+   "cy": 1.05
+  },
+  "show:edge_2": {
+   "kind": "arrow",
+   "x1": 1.6328,
+   "y1": 1.05,
+   "x2": 1.6692,
+   "y2": 1.05,
+   "cx": 1.651,
+   "cy": 1.05,
+   "w": 0.0364,
+   "h": 0.0
+  },
+  "show:fields": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "default",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 2.376,
+   "w": 3.3016,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "回填三样",
+     "w": 1.056
+    },
+    {
+     "text": "版本 · 列表 · 显存",
+     "w": 2.376
+    }
+   ],
+   "cx": 3.5,
+   "cy": 1.05
+  },
+  "show:edge_3": {
+   "kind": "arrow",
+   "x1": 3.5,
+   "y1": 0.242,
+   "x2": 3.5,
+   "y2": -0.742,
+   "cx": 3.5,
+   "cy": -0.25,
+   "w": 0.0,
+   "h": 0.984
+  },
+  "show:modeinfo": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "default",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.452,
+   "w": 2.3776,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "4F01 问详情",
+     "w": 1.452
+    },
+    {
+     "text": "CX 递模式号",
+     "w": 1.452
+    }
+   ],
+   "cx": 3.5,
+   "cy": -1.55
+  },
+  "show:edge_4": {
+   "kind": "arrow",
+   "x1": 2.1312,
+   "y1": -1.55,
+   "x2": 1.5668,
+   "y2": -1.55,
+   "cx": 1.849,
+   "cy": -1.55,
+   "w": 0.5644,
+   "h": 0.0
+  },
+  "show:geometry": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "default",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.848,
+   "w": 2.7736,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "逐字段读回",
+     "w": 1.32
+    },
+    {
+     "text": "宽 · 高 · 色深",
+     "w": 1.848
+    }
+   ],
+   "cx": 0.0,
+   "cy": -1.55
+  },
+  "show:edge_5": {
+   "kind": "arrow",
+   "x1": -1.5668,
+   "y1": -1.55,
+   "x2": -2.0652,
+   "y2": -1.55,
+   "cx": -1.816,
+   "cy": -1.55,
+   "w": 0.4984,
+   "h": 0.0
+  },
+  "show:setmode": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "success",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.584,
+   "w": 2.5096,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "4F02 切过去",
+     "w": 1.452
+    },
+    {
+     "text": "末尾置 bit14",
+     "w": 1.584
+    }
+   ],
+   "cx": -3.5,
+   "cy": -1.55
+  },
+  "concl:0": {
+   "kind": "text",
+   "text": "回来只认 AX 全等 0x004F：AL = 0x4F 卡支持，AH = 0 这次成了",
+   "x": 0.0,
+   "y": 0.0882,
+   "fs": 0.24,
+   "color": "#FFB86C",
+   "mono": false,
+   "anchor": "middle",
+   "w": 8.9184,
+   "h": 0.3264
+  },
+  "concl:1": {
+   "kind": "text",
+   "text": "忘了 VBE2 静悄悄降级 1.2；忘了 bit14 掉进 banked 窗口",
+   "x": 0.0,
+   "y": -0.4882,
+   "fs": 0.24,
+   "color": "#F4F6FB",
+   "mono": false,
+   "anchor": "middle",
+   "w": 8.1552,
+   "h": 0.3264
+  }
+ },
+ "steps": [
+  {
+   "kind": "intro",
+   "label": "开场",
+   "note": "",
+   "duration": 3.03,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "write",
+     "target": "title",
+     "t": 0.0,
+     "dur": 2.03
+    },
+    {
+     "type": "fadein",
+     "target": "sub",
+     "t": 2.03,
+     "dur": 0.5
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show sign",
+   "note": "",
+   "duration": 1.59,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:sign",
+     "cx": 0.0,
+     "cy": 0.4,
+     "t": 0.0,
+     "dur": 1.59
+    }
+   ]
+  },
+  {
+   "kind": "move",
+   "label": "move sign",
+   "note": "to [-3.5, 1.05]",
+   "duration": 0.5,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "move",
+     "target": "show:sign",
+     "frm": [
+      0.0,
+      0.4
+     ],
+     "to": [
+      -3.5,
+      1.05
+     ],
+     "t": 0.0,
+     "dur": 0.5
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show edge_1",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:edge_1",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show controller",
+   "note": "",
+   "duration": 2.19,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:controller",
+     "cx": 0.0,
+     "cy": 1.05,
+     "t": 0.0,
+     "dur": 2.19
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show edge_2",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:edge_2",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show fields",
+   "note": "",
+   "duration": 2.19,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:fields",
+     "cx": 3.5,
+     "cy": 1.05,
+     "t": 0.0,
+     "dur": 2.19
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show edge_3",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:edge_3",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show modeinfo",
+   "note": "",
+   "duration": 1.71,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:modeinfo",
+     "cx": 3.5,
+     "cy": -1.55,
+     "t": 0.0,
+     "dur": 1.71
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show edge_4",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:edge_4",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show geometry",
+   "note": "",
+   "duration": 1.95,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:geometry",
+     "cx": 0.0,
+     "cy": -1.55,
+     "t": 0.0,
+     "dur": 1.95
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show edge_5",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:edge_5",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show setmode",
+   "note": "",
+   "duration": 1.83,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:setmode",
+     "cx": -3.5,
+     "cy": -1.55,
+     "t": 0.0,
+     "dur": 1.83
+    }
+   ]
+  },
+  {
+   "kind": "wait",
+   "label": "停顿",
+   "note": "0.5s",
+   "duration": 0.5,
+   "speed": 1.0,
+   "events": []
+  },
+  {
+   "kind": "conclude",
+   "label": "结论",
+   "note": "压轴结论墙",
+   "duration": 18.3,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "fadeout",
+     "target": "show:edge_1",
+     "t": 0.0,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:controller",
+     "t": 0.3,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:edge_2",
+     "t": 0.6,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:fields",
+     "t": 0.9,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:edge_3",
+     "t": 1.2,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:modeinfo",
+     "t": 1.5,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:edge_4",
+     "t": 1.8,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:geometry",
+     "t": 2.1,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:edge_5",
+     "t": 2.4,
+     "dur": 0.3
+    },
+    {
+     "type": "write",
+     "target": "concl:0",
+     "t": 2.7,
+     "dur": 2.4
+    },
+    {
+     "type": "write",
+     "target": "concl:1",
+     "t": 5.45,
+     "dur": 2.4
+    }
+   ]
+  }
+ ]
+}
