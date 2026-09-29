@@ -6,7 +6,7 @@ interface Stage {
   eyebrow: string
   title: string
   desc: string
-  status: 'open' | 'next' | 'planned'
+  status: 'done' | 'open' | 'next' | 'planned'
   href?: string
   trail: string[]
 }
@@ -14,42 +14,58 @@ interface Stage {
 const stages: Stage[] = [
   {
     id: '00',
-    eyebrow: 'NOW · 已开放',
+    eyebrow: 'DONE · 已完工',
     title: '武器库',
     desc: '还没碰内核，先把 Result、格式引擎、断言与测试框架握在手里。',
-    status: 'open',
+    status: 'done',
     href: '/journey/00-armory/',
     trail: ['Result', 'format', 'assert', 'test'],
   },
   {
     id: '01',
-    eyebrow: 'NEXT · 下一站',
-    title: '点亮机器',
-    desc: '从 512 字节的引导扇区出发，让处理器越过实模式，真正进入 64 位世界。',
-    status: 'next',
-    trail: ['0x7C00', 'GDT', 'paging', 'long mode'],
+    eyebrow: 'DONE · 已完工',
+    title: 'MBR 专题',
+    desc: '从 512 字节的引导扇区出发，把第一段 C++ 代码送进实模式机器。',
+    status: 'done',
+    href: '/journey/01-mbr/',
+    trail: ['0x7C00', 'DAP', '-m16', 'ljmp'],
   },
   {
     id: '02',
-    eyebrow: 'ACT I · 内核开始呼吸',
-    title: '让它运行起来',
-    desc: '接住中断、管理内存、调度进程，再把用户态与文件系统一点点接进来。',
-    status: 'planned',
-    trail: ['interrupt', 'memory', 'process', 'filesystem'],
+    eyebrow: 'NOW · 最新一站',
+    title: 'stage2 起居',
+    desc: '把借来的世界变成自己的：栈搬进新家，A20 的门打开，内存图谱一条条问清楚。',
+    status: 'open',
+    href: '/journey/02-e820/',
+    trail: ['stack', 'A20', 'E820', 'static_assert'],
   },
   {
     id: '03',
-    eyebrow: 'ACT II · 长成系统',
-    title: '让它走向真实世界',
-    desc: '显示、输入、存储、多核与网络在这里汇合，最终长成一套可以交互的系统。',
+    eyebrow: 'ACT I · 手搓（预告）',
+    title: '从配屏到长模式',
+    desc: 'VESA 配屏、保护模式、长模式、第一个内核——一路手搓到桌面。',
     status: 'planned',
-    trail: ['GUI', 'storage', 'SMP', 'network'],
+    trail: ['VESA', 'GDT', 'paging', 'kernel'],
+  },
+  {
+    id: '04',
+    eyebrow: '幕间 & ACT II（预告）',
+    title: '重来一遍，长成系统',
+    desc: '带着答案重走地基，多核、驱动、网络，直到跑起别人的程序。',
+    status: 'planned',
+    trail: ['rebuild', 'SMP', 'driver', 'busybox'],
   },
 ]
 
-const currentStage = stages[0]!
-const upcomingStages = stages.slice(1)
+const currentStage = stages[2]!
+const upcomingStages = stages.filter(s => s.id !== currentStage.id)
 const currentHref = withBase(currentStage.href!)
+
+function stateLabel(status: Stage['status']): string {
+  if (status === 'done') return '已完工'
+  if (status === 'next') return '正在装填'
+  return '路线预告'
+}
 </script>
 
 <template>
@@ -59,7 +75,7 @@ const currentHref = withBase(currentStage.href!)
         <span class="journey-map__kicker">CINUX / BUILD LOG</span>
         <h3 id="journey-map-title">沿着真实开发史，一站一站往前走</h3>
       </div>
-      <p><i aria-hidden="true" /> 当前开放 1 站</p>
+      <p><i aria-hidden="true" /> 当前开放 3 站</p>
     </header>
 
     <div class="journey-map__layout">
@@ -94,13 +110,19 @@ const currentHref = withBase(currentStage.href!)
             class="journey-next"
             :class="`is-${stage.status}`"
           >
+            <a
+              v-if="stage.href"
+              class="journey-next__overlay"
+              :href="withBase(stage.href)"
+              :aria-label="`进入${stage.title}（站 ${stage.id}）`"
+            />
             <span class="journey-next__node" aria-hidden="true">{{ stage.id }}</span>
             <div class="journey-next__copy">
               <span>{{ stage.eyebrow }}</span>
               <strong>{{ stage.title }}</strong>
               <small>{{ stage.desc }}</small>
             </div>
-            <span class="journey-next__state">{{ stage.status === 'next' ? '正在装填' : '路线预告' }}</span>
+            <span class="journey-next__state">{{ stateLabel(stage.status) }}</span>
           </li>
         </ol>
       </div>
@@ -323,6 +345,22 @@ const currentHref = withBase(currentStage.href!)
   min-height: 78px;
   margin: 0;
   padding: 11px 2px;
+}
+
+.journey-next__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+}
+
+.journey-next.is-done .journey-next__node {
+  border-style: solid;
+  color: var(--vp-c-brand-1);
+}
+
+.journey-next.is-done .journey-next__state {
+  color: var(--vp-c-brand-1);
 }
 
 .journey-next + .journey-next {

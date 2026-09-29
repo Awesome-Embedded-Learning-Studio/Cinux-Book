@@ -20,17 +20,61 @@
 
 #pragma once
 
+#include "cinux/region/memory_region.hpp"
+
 namespace cinux::boot {
 
 static_assert(sizeof(unsigned short) == 2);
 
+/**
+ * @brief   Where a boot image lands in real-mode memory and how big it is.
+ * @note    None
+ * @since   0.1.0
+ * @ingroup boot_layout
+ */
+struct BootRegion {
+    unsigned short segments;
+    unsigned short offset;
+    unsigned short sectors;
+};
+
+inline constexpr BootRegion kStage2Spot{.segments = 0x0000, .offset = 0x7E00, .sectors = 8};
+
 /// Linear address the BIOS loads the MBR's first sector to.
-inline constexpr unsigned short kMbrBase       = 0x7C00;
-/// Stage2 segment: zero keeps the same linear map the MBR lives in.
-inline constexpr unsigned short kStage2LoadSeg = 0x0000;
-/// 0x7C00 plus one 512-byte sector: stage2 sits directly behind the MBR.
-inline constexpr unsigned short kStage2LoadOff = 0x7E00;
-/// Stage2 size in 512-byte sectors, i.e. 2048 bytes total.
-inline constexpr unsigned short kStage2Sectors = 4;
+inline constexpr unsigned short kMbrBase = 0x7C00;
+
+using base::memory::MemoryRegion;
+
+inline constexpr MemoryRegion kLowFree{0x0500, 0x7C00};
+
+inline constexpr MemoryRegion kPageTables{0x1000, 0x4000};
+
+inline constexpr MemoryRegion kVesaBuffers{0x6000, 0x6400};
+
+/**
+ * @brief   Where a boot-time stack lives: segment plus downward-growing top.
+ * @note    None
+ * @since   0.1.0
+ * @ingroup boot_layout
+ */
+struct BootStack {
+    unsigned short segments;
+    unsigned short top;
+};
+inline constexpr BootStack kStage2Stack{.segments = 0x0000, .top = 0x7000};
+
+inline constexpr unsigned long kKernelLoadLma = 0x20000;
+
+static_assert(kPageTables.base >= kLowFree.base);
+static_assert(kPageTables.top <= kVesaBuffers.base);
+static_assert(kVesaBuffers.top <= kStage2Stack.top);
+static_assert(kStage2Stack.top <= kLowFree.top);
+
+// Semantic contracts: stage2 sits right behind the MBR, flat DS is design not luck
+static_assert(kStage2Spot.offset == kMbrBase + 512);           //
+static_assert(kStage2Spot.segments == 0x0000);                 // DS = 0 is flat mode
+static_assert(kStage2Stack.segments == kStage2Spot.segments);  //
+static_assert(kLowFree.top == kMbrBase);                       //
+static_assert(kPageTables.base % 0x1000 == 0);
 
 }  // namespace cinux::boot
