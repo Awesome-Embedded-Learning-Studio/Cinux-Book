@@ -1,0 +1,700 @@
+{
+ "version": 1,
+ "id": "a20-gate-wrap",
+ "title": "同一笔地址，两种下场",
+ "subtitle": "F800:8000 加出 0x100000 —— A20 锁着折回，开着直达",
+ "source": "projects/journey-02-e820/02-dsl/a20-gate-wrap.yaml",
+ "backend": "web",
+ "template": "comparison_flow",
+ "frame": {
+  "w": 14.2222,
+  "h": 8.0
+ },
+ "palette": {
+  "bg": "#111521",
+  "bgRaised": "#171D2D",
+  "text": "#F4F6FB",
+  "muted": "#98A2B8",
+  "fill": "#66D9EF",
+  "fillEdge": "#2E9DC2",
+  "emptyEdge": "#43506A",
+  "grow": "#FFB86C",
+  "numOnFill": "#0B1E27",
+  "ok": "#72D49A",
+  "bad": "#FF6B7A",
+  "cardBg": "#1B2234"
+ },
+ "actors": {
+  "title": {
+   "kind": "text",
+   "text": "同一笔地址，两种下场",
+   "x": 0.0,
+   "y": 3.4324,
+   "fs": 0.32,
+   "color": "#F4F6FB",
+   "mono": false,
+   "anchor": "middle",
+   "w": 4.224,
+   "h": 0.4352
+  },
+  "sub": {
+   "kind": "text",
+   "text": "F800:8000 加出 0x100000 —— A20 锁着折回，开着直达",
+   "x": 0.0,
+   "y": 2.8988,
+   "fs": 0.2,
+   "color": "#98A2B8",
+   "mono": false,
+   "anchor": "middle",
+   "w": 6.532,
+   "h": 0.272
+  },
+  "show:addr": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "danger",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 2.112,
+   "w": 3.0376,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "F800:8000",
+     "w": 1.188
+    },
+    {
+     "text": "段左移四位＋偏移",
+     "w": 2.112
+    }
+   ],
+   "cx": -5.25,
+   "cy": 1.05
+  },
+  "show:locked_edge_1": {
+   "kind": "arrow",
+   "x1": -3.5512,
+   "y1": 1.05,
+   "x2": -3.1188,
+   "y2": 1.05,
+   "cx": -3.335,
+   "cy": 1.05,
+   "w": 0.4324,
+   "h": 0.0,
+   "label": {
+    "text": "加出来的数",
+    "x": -3.335,
+    "y": 1.4024,
+    "fs": 0.18,
+    "color": "#98A2B8",
+    "mono": false,
+    "anchor": "middle",
+    "w": 1.188,
+    "h": 0.2448
+   }
+  },
+  "show:sum": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "danger",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.452,
+   "w": 2.3776,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "= 0x100000",
+     "w": 1.32
+    },
+    {
+     "text": "bit 20 是 1",
+     "w": 1.452
+    }
+   ],
+   "cx": -1.75,
+   "cy": 1.05
+  },
+  "show:locked_edge_2": {
+   "kind": "arrow",
+   "x1": -0.3812,
+   "y1": 1.05,
+   "x2": -0.0148,
+   "y2": 1.05,
+   "cx": -0.198,
+   "cy": 1.05,
+   "w": 0.3664,
+   "h": 0.0,
+   "label": {
+    "text": "总线上没有这根线",
+    "x": -0.198,
+    "y": 1.4024,
+    "fs": 0.18,
+    "color": "#98A2B8",
+    "mono": false,
+    "anchor": "middle",
+    "w": 1.9008,
+    "h": 0.2448
+   }
+  },
+  "show:gate": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "danger",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 2.244,
+   "w": 3.1696,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "门把 bit20 摁成 0",
+     "w": 2.244
+    },
+    {
+     "text": "这根线没接进总线",
+     "w": 2.112
+    }
+   ],
+   "cx": 1.75,
+   "cy": 1.05
+  },
+  "show:locked_edge_3": {
+   "kind": "arrow",
+   "x1": 3.5148,
+   "y1": 1.05,
+   "x2": 3.7492,
+   "y2": 1.05,
+   "cx": 3.632,
+   "cy": 1.05,
+   "w": 0.2344,
+   "h": 0.0,
+   "label": {
+    "text": "折回 1MB 之内",
+    "x": 3.632,
+    "y": 1.4024,
+    "fs": 0.18,
+    "color": "#98A2B8",
+    "mono": false,
+    "anchor": "middle",
+    "w": 1.5084,
+    "h": 0.2448
+   }
+  },
+  "show:wrap": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "accent",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.716,
+   "w": 2.6416,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "0x000000",
+     "w": 1.056
+    },
+    {
+     "text": "回卷·命中 IVT",
+     "w": 1.716
+    }
+   ],
+   "cx": 5.25,
+   "cy": 1.05
+  },
+  "show:addr2": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "success",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.32,
+   "w": 2.2456,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "F800:8000",
+     "w": 1.188
+    },
+    {
+     "text": "同一笔加法",
+     "w": 1.32
+    }
+   ],
+   "cx": 5.25,
+   "cy": -1.55
+  },
+  "show:open_edge_1": {
+   "kind": "arrow",
+   "x1": 3.9472,
+   "y1": -1.55,
+   "x2": 3.3828,
+   "y2": -1.55,
+   "cx": 3.665,
+   "cy": -1.55,
+   "w": 0.5644,
+   "h": 0.0,
+   "label": {
+    "text": "同一笔加法",
+    "x": 3.665,
+    "y": -1.1976,
+    "fs": 0.18,
+    "color": "#98A2B8",
+    "mono": false,
+    "anchor": "middle",
+    "w": 1.188,
+    "h": 0.2448
+   }
+  },
+  "show:sum2": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "success",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.98,
+   "w": 2.9056,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "= 0x100000",
+     "w": 1.32
+    },
+    {
+     "text": "bit 20 照常上线",
+     "w": 1.98
+    }
+   ],
+   "cx": 1.75,
+   "cy": -1.55
+  },
+  "show:open_edge_2": {
+   "kind": "arrow",
+   "x1": 0.1172,
+   "y1": -1.55,
+   "x2": -0.1832,
+   "y2": -1.55,
+   "cx": -0.033,
+   "cy": -1.55,
+   "w": 0.3004,
+   "h": 0.0,
+   "label": {
+    "text": "门开着直达",
+    "x": -0.033,
+    "y": -1.1976,
+    "fs": 0.18,
+    "color": "#98A2B8",
+    "mono": false,
+    "anchor": "middle",
+    "w": 1.188,
+    "h": 0.2448
+   }
+  },
+  "show:hit": {
+   "kind": "code",
+   "fs": 0.2,
+   "lh": 0.258,
+   "variant": "accent",
+   "pitch": 0.478,
+   "gutW": 0.1056,
+   "bodyW": 1.848,
+   "w": 2.7736,
+   "h": 1.256,
+   "rows": [
+    {
+     "text": "主存 0x100000",
+     "w": 1.716
+    },
+    {
+     "text": "1MB 起的第一格",
+     "w": 1.848
+    }
+   ],
+   "cx": -1.75,
+   "cy": -1.55
+  },
+  "concl:0": {
+   "kind": "text",
+   "text": "门摁的只有 bit 20 —— 偶数兆不动，奇数兆拉低一兆",
+   "x": 0.0,
+   "y": 0.0882,
+   "fs": 0.24,
+   "color": "#FFB86C",
+   "mono": false,
+   "anchor": "middle",
+   "w": 7.6752,
+   "h": 0.3264
+  },
+  "concl:1": {
+   "kind": "text",
+   "text": "同一笔地址，差的只是一根线",
+   "x": 0.0,
+   "y": -0.4882,
+   "fs": 0.24,
+   "color": "#F4F6FB",
+   "mono": false,
+   "anchor": "middle",
+   "w": 4.1184,
+   "h": 0.3264
+  }
+ },
+ "steps": [
+  {
+   "kind": "intro",
+   "label": "开场",
+   "note": "",
+   "duration": 2.55,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "write",
+     "target": "title",
+     "t": 0.0,
+     "dur": 1.55
+    },
+    {
+     "type": "fadein",
+     "target": "sub",
+     "t": 1.55,
+     "dur": 0.5
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show addr",
+   "note": "",
+   "duration": 1.83,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:addr",
+     "cx": 0.0,
+     "cy": 0.4,
+     "t": 0.0,
+     "dur": 1.83
+    }
+   ]
+  },
+  {
+   "kind": "move",
+   "label": "move addr",
+   "note": "to [-5.25, 1.05]",
+   "duration": 0.5,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "move",
+     "target": "show:addr",
+     "frm": [
+      0.0,
+      0.4
+     ],
+     "to": [
+      -5.25,
+      1.05
+     ],
+     "t": 0.0,
+     "dur": 0.5
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show locked_edge_1",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:locked_edge_1",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show sum",
+   "note": "",
+   "duration": 1.95,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:sum",
+     "cx": -1.75,
+     "cy": 1.05,
+     "t": 0.0,
+     "dur": 1.95
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show locked_edge_2",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:locked_edge_2",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show gate",
+   "note": "",
+   "duration": 2.31,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:gate",
+     "cx": 1.75,
+     "cy": 1.05,
+     "t": 0.0,
+     "dur": 2.31
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show locked_edge_3",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:locked_edge_3",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show wrap",
+   "note": "",
+   "duration": 1.83,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:wrap",
+     "cx": 5.25,
+     "cy": 1.05,
+     "t": 0.0,
+     "dur": 1.83
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show addr2",
+   "note": "",
+   "duration": 1.83,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:addr2",
+     "cx": 0.0,
+     "cy": -0.55,
+     "t": 0.0,
+     "dur": 1.83
+    }
+   ]
+  },
+  {
+   "kind": "move",
+   "label": "move addr2",
+   "note": "to [5.25, -1.55]",
+   "duration": 0.5,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "move",
+     "target": "show:addr2",
+     "frm": [
+      0.0,
+      -0.55
+     ],
+     "to": [
+      5.25,
+      -1.55
+     ],
+     "t": 0.0,
+     "dur": 0.5
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show open_edge_1",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:open_edge_1",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show sum2",
+   "note": "",
+   "duration": 2.07,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:sum2",
+     "cx": 1.75,
+     "cy": -1.55,
+     "t": 0.0,
+     "dur": 2.07
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show open_edge_2",
+   "note": "",
+   "duration": 1.0,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "arrow_show",
+     "target": "show:open_edge_2",
+     "t": 0.0,
+     "dur": 0.6
+    }
+   ]
+  },
+  {
+   "kind": "show",
+   "label": "show hit",
+   "note": "",
+   "duration": 2.07,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "code_show",
+     "target": "show:hit",
+     "cx": -1.75,
+     "cy": -1.55,
+     "t": 0.0,
+     "dur": 2.07
+    }
+   ]
+  },
+  {
+   "kind": "wait",
+   "label": "停顿",
+   "note": "0.5s",
+   "duration": 0.5,
+   "speed": 1.0,
+   "events": []
+  },
+  {
+   "kind": "conclude",
+   "label": "结论",
+   "note": "压轴结论墙",
+   "duration": 12.1,
+   "speed": 1.0,
+   "events": [
+    {
+     "type": "fadeout",
+     "target": "show:addr",
+     "t": 0.0,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:locked_edge_1",
+     "t": 0.3,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:sum",
+     "t": 0.6,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:locked_edge_2",
+     "t": 0.9,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:gate",
+     "t": 1.2,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:locked_edge_3",
+     "t": 1.5,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:addr2",
+     "t": 1.8,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:open_edge_1",
+     "t": 2.1,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:sum2",
+     "t": 2.4,
+     "dur": 0.3
+    },
+    {
+     "type": "fadeout",
+     "target": "show:open_edge_2",
+     "t": 2.7,
+     "dur": 0.3
+    },
+    {
+     "type": "write",
+     "target": "concl:0",
+     "t": 3.0,
+     "dur": 2.4
+    },
+    {
+     "type": "write",
+     "target": "concl:1",
+     "t": 5.75,
+     "dur": 1.91
+    }
+   ]
+  }
+ ]
+}

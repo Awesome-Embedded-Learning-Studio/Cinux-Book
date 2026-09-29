@@ -1,0 +1,28 @@
+<mxfile host="app.diagrams.net">
+  <diagram id="e820-register-contract" name="E820寄存器合同">
+    <mxGraphModel dx="1000" dy="480" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1000" pageHeight="460" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="in" value="&lt;b&gt;进门——咱们递给 BIOS&lt;/b&gt;&lt;br&gt;EAX = 0xE820（高 16 位给零）&lt;br&gt;EBX = 续传令牌（首问给 0）&lt;br&gt;ECX = 24（房子宽度）&lt;br&gt;EDX = 'SMAP'（接头暗号）&lt;br&gt;ES:DI = 条目房子的地址" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;spacing=10;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="40" y="60" width="330" height="240" as="geometry" />
+        </mxCell>
+        <mxCell id="int15" value="&lt;b&gt;INT 15h&lt;/b&gt;&lt;br&gt;BIOS 不是函数&lt;br&gt;约定薄·例外多" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=center;verticalAlign=middle;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="430" y="130" width="150" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="out" value="&lt;b&gt;出门——BIOS 交回来的&lt;/b&gt;&lt;br&gt;CF = 0 且 EBX ≠ 0 → 换了新令牌，还想问&lt;br&gt;EBX = 0 → 清单问完，收工&lt;br&gt;CF = 1 → 翻脸，应答当垃圾&lt;br&gt;ECX = 实际写入宽度（20 或 24）&lt;br&gt;EAX = 'SMAP' 回执（个别 BIOS 弄脏）" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;verticalAlign=top;spacing=10;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="640" y="60" width="350" height="240" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" value="递进去" style="edgeStyle=none;html=1;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;fontSize=12;fontColor=#333333;" edge="1" parent="1" source="in" target="int15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="接回来" style="edgeStyle=none;html=1;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;fontSize=12;fontColor=#333333;" edge="1" parent="1" source="int15" target="out">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="gates" value="&lt;b&gt;回来的头一件事：过三道闸&lt;/b&gt;——CF 没拉 · EAX 回执 = 'SMAP' · 实际宽度 ≥ 20" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=center;verticalAlign=middle;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="40" y="340" width="950" height="56" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

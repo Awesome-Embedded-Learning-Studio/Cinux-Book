@@ -1,0 +1,55 @@
+<mxfile host="app.diagrams.net">
+  <diagram id="e820-memory-bands" name="七条图谱全景">
+    <mxGraphModel dx="1100" dy="400" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="420" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="b00" value="&lt;b&gt;#00&lt;/b&gt;&lt;br&gt;type 1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=center;verticalAlign=middle;fontSize=12;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="120" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="b01" value="&lt;b&gt;#01&lt;/b&gt;&lt;br&gt;type 2" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=center;verticalAlign=middle;fontSize=12;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="160" y="80" width="54" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="h1" value="老显存&lt;br&gt;（无条目）" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=#ffffff;strokeColor=#999999;align=center;verticalAlign=middle;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="214" y="80" width="96" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="b02" value="&lt;b&gt;#02&lt;/b&gt;&lt;br&gt;type 2" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=center;verticalAlign=middle;fontSize=12;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="310" y="80" width="80" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="b03" value="&lt;b&gt;#03&lt;/b&gt;&lt;br&gt;type 1（主存）" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=center;verticalAlign=middle;fontSize=12;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="390" y="80" width="200" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="b04" value="&lt;b&gt;#04&lt;/b&gt;&lt;br&gt;type 2" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=center;verticalAlign=middle;fontSize=12;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="590" y="80" width="60" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="h2" value="大洞&lt;br&gt;（无条目）" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=#ffffff;strokeColor=#999999;align=center;verticalAlign=middle;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="650" y="80" width="130" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="b05" value="&lt;b&gt;#05&lt;/b&gt;&lt;br&gt;type 2" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=center;verticalAlign=middle;fontSize=12;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="780" y="80" width="80" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="b06" value="&lt;b&gt;#06&lt;/b&gt;&lt;br&gt;type 2（高空 PCI）" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=center;verticalAlign=middle;fontSize=12;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="860" y="80" width="160" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t0" value="0" style="text;html=1;align=center;verticalAlign=top;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="20" y="142" width="60" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="t1" value="1MB" style="text;html=1;align=center;verticalAlign=top;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="360" y="142" width="60" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="t2" value="128MB" style="text;html=1;align=center;verticalAlign=top;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="580" y="142" width="60" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="t3" value="4GB" style="text;html=1;align=center;verticalAlign=top;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="840" y="142" width="60" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="t4" value="1TB" style="text;html=1;align=center;verticalAlign=top;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="142" width="60" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="legend" value="&lt;b&gt;type 1 = 可用（绿）&lt;/b&gt;　&lt;b&gt;type 2 = 保留（红）&lt;/b&gt;　&lt;b&gt;虚线空框 = 图谱没列——一律当不可用&lt;/b&gt;&lt;br&gt;#00 低内存：0x0 起，0x9FC00 长 · #01 EBDA：0x9FC00 起，0x400 长&lt;br&gt;#02 BIOS ROM 影子：0xF0000 起，0x10000 长 · #03 主存：0x100000 起，0x7EE0000 长&lt;br&gt;#04 128MB 顶自留地：0x7FE0000 起，0x20000 长 · #05 4GB 下 ROM：0xFFFC0000 起，0x40000 长&lt;br&gt;#06 高空 PCI 保留：0xFD00000000 起，0x300000000 长（约 1012GB → 1TB）&lt;br&gt;轴不按比例，只保次序——约定不保证有序不重叠，眼下的整齐是 SeaBIOS 排出来的" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;verticalAlign=top;spacing=10;fontSize=12;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="40" y="200" width="980" height="170" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

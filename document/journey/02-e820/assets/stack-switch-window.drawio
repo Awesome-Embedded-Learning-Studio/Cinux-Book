@@ -1,0 +1,34 @@
+<mxfile host="app.diagrams.net">
+  <diagram id="stack-switch-window" name="换栈窗口四拍">
+    <mxGraphModel dx="1040" dy="340" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1040" pageHeight="330" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="s1" value="&lt;b&gt;cli&lt;/b&gt;&lt;br&gt;把硬件中断&lt;br&gt;关在门外" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=center;verticalAlign=middle;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="40" y="90" width="150" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="s2" value="&lt;b&gt;mov %ax, %ss&lt;/b&gt;&lt;br&gt;&lt;b&gt;movw $0x7000, %sp&lt;/b&gt;&lt;br&gt;CPU 白送一拍：IRQ 全屏蔽" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=center;verticalAlign=middle;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="250" y="90" width="270" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" value="&lt;b&gt;一拍合上&lt;/b&gt;&lt;br&gt;世界恢复&lt;br&gt;新栈立好" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=center;verticalAlign=middle;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="580" y="90" width="150" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="s4" value="&lt;b&gt;call Stage2Main&lt;/b&gt;&lt;br&gt;返回地址落新栈&lt;br&gt;——第一批住户" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;verticalAlign=middle;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="800" y="90" width="180" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="f1" style="edgeStyle=none;html=1;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;fontSize=12;" edge="1" parent="1" source="s1" target="s2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f2" style="edgeStyle=none;html=1;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;fontSize=12;" edge="1" parent="1" source="s2" target="s3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f3" value="开门" style="edgeStyle=none;html=1;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;fontSize=12;fontColor=#333333;" edge="1" parent="1" source="s3" target="s4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="note" value="这一拍是 Intel 送的保险，不是咱们写的——换栈窗口天生就是锁着的" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=center;verticalAlign=middle;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="250" y="230" width="480" height="52" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

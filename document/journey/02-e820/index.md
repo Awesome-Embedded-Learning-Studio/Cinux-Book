@@ -18,7 +18,7 @@ tags:
 
 <StationPanel tag="r02_e820" build="cmake -B build && cmake --build build --target run" />
 
-上一站收工的时候,stage2 只应了一声 alive——家当薄得可怜。本站咱们让它搬进自己的家:栈立在有自己的下界的地方,A20 咱们请 BIOS 打开,机器的内存图谱一条条问出来、存好。收工的时候还是同一道命令,终端里落下来的不再只有三行,而是一整串起居序列——最后那七行十六列的地址,就是机器交给咱们的第一份家底。
+上一站收工的时候,stage2 交差的只有一句 `[stage2] echo alive`。本站咱们给它置办家业:栈搬进自己的地界,请 BIOS 把 A20 的门打开,机器的内存图谱一条条问出来、存好。收工的时候还是同一道命令,终端上的三行字长成一整串起居序列,中间那七行十六列的地址,就是机器交给咱们的第一份家底。
 
 <ChapterNav variant="sub">
   <ChapterLink num="1" href="01-why-now" desc="MBR 铺平的世界是借来的:栈、地址线、内存家底三样都得变成 stage2 自己的;当年这一切挤在同一天干完,这一遍摊开来消化">回声长成居所</ChapterLink>
@@ -27,8 +27,8 @@ tags:
   <ChapterLink num="4" href="04-a20" desc="8086 的回卷、键盘控制器上搭的门、三种开门法,和咱们为什么只选 BIOS 那一路">一根地址线的老故事</ChapterLink>
   <ChapterLink num="5" href="05-ask-the-bios" desc="INT 15h AX=E820 的调用约定、SMAP 三道检查、EBX 续传令牌,还有 clobber 在这里的第二层含义">问 BIOS 要一张内存图</ChapterLink>
   <ChapterLink num="6" href="06-the-archive" desc="24 字节 packed 条目、住进头文件的十六条断言、raw type 的保守翻译,以及 16 位世界里打 64 位数的两件麻烦">二十四字节,一条一条确定下来</ChapterLink>
-  <ChapterLink num="7" href="07-first-boot-test" desc="编译期能查的全升成 static_assert,测试文件只剩哨兵;boot 的头文件头一回进测试流水线">boot 血统的第一件测试</ChapterLink>
+  <ChapterLink num="7" href="07-first-boot-test" desc="编译期能查的全升成 static_assert,测试文件只留运行时才答得出的两个用例;boot 的头文件头一回进测试流水线">boot 血统的第一件测试</ChapterLink>
   <ChapterLink num="8" href="08-alive" desc="一条命令跑完起居序列,七条图谱陪着机器认一遍,stage2 从五十来字节长到三千多字节">起居序列,一口气</ChapterLink>
 </ChapterNav>
 
-下一站咱们去配屏:VBE 三步走,把一块图形模式的画布要下来,framebuffer 的参数也趁 BIOS 还应答,咱们一并问清、存好。
+下一站咱们去配屏:VBE——VESA 家的 BIOS 扩展——三步走,把一块图形模式的画布要下来,framebuffer 的参数也趁 BIOS 还应答,咱们一并问清、存好。
