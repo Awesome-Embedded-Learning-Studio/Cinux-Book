@@ -20,7 +20,7 @@ const slides = [
   { img: imgParallel, vol: '10', title: '让进程真正并发', note: '上下文切换与独立地址空间', href: '/book/10-multitasking/' },
   { img: imgFs, vol: '08', title: '把磁盘接入文件世界', note: 'VFS 抽象与 ext2 读写', href: '/book/08-filesystem/' },
   { img: imgCli, vol: '07', title: '走进用户态', note: '系统调用、ELF 加载与 Shell', href: '/book/07-userland/' },
-  { img: imgGui, vol: '09', title: '长成自己的桌面', note: '帧缓冲、窗口管理与输入', href: '/book/09-gui/' },
+  { img: imgGui, vol: '09', title: '搭起自己的桌面', note: '帧缓冲、窗口管理与输入', href: '/book/09-gui/' },
   { img: imgMulti, vol: '10', title: '多终端同时工作', note: '会话、TTY 与 fork / exec', href: '/book/10-multitasking/' },
 ]
 

@@ -32,32 +32,41 @@ const stages: Stage[] = [
   },
   {
     id: '02',
-    eyebrow: 'NOW · 最新一站',
+    eyebrow: 'DONE · 已完工',
     title: 'stage2 起居',
     desc: '把借来的世界变成自己的：栈搬进新家，A20 的门打开，内存图谱一条条问清楚。',
-    status: 'open',
+    status: 'done',
     href: '/journey/02-e820/',
     trail: ['stack', 'A20', 'E820', 'static_assert'],
   },
   {
     id: '03',
-    eyebrow: 'ACT I · 手搓（预告）',
-    title: '从配屏到长模式',
-    desc: 'VESA 配屏、保护模式、长模式、第一个内核——一路手搓到桌面。',
-    status: 'planned',
-    trail: ['VESA', 'GDT', 'paging', 'kernel'],
+    eyebrow: 'NOW · 最新一站',
+    title: 'VESA 配屏',
+    desc: '不背模式号，逐个问价——向显卡要一块 1024×768 的线性画布。',
+    status: 'open',
+    href: '/journey/03-vesa/',
+    trail: ['VBE', '4F01', 'LFB', 'packed'],
   },
   {
     id: '04',
+    eyebrow: 'ACT I · 手搓（预告）',
+    title: '从保护模式到第一个内核',
+    desc: '保护模式、长模式、第一个内核——一路手搓到桌面。',
+    status: 'planned',
+    trail: ['GDT', 'paging', 'kernel'],
+  },
+  {
+    id: '05',
     eyebrow: '幕间 & ACT II（预告）',
-    title: '重来一遍，长成系统',
+    title: '重来一遍，从地基到系统',
     desc: '带着答案重走地基，多核、驱动、网络，直到跑起别人的程序。',
     status: 'planned',
     trail: ['rebuild', 'SMP', 'driver', 'busybox'],
   },
 ]
 
-const currentStage = stages[2]!
+const currentStage = stages[3]!
 const upcomingStages = stages.filter(s => s.id !== currentStage.id)
 const currentHref = withBase(currentStage.href!)
 

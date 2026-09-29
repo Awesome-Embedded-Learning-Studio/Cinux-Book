@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "e820/e820.hpp"
+#include "vesa/vesa.hpp"
 
 namespace {
 
@@ -70,5 +71,48 @@ int CollectMemoryMap(MemoryMap* map) {
     return 0;
 }
 
+bool QueryControllerInfo(VbeInfoBlock* info) {
+    info->signature[0]         = 'V';
+    info->signature[1]         = 'B';
+    info->signature[2]         = 'E';
+    info->signature[3]         = '2';
+    // NOLINTBEGIN(misc-const-correctness)
+    // Operands bound to asm read-write/output constraints cannot be const.
+    unsigned short register_ax = 0x4F00;
+    // NOLINTEND(misc-const-correctness)
+    asm volatile(
+        "pushw %%ds\n"
+        "popw %%es\n"
+        "int $0x10"
+        : [ax] "+a"(register_ax)
+        : [info] "D"(info)
+        : "memory");
+    return register_ax == 0x004F;
+}
+
+bool QueryModeInfo(unsigned short mode, ModeInfoBlock* info) {
+    // NOLINTBEGIN(misc-const-correctness)
+    // Operands bound to asm read-write/output constraints cannot be const.
+    unsigned short register_ax = 0x4F01;
+    // NOLINTEND(misc-const-correctness)
+    asm volatile(
+        "pushw %%ds\n"
+        "popw %%es\n"
+        "int $0x10"
+        : [ax] "+a"(register_ax)
+        : [mode] "c"(mode), [info] "D"(info)
+        : "memory");
+    return register_ax == 0x004F;
+}
+
+bool SetVideoMode(unsigned short mode) {
+    // NOLINTBEGIN(misc-const-correctness)
+    // Operands bound to asm read-write/output constraints cannot be const.
+    unsigned short register_ax = 0x4F02;
+    unsigned short register_bx = mode | kLinearFrameBufferFlag;
+    // NOLINTEND(misc-const-correctness)
+    asm volatile("int $0x10" : [ax] "+a"(register_ax) : [mode] "b"(register_bx) : "memory");
+    return register_ax == 0x004F;
+}
 
 }  // namespace cinux::boot::bios
