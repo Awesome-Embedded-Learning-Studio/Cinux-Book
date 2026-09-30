@@ -63,6 +63,15 @@ inline constexpr BootStack kStage2Stack{.segments = 0x0000, .top = 0x7000};
 
 inline constexpr unsigned long kKernelLoadLma = 0x20000;
 
+inline constexpr unsigned long kPmStackTop = 0x90000;
+
+static_assert(kPmStackTop % 4 == 0);
+static_assert(kPmStackTop > kKernelLoadLma);
+static_assert(kPmStackTop < 0x100000);
+static_assert(static_cast<unsigned long>(kStage2Spot.offset) +
+                  (static_cast<unsigned long>(kStage2Spot.sectors) * 512U) <
+              0x100000);
+
 static_assert(kPageTables.base >= kLowFree.base);
 static_assert(kStage2Stack.top <= kLowFree.top);
 

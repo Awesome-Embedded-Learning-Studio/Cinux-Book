@@ -24,12 +24,22 @@ string(REGEX MATCH "\\.sectors = ([0-9]+)" layout_match "${layout_src}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/layout.hpp)
 
+add_library(boot_pm OBJECT
+    pm/pm.cpp)
+target_link_libraries(boot_pm PRIVATE cinux_warnings cinux_boot32)
+target_include_directories(boot_pm PRIVATE
+    ${CMAKE_SOURCE_DIR}/base/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
 add_executable(stage2
     stage2.cpp
     bios.cpp
+    gdt/gdt.cpp
+    pm/pm_switch.cpp
     early/libc.cpp
     ${CMAKE_SOURCE_DIR}/base/src/format/entry.cpp
-    ${CMAKE_SOURCE_DIR}/base/src/format/radix.cpp)
+    ${CMAKE_SOURCE_DIR}/base/src/format/radix.cpp
+    $<TARGET_OBJECTS:boot_pm>)
 target_link_libraries(stage2 PRIVATE cinux_warnings cinux_boot16)
 target_include_directories(stage2 PRIVATE
     ${CMAKE_SOURCE_DIR}/base/include

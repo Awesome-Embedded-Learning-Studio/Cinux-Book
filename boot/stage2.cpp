@@ -6,6 +6,8 @@
 #include "layout.hpp"
 #include "vesa/vesa.hpp"
 
+extern "C" [[noreturn]] void EnterProtectedMode();
+
 asm(".section .text.boot, \"ax\"\n"
     ".global stage2_start\n"
     "stage2_start:\n"
@@ -157,8 +159,6 @@ extern "C" [[noreturn]] void Stage2Main() {
         serial::PutString(buf);
     }
 
-    serial::PutString("[stage2] alive\n");
-    for (;;) {
-        asm volatile("hlt");
-    }
+    serial::PutString("[stage2] leaving real mode\n");
+    EnterProtectedMode();
 }
