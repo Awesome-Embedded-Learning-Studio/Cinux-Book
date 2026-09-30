@@ -41,20 +41,20 @@ const stages: Stage[] = [
   },
   {
     id: '03',
-    eyebrow: 'NOW · 最新一站',
+    eyebrow: 'DONE · 已完工',
     title: 'VESA 配屏',
     desc: '不背模式号，逐个问价——向显卡要一块 1024×768 的线性画布。',
-    status: 'open',
+    status: 'done',
     href: '/journey/03-vesa/',
     trail: ['VBE', '4F01', 'LFB', 'packed'],
   },
   {
     id: '04',
-    eyebrow: 'ACT I · 手搓（预告）',
-    title: '从保护模式到第一个内核',
-    desc: '保护模式、长模式、第一个内核——一路手搓到桌面。',
-    status: 'planned',
-    trail: ['GDT', 'paging', 'kernel'],
+    eyebrow: 'NOW · 最新一站',
+    title: '保护模式',
+    desc: '推开 32 位的大门：GDT 立起来，段寄存器各就各位。',
+    status: 'open',
+    trail: ['GDT', 'CR0', 'ljmp', '32-bit'],
   },
   {
     id: '05',
@@ -66,7 +66,7 @@ const stages: Stage[] = [
   },
 ]
 
-const currentStage = stages[3]!
+const currentStage = stages[4]!
 const upcomingStages = stages.filter(s => s.id !== currentStage.id)
 const currentHref = withBase(currentStage.href!)
 
