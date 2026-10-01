@@ -54,6 +54,7 @@ const stages: Stage[] = [
     title: '保护模式',
     desc: '推开 32 位的大门：GDT 立起来，段寄存器各就各位。',
     status: 'open',
+    href: '/journey/04-pm/',
     trail: ['GDT', 'CR0', 'ljmp', '32-bit'],
   },
   {
@@ -68,7 +69,7 @@ const stages: Stage[] = [
 
 const currentStage = stages[4]!
 const upcomingStages = stages.filter(s => s.id !== currentStage.id)
-const currentHref = withBase(currentStage.href!)
+const currentHref = currentStage.href ? withBase(currentStage.href) : undefined
 
 function stateLabel(status: Stage['status']): string {
   if (status === 'done') return '已完工'
@@ -88,7 +89,7 @@ function stateLabel(status: Stage['status']): string {
     </header>
 
     <div class="journey-map__layout">
-      <a class="journey-current" :href="currentHref">
+      <component :is="currentHref ? 'a' : 'div'" class="journey-current" :href="currentHref">
         <header class="journey-current__head">
           <span class="journey-current__node">{{ currentStage.id }}</span>
           <span class="journey-current__eyebrow">{{ currentStage.eyebrow }}</span>
@@ -103,8 +104,8 @@ function stateLabel(status: Stage['status']): string {
           </span>
         </div>
 
-        <span class="journey-current__go">进入这一站 <b aria-hidden="true">→</b></span>
-      </a>
+        <span v-if="currentHref" class="journey-current__go">进入这一站 <b aria-hidden="true">→</b></span>
+      </component>
 
       <div class="journey-future">
         <div class="journey-future__title">
