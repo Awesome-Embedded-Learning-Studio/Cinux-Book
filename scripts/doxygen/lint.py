@@ -73,7 +73,8 @@ EXCLUDED_DIRS: Tuple[str, ...] = (
     "site",
     "document",
     "assets",
-    "build"
+    "build",
+    ".claude"
 )
 
 # File extensions to scan

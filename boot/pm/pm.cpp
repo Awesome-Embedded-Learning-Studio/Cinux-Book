@@ -1,6 +1,9 @@
 #include "early/boot_console.hpp"
 #include "layout.hpp"
 
+extern "C" void              BuildTemporaryPageTables();
+extern "C" [[noreturn]] void EnterLongMode();
+
 extern "C" [[noreturn]] void PmEntry() {
     asm volatile(
         "movw $0x10, %%ax\n"
@@ -14,7 +17,6 @@ extern "C" [[noreturn]] void PmEntry() {
         : [stack] "n"(cinux::boot::kPmStackTop)
         : "ax");
     cinux::boot::serial::PutString("[pm] 32-bit world alive\n");
-    for (;;) {
-        asm volatile("hlt");
-    }
+    BuildTemporaryPageTables();
+    EnterLongMode();
 }

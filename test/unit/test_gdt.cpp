@@ -23,8 +23,19 @@ TEST("gdt: flat model covers 4GB from zero") {
 
 TEST("gdt: packed sizes survive the host world") {
     ASSERT_TRUE(sizeof(cinux::boot::gdt::SegmentDescriptor) == 8);
-    ASSERT_TRUE(sizeof(cinux::boot::gdt::BootGdt) == 24);
+    ASSERT_TRUE(sizeof(cinux::boot::gdt::BootGdt) == 40);
     ASSERT_TRUE(sizeof(cinux::boot::gdt::DescriptorTablePointer) == 6);
+}
+
+TEST("gdt: long mode descriptors carry L=1 D=0") {
+    auto const kCode64 = kTemplate.code64;
+    ASSERT_TRUE((kCode64.flags_limit_high >> 5 & 1U) == 1U);
+    ASSERT_TRUE((kCode64.flags_limit_high >> 6 & 1U) == 0U);
+    ASSERT_TRUE(kCode64.flags_limit_high == 0xAF);
+    ASSERT_TRUE(kCode64.access == 0x9A);
+    ASSERT_TRUE(kTemplate.data64.flags_limit_high == 0x8F);
+    ASSERT_TRUE(cinux::boot::gdt::kSelectorCode64 == 0x18);
+    ASSERT_TRUE(cinux::boot::gdt::kSelectorData64 == 0x20);
 }
 
 int main() {

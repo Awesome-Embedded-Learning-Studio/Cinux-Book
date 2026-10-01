@@ -24,6 +24,7 @@ add_cinux_test(framework)
 add_cinux_test(result)
 add_cinux_test(vesa)
 add_cinux_test(gdt)
+add_cinux_test(page)
 
 add_custom_target(test_host
     COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_CURRENT_BINARY_DIR} --output-on-failure

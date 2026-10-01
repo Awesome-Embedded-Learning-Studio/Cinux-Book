@@ -65,6 +65,16 @@ inline constexpr unsigned long kKernelLoadLma = 0x20000;
 
 inline constexpr unsigned long kPmStackTop = 0x90000;
 
+/// Where the separately linked 64-bit blob lands inside the stage2 image;
+/// the far-jump target of the long-mode switch and the blob's own link base.
+inline constexpr unsigned long kLmEntryVma = 0x9300;
+
+static_assert(kLmEntryVma % 16 == 0);
+static_assert(kLmEntryVma >= static_cast<unsigned long>(kStage2Spot.offset));
+static_assert(kLmEntryVma < static_cast<unsigned long>(kStage2Spot.offset) +
+                                (static_cast<unsigned long>(kStage2Spot.sectors) * 512U));
+static_assert(kLmEntryVma > kPageTables.top);
+
 static_assert(kPmStackTop % 4 == 0);
 static_assert(kPmStackTop > kKernelLoadLma);
 static_assert(kPmStackTop < 0x100000);
