@@ -16,7 +16,7 @@ tags:
 
 # 04 · 保护模式:推开 32 位的大门
 
-<StationPanel tag="r04_pm" build="cmake -B build && cmake --build build --target run" />
+<StationPanel tag="r04_protected_mode" build="cmake -B build && cmake --build build --target run" />
 
 上一站收工的时候,stage2 的起居室已经齐整了:栈是咱们自己的了,A20 的门开着,七条内存图谱也躺进了存档,连屏幕的画布都挂上了墙,framebuffer 的参数一样样问回来、存好了。可是咱们心里都清楚,这些家业全部跑在一个 16 位的旧世界里:算地址靠的还是段寄存器左移四位再拼偏移,摸得着的上限是 1MB,而 BIOS 的中断还随时候着命。本站咱们要把这个世界换掉。要办的四件事,一件都省不得:用 `cli` 把中断的门关上,建一张 GDT 立好新世界的底数,拨动 `CR0` 上的那个开关,末了用一句远跳跨过门槛。咱们跨过去之后,BIOS 就再也叫不应了——所以上一站咱们才赶着把该问的参数全问完了。本站还有一件构建层面的大事:32 位的代码要住进自己的编译世界,跟 16 位的世界隔着一句远跳相望。
 
