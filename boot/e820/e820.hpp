@@ -40,7 +40,6 @@ struct [[gnu::packed]] MemoryMapEntry {
 
 inline constexpr unsigned short kE820MaxEntries = 32;
 
-
 /**
  * @brief   Archive of BIOS-reported E820 entries.
  * @note    Lives in stage2 .bss and is filled at run time by the BIOS;
@@ -53,14 +52,7 @@ struct MemoryMap {
     unsigned int   count;
 };
 
-// ABI layout assertions: every world including this header pins the contract
-static_assert(sizeof(MemoryMapEntry) == 24);
-static_assert(__builtin_offsetof(MemoryMapEntry, base) == 0);
-static_assert(__builtin_offsetof(MemoryMapEntry, length) == 8);
-static_assert(__builtin_offsetof(MemoryMapEntry, type) == 16);
-static_assert(__builtin_offsetof(MemoryMapEntry, acpi_attr) == 20);
-static_assert(sizeof(MemoryMap) == (static_cast<unsigned long>(kE820MaxEntries) * 24U) + 4U);
-
+// ABI layout pins: test_e820 carries the wire-size assertions in the host world
 
 /**
  * @brief         Maps a raw BIOS type value to its classification.
@@ -104,16 +96,5 @@ constexpr EntryType ClassifyEntry(unsigned int raw_type) {
 constexpr bool IsUsable(EntryType type) {
     return type == EntryType::kUsable;
 }
-
-static_assert(ClassifyEntry(1) == EntryType::kUsable);
-static_assert(ClassifyEntry(2) == EntryType::kReserved);
-static_assert(ClassifyEntry(3) == EntryType::kAcpiReclaimable);
-static_assert(ClassifyEntry(4) == EntryType::kAcpiNvs);
-static_assert(ClassifyEntry(5) == EntryType::kBad);
-static_assert(ClassifyEntry(0) == EntryType::kReserved);
-static_assert(ClassifyEntry(0xFFFFFFFFU) == EntryType::kReserved);
-static_assert(IsUsable(EntryType::kUsable));
-static_assert(!IsUsable(EntryType::kReserved));
-static_assert(!IsUsable(EntryType::kAcpiReclaimable));
 
 }  // namespace cinux::boot

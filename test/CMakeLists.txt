@@ -23,7 +23,9 @@ add_cinux_test(format)
 add_cinux_test(framework)
 add_cinux_test(result)
 add_cinux_test(vesa)
+add_cinux_test(bits)
 add_cinux_test(gdt)
+add_cinux_test(layout)
 add_cinux_test(page)
 
 add_custom_target(test_host

@@ -1,4 +1,4 @@
-#include "early/boot_console.hpp"
+#include "kernel/boot/console.hpp"
 #include "layout.hpp"
 #include "mbr/disk_address_packet.hpp"
 
@@ -38,22 +38,18 @@ asm(".section .text.boot, \"ax\"\n"
 
 namespace {
 void boot_failed(unsigned long status) {
-    using namespace cinux::boot::serial;
+    using namespace cinux::console;
     char const* hex = "0123456789ABCDEF";
     PutString("Error: ");
     PutChar(hex[(status >> 4) & 0xF]);
     PutChar(hex[status & 0xF]);
     PutChar('\n');
-    for (;;) {
-        asm volatile("hlt");
-    }
+    cinux::console::Halt();
 }
 
 void returned_from_stage2() {
-    cinux::boot::serial::PutString("unexpected: returned from stage2\n");
-    for (;;) {
-        asm volatile("hlt");
-    }
+    cinux::console::PutString("unexpected: returned from stage2\n");
+    cinux::console::Halt();
 }
 }  // namespace
 
@@ -61,14 +57,14 @@ extern "C" [[noreturn]] void MbrMain() {
     unsigned short       reg_ax = 0x4200;  // NOLINT(misc-const-correctness)
     const unsigned short kDrive = g_boot_drive;
 
-    cinux::boot::serial::PutString("Ready to call bios\n");
+    cinux::console::PutString("Ready to call bios\n");
     // Call Bios
     asm volatile("int $0x13" : "+a"(reg_ax) : "S"(&g_dap), "d"(kDrive) : "memory");
     if ((reg_ax >> 8) != 0) {
         boot_failed(reg_ax >> 8);
     }
 
-    cinux::boot::serial::PutString("Jump to Stage 2\n");
+    cinux::console::PutString("Jump to Stage 2\n");
 
     asm volatile("ljmp %0, %1"
                  :

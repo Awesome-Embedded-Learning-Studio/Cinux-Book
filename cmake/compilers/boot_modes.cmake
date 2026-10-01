@@ -18,5 +18,4 @@ endforeach()
 
 target_compile_options(cinux_boot64 INTERFACE
     -mno-red-zone
-    -mcmodel=small
 )

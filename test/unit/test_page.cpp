@@ -1,14 +1,21 @@
 #include "../framework/framework.hpp"
-#include "cinux/page/page_entry.hpp"
+#include "kernel/arch/x86_64/page_entry.hpp"
 
-using cinux::base::page::Entry;
-using cinux::base::page::kLarge;
-using cinux::base::page::kLargePageSize;
-using cinux::base::page::kLargePagePhys;
-using cinux::base::page::kPresent;
-using cinux::base::page::kWritable;
-using cinux::base::page::MakeLargePageEntry;
-using cinux::base::page::MakeTableEntry;
+using cinux::arch::page::Entry;
+using cinux::arch::page::kLarge;
+using cinux::arch::page::kLargePageSize;
+using cinux::arch::page::kLargePagePhys;
+using cinux::arch::page::kPresent;
+using cinux::arch::page::kWritable;
+using cinux::arch::page::MakeLargePageEntry;
+using cinux::arch::page::MakeTableEntry;
+
+TEST("page: entry grammar static pins") {
+    ASSERT_TRUE(sizeof(Entry) == 8);
+    ASSERT_TRUE(cinux::arch::page::kLargePageSize == 0x200000);
+    ASSERT_TRUE(MakeTableEntry(0x2007, kWritable).raw == 0x2003);
+    ASSERT_TRUE(MakeLargePageEntry(0x200123, kWritable).raw == 0x200083);
+}
 
 TEST("page: entry width is pinned at eight bytes") {
     ASSERT_TRUE(sizeof(Entry) == 8);

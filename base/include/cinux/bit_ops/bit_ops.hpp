@@ -94,15 +94,6 @@ constexpr T NibbleAt(T value, unsigned char shift) {
     return (value >> shift) & 0xF;
 }
 
-
 // Lets Learn Rust, Test Static locally :)
-static_assert(LowNibble(0xAB) == 0xB);
-static_assert(HighNibble(0xAB) == 0xA);
-static_assert(LowByte(0x1234) == 0x34);
-static_assert(HighByte(0x1234) == 0x12);
-static_assert(LowNibble(0xABCDEF0123456789ULL) == 0x9);
-static_assert(HighNibble(0xF) == 0x0);
-static_assert(NibbleAt(0xABCD, 12) == 0xA);
-static_assert(NibbleAt(0xABCD, 0) == 0xD);
 
 }  // namespace cinux::base::bit

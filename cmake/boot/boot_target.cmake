@@ -8,6 +8,7 @@ function(add_cinux_boot_binary target mode script)
     target_link_libraries(${target} PRIVATE cinux_warnings cinux_boot${mode})
     target_include_directories(${target} PRIVATE
         ${CMAKE_SOURCE_DIR}/base/include
+        ${CMAKE_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_options(${target} PRIVATE
         -m${link_mode}

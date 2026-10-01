@@ -56,19 +56,19 @@ bool EnableA20AddressLine() {
 }
 
 
-int CollectMemoryMap(MemoryMap* map) {
+bool CollectMemoryMap(MemoryMap* map) {
     map->count            = 0;
     uint32_t continuation = 0;
     do {
         if (!query_one(continuation, &map->entries[map->count])) {
-            return 1;
+            return false;
         }
         ++map->count;
         if (map->count >= kE820MaxEntries) {
             break;
         }
     } while (continuation != 0);
-    return 0;
+    return true;
 }
 
 bool QueryControllerInfo(VbeInfoBlock* info) {

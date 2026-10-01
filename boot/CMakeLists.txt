@@ -11,26 +11,29 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 add_library(boot_pm OBJECT
     pm/pm.cpp
     lm/lm_switch.cpp
-    lm/page_tables.cpp)
+    lm/page_tables.cpp
+    load/ferry32.cpp)
 target_link_libraries(boot_pm PRIVATE cinux_warnings cinux_boot32)
 target_include_directories(boot_pm PRIVATE
     ${CMAKE_SOURCE_DIR}/base/include
+    ${CMAKE_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_executable(lm_blob lm/lm.cpp)
 add_cinux_boot_binary(lm_blob 64 lm/lm.ld)
+target_compile_options(lm_blob PRIVATE -mcmodel=small)
 
 add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/lm_blob.tmp.o
            ${CMAKE_CURRENT_BINARY_DIR}/lm_blob.o
     COMMAND ${CMAKE_OBJCOPY} -I binary -O elf32-i386 -B i386
             --rename-section .data=.lm_blob
-            ${CMAKE_CURRENT_BINARY_DIR}/lm.bin
+            ${CMAKE_CURRENT_BINARY_DIR}/lm_blob.bin
             ${CMAKE_CURRENT_BINARY_DIR}/lm_blob.tmp.o
     COMMAND ${CMAKE_OBJCOPY} --set-section-flags .lm_blob=alloc,load,readonly,data
             ${CMAKE_CURRENT_BINARY_DIR}/lm_blob.tmp.o
             ${CMAKE_CURRENT_BINARY_DIR}/lm_blob.o
-    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/lm.bin)
+    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/lm_blob.bin)
 add_custom_target(lm_blob_obj
     DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/lm_blob.o)
 
@@ -39,6 +42,8 @@ add_executable(stage2
     bios.cpp
     gdt/gdt.cpp
     pm/pm_switch.cpp
+    load/ferry.cpp
+    load/loader.cpp
     early/libc.cpp
     ${CMAKE_CURRENT_BINARY_DIR}/lm_blob.o
     ${CMAKE_SOURCE_DIR}/base/src/format/entry.cpp
@@ -64,11 +69,14 @@ add_custom_target(boot_image
             of=${CMAKE_CURRENT_BINARY_DIR}/cinux.img bs=512 count=1 conv=notrunc status=none
     COMMAND dd if=${CMAKE_CURRENT_BINARY_DIR}/stage2.bin
             of=${CMAKE_CURRENT_BINARY_DIR}/cinux.img bs=512 seek=1 conv=notrunc status=none
-    DEPENDS mbr_bin stage2_size_check
+    COMMAND dd if=${CMAKE_BINARY_DIR}/kernel/kernel.bin
+            of=${CMAKE_CURRENT_BINARY_DIR}/cinux.img bs=512 seek=32 conv=notrunc status=none
+    DEPENDS mbr_bin stage2_size_check kernel_bin
 )
 
 add_custom_target(run
     COMMAND qemu-system-x86_64
+            -accel kvm
             -drive format=raw,file=${CMAKE_CURRENT_BINARY_DIR}/cinux.img
             -display none
             -debugcon stdio

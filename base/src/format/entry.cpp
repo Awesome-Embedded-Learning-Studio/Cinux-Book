@@ -18,6 +18,7 @@
 #include <stdint.h>
 
 #include <cinux/format.hpp>
+#include <cinux/ptr.hpp>
 
 #include "detail.hpp"
 
@@ -39,11 +40,8 @@ public:
 
     char next_char() { return static_cast<char>(take().value); }
 
-    // NOLINTBEGIN(performance-no-int-to-ptr)
-    // Arg stores raw bits; reading them back as a pointer is the point.
     detail::TextView next_string() {
-        const char* source = reinterpret_cast<const char*>(take().value);
-        // NOLINTEND(performance-no-int-to-ptr)
+        const char* source = base::PtrAt<char>(static_cast<unsigned long>(take().value));
         if (source == nullptr) {
             source = "(null)";
         }

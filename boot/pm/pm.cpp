@@ -1,7 +1,7 @@
-#include "early/boot_console.hpp"
+#include "kernel/boot/console.hpp"
 #include "layout.hpp"
 
-extern "C" void              BuildTemporaryPageTables();
+extern "C" void              BuildHandoffDoors();
 extern "C" [[noreturn]] void EnterLongMode();
 
 extern "C" [[noreturn]] void PmEntry() {
@@ -16,7 +16,7 @@ extern "C" [[noreturn]] void PmEntry() {
         :
         : [stack] "n"(cinux::boot::kPmStackTop)
         : "ax");
-    cinux::boot::serial::PutString("[pm] 32-bit world alive\n");
-    BuildTemporaryPageTables();
+    cinux::console::PutString("[pm] 32-bit world alive\n");
+    BuildHandoffDoors();
     EnterLongMode();
 }

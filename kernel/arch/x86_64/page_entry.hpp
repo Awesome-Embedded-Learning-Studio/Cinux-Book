@@ -22,19 +22,19 @@
 
 #include "cinux/bit_ops/bitmask.hpp"
 
-namespace cinux::base::page {
+namespace cinux::arch::page {
 
 /// One page-table entry; eight bytes in every compiling world.
-using Entry = bit::BitMask<uint64_t>;
+using Entry = base::bit::BitMask<uint64_t>;
 
 /// Bit 0: the entry maps something.
-inline constexpr Entry kPresent = bit::MaskBit<uint64_t>(0);
+inline constexpr Entry kPresent = base::bit::MaskBit<uint64_t>(0);
 
 /// Bit 1: the mapping is writable.
-inline constexpr Entry kWritable = bit::MaskBit<uint64_t>(1);
+inline constexpr Entry kWritable = base::bit::MaskBit<uint64_t>(1);
 
 /// Bit 7: this entry is a large page, not a pointer to the next table.
-inline constexpr Entry kLarge = bit::MaskBit<uint64_t>(7);
+inline constexpr Entry kLarge = base::bit::MaskBit<uint64_t>(7);
 
 /// Shift of a 2MB large page: frame numbers below count in 2MB units.
 inline constexpr unsigned char kLargePageShift = 21;
@@ -43,10 +43,10 @@ inline constexpr unsigned char kLargePageShift = 21;
 inline constexpr uint64_t kLargePageSize = 1ULL << kLargePageShift;
 
 /// Physical address field of a table-pointer entry: bits 51..12.
-inline constexpr bit::BitRange kTablePhys{.low = 12, .width = 40};
+inline constexpr base::bit::BitRange kTablePhys{.low = 12, .width = 40};
 
 /// Physical address field of a large-page entry: bits 51..21.
-inline constexpr bit::BitRange kLargePagePhys{.low = 21, .width = 31};
+inline constexpr base::bit::BitRange kLargePagePhys{.low = 21, .width = 31};
 
 /**
  * @brief         Build a table-pointer entry: present plus the given flags,
@@ -83,12 +83,4 @@ constexpr Entry MakeLargePageEntry(uint64_t physical, Entry flags) {
     return entry;
 }
 
-static_assert(sizeof(Entry) == 8);
-static_assert(kLargePageSize == 0x200000);
-static_assert(MakeTableEntry(0x2000, kWritable).raw == 0x2003);
-static_assert(MakeTableEntry(0x2007, kWritable).raw == 0x2003);
-static_assert(MakeLargePageEntry(0x0, kWritable).raw == 0x83);
-static_assert(MakeLargePageEntry(kLargePageSize, kWritable).raw == 0x200083);
-static_assert(MakeLargePageEntry(0x200123, kWritable).raw == 0x200083);
-
-}  // namespace cinux::base::page
+}  // namespace cinux::arch::page

@@ -35,7 +35,7 @@ bool EnableA20AddressLine();
  * @param[out]    map   Destination archive; entries are appended until the
  *                      BIOS continuation token reaches zero or the entry
  *                      cap is hit.
- * @return        0 on success, 1 when the BIOS reports an error.
+ * @return        true on success, false when the BIOS reports an error.
  * @note          Detect-and-archive only; consumption belongs to later
  *                stations (PMM).
  * @warning       None
@@ -43,7 +43,7 @@ bool EnableA20AddressLine();
  * @since         0.1.0
  * @ingroup       boot_bios
  */
-int CollectMemoryMap(MemoryMap* map);
+bool CollectMemoryMap(MemoryMap* map);
 
 /**
  * @brief         Reads the VBE controller block via INT 10h AX=4F00.
@@ -51,8 +51,8 @@ int CollectMemoryMap(MemoryMap* map);
  * @param[out]    info   Controller block preloaded with the "VBE2" signature
  *                       by this call; the BIOS refuses 2.0+ data without it.
  * @return        true when the BIOS reports success (AX == 0x004F).
- * @note          The 512-byte buffer contract is pinned by static_asserts
- *                in vesa.hpp.
+ * @note          The 512-byte buffer contract is pinned by test_vesa
+ *                in the host world.
  * @warning       None
  * @throws        None
  * @since         0.1.0

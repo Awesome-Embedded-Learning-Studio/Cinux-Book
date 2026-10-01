@@ -1,0 +1,12 @@
+asm(".section .image_header,\"a\"\n"
+    ".global kImageHeaderRaw\n"
+    "kImageHeaderRaw:\n"
+    "   .long 0x5A4B4E43\n"
+    "   .word 1\n"
+    "   .word 32\n"
+    "   .quad __lma_start\n"
+    "   .quad __header_file_size\n"
+    "   .quad __header_mem_size\n"
+    "   .quad __entry_lma\n"
+    "   . = (. + 15) & ~15\n"
+    ".text\n");

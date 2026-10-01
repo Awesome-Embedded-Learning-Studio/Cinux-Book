@@ -24,11 +24,6 @@ struct [[gnu::packed]] VbeInfoBlock {
     unsigned char  tail[512 - 0x14];
 };
 
-static_assert(sizeof(VbeInfoBlock) == 512);
-static_assert(__builtin_offsetof(VbeInfoBlock, version) == 0x04);
-static_assert(__builtin_offsetof(VbeInfoBlock, mode_list_offset) == 0x0E);
-static_assert(__builtin_offsetof(VbeInfoBlock, total_memory) == 0x12);
-
 struct [[gnu::packed]] ModeInfoBlock {
     unsigned short attributes;  // bit 7 = LFB supported
     unsigned char  reserved_02[0x0E];
@@ -37,18 +32,23 @@ struct [[gnu::packed]] ModeInfoBlock {
     unsigned short height;
     unsigned char  reserved_16[0x03];  // char cell, planes
     unsigned char  bpp;
-    unsigned char  reserved_1a[0x0E];  // memory model, masks, ...
-    unsigned int   framebuffer;        // physical LFB base
+    unsigned char  banks;                   // 0x1A
+    unsigned char  memory_model;            // 0x1B
+    unsigned char  bank_size;               // 0x1C
+    unsigned char  image_pages;             // 0x1D
+    unsigned char  reserved_1e;             // 0x1E
+    unsigned char  red_mask_size;           // 0x1F
+    unsigned char  red_field_position;      // 0x20
+    unsigned char  green_mask_size;         // 0x21
+    unsigned char  green_field_position;    // 0x22
+    unsigned char  blue_mask_size;          // 0x23
+    unsigned char  blue_field_position;     // 0x24
+    unsigned char  rsvd_mask_size;          // 0x25
+    unsigned char  rsvd_field_position;     // 0x26
+    unsigned char  direct_color_mode_info;  // 0x27
+    unsigned int   framebuffer;             // physical LFB base
     unsigned char  tail[256 - 0x2C];
 };
-
-static_assert(sizeof(ModeInfoBlock) == 256);
-static_assert(__builtin_offsetof(ModeInfoBlock, attributes) == 0x00);
-static_assert(__builtin_offsetof(ModeInfoBlock, pitch) == 0x10);
-static_assert(__builtin_offsetof(ModeInfoBlock, width) == 0x12);
-static_assert(__builtin_offsetof(ModeInfoBlock, height) == 0x14);
-static_assert(__builtin_offsetof(ModeInfoBlock, bpp) == 0x19);
-static_assert(__builtin_offsetof(ModeInfoBlock, framebuffer) == 0x28);
 
 /**
  * @brief   Boot-side archive of the framebuffer after the mode switch.
@@ -66,10 +66,11 @@ struct [[gnu::packed]] FrameBufferInfo {
     unsigned char      bpp;
 };
 
-static_assert(sizeof(FrameBufferInfo) == 17);
-
 /** @brief VBE mode-number bit that requests the linear framebuffer. */
 inline constexpr unsigned short kLinearFrameBufferFlag = 0x4000;
+
+/** @brief Value that terminates the controller's mode-number list. */
+inline constexpr unsigned short kModeListTerminator = 0xFFFF;
 
 /**
  * @brief         Reports whether one BIOS-reported mode satisfies a display request.
@@ -134,42 +135,5 @@ constexpr ModeInfoBlock MakeSample(const ModeSample& sample) {
     info.framebuffer = sample.framebuffer;
     return info;
 }
-
-
-static_assert(MatchesRequest(MakeSample({.attributes  = 0x0080,
-                                         .pitch       = 4096,
-                                         .width       = 1024,
-                                         .height      = 768,
-                                         .bpp         = 32,
-                                         .framebuffer = 0xFD000000}),
-                             1024, 768, 32));
-static_assert(!MatchesRequest(MakeSample({.attributes  = 0x0080,
-                                          .pitch       = 4096,
-                                          .width       = 1024,
-                                          .height      = 768,
-                                          .bpp         = 32,
-                                          .framebuffer = 0xFD000000}),
-                              1024, 768, 24));
-static_assert(!MatchesRequest(MakeSample({.attributes  = 0x0080,
-                                          .pitch       = 4096,
-                                          .width       = 1024,
-                                          .height      = 768,
-                                          .bpp         = 32,
-                                          .framebuffer = 0xFD000000}),
-                              800, 600, 32));
-static_assert(!MatchesRequest(MakeSample({.attributes  = 0x000A,
-                                          .pitch       = 3072,
-                                          .width       = 1024,
-                                          .height      = 768,
-                                          .bpp         = 24,
-                                          .framebuffer = 0xFD000000}),
-                              1024, 768, 24));
-static_assert(!MatchesRequest(MakeSample({.attributes  = 0x0090,
-                                          .pitch       = 3072,
-                                          .width       = 1024,
-                                          .height      = 768,
-                                          .bpp         = 24,
-                                          .framebuffer = 0}),
-                              1024, 768, 24));
 
 }  // namespace cinux::boot

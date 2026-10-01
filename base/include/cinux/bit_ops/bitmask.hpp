@@ -137,29 +137,4 @@ constexpr BitMask<T> MaskBit(unsigned char position) {
     return BitMask<T>{static_cast<T>(T{1} << position)};
 }
 
-/**
- * @brief         Self-check body for the static_asserts below: deposit a
- *                known field value over a set flag bit.
- *
- * @return        The probed word, expected 0xABCDE001.
- * @since         0.1.0
- * @ingroup       base_bit_ops
- */
-constexpr unsigned long long ProbeDeposit() {
-    BitMask<unsigned long long> entry{1};
-    entry.deposit(BitRange{.low = 12, .width = 40}, 0xABCDE);
-    return entry.raw;
-}
-
-static_assert(MaskBit<unsigned char>(0).raw == 0x1);
-static_assert(MaskBit<unsigned int>(31).raw == 0x80000000);
-static_assert(MaskBit<unsigned long long>(63).raw == 0x8000000000000000ULL);
-static_assert((MaskBit<unsigned int>(4) | MaskBit<unsigned int>(1)).raw == 0x12);
-static_assert(ProbeDeposit() == 0xABCDE001);
-
-constexpr BitMask<unsigned long long> const kProbeEntry{ProbeDeposit()};
-static_assert(kProbeEntry.extract(BitRange{.low = 12, .width = 40}) == 0xABCDE);
-static_assert(kProbeEntry.has(MaskBit<unsigned long long>(0)));
-static_assert(!kProbeEntry.has(MaskBit<unsigned long long>(1)));
-
 }  // namespace cinux::base::bit
