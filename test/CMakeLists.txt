@@ -27,6 +27,7 @@ add_cinux_test(bits)
 add_cinux_test(gdt)
 add_cinux_test(layout)
 add_cinux_test(page)
+add_cinux_test(image)
 
 add_custom_target(test_host
     COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_CURRENT_BINARY_DIR} --output-on-failure
