@@ -1,0 +1,62 @@
+{
+  "stations": [
+    {
+      "id": "00",
+      "slug": "00-armory",
+      "title": "武器库",
+      "titleEn": "Armory",
+      "desc": "还没碰内核,先把 Result、格式引擎、断言与测试框架握在手里。",
+      "note": "Result、格式引擎、断言、测试框架——写内核之前先把武器备齐",
+      "status": "done",
+      "trail": ["Result", "format", "assert", "test"]
+    },
+    {
+      "id": "01",
+      "slug": "01-mbr",
+      "title": "MBR 专题",
+      "titleEn": "MBR",
+      "desc": "从 512 字节的引导扇区出发,把第一段 C++ 代码送进实模式机器。",
+      "note": "512 字节的引导扇区、实模式世界观、第一段 C++ 起手式",
+      "status": "done",
+      "trail": ["0x7C00", "DAP", "-m16", "ljmp"]
+    },
+    {
+      "id": "02",
+      "slug": "02-e820",
+      "title": "stage2 起居",
+      "titleEn": "Stage2 Living",
+      "desc": "把借来的世界变成自己的:栈搬进新家,A20 的门打开,内存图谱一条条问清楚。",
+      "note": "自己的栈、打开的 A20、一张内存图谱——借来的世界住成了自己的",
+      "status": "done",
+      "trail": ["stack", "A20", "E820", "static_assert"]
+    },
+    {
+      "id": "03",
+      "slug": "03-vesa",
+      "title": "VESA 配屏",
+      "titleEn": "VESA",
+      "desc": "不背模式号,逐个问价——向显卡要一块 1024×768 的线性画布。",
+      "note": "不背模式号、逐个问价——向显卡要一块 1024×768 的线性画布",
+      "status": "done",
+      "trail": ["VBE", "4F01", "LFB", "packed"]
+    },
+    {
+      "id": "04",
+      "slug": "04-pm",
+      "title": "保护模式",
+      "titleEn": "Protected Mode",
+      "desc": "推开 32 位的大门:GDT 立起来,段寄存器各就各位。",
+      "note": "一张扁平 GDT、CR0 上的一个开关、一句刷新 CS 的远跳——跟 16 位的世界正式道别",
+      "status": "open",
+      "trail": ["GDT", "CR0", "ljmp", "32-bit"]
+    },
+    {
+      "id": "act2",
+      "eyebrow": "幕间 & ACT II(预告)",
+      "title": "重来一遍,从地基到系统",
+      "desc": "带着答案重走地基,多核、驱动、网络,直到跑起别人的程序。",
+      "status": "planned",
+      "trail": ["rebuild", "SMP", "driver", "busybox"]
+    }
+  ]
+}
