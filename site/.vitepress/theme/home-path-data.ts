@@ -51,7 +51,7 @@ export interface PathBand {
 
 export const VB_W = 1330
 export const VB_H = 720
-export const HOME_GRAPH_REVISION = 1
+export const HOME_GRAPH_REVISION = 2
 
 export const HOME_PATH_BANDS: PathBand[] = [
   { label: { cn: 'B0 · 选择起点', en: 'B0 · Choose a start' }, top: 16, bottom: 114 },
@@ -59,6 +59,33 @@ export const HOME_PATH_BANDS: PathBand[] = [
   { label: { cn: 'B2 · 踏上主线', en: 'B2 · Main journey' }, top: 298, bottom: 426 },
   { label: { cn: 'B3 · 查证、排错与工程记录', en: 'B3 · Support' }, top: 454, bottom: 704 },
 ]
+
+import stationTable from '../stations.json'
+
+interface StationEntry {
+  id: string
+  slug?: string
+  title: string
+  titleEn?: string
+  status: 'done' | 'open' | 'planned'
+  trail: string[]
+}
+
+const anchorStation = stationTable.stations.find((s: StationEntry) => s.id === '00')
+const liveStation = stationTable.stations.find((s: StationEntry) => s.status === 'open')
+
+function stationStatus(s: StationEntry): PathStatus {
+  return s.status === 'open' ? 'doing' : 'done'
+}
+
+function stationName(s: StationEntry): Bi {
+  return { cn: `${s.id} · ${s.title}`, en: `${s.id} · ${s.titleEn ?? s.title}` }
+}
+
+function stationSub(s: StationEntry): Bi {
+  const joined = s.trail.join(' · ')
+  return { cn: joined, en: joined }
+}
 
 export const HOME_PATH_NODES: PathNode[] = [
   {
@@ -98,16 +125,16 @@ export const HOME_PATH_NODES: PathNode[] = [
     href: '/journey/', badge: 'MAIN',
   },
   {
-    id: 'armory', name: { cn: '00 · 武器库', en: '00 · Armory' },
-    sub: { cn: 'Result · format · assert · test', en: 'Core utilities' },
-    x: 760, y: 362, w: 210, h: 66, kind: 'proj', status: 'doing', tier: 'eng',
-    href: '/journey/00-armory/', badge: '00',
+    id: 'armory', name: stationName(anchorStation!),
+    sub: stationSub(anchorStation!),
+    x: 760, y: 362, w: 210, h: 66, kind: 'proj', status: stationStatus(anchorStation!), tier: 'eng',
+    href: `/journey/${anchorStation!.slug}/`, badge: anchorStation!.id,
   },
   {
-    id: 'next', name: { cn: '下一站装填中', en: 'Next stop loading' },
-    sub: { cn: 'Bootloader 即将发车', en: 'Bootloader is next' },
-    x: 1065, y: 362, w: 175, h: 46, kind: 'sup', status: 'doing', tier: 'eng',
-    href: '/journey/', badge: 'NEXT',
+    id: 'live', name: stationName(liveStation!),
+    sub: stationSub(liveStation!),
+    x: 1065, y: 362, w: 210, h: 66, kind: 'proj', status: stationStatus(liveStation!), tier: 'eng',
+    href: `/journey/${liveStation!.slug}/`, badge: liveStation!.id,
   },
   {
     id: 'reference', name: { cn: '子系统参考', en: 'Reference' },
@@ -147,7 +174,7 @@ export const HOME_PATH_EDGES: PathEdge[] = [
   { from: 'assembly', to: 'cpp', kind: 'solid', route: { from: 'right', to: 'left' } },
   { from: 'cpp', to: 'journey', kind: 'solid', route: { from: 'bottom', to: 'top', via: [{ x: 'from', y: 284 }, { x: 'to', y: 284 }] } },
   { from: 'journey', to: 'armory', kind: 'solid', route: { from: 'right', to: 'left' } },
-  { from: 'armory', to: 'next', kind: 'solid', route: { from: 'right', to: 'left' } },
+  { from: 'armory', to: 'live', kind: 'solid', route: { from: 'right', to: 'left' } },
 
   { from: 'start', to: 'journey', kind: 'dash', route: { from: 'left', to: 'top', via: [{ x: 120, y: 'from' }, { x: 120, y: 284 }, { x: 'to', y: 284 }] } },
   { from: 'cpp', to: 'tamcpp', kind: 'dash', route: { from: 'right', to: 'left' } },

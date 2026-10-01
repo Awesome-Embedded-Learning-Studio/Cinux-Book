@@ -7,12 +7,23 @@
  * 视觉重量差异本身就是信息：主入口占两倍宽，次入口是并列的窄条。
  */
 import { withBase } from 'vitepress'
+import stationTable from '../../stations.json'
 
 const secondary = [
   { title: '排错笔记', note: '真实内核故障的定位与收敛过程', href: '/debug-notes/' },
   { title: '参考手册', note: '寄存器、接口与边界速查', href: '/reference/' },
   { title: '开发流程', note: 'CI 矩阵与工程约定', href: '/ci/' },
 ]
+
+const stationCards = stationTable.stations
+  .filter((s: { slug?: string }) => s.slug)
+  .map((s: { id: string, slug: string, title: string, note: string, status: string }) => ({
+    id: s.id,
+    title: s.title,
+    note: s.note,
+    href: `/journey/${s.slug}/`,
+    latest: s.status === 'open',
+  }))
 </script>
 
 <template>
@@ -40,40 +51,22 @@ const secondary = [
     <div class="entry__journey">
       <div class="entry__journey-head">
         <span class="entry__tag">教程</span>
-        <span class="entry__count">已开放四站 · 沿真实开发史一站一站走</span>
+        <span class="entry__count">已开放 {{ stationCards.length }} 站 · 沿真实开发史一站一站走</span>
       </div>
       <div class="entry__stations">
-        <a class="entry__station" :href="withBase('/journey/00-armory/')">
+        <a
+          v-for="station in stationCards"
+          :key="station.id"
+          class="entry__station"
+          :class="{ 'is-latest': station.latest }"
+          :href="withBase(station.href)"
+        >
           <span class="entry__station-top">
-            <strong>武器库</strong>
-            <span class="entry__station-id">00</span>
+            <strong>{{ station.title }}</strong>
+            <span class="entry__station-id">{{ station.id }}</span>
           </span>
-          <span class="entry__station-note">Result、格式引擎、断言、测试框架——写内核之前先把武器备齐</span>
-          <span class="entry__go">开始读<i aria-hidden="true">→</i></span>
-        </a>
-        <a class="entry__station" :href="withBase('/journey/01-mbr/')">
-          <span class="entry__station-top">
-            <strong>MBR 专题</strong>
-            <span class="entry__station-id">01</span>
-          </span>
-          <span class="entry__station-note">512 字节的引导扇区、实模式世界观、第一段 C++ 起手式</span>
-          <span class="entry__go">开始读<i aria-hidden="true">→</i></span>
-        </a>
-        <a class="entry__station" :href="withBase('/journey/02-e820/')">
-          <span class="entry__station-top">
-            <strong>stage2 起居</strong>
-            <span class="entry__station-id">02</span>
-          </span>
-          <span class="entry__station-note">自己的栈、打开的 A20、一张内存图谱——借来的世界住成了自己的</span>
-          <span class="entry__go">开始读<i aria-hidden="true">→</i></span>
-        </a>
-        <a class="entry__station is-latest" :href="withBase('/journey/03-vesa/')">
-          <span class="entry__station-top">
-            <strong>VESA 配屏</strong>
-            <span class="entry__station-id">03</span>
-          </span>
-          <span class="entry__station-note">不背模式号、逐个问价——向显卡要一块 1024×768 的线性画布</span>
-          <span class="entry__go">最新一站<i aria-hidden="true">→</i></span>
+          <span class="entry__station-note">{{ station.note }}</span>
+          <span class="entry__go">{{ station.latest ? '最新一站' : '开始读' }}<i aria-hidden="true">→</i></span>
         </a>
       </div>
     </div>

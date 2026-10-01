@@ -1,5 +1,18 @@
 <script setup lang="ts">
 import { withBase } from 'vitepress'
+import stationTable from '../../stations.json'
+
+type StationStatus = 'done' | 'open' | 'planned'
+
+interface Station {
+  id: string
+  slug?: string
+  eyebrow?: string
+  title: string
+  desc: string
+  status: StationStatus
+  trail: string[]
+}
 
 interface Stage {
   id: string
@@ -11,63 +24,23 @@ interface Stage {
   trail: string[]
 }
 
-const stages: Stage[] = [
-  {
-    id: '00',
-    eyebrow: 'DONE · 已完工',
-    title: '武器库',
-    desc: '还没碰内核，先把 Result、格式引擎、断言与测试框架握在手里。',
-    status: 'done',
-    href: '/journey/00-armory/',
-    trail: ['Result', 'format', 'assert', 'test'],
-  },
-  {
-    id: '01',
-    eyebrow: 'DONE · 已完工',
-    title: 'MBR 专题',
-    desc: '从 512 字节的引导扇区出发，把第一段 C++ 代码送进实模式机器。',
-    status: 'done',
-    href: '/journey/01-mbr/',
-    trail: ['0x7C00', 'DAP', '-m16', 'ljmp'],
-  },
-  {
-    id: '02',
-    eyebrow: 'DONE · 已完工',
-    title: 'stage2 起居',
-    desc: '把借来的世界变成自己的：栈搬进新家，A20 的门打开，内存图谱一条条问清楚。',
-    status: 'done',
-    href: '/journey/02-e820/',
-    trail: ['stack', 'A20', 'E820', 'static_assert'],
-  },
-  {
-    id: '03',
-    eyebrow: 'DONE · 已完工',
-    title: 'VESA 配屏',
-    desc: '不背模式号，逐个问价——向显卡要一块 1024×768 的线性画布。',
-    status: 'done',
-    href: '/journey/03-vesa/',
-    trail: ['VBE', '4F01', 'LFB', 'packed'],
-  },
-  {
-    id: '04',
-    eyebrow: 'NOW · 最新一站',
-    title: '保护模式',
-    desc: '推开 32 位的大门：GDT 立起来，段寄存器各就各位。',
-    status: 'open',
-    href: '/journey/04-pm/',
-    trail: ['GDT', 'CR0', 'ljmp', '32-bit'],
-  },
-  {
-    id: '05',
-    eyebrow: '幕间 & ACT II（预告）',
-    title: '重来一遍，从地基到系统',
-    desc: '带着答案重走地基，多核、驱动、网络，直到跑起别人的程序。',
-    status: 'planned',
-    trail: ['rebuild', 'SMP', 'driver', 'busybox'],
-  },
-]
+const EYEBROW_MAP: Record<StationStatus, string> = {
+  done: 'DONE · 已完工',
+  open: 'NOW · 最新一站',
+  planned: 'ACT I · 手搓（预告）',
+}
 
-const currentStage = stages[4]!
+const stages: Stage[] = stationTable.stations.map((raw: Station) => ({
+  id: raw.id,
+  eyebrow: raw.status === 'planned' ? (raw.eyebrow ?? EYEBROW_MAP.planned) : EYEBROW_MAP[raw.status],
+  title: raw.title,
+  desc: raw.desc,
+  status: raw.status,
+  href: raw.slug ? `/journey/${raw.slug}/` : undefined,
+  trail: raw.trail,
+}))
+
+const currentStage = stages.find(s => s.status === 'open') ?? stages[stages.length - 1]!
 const upcomingStages = stages.filter(s => s.id !== currentStage.id)
 const currentHref = currentStage.href ? withBase(currentStage.href) : undefined
 
