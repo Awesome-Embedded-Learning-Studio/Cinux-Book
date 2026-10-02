@@ -47,8 +47,28 @@
       "titleEn": "Protected Mode",
       "desc": "推开 32 位的大门:GDT 立起来,段寄存器各就各位。",
       "note": "一张扁平 GDT、CR0 上的一个开关、一句刷新 CS 的远跳——跟 16 位的世界正式道别",
-      "status": "open",
+      "status": "done",
       "trail": ["GDT", "CR0", "ljmp", "32-bit"]
+    },
+    {
+      "id": "05",
+      "slug": "05-lm",
+      "title": "长模式",
+      "titleEn": "Long Mode",
+      "desc": "在 0x1000 起的三张表里铺一座恒等映射的桥,拨开 EFER 的门闩,推门、远跳,64 位报到。",
+      "note": "三张页表、EFER 的门闩、六十八个字节自己一条链——三行字分属三个世界",
+      "status": "done",
+      "trail": ["PML4", "EFER", "LME", "64-bit"]
+    },
+    {
+      "id": "06",
+      "slug": "06-first-kernel",
+      "title": "第一个内核",
+      "titleEn": "First Kernel",
+      "desc": "boot 的终点站:一扇 64KB 的窗、一趟 32 位的摆渡,把内核从盘上接进 2MB,末了一跳,面板换主人。",
+      "note": "鞋盒自述、可装载性九判、交接单、两扇门——第四行字由内核亲手打亮",
+      "status": "open",
+      "trail": ["loader", "BootInfo", "handoff", "jmp"]
     },
     {
       "id": "act2",
