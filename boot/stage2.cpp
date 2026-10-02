@@ -1,10 +1,10 @@
 #include "bios.hpp"
 #include "cinux/ptr.hpp"
 #include "e820/e820.hpp"
+#include "early/console.hpp"
+#include "early/print.hpp"
 #include "kernel/boot/boot_info.hpp"
-#include "kernel/boot/console.hpp"
 #include "kernel/boot/image_header.hpp"
-#include "kernel/boot/print.hpp"
 #include "layout.hpp"
 #include "load/loader.hpp"
 #include "vesa/vesa.hpp"
@@ -186,6 +186,7 @@ void* g_kernel_boot_info = &g_boot_info;
 
 extern "C" [[noreturn]] void Stage2Main() {
     using namespace cinux::boot;
+    cinux::console::InitConsole();
     cinux::console::PutString("[stage2] stack ok\n");
 
     if (!bios::EnableA20AddressLine()) {

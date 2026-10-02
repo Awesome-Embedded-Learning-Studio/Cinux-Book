@@ -5,7 +5,12 @@ add_executable(cinux_kernel
     arch/x86_64/image_header_data.cpp
     ${CMAKE_SOURCE_DIR}/base/src/format/entry.cpp
     ${CMAKE_SOURCE_DIR}/base/src/format/radix.cpp
-    ${CMAKE_SOURCE_DIR}/boot/early/libc.cpp)
+    ${CMAKE_SOURCE_DIR}/boot/early/libc.cpp
+    driver/base/io.cpp
+    driver/serial.cpp
+    driver/base/io.cpp
+    driver/serial.cpp
+    mm/pmm.cpp)
 target_link_libraries(cinux_kernel PRIVATE cinux_warnings cinux_boot64)
 target_compile_options(cinux_kernel PRIVATE -mcmodel=kernel)
 target_include_directories(cinux_kernel PRIVATE
@@ -22,12 +27,17 @@ target_link_options(cinux_kernel PRIVATE
     -Wl,--no-warn-rwx-segments
     -Wl,--gc-sections
     -Wl,-e,KernelEntry)
+set_property(TARGET cinux_kernel APPEND PROPERTY LINK_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/arch/x86_64/kernel.ld)
 
 add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/kernel.bin
     COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:cinux_kernel>
             ${CMAKE_CURRENT_BINARY_DIR}/kernel.bin
-    DEPENDS cinux_kernel
+    COMMAND ${CMAKE_COMMAND}
+            -DIMAGE_FILE=${CMAKE_CURRENT_BINARY_DIR}/kernel.bin
+            -P ${CMAKE_SOURCE_DIR}/cmake/kernel/image_size_check.cmake
+    DEPENDS cinux_kernel ${CMAKE_SOURCE_DIR}/cmake/kernel/image_size_check.cmake
 )
 
 add_custom_target(kernel_bin

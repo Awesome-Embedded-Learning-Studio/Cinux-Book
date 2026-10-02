@@ -45,6 +45,10 @@ inline constexpr uint32_t kImageMagic = 0x5A4B4E43;
 /** @brief Header version this loader understands. */
 inline constexpr uint16_t kImageVersion = 1;
 
+/** @brief Highest physical address the handoff doors cover; the loader
+ *         refuses images ending above it. */
+inline constexpr uint64_t kHandoffDoorTop = 0x40000000ULL;
+
 /**
  * @brief   Why a kernel image was refused, in check order.
  * @note    Each value maps to one rejected clause of ValidateImage, plus
@@ -59,7 +63,7 @@ enum class LoadStatus : unsigned char {
     kEmptyImage,
     kBadSizes,
     kPaddrOverflow,
-    kBeyondFerry,
+    kBeyondDoors,
     kEntryOutside,
     kNotInUsable,
     kBootOverlap,
@@ -122,7 +126,8 @@ constexpr bool OverlapsRegion(const Region* regions, unsigned count, uint64_t ba
  * @param[in]     usable_count  Number of usable regions.
  * @param[in]     boot_owned    Regions the boot chain already occupies.
  * @param[in]     owned_count   Number of owned regions.
- * @param[in]     max_paddr     Highest address the ferry can deliver to.
+ * @param[in]     max_paddr     Highest address the handoff doors cover;
+ *                              defaults to kHandoffDoorTop.
  * @return        The first failing check as a LoadStatus, or kOk.
  * @note          Checks run cheapest-first; sizes and arithmetic before
  *                memory reality, so a bogus header costs no scans.
@@ -134,7 +139,7 @@ constexpr bool OverlapsRegion(const Region* regions, unsigned count, uint64_t ba
 // NOLINTNEXTLINE(readability-function-size)
 constexpr LoadStatus ValidateImage(const ImageHeader& header, const Region* usable,
                                    unsigned usable_count, const Region* boot_owned,
-                                   unsigned owned_count, uint64_t max_paddr = 0x100000000ULL) {
+                                   unsigned owned_count, uint64_t max_paddr = kHandoffDoorTop) {
     if (header.magic != kImageMagic) {
         return LoadStatus::kBadMagic;
     }
@@ -153,7 +158,7 @@ constexpr LoadStatus ValidateImage(const ImageHeader& header, const Region* usab
     }
     uint64_t const kEnd = header.load_paddr + header.mem_size;
     if (kEnd > max_paddr) {
-        return LoadStatus::kBeyondFerry;
+        return LoadStatus::kBeyondDoors;
     }
     if (header.entry < header.load_paddr || header.entry >= kEnd) {
         return LoadStatus::kEntryOutside;
@@ -192,8 +197,8 @@ constexpr const char* NameOf(LoadStatus status) {
         return "mem_size < file_size";
     case LoadStatus::kPaddrOverflow:
         return "paddr arithmetic overflow";
-    case LoadStatus::kBeyondFerry:
-        return "beyond 4G ferry reach";
+    case LoadStatus::kBeyondDoors:
+        return "beyond handoff doors";
     case LoadStatus::kEntryOutside:
         return "entry outside image";
     case LoadStatus::kNotInUsable:

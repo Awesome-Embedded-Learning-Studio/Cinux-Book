@@ -1,4 +1,4 @@
-#include "kernel/boot/console.hpp"
+#include "../early/console.hpp"
 #include "layout.hpp"
 
 extern "C" void              BuildHandoffDoors();

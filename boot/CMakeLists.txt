@@ -1,7 +1,7 @@
 include(${CMAKE_SOURCE_DIR}/cmake/boot/boot_target.cmake)
 
 add_executable(mbr mbr.cpp)
-add_cinux_boot_binary(mbr 16 mbr.ld)
+add_cinux_boot_binary(mbr 16 mbr.ld -Wl,--gc-sections)
 
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/layout.hpp layout_src)
 string(REGEX MATCH "\\.sectors = ([0-9]+)" layout_match "${layout_src}")
@@ -12,14 +12,16 @@ add_library(boot_pm OBJECT
     pm/pm.cpp
     lm/lm_switch.cpp
     lm/page_tables.cpp
-    load/ferry32.cpp)
+    load/ferry32.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/driver/base/io.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/driver/serial.cpp)
 target_link_libraries(boot_pm PRIVATE cinux_warnings cinux_boot32)
 target_include_directories(boot_pm PRIVATE
     ${CMAKE_SOURCE_DIR}/base/include
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR})
 
-add_executable(lm_blob lm/lm.cpp)
+add_executable(lm_blob lm/lm.cpp ${CMAKE_SOURCE_DIR}/kernel/driver/base/io.cpp ${CMAKE_SOURCE_DIR}/kernel/driver/serial.cpp)
 add_cinux_boot_binary(lm_blob 64 lm/lm.ld)
 target_compile_options(lm_blob PRIVATE -mcmodel=small)
 
@@ -50,6 +52,7 @@ add_executable(stage2
     ${CMAKE_SOURCE_DIR}/base/src/format/radix.cpp
     $<TARGET_OBJECTS:boot_pm>)
 add_cinux_boot_binary(stage2 16 stage2.ld -Wl,--gc-sections)
+target_compile_options(mbr PRIVATE -ffunction-sections)
 target_include_directories(stage2 PRIVATE ${CMAKE_SOURCE_DIR}/base/src)
 target_compile_options(stage2 PRIVATE -ffunction-sections)
 add_dependencies(stage2 lm_blob_obj)
@@ -79,8 +82,7 @@ add_custom_target(run
             -accel kvm
             -drive format=raw,file=${CMAKE_CURRENT_BINARY_DIR}/cinux.img
             -display none
-            -debugcon stdio
-            -global isa-debugcon.iobase=0xe9
+            -serial stdio
             -no-reboot
     DEPENDS boot_image
 )

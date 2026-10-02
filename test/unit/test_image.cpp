@@ -56,6 +56,7 @@ TEST("image: bootinfo layout pins") {
 TEST("image: contract constants are pinned") {
     ASSERT_TRUE(cinux::boot::kImageMagic == 0x5A4B4E43);
     ASSERT_TRUE(cinux::boot::kImageVersion == 1);
+    ASSERT_TRUE(cinux::boot::kHandoffDoorTop == 0x40000000ULL);
     ASSERT_TRUE(cinux::boot::kBootInfoMagic == 0x00114514);
     ASSERT_TRUE(cinux::boot::kBootInfoVersion == 1);
 }
@@ -102,17 +103,17 @@ TEST("image: address clause rejects") {
     fat_file.mem_size    = 0xFFFFFFFFFFFFFFFFULL;
     ASSERT_TRUE(verdict(fat_file) == LoadStatus::kPaddrOverflow);
 
-    ImageHeader one_past_4g = valid_header();
-    one_past_4g.load_paddr  = 0xFFFFF000ULL;
-    one_past_4g.file_size   = 0x1000;
-    one_past_4g.mem_size    = 0x1001;
-    one_past_4g.entry       = 0xFFFFF100;
-    ASSERT_TRUE(verdict(one_past_4g) == LoadStatus::kBeyondFerry);
+    ImageHeader one_past_door = valid_header();
+    one_past_door.load_paddr  = 0x3FFFF000ULL;
+    one_past_door.file_size   = 0x1000;
+    one_past_door.mem_size    = 0x1001;
+    one_past_door.entry       = 0x3FFFF100;
+    ASSERT_TRUE(verdict(one_past_door) == LoadStatus::kBeyondDoors);
 
     ImageHeader way_past_4g = valid_header();
     way_past_4g.load_paddr  = 0x100000000ULL;
     way_past_4g.entry       = 0x100000100ULL;
-    ASSERT_TRUE(verdict(way_past_4g) == LoadStatus::kBeyondFerry);
+    ASSERT_TRUE(verdict(way_past_4g) == LoadStatus::kBeyondDoors);
 
     ImageHeader entry_low = valid_header();
     entry_low.entry       = 0x1FFFFF;
@@ -123,14 +124,14 @@ TEST("image: address clause rejects") {
     ASSERT_TRUE(verdict(entry_high) == LoadStatus::kEntryOutside);
 }
 
-TEST("image: ferry ceiling edge is inclusive") {
-    constexpr Region kReach4g[] = {{.base = 0xF0000000, .top = 0x100000000ULL}};
+TEST("image: door ceiling edge is inclusive") {
+    constexpr Region kReach1g[] = {{.base = 0x100000, .top = 0x40000000ULL}};
     ImageHeader      at_ceiling = valid_header();
-    at_ceiling.load_paddr       = 0xFFFFF000ULL;
+    at_ceiling.load_paddr       = 0x3FFFF000ULL;
     at_ceiling.file_size        = 0x1000;
     at_ceiling.mem_size         = 0x1000;
-    at_ceiling.entry            = 0xFFFFF800;
-    ASSERT_TRUE(ValidateImage(at_ceiling, kReach4g, 1, nullptr, 0) == LoadStatus::kOk);
+    at_ceiling.entry            = 0x3FFFF800;
+    ASSERT_TRUE(ValidateImage(at_ceiling, kReach1g, 1, nullptr, 0) == LoadStatus::kOk);
 }
 
 TEST("image: memory reality rejects") {

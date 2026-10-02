@@ -9,6 +9,7 @@ set(TEST_INCLUDE_DIRS
 function(add_cinux_test name)
     add_executable(test_${name}
         unit/test_${name}.cpp
+        ${ARGN}
         framework/framework.cpp
         framework/assert_host.cpp)
     target_include_directories(test_${name} PRIVATE ${TEST_INCLUDE_DIRS})
@@ -28,6 +29,16 @@ add_cinux_test(gdt)
 add_cinux_test(layout)
 add_cinux_test(page)
 add_cinux_test(image)
+add_cinux_test(bitmap)
+add_cinux_test(pmm ${CMAKE_SOURCE_DIR}/kernel/mm/pmm.cpp)
+
+add_test(NAME kernel_image
+    COMMAND ${CMAKE_COMMAND}
+            -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+            -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/kernel_image
+            -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
+            -DOBJCOPY=${CMAKE_OBJCOPY}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/test_kernel_image.cmake)
 
 add_custom_target(test_host
     COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_CURRENT_BINARY_DIR} --output-on-failure

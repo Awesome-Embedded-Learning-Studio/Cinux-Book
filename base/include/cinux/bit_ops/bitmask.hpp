@@ -137,4 +137,12 @@ constexpr BitMask<T> MaskBit(unsigned char position) {
     return BitMask<T>{static_cast<T>(T{1} << position)};
 }
 
+template <typename T>
+constexpr T Ones(unsigned char width) {
+    if (width >= sizeof(T) * 8) {
+        return static_cast<T>(~T{0});
+    }
+    return static_cast<T>((T{1} << width) - T{1});
+}
+
 }  // namespace cinux::base::bit

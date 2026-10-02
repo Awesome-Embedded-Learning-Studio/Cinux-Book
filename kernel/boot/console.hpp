@@ -1,9 +1,13 @@
 /**
  * @file    console.hpp
- * @brief   The debug console every world shares: one port, one byte.
+ * @brief   The console the kernel world speaks through.
+ *
+ * A thin face over the serial driver: characters and strings out, and a
+ clean park at the end. Formatting lives one layer up in print.hpp;
+ ports stay two layers down — nobody skips a floor.
  *
  * @author  Charliechen114514
- * @date    2026-10-01
+ * @date    2026-10-02
  * @version 0.1
  * @since   0.1.0
  * @ingroup kernel_boot
@@ -12,15 +16,26 @@
 
 #pragma once
 
-#include <stdint.h>
+#include "kernel/driver/serial.hpp"
 
 namespace cinux::console {
 
-/** @brief QEMU debugcon port; every world's PutChar answers here. */
-inline constexpr uint16_t kDebugconPort = 0xE9;
+/**
+ * @brief         Brings the kernel console up.
+ *
+ * @return        None
+ * @note          Calls the serial driver init; safe to call again.
+ * @warning       None
+ * @throws        None
+ * @since         0.1.0
+ * @ingroup       kernel_boot
+ */
+inline void InitConsole() {
+    cinux::driver::SerialInit();
+}
 
 /**
- * @brief         Sends one byte to the debug console.
+ * @brief         Sends one character to the console.
  *
  * @param[in]     character   Byte to emit.
  * @return        None
@@ -31,11 +46,11 @@ inline constexpr uint16_t kDebugconPort = 0xE9;
  * @ingroup       kernel_boot
  */
 inline void PutChar(char character) {
-    asm volatile("outb %0, %1" : : "a"(character), "Nd"(kDebugconPort));
+    cinux::driver::SerialPutChar(character);
 }
 
 /**
- * @brief         Sends a NUL-terminated string to the debug console.
+ * @brief         Sends a NUL-terminated string, one character at a time.
  *
  * @param[in]     text   String to emit.
  * @return        None
@@ -53,10 +68,10 @@ inline void PutString(const char* text) {
 }
 
 /**
- * @brief         Parks the current world forever.
+ * @brief         Parks the CPU forever with interrupts off the path.
  *
  * @return        None
- * @note          None
+ * @note          The final stop of every early failure and every clean end.
  * @warning       None
  * @throws        None
  * @since         0.1.0

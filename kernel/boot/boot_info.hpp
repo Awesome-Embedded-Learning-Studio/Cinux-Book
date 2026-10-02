@@ -61,4 +61,8 @@ inline constexpr uint32_t kBootInfoMagic = 0x00114514;
 /** @brief Record layout version; bumped when fields change meaning. */
 inline constexpr uint32_t kBootInfoVersion = 1;
 
+/** @brief E820 entry type the kernel may treat as usable RAM. */
+/** @brief E820 entry type the kernel may treat as usable RAM. */
+inline constexpr uint32_t kE820Usable = 1;
+
 }  // namespace cinux::boot

@@ -1,4 +1,3 @@
-#include "kernel/boot/console.hpp"
 #include "layout.hpp"
 #include "mbr/disk_address_packet.hpp"
 
@@ -37,19 +36,24 @@ asm(".section .text.boot, \"ax\"\n"
     ".text\n");
 
 namespace {
-void boot_failed(unsigned long status) {
-    using namespace cinux::console;
-    char const* hex = "0123456789ABCDEF";
-    PutString("Error: ");
-    PutChar(hex[(status >> 4) & 0xF]);
-    PutChar(hex[status & 0xF]);
-    PutChar('\n');
-    cinux::console::Halt();
+
+void bios_teletype(unsigned char character) {
+    unsigned short teletype = 0x0E00 | character;  // NOLINT(misc-const-correctness)
+    asm volatile("int $0x10" : "+a"(teletype) : : "memory");
 }
 
-void returned_from_stage2() {
-    cinux::console::PutString("unexpected: returned from stage2\n");
-    cinux::console::Halt();
+[[noreturn]] void park() {
+    for (;;) {
+        asm volatile("hlt");
+    }
+}
+
+void boot_failed(unsigned long status) {
+    char const* hex = "0123456789ABCDEF";
+    bios_teletype('E');
+    bios_teletype(hex[(status >> 4) & 0xF]);
+    bios_teletype(hex[status & 0xF]);
+    park();
 }
 }  // namespace
 
@@ -57,21 +61,18 @@ extern "C" [[noreturn]] void MbrMain() {
     unsigned short       reg_ax = 0x4200;  // NOLINT(misc-const-correctness)
     const unsigned short kDrive = g_boot_drive;
 
-    cinux::console::PutString("Ready to call bios\n");
     // Call Bios
     asm volatile("int $0x13" : "+a"(reg_ax) : "S"(&g_dap), "d"(kDrive) : "memory");
     if ((reg_ax >> 8) != 0) {
         boot_failed(reg_ax >> 8);
     }
 
-    cinux::console::PutString("Jump to Stage 2\n");
-
     asm volatile("ljmp %0, %1"
                  :
                  : "i"(cinux::boot::kStage2Spot.segments), "i"(cinux::boot::kStage2Spot.offset)
                  : "memory");
     // And if, we failed, runs into the unreachable
-    returned_from_stage2();
+    park();
 
     __builtin_unreachable();
 }

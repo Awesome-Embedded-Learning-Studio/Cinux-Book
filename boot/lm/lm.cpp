@@ -1,5 +1,5 @@
+#include "../early/console.hpp"
 #include "../gdt/gdt.hpp"
-#include "kernel/boot/console.hpp"
 #include "layout.hpp"
 
 extern "C" [[gnu::section(".text.lm_entry")]] [[noreturn]] void LmEntry() {
