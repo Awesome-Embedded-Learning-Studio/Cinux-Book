@@ -40,7 +40,7 @@ struct [[gnu::packed]] ImageHeader {
 };
 
 /** @brief Image magic the build stamps and the loader demands. */
-inline constexpr uint32_t kImageMagic = 0x5A4B4E43;
+inline constexpr uint32_t kImageMagic = 0x00114514;
 
 /** @brief Header version this loader understands. */
 inline constexpr uint16_t kImageVersion = 1;

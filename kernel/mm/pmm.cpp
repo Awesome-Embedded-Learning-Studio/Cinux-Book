@@ -13,17 +13,16 @@ namespace cinux::mm {
 
 using cinux::base::PhysAddr;
 
-bool Pmm::init(const cinux::boot::E820Entry* entries, uint32_t count, PhysAddr kernel_base,
-               unsigned long kernel_bytes) {
+bool Pmm::init(const cinux::boot::BootInfo& info) {
     bitmap_.init(words_, kPmmTotalPages);
     bitmap_.set_all();
     managed_pages_ = 0;
-    for (uint32_t index = 0; index < count; ++index) {
-        if (entries[index].type != cinux::boot::kE820Usable) {
+    for (uint32_t index = 0; index < info.e820_count; ++index) {
+        if (info.e820[index].type != cinux::boot::kE820Usable) {
             continue;
         }
-        auto const kEntryBase = static_cast<unsigned long>(entries[index].base);
-        auto const kEntryTop  = kEntryBase + static_cast<unsigned long>(entries[index].length);
+        auto const kEntryBase = static_cast<unsigned long>(info.e820[index].base);
+        auto const kEntryTop  = kEntryBase + static_cast<unsigned long>(info.e820[index].length);
         auto const kLo        = kEntryBase > kLowMemoryTop ? kEntryBase : kLowMemoryTop;
         auto const kHi        = kEntryTop < kPmmMaxPhys ? kEntryTop : kPmmMaxPhys;
         if (kLo >= kHi) {
@@ -34,9 +33,11 @@ bool Pmm::init(const cinux::boot::E820Entry* entries, uint32_t count, PhysAddr k
         bitmap_.clear_range(cinux::base::math::Floor(kLo, cinux::arch::page::kSize), kPageCount);
         managed_pages_ += kPageCount;
     }
+    PhysAddr const      kKernelBase{static_cast<unsigned long>(info.kernel_paddr)};
+    unsigned long const kKernelBytes{static_cast<unsigned long>(info.kernel_mem_size)};
     unsigned long const kKernelCount = cinux::base::math::Span(
-        kernel_base.raw, kernel_base.offset(kernel_bytes).raw, cinux::arch::page::kSize);
-    bitmap_.set_range(cinux::base::math::Floor(kernel_base.raw, cinux::arch::page::kSize),
+        kKernelBase.raw, kKernelBase.offset(kKernelBytes).raw, cinux::arch::page::kSize);
+    bitmap_.set_range(cinux::base::math::Floor(kKernelBase.raw, cinux::arch::page::kSize),
                       kKernelCount);
     return true;
 }

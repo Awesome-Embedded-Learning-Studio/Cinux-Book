@@ -2,17 +2,19 @@ add_executable(cinux_kernel
     kernel.cpp
     arch/x86_64/entry.cpp
     arch/x86_64/exception.cpp
+    arch/x86_64/gdt.cpp
+    arch/x86_64/idt.cpp
+    arch/x86_64/isr.cpp
     arch/x86_64/image_header_data.cpp
     ${CMAKE_SOURCE_DIR}/base/src/format/entry.cpp
     ${CMAKE_SOURCE_DIR}/base/src/format/radix.cpp
     ${CMAKE_SOURCE_DIR}/boot/early/libc.cpp
     driver/base/io.cpp
     driver/serial.cpp
-    driver/base/io.cpp
-    driver/serial.cpp
     mm/pmm.cpp)
-target_link_libraries(cinux_kernel PRIVATE cinux_warnings cinux_boot64)
+target_link_libraries(cinux_kernel PRIVATE cinux_warnings cinux_kernel_flags)
 target_compile_options(cinux_kernel PRIVATE -mcmodel=kernel)
+set_source_files_properties(arch/x86_64/isr.cpp PROPERTIES COMPILE_OPTIONS "-mgeneral-regs-only")
 target_include_directories(cinux_kernel PRIVATE
     ${CMAKE_SOURCE_DIR}/base/include
     ${CMAKE_SOURCE_DIR})

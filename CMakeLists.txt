@@ -23,6 +23,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(cmake/compilers/warning_standard.cmake)
 include(cmake/compilers/boot_modes.cmake)
+include(cmake/compilers/kernel_modes.cmake)
 
 message("Configuring Boot")
 add_subdirectory(boot)

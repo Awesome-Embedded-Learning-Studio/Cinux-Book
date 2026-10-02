@@ -54,7 +54,7 @@ TEST("image: bootinfo layout pins") {
 }
 
 TEST("image: contract constants are pinned") {
-    ASSERT_TRUE(cinux::boot::kImageMagic == 0x5A4B4E43);
+    ASSERT_TRUE(cinux::boot::kImageMagic == 0x00114514);
     ASSERT_TRUE(cinux::boot::kImageVersion == 1);
     ASSERT_TRUE(cinux::boot::kHandoffDoorTop == 0x40000000ULL);
     ASSERT_TRUE(cinux::boot::kBootInfoMagic == 0x00114514);

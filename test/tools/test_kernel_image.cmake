@@ -8,6 +8,7 @@ endfunction()
 
 file(MAKE_DIRECTORY "${TEST_DIR}")
 run_checked("${CXX_COMPILER}" -m64 -c
+    "-I${SOURCE_DIR}"
     "${SOURCE_DIR}/kernel/arch/x86_64/image_header_data.cpp"
     -o "${TEST_DIR}/header.o")
 

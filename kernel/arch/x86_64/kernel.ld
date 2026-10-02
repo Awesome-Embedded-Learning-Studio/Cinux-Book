@@ -21,13 +21,13 @@ SECTIONS
         g_kernel_bss_end = .;
     }
     __vma_end = .;
-    __lma_start = LOADADDR(.image_header);
+    g_kernel_load_paddr = LOADADDR(.image_header);
     __file_end_lma = SIZEOF(.data) ? LOADADDR(.data) + SIZEOF(.data) :
                     (SIZEOF(.rodata) ? LOADADDR(.rodata) + SIZEOF(.rodata) :
                      LOADADDR(.text) + SIZEOF(.text));
-    __mem_end_lma = __lma_start + (__vma_end - __vma_start);
-    __entry_lma = __lma_start + (KernelEntry - __vma_start);
-    __header_file_size = __file_end_lma - __lma_start;
-    __header_mem_size = __mem_end_lma - __lma_start;
+    __mem_end_lma = g_kernel_load_paddr + (__vma_end - __vma_start);
+    g_kernel_entry = g_kernel_load_paddr + (KernelEntry - __vma_start);
+    g_kernel_file_size = __file_end_lma - g_kernel_load_paddr;
+    g_kernel_mem_size = __mem_end_lma - g_kernel_load_paddr;
     /DISCARD/ : { *(.comment) *(.note*) *(.eh_frame*) *(.eh_frame) }
 }

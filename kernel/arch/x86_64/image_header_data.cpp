@@ -1,12 +1,20 @@
-asm(".section .image_header,\"a\"\n"
-    ".global kImageHeaderRaw\n"
-    "kImageHeaderRaw:\n"
-    "   .long 0x5A4B4E43\n"
-    "   .word 1\n"
-    "   .word 32\n"
-    "   .quad __lma_start\n"
-    "   .quad __header_file_size\n"
-    "   .quad __header_mem_size\n"
-    "   .quad __entry_lma\n"
-    "   . = (. + 15) & ~15\n"
-    ".text\n");
+#include "kernel/boot/image_header.hpp"
+
+extern "C" unsigned char g_kernel_load_paddr[];
+extern "C" unsigned char g_kernel_file_size[];
+extern "C" unsigned char g_kernel_mem_size[];
+extern "C" unsigned char g_kernel_entry[];
+
+namespace {
+
+[[gnu::used, gnu::section(".image_header")]] cinux::boot::ImageHeader const kImageHeader = {
+    .magic       = cinux::boot::kImageMagic,
+    .version     = cinux::boot::kImageVersion,
+    .header_size = sizeof(cinux::boot::ImageHeader),
+    .load_paddr  = reinterpret_cast<unsigned long long>(g_kernel_load_paddr),
+    .file_size   = reinterpret_cast<unsigned long long>(g_kernel_file_size),
+    .mem_size    = reinterpret_cast<unsigned long long>(g_kernel_mem_size),
+    .entry       = reinterpret_cast<unsigned long long>(g_kernel_entry),
+};
+
+}  // namespace
