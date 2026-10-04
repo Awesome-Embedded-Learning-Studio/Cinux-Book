@@ -47,11 +47,12 @@ BUILD_ID=rolling
 sudo pacman -S --needed gcc binutils make cmake qemu-system-x86 gdb vim clang
 ```
 
-列表里咱们还捎上了两位顺风客:Arch 的 `xxd` 是跟着 `vim` 走的,`clangd` 是跟着 `clang` 走的。两位的户口,咱们是拿 `pacman -Qo` 亲手查过的,错不了的。apt 那一轨的命令长这样:
+列表里咱们还捎上了两位顺风客:Arch 的 `xxd` 是跟着 `vim` 走的,`clangd` 是跟着 `clang` 走的。两位的户口,咱们是拿 `pacman -Qo` 亲手查过的,错不了的。打头的 `g++` 也是同路的:Arch 的 `gcc` 包里住着 `gcc` 和 `g++` 两位,清单上点一次名字,两位一起进门。apt 那一轨的命令长这样:
 
 ```bash
 # Ubuntu / Debian 系(这一轨笔者没跑过,照着敲就好)
-# 旧一些的 Ubuntu 没有独立的 xxd 包,它在 vim-common 里
+# xxd 与 clangd 这两个包名,要 Ubuntu 22.04 起才有;
+# 更老的发行版请改用 vim-common(里面带着 xxd)与您那版对应的 clangd-NN
 sudo apt update
 sudo apt install -y build-essential binutils cmake qemu-system-x86 gdb xxd clangd
 ```
@@ -82,7 +83,7 @@ xxd 2026-06-16 by Juergen Weigert et al.
 clangd version 22.1.8
 ```
 
-binutils 家的四位报的版本都一样,咱们点亮了一位,就算点亮了一家。您的数字跟笔者的对不上,也不要紧的,咱们只问两件事:它在家吗?版本过线了吗?
+末一行 `clangd` 是可选的客人:您要是没装 `clang`,上面那一串命令走到它这儿会回一句 `command not found`,跳过它就是,不影响后面任何一步。binutils 家的四位报的版本都一样,咱们点亮了一位,就算点亮了一家。您的数字跟笔者的对不上,也不要紧的,咱们只问两件事:它在家吗?版本过线了吗?
 
 ## 两道闸:编译一道,链接一道
 
@@ -163,8 +164,8 @@ env PATH=/tmp/definitely-empty /bin/bash -c 'objcopy --version'
 
 ## 债:工具的原理与别的系统
 
-咱们这一栏记的,是本篇欠下、后面要还的东西。这一章咱们只管装与点亮,每件工具肚子里是怎么转的,咱们一个字都不教:`g++` 的内幕是下一章的正题,链接器和 `objcopy` 的活,这一卷后面讲链接的那一篇里就接上,QEMU 的门道,咱们等真起镜像了再讲。系统方面咱们只陪 Linux 一家:macOS 和 Windows 的原生是不在服务范围里的,WSL2 是算在 Linux 里的,笔者自己就是在上面干活的。包管理器咱们只讲 pacman 与 apt 两轨,别的系请您自行对应。
+咱们这一栏记的,是本篇欠下、后面要还的东西。这一篇咱们只管装与点亮,每件工具肚子里是怎么转的,咱们一个字都不教:`g++` 的内幕是下一篇的正题,链接器和 `objcopy` 的活,这一卷第 04 篇里就接上,QEMU 的门道,咱们等真起镜像了再讲。系统方面咱们只陪 Linux 一家:macOS 和 Windows 的原生是不在服务范围里的,WSL2 是算在 Linux 里的,笔者自己就是在上面干活的。包管理器咱们只讲 pacman 与 apt 两轨,别的系请您自行对应。
 
 ## 标本就位
 
-您敲的 `g++`,看着只有几个字母的样子,背地里却指挥了编译、汇编、链接一整串人马。到了下一章,咱们就看看它到底指挥了谁。
+您敲的 `g++`,看着只有几个字母的样子,背地里却指挥了编译、汇编、链接一整串人马。到了下一篇,咱们就看看它到底指挥了谁。

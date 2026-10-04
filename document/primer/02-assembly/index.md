@@ -8,4 +8,7 @@ title: x86 汇编:读与写的最小集
 
 - [01 · 为什么汇编劝退人,以及只需要学多少](01-why-assembly.md)
 - [02 · 读:AT&T 语法最小集](02-read-att-syntax.md)
-- [03 · 写:内联汇编](03-write-inline-assembly.md)
+- [03 · 标号、跳转与 16 位初见](03-labels-and-jumps.md)
+- [04 · 栈与返回地址](04-stack-and-return.md)
+- [05 · 函数的门面](05-function-facade.md)
+- [06 · 写:内联汇编](06-write-inline-assembly.md)
