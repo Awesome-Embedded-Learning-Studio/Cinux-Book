@@ -4,8 +4,9 @@
  *
  * The declaration lives here; each world links its own definition at build
  * time — the host side prints to stderr and aborts (test/framework/
- * assert_host.cpp), the kernel side routes the failure into panic
- * (station 03). Call sites never change when the world changes.
+ * assert_host.cpp), the kernel side prints one panic line and parks
+ * (kernel/lib/assert.cpp). Call sites never change when the world
+ * changes.
  *
  * @author  Charliechen114514
  * @date    2026-09-25
@@ -30,8 +31,8 @@ namespace cinux::base::safety {
  * @note          Marked [[noreturn]]. Defined once per world and selected
  *                at link time; the host definition prints to stderr
  *                (unbuffered, so output survives abort) and aborts. The
- *                kernel definition routes the failure into panic at
- *                station 03.
+ *                kernel definition prints a panic line and parks the
+ *                machine.
  * @warning       None
  * @throws        None
  * @since         0.1.0

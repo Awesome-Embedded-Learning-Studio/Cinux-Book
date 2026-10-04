@@ -65,24 +65,36 @@ add_custom_target(stage2_size_check
     DEPENDS stage2_bin
 )
 
-add_custom_target(boot_image
-    COMMAND ${CMAKE_COMMAND} -E remove ${CMAKE_CURRENT_BINARY_DIR}/cinux.img
-    COMMAND dd if=/dev/zero of=${CMAKE_CURRENT_BINARY_DIR}/cinux.img bs=1M count=1 status=none
-    COMMAND dd if=${CMAKE_CURRENT_BINARY_DIR}/mbr.bin
-            of=${CMAKE_CURRENT_BINARY_DIR}/cinux.img bs=512 count=1 conv=notrunc status=none
-    COMMAND dd if=${CMAKE_CURRENT_BINARY_DIR}/stage2.bin
-            of=${CMAKE_CURRENT_BINARY_DIR}/cinux.img bs=512 seek=1 conv=notrunc status=none
-    COMMAND dd if=${CMAKE_BINARY_DIR}/kernel/kernel.bin
-            of=${CMAKE_CURRENT_BINARY_DIR}/cinux.img bs=512 seek=32 conv=notrunc status=none
-    DEPENDS mbr_bin stage2_size_check kernel_bin
-)
+function(add_cinux_image name image_file kernel_bin kernel_dep)
+    add_custom_target(${name}
+        COMMAND ${CMAKE_COMMAND} -E remove ${image_file}
+        COMMAND dd if=/dev/zero of=${image_file} bs=1M count=1 status=none
+        COMMAND dd if=${CMAKE_BINARY_DIR}/boot/mbr.bin
+                of=${image_file} bs=512 count=1 conv=notrunc status=none
+        COMMAND dd if=${CMAKE_BINARY_DIR}/boot/stage2.bin
+                of=${image_file} bs=512 seek=1 conv=notrunc status=none
+        COMMAND dd if=${kernel_bin}
+                of=${image_file} bs=512 seek=32 conv=notrunc status=none
+        DEPENDS mbr_bin stage2_size_check ${kernel_dep}
+    )
+endfunction()
+
+add_cinux_image(boot_image
+    ${CMAKE_BINARY_DIR}/boot/cinux.img
+    ${CMAKE_BINARY_DIR}/kernel/kernel.bin kernel_bin)
+
+foreach(entry IN LISTS CINUX_KTESTS CINUX_KTESTS_INTEGRATION)
+    string(REPLACE ":" ";" entry_parts "${entry}")
+    list(GET entry_parts 0 ktest)
+    add_cinux_image(boot_ktest_${ktest}
+        ${CMAKE_BINARY_DIR}/boot/cinux_ktest_${ktest}.img
+        ${CMAKE_BINARY_DIR}/kernel/cinux_ktest_${ktest}.bin
+        cinux_ktest_${ktest}_bin)
+endforeach()
 
 add_custom_target(run
-    COMMAND qemu-system-x86_64
-            -accel kvm
+    COMMAND ${CINUX_QEMU_PROGRAM} ${CINUX_QEMU_DEVICE_ARGS}
             -drive format=raw,file=${CMAKE_CURRENT_BINARY_DIR}/cinux.img
-            -display none
             -serial stdio
-            -no-reboot
     DEPENDS boot_image
 )

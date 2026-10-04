@@ -2,13 +2,14 @@
  * @file    console.hpp
  * @brief   The console the kernel world speaks through.
  *
- * A thin face over the serial driver: characters and strings out, and a
- clean park at the end. Formatting lives one layer up in print.hpp;
- ports stay two layers down — nobody skips a floor.
+ * A thin face over the serial driver: characters and strings out.
+ Formatting lives one layer up in print.hpp; ports stay two layers
+ down — nobody skips a floor. Parking the CPU is not a console concern;
+ Halt lives in arch (kernel/arch/x86_64/halt.hpp).
  *
  * @author  Charliechen114514
  * @date    2026-10-02
- * @version 0.1
+ * @version 0.2
  * @since   0.1.0
  * @ingroup kernel_boot
  * @copyright Copyright (c) 2026
@@ -64,22 +65,6 @@ inline void PutString(const char* text) {
     while (*text != '\0') {
         PutChar(*text);
         ++text;
-    }
-}
-
-/**
- * @brief         Parks the CPU forever with interrupts off the path.
- *
- * @return        None
- * @note          The final stop of every early failure and every clean end.
- * @warning       None
- * @throws        None
- * @since         0.1.0
- * @ingroup       kernel_boot
- */
-[[noreturn]] inline void Halt() {
-    for (;;) {
-        asm volatile("hlt");
     }
 }
 

@@ -2,10 +2,13 @@
 #include "boot/gdt/gdt.hpp"
 #include "cinux/bit_ops/bit_ops.hpp"
 #include "kernel/arch/x86_64/gdt.hpp"
+#include "test_assert.hpp"
 
 using cinux::base::bit::HighNibble;
 using cinux::base::bit::LowNibble;
 using cinux::boot::gdt::kTemplate;
+
+constexpr cinux::arch::gdt::KernelGdt kTable = cinux::arch::gdt::MakeKernelGdt();
 
 TEST("gdt: flat descriptors decode bit by bit") {
     auto const kCode = kTemplate.code;
@@ -55,13 +58,12 @@ TEST("gdt: long bit pairing L=1 D=0") {
 }
 
 TEST("gdt: kernel table owns three long-mode slots") {
-    using cinux::arch::gdt::kTemplate;
     ASSERT_TRUE(sizeof(cinux::arch::gdt::KernelGdt) == 24);
-    ASSERT_TRUE(kTemplate.null.access == 0);
-    ASSERT_TRUE(kTemplate.code.access == 0x9A);
-    ASSERT_TRUE(kTemplate.code.flags_limit_high == 0xAF);
-    ASSERT_TRUE(kTemplate.data.access == 0x92);
-    ASSERT_TRUE(kTemplate.data.flags_limit_high == 0x8F);
+    ASSERT_TRUE(kTable.null.access == 0);
+    ASSERT_TRUE(kTable.code.access == 0x9A);
+    ASSERT_TRUE(kTable.code.flags_limit_high == 0xAF);
+    ASSERT_TRUE(kTable.data.access == 0x92);
+    ASSERT_TRUE(kTable.data.flags_limit_high == 0x8F);
 }
 
 TEST("gdt: kernel selectors land right after null") {
@@ -71,7 +73,7 @@ TEST("gdt: kernel selectors land right after null") {
 }
 
 TEST("gdt: kernel code slot pins L=1 D=0 granularity") {
-    auto const kCode = cinux::arch::gdt::kTemplate.code;
+    auto const kCode = kTable.code;
     ASSERT_TRUE(((kCode.flags_limit_high >> 5) & 1U) == 1U);
     ASSERT_TRUE(((kCode.flags_limit_high >> 6) & 1U) == 0U);
     ASSERT_TRUE(((kCode.flags_limit_high >> 7) & 1U) == 1U);
@@ -85,8 +87,8 @@ TEST("gdt: kernel access bytes derive from the bit vocabulary") {
     auto const kData =
         static_cast<unsigned char>(SegmentAccess::kPresent | SegmentAccess::kRing0 |
                                    SegmentAccess::kCodeData | SegmentAccess::kReadWrite);
-    ASSERT_TRUE(kCode == cinux::arch::gdt::kTemplate.code.access);
-    ASSERT_TRUE(kData == cinux::arch::gdt::kTemplate.data.access);
+    ASSERT_TRUE(kCode == kTable.code.access);
+    ASSERT_TRUE(kData == kTable.data.access);
 }
 
 TEST("gdt: flag nibble vocabulary lands in the template bytes") {
@@ -94,8 +96,8 @@ TEST("gdt: flag nibble vocabulary lands in the template bytes") {
     auto const kCodeNibble =
         static_cast<unsigned char>(SegmentFlags::kGranularity4K | SegmentFlags::kLongMode);
     auto const kDataNibble = static_cast<unsigned char>(SegmentFlags::kGranularity4K);
-    ASSERT_TRUE((cinux::arch::gdt::kTemplate.code.flags_limit_high >> 4) == kCodeNibble);
-    ASSERT_TRUE((cinux::arch::gdt::kTemplate.data.flags_limit_high >> 4) == kDataNibble);
+    ASSERT_TRUE((kTable.code.flags_limit_high >> 4) == kCodeNibble);
+    ASSERT_TRUE((kTable.data.flags_limit_high >> 4) == kDataNibble);
 }
 
 int main() {

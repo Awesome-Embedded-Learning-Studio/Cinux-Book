@@ -12,6 +12,9 @@
 #include "framework.hpp"
 
 #include <print>
+#include <source_location>
+
+#include "test_case.hpp"
 
 namespace cinux::test {
 
@@ -38,6 +41,18 @@ const char* lookup_case_name() {
 
 const char* CurrentCaseName() {
     return lookup_case_name();
+}
+
+void ReportCheckFailure(const char* expression, std::source_location loc) {
+    std::println(stderr, "[FAIL] {}\n  ASSERT_TRUE({}) failed\n  at {}:{}", CurrentCaseName(),
+                 expression, loc.file_name(), loc.line());
+}
+
+void ReportCompareFailure(const char* actual_text, const char* expected_text, bool expected_equal,
+                          std::source_location loc) {
+    const char* const kAssertion = expected_equal ? "ASSERT_EQ" : "ASSERT_NE";
+    std::println(stderr, "[FAIL] {}\n  {}({}, {}) failed\n  at {}:{}", CurrentCaseName(),
+                 kAssertion, actual_text, expected_text, loc.file_name(), loc.line());
 }
 
 Registrar::Registrar(const char* case_name, void (*case_body)()) noexcept {

@@ -12,7 +12,7 @@ using cinux::arch::idt::EncodeGate;
 using cinux::arch::idt::InstallGate;
 using cinux::arch::isr::InterruptFrame;
 
-constexpr unsigned kExceptionCount = 32;
+constexpr unsigned int kExceptionCount = 32;
 
 constexpr bool kVectorPushesErrorCode[kExceptionCount] = {
     false, false, false, false, false, false, false, false,  // 0-7
@@ -21,18 +21,18 @@ constexpr bool kVectorPushesErrorCode[kExceptionCount] = {
     false, false, false, false, false, true,  true,  false,  // 24-31
 };
 
-template <unsigned Vector>
+template <unsigned int Vector>
 __attribute__((interrupt)) void exception_no_code(InterruptFrame* frame) {
     cinux::arch::isr::ReportFault(Vector, *frame, 0);
 }
 
-template <unsigned Vector>
+template <unsigned int Vector>
 __attribute__((interrupt)) void exception_with_code(InterruptFrame*    frame,
                                                     unsigned long long error_code) {
     cinux::arch::isr::ReportFault(Vector, *frame, error_code);
 }
 
-void install(unsigned vector, void (*handler)(InterruptFrame*)) {
+void install(unsigned int vector, void (*handler)(InterruptFrame*)) {
     InstallGate(vector, EncodeGate(reinterpret_cast<unsigned long long>(handler), kSelectorCode, 0,
                                    cinux::arch::idt::kTypeInterruptGate));
 }
@@ -42,7 +42,7 @@ void install(unsigned vector, void (*handler)(InterruptFrame*, unsigned long lon
                                    cinux::arch::idt::kTypeInterruptGate));
 }
 
-template <unsigned Vector>
+template <unsigned int Vector>
 void install_one() {
     if constexpr (kVectorPushesErrorCode[Vector]) {
         install(Vector, &exception_with_code<Vector>);

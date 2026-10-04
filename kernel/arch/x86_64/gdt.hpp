@@ -75,16 +75,6 @@ enum class SegmentFlags : unsigned char {
                                      static_cast<unsigned char>(right));
 }
 
-/// Kernel code access: present, ring 0, code/data, executable, readable.
-inline constexpr unsigned char kAccessKernelCode = static_cast<unsigned char>(
-    SegmentAccess::kPresent | SegmentAccess::kRing0 | SegmentAccess::kCodeData |
-    SegmentAccess::kExecutable | SegmentAccess::kReadWrite);
-
-/// Kernel data access: present, ring 0, code/data, writable.
-inline constexpr unsigned char kAccessKernelData =
-    static_cast<unsigned char>(SegmentAccess::kPresent | SegmentAccess::kRing0 |
-                               SegmentAccess::kCodeData | SegmentAccess::kReadWrite);
-
 /**
  * @brief         Place a flags nibble above the limit's high nibble.
  * @param[in]     flags  The flags vocabulary to shift in.
@@ -112,13 +102,16 @@ inline constexpr unsigned short kSelectorData = 0x10;
  * @ingroup       kernel_arch
  */
 constexpr SegmentDescriptor MakeLongCodeDescriptor() {
-    return SegmentDescriptor{.limit_low        = 0xFFFF,
-                             .base_low         = 0x0000,
-                             .base_mid         = 0x00,
-                             .access           = kAccessKernelCode,
-                             .flags_limit_high = MakeFlagsLimitHigh(SegmentFlags::kGranularity4K |
-                                                                    SegmentFlags::kLongMode),
-                             .base_high        = 0x00};
+    return SegmentDescriptor{
+        .limit_low = 0xFFFF,
+        .base_low  = 0x0000,
+        .base_mid  = 0x00,
+        .access = static_cast<unsigned char>(SegmentAccess::kPresent | SegmentAccess::kRing0 |
+                                             SegmentAccess::kCodeData | SegmentAccess::kExecutable |
+                                             SegmentAccess::kReadWrite),
+        .flags_limit_high =
+            MakeFlagsLimitHigh(SegmentFlags::kGranularity4K | SegmentFlags::kLongMode),
+        .base_high = 0x00};
 }
 
 /**
@@ -130,12 +123,14 @@ constexpr SegmentDescriptor MakeLongCodeDescriptor() {
  * @ingroup       kernel_arch
  */
 constexpr SegmentDescriptor MakeLongDataDescriptor() {
-    return SegmentDescriptor{.limit_low        = 0xFFFF,
-                             .base_low         = 0x0000,
-                             .base_mid         = 0x00,
-                             .access           = kAccessKernelData,
-                             .flags_limit_high = MakeFlagsLimitHigh(SegmentFlags::kGranularity4K),
-                             .base_high        = 0x00};
+    return SegmentDescriptor{
+        .limit_low = 0xFFFF,
+        .base_low  = 0x0000,
+        .base_mid  = 0x00,
+        .access = static_cast<unsigned char>(SegmentAccess::kPresent | SegmentAccess::kRing0 |
+                                             SegmentAccess::kCodeData | SegmentAccess::kReadWrite),
+        .flags_limit_high = MakeFlagsLimitHigh(SegmentFlags::kGranularity4K),
+        .base_high        = 0x00};
 }
 
 struct [[gnu::packed]] KernelGdt {
@@ -155,8 +150,6 @@ constexpr KernelGdt MakeKernelGdt() {
                      .code = MakeLongCodeDescriptor(),
                      .data = MakeLongDataDescriptor()};
 }
-
-constexpr KernelGdt kTemplate = MakeKernelGdt();
 
 struct [[gnu::packed]] TablePointer {
     unsigned short     limit;

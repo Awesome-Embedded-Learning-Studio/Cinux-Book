@@ -4,11 +4,13 @@ namespace cinux::arch::idt {
 
 namespace {
 
+constexpr unsigned int kVectorCount = 256;
+
 GateEntry g_table[kVectorCount];
 
-}
+}  // namespace
 
-void InstallGate(unsigned vector, GateEntry entry) {
+void InstallGate(unsigned int vector, GateEntry entry) {
     g_table[vector] = entry;
 }
 

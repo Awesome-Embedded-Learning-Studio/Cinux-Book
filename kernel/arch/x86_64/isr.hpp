@@ -31,16 +31,43 @@ struct [[gnu::packed]] InterruptFrame {
 /**
  * @brief         Report one fault: named vector plus the frame that caused it.
  * @param[in]     vector      CPU exception number, 0..31.
- * @param[in]     frame       The frame the stub received, rip onward.
+ * @param[in,out] frame       The frame the stub received; rip moves forward
+ *                            when an armed recovery consumes this fault.
  * @param[in]     error_code  CPU-pushed code, 0 for no-code exceptions.
  * @return        None.
- * @note          Prints the dump and parks the machine; resumable faults
- *                arrive with the kernel-side test framework, not here.
+ * @note          An armed-and-matching fault is repaired and returned
+ *                through iret; every other fault prints the dump and
+ *                parks the machine.
  * @since         0.1.0
  * @ingroup       kernel_arch
  */
-void ReportFault(unsigned long long vector, const InterruptFrame& frame,
-                 unsigned long long error_code);
+void ReportFault(unsigned long long vector, InterruptFrame& frame, unsigned long long error_code);
+
+/**
+ * @brief         Arm one fault as expected and resumable.
+ * @param[in]     vector       The exception number to intercept.
+ * @param[in]     skip_bytes   Instruction length to step rip past on resume.
+ * @return        true when armed; false when a previous arm is pending.
+ * @note          The resumable-fault probe, a miniature of the exception
+ *                tables real kernels use for speculative access: when the
+ *                armed vector fires, the reporter advances rip by
+ *                skip_bytes and iret-returns instead of dumping. Any other
+ *                fault, or one nobody armed, behaves as always.
+ * @since         0.2.0
+ * @ingroup       kernel_arch
+ */
+bool ArmRecoverableFault(unsigned long long vector, unsigned long long skip_bytes);
+
+/**
+ * @brief         Take the vector of the last recovered fault, if any.
+ * @return        The recovered vector, or 256 — one past all real CPU
+ *                vectors — when the arm never fired.
+ * @note          Reading consumes the record; a second call without a new
+ *                recovery answers 256, the no-fault sentinel.
+ * @since         0.2.0
+ * @ingroup       kernel_arch
+ */
+unsigned long long TakeRecoveredVector();
 
 /**
  * @brief         Arm all 32 CPU exception vectors with attribute stubs.

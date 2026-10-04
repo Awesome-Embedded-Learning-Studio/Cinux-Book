@@ -10,6 +10,7 @@ Checks:
   - 'readability-*'
   - 'cppcoreguidelines-pro-type-member-init'
   - '-bugprone-easily-swappable-parameters'
+  - '-readability-convert-member-functions-to-static'
   - '-readability-magic-numbers'
   - '-readability-use-anyofallof'
   - '-misc-non-private-member-variables-in-classes'

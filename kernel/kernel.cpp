@@ -1,8 +1,15 @@
 #include "cinux/addr.hpp"
+#include "kernel/arch/x86_64/halt.hpp"
+#include "kernel/arch/x86_64/irq_stubs.hpp"
+#include "kernel/arch/x86_64/pic.hpp"
 #include "kernel/boot/boot_info.hpp"
 #include "kernel/boot/console.hpp"
 #include "kernel/boot/print.hpp"
+#include "kernel/driver/pit.hpp"
+#include "kernel/interrupt/irq.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/time/tick.hpp"
+#include "kernel/time/tick_config.hpp"
 
 namespace kernel {
 
@@ -21,12 +28,19 @@ void Main(const cinux::boot::BootInfo& info) {
     cinux::mm::Pmm& ledger = cinux::mm::Pmm::self();
     if (!ledger.init(info)) {
         Println("[kern] pmm init failed");
-        Halt();
+        cinux::arch::Halt();
     }
     cinux::base::PhysAddr const kProbe = ledger.allocate_page();
     ledger.free_page(kProbe);
     Println("[kern] pmm: %u pages free (probe %X ok)", ledger.free_page_count(), kProbe.raw);
-    cinux::console::Halt();
+
+    cinux::arch::Pic::self().remap();
+    cinux::time::Tick::self().init(cinux::driver::Pit::self());
+    cinux::arch::irq::InstallIrqStubs();
+    cinux::interrupt::Irq::self().enable_line(cinux::interrupt::IrqLine{.value = 0});
+    asm volatile("sti" : : : "memory");
+    Println("[kern] irq on, tick %uHz", cinux::time::kTickHz.value);
+    cinux::arch::Halt();
 }
 
 }  // namespace kernel

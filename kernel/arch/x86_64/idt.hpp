@@ -19,8 +19,6 @@
 
 namespace cinux::arch::idt {
 
-inline constexpr unsigned kVectorCount = 256;
-
 /// Present, DPL 0, 32-bit interrupt gate: the one gate type this kernel arms.
 inline constexpr unsigned char kTypeInterruptGate = 0x8E;
 
@@ -68,7 +66,7 @@ struct [[gnu::packed]] TablePointer {
  * @since         0.1.0
  * @ingroup       kernel_arch
  */
-void InstallGate(unsigned vector, GateEntry entry);
+void InstallGate(unsigned int vector, GateEntry entry);
 
 /**
  * @brief         Point the CPU at the table with one lidt.

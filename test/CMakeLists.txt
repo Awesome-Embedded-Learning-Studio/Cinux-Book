@@ -32,6 +32,7 @@ add_cinux_test(page)
 add_cinux_test(image)
 add_cinux_test(bitmap)
 add_cinux_test(pmm ${CMAKE_SOURCE_DIR}/kernel/mm/pmm.cpp)
+add_cinux_test(tick ${CMAKE_SOURCE_DIR}/kernel/time/tick.cpp)
 
 add_test(NAME kernel_image
     COMMAND ${CMAKE_COMMAND}
@@ -39,11 +40,45 @@ add_test(NAME kernel_image
             -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/kernel_image
             -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
             -DOBJCOPY=${CMAKE_OBJCOPY}
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/test_kernel_image.cmake)
+            -P ${CMAKE_SOURCE_DIR}/cmake/test/test_kernel_image.cmake)
+
+# Ktest registry entries are "name:stage": the stage names the highest
+# ladder level (kernel init order) the test kernel brings up before its
+# cases run. Module tests live in test/kernel/, integration tests in
+# test/kernel/integration/ — each entry one file, one kernel, one boot.
+set(CINUX_KTEST_IMAGE_TARGETS "")
+foreach(entry IN LISTS CINUX_KTESTS CINUX_KTESTS_INTEGRATION)
+    string(REPLACE ":" ";" entry_parts "${entry}")
+    list(GET entry_parts 0 ktest)
+    list(GET entry_parts 1 ktest_stage)
+    list(FIND CINUX_KTEST_STAGES "${ktest_stage}" stage_known)
+    if(stage_known EQUAL -1)
+        message(FATAL_ERROR
+            "ktest '${ktest}' declares unknown stage '${ktest_stage}'; known: ${CINUX_KTEST_STAGES}")
+    endif()
+    add_test(NAME kernel_test_${ktest}
+        COMMAND ${CMAKE_COMMAND}
+                -DQEMU_PROGRAM=${CINUX_QEMU_PROGRAM}
+                "-DQEMU_DEVICE_ARGS=${CINUX_QEMU_DEVICE_ARGS}"
+                -DIMAGE_FILE=${CMAKE_BINARY_DIR}/boot/cinux_ktest_${ktest}.img
+                -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/kernel_test_${ktest}
+                -P ${CMAKE_SOURCE_DIR}/cmake/test/run_kernel_tests.cmake)
+    set_tests_properties(kernel_test_${ktest} PROPERTIES TIMEOUT 120)
+    list(APPEND CINUX_KTEST_IMAGE_TARGETS boot_ktest_${ktest})
+endforeach()
 
 add_custom_target(test_host
-    COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_CURRENT_BINARY_DIR} --output-on-failure
+    COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_CURRENT_BINARY_DIR}
+            -E ^kernel_test_ --output-on-failure
     DEPENDS ${ALL_HOST_TESTS}
     USES_TERMINAL
     COMMENT "Running host unit tests..."
+)
+
+add_custom_target(test_kernel
+    COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_CURRENT_BINARY_DIR}
+            -R ^kernel_test_ --output-on-failure
+    DEPENDS ${CINUX_KTEST_IMAGE_TARGETS}
+    USES_TERMINAL
+    COMMENT "Running kernel tests in QEMU..."
 )

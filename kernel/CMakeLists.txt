@@ -1,47 +1,125 @@
-add_executable(cinux_kernel
-    kernel.cpp
-    arch/x86_64/entry.cpp
-    arch/x86_64/exception.cpp
-    arch/x86_64/gdt.cpp
-    arch/x86_64/idt.cpp
-    arch/x86_64/isr.cpp
-    arch/x86_64/image_header_data.cpp
+set(CINUX_KERNEL_CORE_SOURCES
+    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/entry.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/exception.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/gdt.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/idt.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/isr.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/image_header_data.cpp
     ${CMAKE_SOURCE_DIR}/base/src/format/entry.cpp
     ${CMAKE_SOURCE_DIR}/base/src/format/radix.cpp
     ${CMAKE_SOURCE_DIR}/boot/early/libc.cpp
-    driver/base/io.cpp
-    driver/serial.cpp
-    mm/pmm.cpp)
-target_link_libraries(cinux_kernel PRIVATE cinux_warnings cinux_kernel_flags)
-target_compile_options(cinux_kernel PRIVATE -mcmodel=kernel)
-set_source_files_properties(arch/x86_64/isr.cpp PROPERTIES COMPILE_OPTIONS "-mgeneral-regs-only")
-target_include_directories(cinux_kernel PRIVATE
-    ${CMAKE_SOURCE_DIR}/base/include
-    ${CMAKE_SOURCE_DIR})
-target_compile_definitions(cinux_kernel PRIVATE
-    ENTRY_SYMBOL=KernelEntry)
-target_link_options(cinux_kernel PRIVATE
-    -m64
-    -no-pie
-    -nostdlib
-    -Wl,-T,${CMAKE_CURRENT_SOURCE_DIR}/arch/x86_64/kernel.ld
-    -Wl,--build-id=none
-    -Wl,--no-warn-rwx-segments
-    -Wl,--gc-sections
-    -Wl,-e,KernelEntry)
-set_property(TARGET cinux_kernel APPEND PROPERTY LINK_DEPENDS
-    ${CMAKE_CURRENT_SOURCE_DIR}/arch/x86_64/kernel.ld)
+    ${CMAKE_SOURCE_DIR}/kernel/driver/base/io.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/driver/serial.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/driver/pit.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/mm/pmm.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/time/tick.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/pic.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_stubs.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/interrupt/irq.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/lib/assert.cpp)
 
-add_custom_command(
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/kernel.bin
-    COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:cinux_kernel>
-            ${CMAKE_CURRENT_BINARY_DIR}/kernel.bin
-    COMMAND ${CMAKE_COMMAND}
-            -DIMAGE_FILE=${CMAKE_CURRENT_BINARY_DIR}/kernel.bin
-            -P ${CMAKE_SOURCE_DIR}/cmake/kernel/image_size_check.cmake
-    DEPENDS cinux_kernel ${CMAKE_SOURCE_DIR}/cmake/kernel/image_size_check.cmake
-)
+function(add_cinux_kernel name bin_stem)
+    add_executable(${name}
+        ${CMAKE_SOURCE_DIR}/kernel/kernel.cpp
+        ${CINUX_KERNEL_CORE_SOURCES}
+        ${ARGN})
+    target_link_libraries(${name} PRIVATE cinux_warnings cinux_kernel_flags)
+    target_compile_options(${name} PRIVATE -mcmodel=kernel)
+    set_source_files_properties(
+        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/isr.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/exception.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/pic.cpp
+            ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_stubs.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/interrupt/irq.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/time/tick.cpp
+        PROPERTIES COMPILE_OPTIONS "-mgeneral-regs-only")
+    target_include_directories(${name} PRIVATE
+        ${CMAKE_SOURCE_DIR}/base/include
+        ${CMAKE_SOURCE_DIR})
+    target_compile_definitions(${name} PRIVATE
+        ENTRY_SYMBOL=KernelEntry)
+    target_link_options(${name} PRIVATE
+        -m64
+        -no-pie
+        -nostdlib
+        -Wl,-T,${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/kernel.ld
+        -Wl,--build-id=none
+        -Wl,--no-warn-rwx-segments
+        -Wl,--gc-sections
+        -Wl,-e,KernelEntry)
+    set_property(TARGET ${name} APPEND PROPERTY LINK_DEPENDS
+        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/kernel.ld)
 
-add_custom_target(kernel_bin
-    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/kernel.bin
-)
+    add_custom_command(
+        OUTPUT ${CMAKE_BINARY_DIR}/kernel/${bin_stem}.bin
+        COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:${name}>
+                ${CMAKE_BINARY_DIR}/kernel/${bin_stem}.bin
+        COMMAND ${CMAKE_COMMAND}
+                -DIMAGE_FILE=${CMAKE_BINARY_DIR}/kernel/${bin_stem}.bin
+                -P ${CMAKE_SOURCE_DIR}/cmake/kernel/image_size_check.cmake
+        DEPENDS ${name} ${CMAKE_SOURCE_DIR}/cmake/kernel/image_size_check.cmake
+    )
+
+    add_custom_target(${bin_stem}_bin
+        DEPENDS ${CMAKE_BINARY_DIR}/kernel/${bin_stem}.bin
+    )
+endfunction()
+
+function(add_cinux_ktest name stage)
+    add_executable(cinux_ktest_${name}
+        ${CMAKE_SOURCE_DIR}/test/kernel/test_main.cpp
+        ${CINUX_KERNEL_CORE_SOURCES}
+        ${CMAKE_SOURCE_DIR}/test/framework/framework_kernel.cpp
+        ${ARGN})
+    target_link_libraries(cinux_ktest_${name} PRIVATE cinux_warnings cinux_kernel_flags)
+    target_compile_options(cinux_ktest_${name} PRIVATE -mcmodel=kernel)
+    set_source_files_properties(
+        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/isr.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/exception.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/pic.cpp
+            ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_stubs.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/interrupt/irq.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/time/tick.cpp
+        PROPERTIES COMPILE_OPTIONS "-mgeneral-regs-only")
+    target_include_directories(cinux_ktest_${name} PRIVATE
+        ${CMAKE_SOURCE_DIR}/base/include
+        ${CMAKE_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/test/framework)
+    string(TOUPPER ${stage} stage_upper)
+    target_compile_definitions(cinux_ktest_${name} PRIVATE
+        ENTRY_SYMBOL=KernelEntry KTEST_STAGE_${stage_upper})
+    target_link_options(cinux_ktest_${name} PRIVATE
+        -m64
+        -no-pie
+        -nostdlib
+        -Wl,-T,${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/kernel.ld
+        -Wl,--build-id=none
+        -Wl,--no-warn-rwx-segments
+        -Wl,--gc-sections
+        -Wl,-e,KernelEntry)
+    set_property(TARGET cinux_ktest_${name} APPEND PROPERTY LINK_DEPENDS
+        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/kernel.ld)
+
+    add_custom_command(
+        OUTPUT ${CMAKE_BINARY_DIR}/kernel/cinux_ktest_${name}.bin
+        COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:cinux_ktest_${name}>
+                ${CMAKE_BINARY_DIR}/kernel/cinux_ktest_${name}.bin
+        COMMAND ${CMAKE_COMMAND}
+                -DIMAGE_FILE=${CMAKE_BINARY_DIR}/kernel/cinux_ktest_${name}.bin
+                -P ${CMAKE_SOURCE_DIR}/cmake/kernel/image_size_check.cmake
+        DEPENDS cinux_ktest_${name} ${CMAKE_SOURCE_DIR}/cmake/kernel/image_size_check.cmake
+    )
+
+    add_custom_target(cinux_ktest_${name}_bin
+        DEPENDS ${CMAKE_BINARY_DIR}/kernel/cinux_ktest_${name}.bin
+    )
+endfunction()
+
+add_cinux_kernel(cinux_kernel kernel)
+
+foreach(entry IN LISTS CINUX_KTESTS CINUX_KTESTS_INTEGRATION)
+    string(REPLACE ":" ";" entry_parts "${entry}")
+    list(GET entry_parts 0 ktest)
+    list(GET entry_parts 1 ktest_stage)
+    add_cinux_ktest(${ktest} ${ktest_stage} ${CMAKE_SOURCE_DIR}/test/kernel/test_${ktest}.cpp)
+endforeach()

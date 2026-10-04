@@ -1,9 +1,9 @@
 #include "cinux/ptr.hpp"
 #include "kernel/arch/x86_64/gdt.hpp"
+#include "kernel/arch/x86_64/halt.hpp"
 #include "kernel/arch/x86_64/idt.hpp"
 #include "kernel/arch/x86_64/isr.hpp"
 #include "kernel/boot/boot_info.hpp"
-#include "kernel/boot/console.hpp"
 
 extern "C" unsigned char g_kernel_bss_start[];
 extern "C" unsigned char g_kernel_bss_end[];
@@ -30,7 +30,7 @@ void save_handoff_and_start(unsigned long long info_addr) {
     cinux::arch::isr::InstallExceptionStubs();
     cinux::arch::idt::LoadIdt();
     kernel::Main(*cinux::base::PtrAt<cinux::boot::BootInfo>(info_addr));
-    cinux::console::Halt();
+    cinux::arch::Halt();
 }
 
 }  // namespace

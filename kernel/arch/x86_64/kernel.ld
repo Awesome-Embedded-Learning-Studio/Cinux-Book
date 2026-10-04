@@ -13,7 +13,13 @@ SECTIONS
         *(.text*)
     }
     .rodata : ALIGN(16) { *(.rodata*) }
-    .data : ALIGN(16) { *(.data*) }
+    .data : ALIGN(16) {
+        *(.data*)
+        . = ALIGN(16);
+        g_test_start = .;
+        KEEP(*(.test_cases))
+        g_test_end = .;
+    }
     .bss : ALIGN(16) {
         g_kernel_bss_start = .;
         *(.bss*)

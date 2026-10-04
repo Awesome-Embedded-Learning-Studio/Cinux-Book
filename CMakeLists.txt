@@ -25,6 +25,21 @@ include(cmake/compilers/warning_standard.cmake)
 include(cmake/compilers/boot_modes.cmake)
 include(cmake/compilers/kernel_modes.cmake)
 
+set(CINUX_QEMU_PROGRAM qemu-system-x86_64 CACHE STRING "QEMU binary driving Cinux")
+set(CINUX_QEMU_DEVICE_ARGS
+    -accel;kvm
+    -display;none
+    -no-reboot
+    -device;isa-debug-exit,iobase=0xf4,iosize=0x04)
+
+# Kernel test kernels: one entry "name:stage" = one test file
+# test/kernel/test_<name>.cpp (integration: test/kernel/integration/) =
+# one kernel = one image = one QEMU boot = one CTest case. The stage
+# names the init-ladder level the test main walks before running cases.
+set(CINUX_KTEST_STAGES exceptions irq)
+set(CINUX_KTESTS selfcheck:exceptions tick:irq)
+set(CINUX_KTESTS_INTEGRATION "")
+
 message("Configuring Boot")
 add_subdirectory(boot)
 

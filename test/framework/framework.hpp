@@ -6,32 +6,29 @@
  * emitted by the TEST() macro; RunAll() executes every registered case and
  * reports PASS/FAIL per case (snapshot semantics: a case passes only when
  * it produced no failure), returning the failure count for the process
- * exit code. Host-only by design: the kernel twin of this framework grows
- * in its own file family at station 03 (link-time selection, one contract
- * per world — see .notes/v2-arch.md).
+ * exit code. The ASSERT_* family and its ReportFailure hooks are shared
+ * with the kernel world through test_assert.hpp; the kernel twin of this
+ * whole file family is framework_kernel.hpp / framework_kernel.cpp, and
+ * both worlds walk the one record from test_case.hpp (link-time
+ * selection, one contract per world — see .notes/v2-arch.md).
  *
  * @author  Charliechen114514
- * @date    2026-09-25
- * @version 2.0
+ * @date    2026-10-02
+ * @version 3.0
  * @since   0.1.0
  * @ingroup test_framework
  */
 
 #pragma once
 
-#include <cstdio>   // NOLINT(misc-include-cleaner) stderr is used inside ASSERT_* macros
+#include <cstdio>   // NOLINT(misc-include-cleaner) stderr is used inside ASSERT_STREQ
 #include <cstring>  // NOLINT(misc-include-cleaner) strcmp is used inside ASSERT_STREQ
-#include <print>    // NOLINT(misc-include-cleaner) println is used inside ASSERT_* macros
+#include <print>    // NOLINT(misc-include-cleaner) println is used inside ASSERT_STREQ
+
+#include "test_assert.hpp"  // NOLINT(misc-include-cleaner) hooks used inside ASSERT_STREQ
+#include "test_case.hpp"
 
 namespace cinux::test {
-
-/**
- * @brief         A single registered test case.
- */
-struct TestCase {
-    const char* name;  ///< Human-readable case name, printed by RunAll().
-    void (*body)();    ///< Test body, typically a lambda emitted by TEST().
-};
 
 /**
  * @brief         Registers one test case at static-construction time.
@@ -94,21 +91,6 @@ int RunAll();
  */
 int RegisteredCount();
 
-/**
- * @brief         Name of the case currently executing (for ASSERT_* output).
- *
- * @return        Current case name, or "" outside any case.
- * @note          None
- * @warning       None
- * @throws        None
- * @since         0.1.0
- * @ingroup       test_framework
- */
-const char* CurrentCaseName();
-
-/// Global failure counter incremented by ASSERT_* macros.
-extern int g_failures;
-
 // ============================================================
 // TEST() — register a code block as a case.
 // __LINE__ (not __COUNTER__): the counter increments at every occurrence,
@@ -127,58 +109,10 @@ extern int g_failures;
                                __LINE__)() /* NOLINT(misc-use-anonymous-namespace) */
 
 // ============================================================
-// ASSERT_* — record a failure, print it, and return out of the case.
-// Macro (not function) by necessity: the early `return` must leave the
-// test body, which only textual expansion can do.
+// ASSERT_STREQ — the one host-only assertion: string comparison and
+// string printing have no kernel twin. Everything else lives in
+// test_assert.hpp, shared with the kernel world.
 // ============================================================
-#define ASSERT_TRUE(expression)                                                                    \
-    do {                                                                                           \
-        if (!(expression)) {                                                                       \
-            std::println(stderr, "[FAIL] {}\n  ASSERT_TRUE({}) failed\n  at {}:{}",                \
-                         ::cinux::test::CurrentCaseName(), #expression, __FILE__, __LINE__);       \
-            ++::cinux::test::g_failures;                                                           \
-            return;                                                                                \
-        }                                                                                          \
-    } while (0)
-
-#define ASSERT_FALSE(expression) ASSERT_TRUE(!(expression))
-
-#define ASSERT_EQ(actual, expected)                                                                \
-    do {                                                                                           \
-        const auto& kActualValue   = (actual);                                                     \
-        const auto& kExpectedValue = (expected);                                                   \
-        if (!(kActualValue == kExpectedValue)) {                                                   \
-            std::println(stderr, "[FAIL] {}\n  ASSERT_EQ({}, {}) failed\n  at {}:{}",              \
-                         ::cinux::test::CurrentCaseName(), #actual, #expected, __FILE__,           \
-                         __LINE__);                                                                \
-            ++::cinux::test::g_failures;                                                           \
-            return;                                                                                \
-        }                                                                                          \
-    } while (0)
-
-#define ASSERT_NE(actual, expected)                                                                \
-    do {                                                                                           \
-        const auto& kActualValue   = (actual);                                                     \
-        const auto& kExpectedValue = (expected);                                                   \
-        if (kActualValue == kExpectedValue) {                                                      \
-            std::println(stderr, "[FAIL] {}\n  ASSERT_NE({}, {}) failed\n  at {}:{}",              \
-                         ::cinux::test::CurrentCaseName(), #actual, #expected, __FILE__,           \
-                         __LINE__);                                                                \
-            ++::cinux::test::g_failures;                                                           \
-            return;                                                                                \
-        }                                                                                          \
-    } while (0)
-
-#define ASSERT_NULL(pointer) ASSERT_TRUE((pointer) == nullptr)
-
-#define ASSERT_NOT_NULL(pointer) ASSERT_TRUE((pointer) != nullptr)
-
-#define ASSERT_GE(a, b) ASSERT_TRUE((a) >= (b))
-#define ASSERT_LE(a, b) ASSERT_TRUE((a) <= (b))
-#define ASSERT_GT(a, b) ASSERT_TRUE((a) > (b))
-#define ASSERT_LT(a, b) ASSERT_TRUE((a) < (b))
-
-/// Asserts two NUL-terminated strings are equal (prints both on failure).
 #define ASSERT_STREQ(actual, expected)                                                             \
     do {                                                                                           \
         const char* kActualText   = (actual);                                                      \

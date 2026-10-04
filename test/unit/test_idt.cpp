@@ -1,15 +1,16 @@
 #include "../framework/framework.hpp"
 #include "kernel/arch/x86_64/idt.hpp"
+#include "test_assert.hpp"
 
 using cinux::arch::idt::EncodeGate;
 using cinux::arch::idt::GateEntry;
 using cinux::arch::idt::kTypeInterruptGate;
-using cinux::arch::idt::kVectorCount;
 
 TEST("idt: gate entry is sixteen bytes on LP64") {
     ASSERT_TRUE(sizeof(GateEntry) == 16);
     ASSERT_TRUE(sizeof(cinux::arch::idt::TablePointer) == 10);
-    ASSERT_TRUE(kVectorCount * sizeof(GateEntry) == 4096);
+    constexpr unsigned int kArmedGates = 256;
+    ASSERT_TRUE(kArmedGates * sizeof(GateEntry) == 4096);
 }
 
 TEST("idt: handler address splits across three offset fields") {

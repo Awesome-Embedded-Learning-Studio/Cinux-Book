@@ -4,7 +4,7 @@ namespace cinux::arch::gdt {
 
 namespace {
 
-KernelGdt g_own_gdt = kTemplate;
+KernelGdt g_own_gdt = MakeKernelGdt();
 
 }
 
