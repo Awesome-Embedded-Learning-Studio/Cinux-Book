@@ -15,6 +15,9 @@ hero:
       text: 前置卷
       link: /primer/
     - theme: alt
+      text: 教科书
+      link: /textbook/
+    - theme: alt
       text: 排错笔记
       link: /debug-notes/
     - theme: alt

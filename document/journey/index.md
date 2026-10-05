@@ -15,7 +15,7 @@ description: "Cinux 主线教程:照着真实的开发史走一遍。"
 
 ## 看起来困难？欢迎去前置卷转转！
 
-我们默认您会现代C++，如果您甚至对现代C++感到困惑的话，欢迎去[咱们兄弟站点TAMCPP看看喔](https://awesome-embedded-learning-studio.github.io/Tutorial_AwesomeModernCPP/)！
+咱们对您的默认只有一条：写过任意一门语言。C 不熟、汇编没碰过、连命令行都是刚上手的，您都别放在心上，[前置卷](/primer)就是替您把这些家什一件件备齐的地方，您在那儿从把 Linux 请进 Windows 一路读到内联汇编。
 
-如果您只是不太了解汇编和一些基础知识，[来这里 =w=：](/primer)
+正文代码里用到的现代 C++ 特性，咱们讲到哪儿、当场解释到哪儿。您要是想把这门前前后后学通透，您去[兄弟站 TAMCPP](https://awesome-embedded-learning-studio.github.io/Tutorial_AwesomeModernCPP/) 就好，它和咱们在深学与搓系统上各管一头、互不重复。
 
