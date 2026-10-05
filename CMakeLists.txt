@@ -36,8 +36,8 @@ set(CINUX_QEMU_DEVICE_ARGS
 # test/kernel/test_<name>.cpp (integration: test/kernel/integration/) =
 # one kernel = one image = one QEMU boot = one CTest case. The stage
 # names the init-ladder level the test main walks before running cases.
-set(CINUX_KTEST_STAGES exceptions irq)
-set(CINUX_KTESTS selfcheck:exceptions tick:irq)
+set(CINUX_KTEST_STAGES exceptions irq keyboard)
+set(CINUX_KTESTS selfcheck:exceptions tick:irq keyboard:keyboard)
 set(CINUX_KTESTS_INTEGRATION "")
 
 message("Configuring Boot")

@@ -1,6 +1,8 @@
 #include "../framework/framework.hpp"
 #include "cinux/bit_ops/bit_ops.hpp"
 #include "cinux/bit_ops/bitmask.hpp"
+#include "cinux/byte_order.hpp"
+#include "test_assert.hpp"
 
 using cinux::base::bit::BitMask;
 using cinux::base::bit::BitRange;
@@ -44,6 +46,17 @@ TEST("bitmask: deposit and extract are inverse over a field") {
     ASSERT_TRUE(kProbeEntry.extract(BitRange{.low = 12, .width = 40}) == 0xABCDE);
     ASSERT_TRUE(kProbeEntry.has(MaskBit<unsigned long long>(0)));
     ASSERT_TRUE(!kProbeEntry.has(MaskBit<unsigned long long>(1)));
+}
+
+TEST("bytes: little-endian words read back in byte order") {
+    unsigned char const kBlob[] = {0x72, 0xB5, 0x4A, 0x86, 0xFF, 0x00, 0x00, 0x00};
+    ASSERT_TRUE(cinux::base::ReadWord32(kBlob, 0) == 0x864AB572);
+    ASSERT_TRUE(cinux::base::ReadWord32(kBlob, 4) == 0x000000FF);
+}
+
+TEST("bytes: word reads honor their offset") {
+    unsigned char const kBlob[] = {0x00, 0x11, 0x22, 0x33, 0x44};
+    ASSERT_TRUE(cinux::base::ReadWord32(kBlob, 1) == 0x44332211);
 }
 
 int main() {

@@ -2,14 +2,16 @@
  * @file    console.hpp
  * @brief   The console the kernel world speaks through.
  *
- * A thin face over the serial driver: characters and strings out.
- Formatting lives one layer up in print.hpp; ports stay two layers
- down — nobody skips a floor. Parking the CPU is not a console concern;
- Halt lives in arch (kernel/arch/x86_64/halt.hpp).
+ * A neutral face: characters and strings out, nothing about devices.
+ * Formatting lives one layer up in print.hpp; the sinks — the serial
+ * line first, the text screen when its facts hold — live below and are
+ * wired by this face's implementation, so no caller ever names one.
+ * Parking the CPU is not a console concern; Halt lives in arch
+ * (kernel/arch/x86_64/halt.hpp).
  *
  * @author  Charliechen114514
  * @date    2026-10-02
- * @version 0.2
+ * @version 0.3
  * @since   0.1.0
  * @ingroup kernel_boot
  * @copyright Copyright (c) 2026
@@ -17,26 +19,28 @@
 
 #pragma once
 
-#include "kernel/driver/serial.hpp"
+#include "kernel/boot/boot_info.hpp"
 
 namespace cinux::console {
 
 /**
- * @brief         Brings the kernel console up.
+ * @brief         Brings the kernel console up: serial first so debugging
+ *                never waits on a screen, then the text screen when the
+ *                boot record carries a usable framebuffer.
  *
+ * @param[in]     info   The boot handoff record.
  * @return        None
- * @note          Calls the serial driver init; safe to call again.
+ * @note          Safe to call again; a screen that refused init stays
+ *                silent and serial keeps carrying the whole output.
  * @warning       None
  * @throws        None
  * @since         0.1.0
  * @ingroup       kernel_boot
  */
-inline void InitConsole() {
-    cinux::driver::SerialInit();
-}
+void InitConsole(const cinux::boot::BootInfo& info);
 
 /**
- * @brief         Sends one character to the console.
+ * @brief         Sends one character to every console sink.
  *
  * @param[in]     character   Byte to emit.
  * @return        None
@@ -46,9 +50,7 @@ inline void InitConsole() {
  * @since         0.1.0
  * @ingroup       kernel_boot
  */
-inline void PutChar(char character) {
-    cinux::driver::SerialPutChar(character);
-}
+void PutChar(char character);
 
 /**
  * @brief         Sends a NUL-terminated string, one character at a time.

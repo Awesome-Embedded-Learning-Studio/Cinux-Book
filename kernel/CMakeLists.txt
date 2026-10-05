@@ -11,17 +11,38 @@ set(CINUX_KERNEL_CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/kernel/driver/base/io.cpp
     ${CMAKE_SOURCE_DIR}/kernel/driver/serial.cpp
     ${CMAKE_SOURCE_DIR}/kernel/driver/pit.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/driver/keyboard.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/driver/scancode.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/console/font.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/driver/framebuffer.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/console/screen.cpp
     ${CMAKE_SOURCE_DIR}/kernel/mm/pmm.cpp
     ${CMAKE_SOURCE_DIR}/kernel/time/tick.cpp
     ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/pic.cpp
         ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_stubs.cpp
         ${CMAKE_SOURCE_DIR}/kernel/interrupt/irq.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/console/console.cpp
     ${CMAKE_SOURCE_DIR}/kernel/lib/assert.cpp)
+
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/font_blob.o
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/assets/font.psf
+            ${CMAKE_CURRENT_BINARY_DIR}/font.psf
+    COMMAND ${CMAKE_OBJCOPY} -I binary -O elf64-x86-64 -B i386:x86-64
+            --rename-section .data=.rodata.font
+            --redefine-sym _binary_font_psf_start=g_font_psf_start
+            --redefine-sym _binary_font_psf_end=g_font_psf_end
+            --set-section-flags .rodata.font=alloc,load,readonly,data
+            font.psf
+            font_blob.o
+    DEPENDS ${CMAKE_SOURCE_DIR}/assets/font.psf
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 function(add_cinux_kernel name bin_stem)
     add_executable(${name}
         ${CMAKE_SOURCE_DIR}/kernel/kernel.cpp
         ${CINUX_KERNEL_CORE_SOURCES}
+        ${CMAKE_CURRENT_BINARY_DIR}/font_blob.o
         ${ARGN})
     target_link_libraries(${name} PRIVATE cinux_warnings cinux_kernel_flags)
     target_compile_options(${name} PRIVATE -mcmodel=kernel)
@@ -69,6 +90,7 @@ function(add_cinux_ktest name stage)
     add_executable(cinux_ktest_${name}
         ${CMAKE_SOURCE_DIR}/test/kernel/test_main.cpp
         ${CINUX_KERNEL_CORE_SOURCES}
+        ${CMAKE_CURRENT_BINARY_DIR}/font_blob.o
         ${CMAKE_SOURCE_DIR}/test/framework/framework_kernel.cpp
         ${ARGN})
     target_link_libraries(cinux_ktest_${name} PRIVATE cinux_warnings cinux_kernel_flags)

@@ -18,7 +18,7 @@
 #pragma once
 
 #include "cinux/format.hpp"
-#include "kernel/boot/console.hpp"
+#include "kernel/console/console.hpp"
 
 namespace cinux::print {
 

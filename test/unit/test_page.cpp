@@ -1,5 +1,6 @@
 #include "../framework/framework.hpp"
 #include "kernel/arch/x86_64/page_entry.hpp"
+#include "test_assert.hpp"
 
 using cinux::arch::page::Entry;
 using cinux::arch::page::kLarge;
@@ -44,6 +45,29 @@ TEST("page: deposit and extract are inverse over the phys field") {
     ASSERT_TRUE(kEntry.has(kWritable));
     ASSERT_TRUE(kEntry.has(kLarge));
     ASSERT_TRUE(kEntry.extract(kLargePagePhys) == (0x600000 >> 21));
+}
+
+TEST("page: device doors cover the VBE framebuffer span") {
+    auto const kDoors = cinux::arch::page::PlanDeviceDoors(0xFD000000, 0x300000);
+    ASSERT_TRUE(kDoors.first_index == 3);
+    ASSERT_TRUE(kDoors.count == 1);
+}
+
+TEST("page: device doors round straddling ends outward") {
+    auto const kDoors = cinux::arch::page::PlanDeviceDoors(0xFFC00000, 0x800000);
+    ASSERT_TRUE(kDoors.first_index == 3);
+    ASSERT_TRUE(kDoors.count == 2);
+}
+
+TEST("page: zero-size device regions get zero doors") {
+    auto const kDoors = cinux::arch::page::PlanDeviceDoors(0xFD000000, 0);
+    ASSERT_TRUE(kDoors.first_index == 3);
+    ASSERT_TRUE(kDoors.count == 0);
+}
+
+TEST("page: huge entries encode one-gigabyte frames") {
+    ASSERT_TRUE(cinux::arch::page::MakeHugePageEntry(0xC0000000, kWritable).raw == 0xC0000083);
+    ASSERT_TRUE(cinux::arch::page::MakeHugePageEntry(0x40000000, kWritable).raw == 0x40000083);
 }
 
 int main() {

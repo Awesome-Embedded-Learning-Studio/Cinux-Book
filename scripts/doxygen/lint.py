@@ -100,7 +100,7 @@ FUTURE_TENSE_PATTERN = re.compile(r"\bwill\b", re.IGNORECASE)
 
 # Compile a case-sensitive pattern for 'I' to avoid matching loop variable 'i'
 # This pattern matches 'I' (uppercase only) as a whole word, except when followed by /, o, or O
-FIRST_PERSON_I_PATTERN = re.compile(r"\bI\b(?![/oO])")
+FIRST_PERSON_I_PATTERN = re.compile(r"\bI\b(?![/oO'\"])")
 
 # Pattern for we/our/my (case-insensitive)
 FIRST_PERSON_WE_PATTERN = re.compile(r"\b(?:we|our|my)\b", re.IGNORECASE)

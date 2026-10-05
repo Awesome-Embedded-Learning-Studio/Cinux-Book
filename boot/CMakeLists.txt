@@ -98,3 +98,10 @@ add_custom_target(run
             -serial stdio
     DEPENDS boot_image
 )
+
+add_custom_target(run_gui
+    COMMAND ${CINUX_QEMU_PROGRAM} -accel kvm -no-reboot
+            -drive format=raw,file=${CMAKE_CURRENT_BINARY_DIR}/cinux.img
+            -serial stdio
+    DEPENDS boot_image
+)
