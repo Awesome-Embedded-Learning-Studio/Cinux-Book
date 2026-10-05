@@ -67,8 +67,28 @@
       "titleEn": "First Kernel",
       "desc": "boot 的终点站:一扇 64KB 的窗、一趟 32 位的摆渡,把内核从盘上接进 2MB,末了一跳,面板换主人。",
       "note": "鞋盒自述、可装载性九判、交接单、两扇门——第四行字由内核亲手打亮",
-      "status": "open",
+      "status": "done",
       "trail": ["loader", "BootInfo", "handoff", "jmp"]
+    },
+    {
+      "id": "07",
+      "slug": "07-takeover",
+      "title": "内核接管",
+      "titleEn": "Takeover",
+      "desc": "把话说在 COM1 的 16550 上,debugcon 退役,全链共用一条嗓子。把内存记进一页一 bit 的名册,面板末尾那行 pmm,是住户自己报的家底。",
+      "note": "真串口开嗓、driver/mm 开张、一份脸面两户人家——32350 页的家底,住户自己报",
+      "status": "done",
+      "trail": ["16550", "PMM", "bitmap", "E820"]
+    },
+    {
+      "id": "08",
+      "slug": "08-pain",
+      "title": "会疼",
+      "titleEn": "Feel Pain",
+      "desc": "内核给自己立表:GDT 三槽换成自己的,IDT 立起 256 桩,ud2 一声,异常转储把现场摆在明处,SSE 一并开禁。",
+      "note": "EncodeGate、零宏 ISR、转储六件、SSE 开禁——疼,要说得出疼在哪",
+      "status": "open",
+      "trail": ["GDT", "IDT", "ud2", "SSE"]
     },
     {
       "id": "act2",
