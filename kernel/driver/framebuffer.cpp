@@ -4,6 +4,7 @@
 
 #include "cinux/ptr.hpp"
 #include "kernel/boot/boot_info.hpp"
+#include "kernel/mm/layout.hpp"
 
 namespace cinux::driver {
 
@@ -16,7 +17,8 @@ bool Framebuffer::init(const cinux::boot::FramebufferInfo& info) {
     if (info.bpp != 32 || info.width == 0 || info.height == 0 || info.pitch < info.width * 4U) {
         return false;
     }
-    base_        = cinux::base::PtrAt<volatile uint32_t>(static_cast<unsigned long>(info.physical));
+    base_ = cinux::base::PtrAt<volatile uint32_t>(
+        cinux::mm::IoremapVirt(static_cast<unsigned long>(info.physical)));
     pitch_       = info.pitch;
     pitch_words_ = info.pitch / 4U;
     width_       = info.width;

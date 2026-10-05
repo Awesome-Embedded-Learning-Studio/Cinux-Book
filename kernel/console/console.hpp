@@ -37,6 +37,20 @@ namespace cinux::console {
  * @since         0.1.0
  * @ingroup       kernel_boot
  */
+/**
+ * @brief         Brings the kernel console up: serial first so debugging
+ *                never waits on a screen, then the text screen when the
+ *                boot record carries a usable framebuffer.
+ *
+ * @param[in]     info   The boot handoff record.
+ * @return        None
+ * @note          Safe to call again; a screen that refused init stays
+ *                silent and serial keeps carrying the whole output.
+ * @warning       None
+ * @throws        None
+ * @since         0.1.0
+ * @ingroup       kernel_boot
+ */
 void InitConsole(const cinux::boot::BootInfo& info);
 
 /**

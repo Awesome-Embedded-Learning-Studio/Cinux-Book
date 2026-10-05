@@ -17,6 +17,10 @@ set(CINUX_KERNEL_CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/kernel/driver/framebuffer.cpp
     ${CMAKE_SOURCE_DIR}/kernel/console/screen.cpp
     ${CMAKE_SOURCE_DIR}/kernel/mm/pmm.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/mm/vmm.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/mm/heap.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/mm/heap_runtime.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/mm/address_space.cpp
     ${CMAKE_SOURCE_DIR}/kernel/time/tick.cpp
     ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/pic.cpp
         ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_stubs.cpp

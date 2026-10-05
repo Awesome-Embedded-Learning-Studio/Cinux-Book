@@ -156,4 +156,36 @@ constexpr DoorSpan PlanDeviceDoors(uint64_t physical, uint64_t bytes) {
     return span;
 }
 
+/**
+ * @brief         The 1GB window base a physical byte lives in.
+ *
+ * @param[in]     physical   Any physical address.
+ * @return        Base of the huge-page window containing it.
+ * @note          The named unit for walking RAM or MMIO one 1GB window
+ *                at a time, as the bring-up and door planners do.
+ * @warning       None
+ * @throws        None
+ * @since         0.2.0
+ * @ingroup       base_page
+ */
+constexpr uint64_t HugeWindowBase(uint64_t physical) {
+    return physical / kHugePageSize * kHugePageSize;
+}
+
+/**
+ * @brief         The 2MB large-page base a physical byte lives in.
+ *
+ * @param[in]     physical   Any physical address.
+ * @return        Base of the large page containing it.
+ * @note          The named unit for walking RAM one 2MB page at a time
+ *                when filling a page directory.
+ * @warning       None
+ * @throws        None
+ * @since         0.2.0
+ * @ingroup       base_page
+ */
+constexpr uint64_t LargePageBase(uint64_t physical) {
+    return physical / kLargePageSize * kLargePageSize;
+}
+
 }  // namespace cinux::arch::page

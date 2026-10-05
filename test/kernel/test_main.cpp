@@ -3,6 +3,7 @@
 #include "kernel/boot/boot_info.hpp"
 #include "kernel/boot/print.hpp"
 #include "kernel/console/console.hpp"
+#include "kernel/mm/vmm.hpp"
 
 #if defined(KTEST_STAGE_IRQ) || defined(KTEST_STAGE_KEYBOARD)
 #    include "kernel/arch/x86_64/irq_stubs.hpp"
@@ -14,12 +15,36 @@
 #ifdef KTEST_STAGE_KEYBOARD
 #    include "kernel/driver/keyboard.hpp"
 #endif
+#ifdef KTEST_STAGE_MM
+#    include "kernel/driver/serial.hpp"
+#    include "kernel/mm/heap_runtime.hpp"
+#    include "kernel/mm/pmm.hpp"
+#endif
 
 namespace kernel {
 
 // NOLINTNEXTLINE(misc-use-internal-linkage)
 void Main(const cinux::boot::BootInfo& info) {
+#ifdef KTEST_STAGE_MM
+    cinux::driver::SerialInit();
+    if (!cinux::mm::Pmm::self().init(info)) {
+        cinux::print::Println("[ktest] pmm init failed");
+        cinux::arch::Halt();
+    }
+    const cinux::boot::BootInfo* handed = cinux::mm::BringUpAddressSpace(info);
+    if (handed == nullptr) {
+        cinux::print::Println("[ktest] address space bring-up failed");
+        cinux::arch::Halt();
+    }
+    cinux::console::InitConsole(*handed);
+    if (!cinux::mm::BringUpHeap()) {
+        cinux::print::Println("[ktest] heap bring-up failed");
+        cinux::arch::Halt();
+    }
+#else
+    cinux::mm::MapFramebufferDoor(info);
     cinux::console::InitConsole(info);
+#endif
     cinux::print::Println("[ktest] kernel test world alive, %u e820 entries", info.e820_count);
 #if defined(KTEST_STAGE_IRQ) || defined(KTEST_STAGE_KEYBOARD)
     cinux::arch::Pic::self().remap();

@@ -1,5 +1,6 @@
 #include <stdint.h>
 
+#include "cinux/memory.hpp"
 #include "cinux/ptr.hpp"
 #include "kernel/arch/x86_64/page_entry.hpp"
 #include "kernel/boot/boot_info.hpp"
@@ -33,11 +34,10 @@ extern "C" void BuildHandoffDoors() {
     auto* const kPdpt = table_at(kPdptPhys);
     auto* const kPd   = table_at(kPdPhys);
 
-    for (unsigned int i = 0; i < kEntriesPerPage; ++i) {
-        kPml4[i] = Entry{};
-        kPdpt[i] = Entry{};
-        kPd[i]   = Entry{};
-    }
+    unsigned long const kTableBytes = sizeof(Entry) * kEntriesPerPage;
+    cinux::base::SetBytes(kPml4, 0, kTableBytes);
+    cinux::base::SetBytes(kPdpt, 0, kTableBytes);
+    cinux::base::SetBytes(kPd, 0, kTableBytes);
 
     unsigned long const kCovered   = g_kernel_end_paddr + 0x1FFFFFUL;
     auto const          kDoorCount = static_cast<unsigned int>(kCovered >> 21);

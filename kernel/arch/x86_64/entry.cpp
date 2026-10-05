@@ -1,3 +1,4 @@
+#include "cinux/memory.hpp"
 #include "cinux/ptr.hpp"
 #include "kernel/arch/x86_64/gdt.hpp"
 #include "kernel/arch/x86_64/halt.hpp"
@@ -7,6 +8,7 @@
 
 extern "C" unsigned char g_kernel_bss_start[];
 extern "C" unsigned char g_kernel_bss_end[];
+extern "C" unsigned char g_kernel_stack_top[];
 
 namespace kernel {
 void Main(const cinux::boot::BootInfo& info);
@@ -14,18 +16,10 @@ void Main(const cinux::boot::BootInfo& info);
 
 namespace {
 
-void memory_zero(void* target, unsigned long bytes) {
-    auto* dest = reinterpret_cast<unsigned char*>(target);
-    auto* scan = dest;
-    while (bytes-- > 0) {
-        *scan++ = 0;
-    }
-}
-
 void save_handoff_and_start(unsigned long long info_addr) {
     // NOLINTNEXTLINE(clang-analyzer-security.PointerSub)
     auto const kBssBytes = static_cast<unsigned long>(g_kernel_bss_end - g_kernel_bss_start);
-    memory_zero(g_kernel_bss_start, kBssBytes);
+    cinux::base::SetBytes(g_kernel_bss_start, 0, kBssBytes);
     cinux::arch::gdt::LoadOwnedGdt();
     cinux::arch::isr::InstallExceptionStubs();
     cinux::arch::idt::LoadIdt();
@@ -44,7 +38,7 @@ extern "C" void KernelEntry() {
         "movq %%cr4, %%rax\n\t"
         "orq $0x600, %%rax\n\t"
         "movq %%rax, %%cr4\n\t"
-        "movabsq $0x90000, %%rsp\n\t"
+        "leaq g_kernel_stack_top(%%rip), %%rsp\n\t"
         "xorq %%rbp, %%rbp"
         :
         :

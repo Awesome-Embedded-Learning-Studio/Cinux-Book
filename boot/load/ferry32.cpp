@@ -1,3 +1,4 @@
+#include "cinux/memory.hpp"
 #include "cinux/ptr.hpp"
 
 extern "C" {
@@ -8,11 +9,7 @@ void            CopyFlat(unsigned dst, unsigned src, unsigned len);
 }
 
 void CopyFlat(unsigned dst, unsigned src, unsigned len) {
-    auto*       destination = cinux::base::PtrAt<unsigned>(dst);
-    auto const* source      = cinux::base::PtrAt<unsigned>(src);
-    for (unsigned i = 0; i < len / 4; ++i) {
-        destination[i] = source[i];
-    }
+    cinux::base::CopyBytes(cinux::base::PtrAt<void>(dst), cinux::base::PtrAt<const void>(src), len);
 }
 
 extern "C" [[gnu::naked]] void FerryEntry32() {

@@ -26,6 +26,10 @@ SECTIONS
         *(COMMON)
         g_kernel_bss_end = .;
     }
+    .stack (NOLOAD) : ALIGN(16) {
+        . = . + 16384;
+        g_kernel_stack_top = .;
+    }
     __vma_end = .;
     g_kernel_load_paddr = LOADADDR(.image_header);
     __file_end_lma = SIZEOF(.data) ? LOADADDR(.data) + SIZEOF(.data) :
