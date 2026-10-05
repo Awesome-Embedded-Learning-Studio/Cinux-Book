@@ -19,6 +19,7 @@ export default defineProject({
       { text: '首页', link: '/' },
       { text: '教程', link: '/journey/' },
       { text: '前置卷', link: '/primer/' },
+      { text: '教科书', link: '/textbook/' },
       {
         text: '参考',
         items: [
@@ -40,6 +41,7 @@ export default defineProject({
       { name: 'debug-notes', srcDir: 'debug-notes', urlPrefix: '/debug-notes' },
       { name: 'notes', srcDir: 'notes', urlPrefix: '/notes' },
       { name: 'ci', srcDir: 'ci', urlPrefix: '/ci' },
+      { name: 'textbook', srcDir: 'textbook', urlPrefix: '/textbook' },
     ],
   },
 
