@@ -1,4 +1,5 @@
 #include "api/syscall.hpp"
+#include "kernel/syscall/syscall.hpp"
 
 namespace {
 
@@ -76,18 +77,150 @@ unsigned long tokenize(char* line, char** words) {
     return count;
 }
 
-void run_echo(unsigned long words, char** argv) {
-    for (unsigned long i = 1; i < words; ++i) {
-        if (i > 1) {
-            put_text(" ");
-        }
-        put_text(argv[i]);
+void make_path(char* out, const char* arg) {
+    unsigned long i = 0;
+    if (arg[0] != '/') {
+        out[0] = '/';
+        i      = 1;
     }
+    for (unsigned long j = 0; arg[j] != '\0' && i < 95; ++j) {
+        out[i] = arg[j];
+        ++i;
+    }
+    out[i] = '\0';
+}
+
+void report_errno(const char* what, long long code) {
+    put_text(what);
+    put_text(" failed: errno ");
+    char          digits[8];
+    unsigned long pos       = 0;
+    unsigned long magnitude = code < 0 ? -static_cast<unsigned long>(code) : 0;
+    if (magnitude == 0) {
+        digits[0] = '0';
+        pos       = 1;
+    }
+    while (magnitude > 0) {
+        digits[pos] = static_cast<char>('0' + (magnitude % 10));
+        ++pos;
+        magnitude /= 10;
+    }
+    char flipped[8];
+    for (unsigned long j = 0; j < pos; ++j) {
+        flipped[j] = digits[pos - 1 - j];
+    }
+    user::Write(1, flipped, pos);
     put_text("\n");
 }
 
+void run_echo(unsigned long words, char** argv) {
+    unsigned long end = words;
+    for (unsigned long i = 1; i < words; ++i) {
+        if (str_eq(argv[i], ">") && i + 1 < words) {
+            end = i;
+            break;
+        }
+    }
+    if (end == words) {
+        for (unsigned long i = 1; i < words; ++i) {
+            if (i > 1) {
+                put_text(" ");
+            }
+            put_text(argv[i]);
+        }
+        put_text("\n");
+        return;
+    }
+
+    char path[96];
+    make_path(path, argv[end + 1]);
+    const long long kFile = user::Open(path, cinux::syscall::kOpenCreat);
+    if (kFile < 0) {
+        report_errno("open", kFile);
+        return;
+    }
+    for (unsigned long i = 1; i < end; ++i) {
+        if (i > 1) {
+            user::Write(kFile, " ", 1);
+        }
+        user::Write(kFile, argv[i], str_len(argv[i]));
+    }
+    user::Write(kFile, "\n", 1);
+    user::Close(kFile);
+}
+
+void run_ls(const char* arg) {
+    char path[96];
+    make_path(path, arg);
+    const long long kDir = user::Open(path, 0);
+    if (kDir < 0) {
+        report_errno("open", kDir);
+        return;
+    }
+    cinux::syscall::SyscallDirent entry{};
+    for (;;) {
+        const long long kOne = user::Getdents(kDir, &entry);
+        if (kOne <= 0) {
+            break;
+        }
+        put_text(entry.name);
+        put_text(entry.type == 1 ? "/\n" : "\n");
+    }
+    user::Close(kDir);
+}
+
+void run_cat(const char* arg) {
+    char path[96];
+    make_path(path, arg);
+    const long long kFile = user::Open(path, 0);
+    if (kFile < 0) {
+        report_errno("open", kFile);
+        return;
+    }
+    char chunk[128];
+    for (;;) {
+        const long long kGot = user::Read(kFile, chunk, sizeof(chunk));
+        if (kGot <= 0) {
+            break;
+        }
+        user::Write(1, chunk, static_cast<unsigned long long>(kGot));
+    }
+    user::Close(kFile);
+}
+
+void run_touch(const char* arg) {
+    char path[96];
+    make_path(path, arg);
+    const long long kFile = user::Open(path, cinux::syscall::kOpenCreat);
+    if (kFile < 0) {
+        report_errno("open", kFile);
+        return;
+    }
+    user::Close(kFile);
+}
+
+void run_mkdir(const char* arg) {
+    char path[96];
+    make_path(path, arg);
+    const long long kMade = user::Mkdir(path);
+    if (kMade < 0) {
+        report_errno("mkdir", kMade);
+    }
+}
+
+void run_rm(const char* arg) {
+    char path[96];
+    make_path(path, arg);
+    const long long kGone = user::Unlink(path);
+    if (kGone < 0) {
+        report_errno("rm", kGone);
+    }
+}
+
 void run_help() {
-    put_text("commands: echo <text...>, help, yield, exit\n");
+    put_text(
+        "commands: echo [text...] [> file], ls [dir], cat <file>, touch <file>, "
+        "mkdir <dir>, rm <path>, help, yield, exit\n");
 }
 
 void run_yield() {
@@ -95,9 +228,49 @@ void run_yield() {
     put_text("yielded and back\n");
 }
 
+void run_exit() {
+    user::Exit(0);
+}
+
+void run_unknown(const char* word) {
+    put_text("unknown command: ");
+    put_text(word);
+    put_text("\n");
+}
+
+void dispatch(unsigned long words, char** argv) {
+    if (str_eq(argv[0], "echo")) {
+        run_echo(words, argv);
+        return;
+    }
+    if (words < 2) {
+        return;
+    }
+    if (str_eq(argv[0], "ls")) {
+        run_ls(argv[1]);
+    } else if (str_eq(argv[0], "cat")) {
+        run_cat(argv[1]);
+    } else if (str_eq(argv[0], "touch")) {
+        run_touch(argv[1]);
+    } else if (str_eq(argv[0], "mkdir")) {
+        run_mkdir(argv[1]);
+    } else if (str_eq(argv[0], "rm")) {
+        run_rm(argv[1]);
+    } else if (str_eq(argv[0], "help")) {
+        run_help();
+    } else if (str_eq(argv[0], "yield")) {
+        run_yield();
+    } else if (str_eq(argv[0], "exit")) {
+        run_exit();
+    } else {
+        run_unknown(argv[0]);
+    }
+}
+
 }  // namespace
 
 // NOLINTNEXTLINE(readability-identifier-naming)
+extern "C" void _start() __attribute__((section(".text.start")));
 extern "C" void _start() {
     put_text("cinux shell - type 'help'\n");
     char  line[kMaxLine];
@@ -107,22 +280,9 @@ extern "C" void _start() {
         if (read_line(line) == 0) {
             continue;
         }
-        unsigned long const kCount = tokenize(line, words);
-        if (kCount == 0) {
-            continue;
-        }
-        if (str_eq(words[0], "echo")) {
-            run_echo(kCount, words);
-        } else if (str_eq(words[0], "help")) {
-            run_help();
-        } else if (str_eq(words[0], "yield")) {
-            run_yield();
-        } else if (str_eq(words[0], "exit")) {
-            user::Exit(0);
-        } else {
-            put_text("unknown command: ");
-            put_text(words[0]);
-            put_text("\n");
+        const unsigned long kCount = tokenize(line, words);
+        if (kCount > 0) {
+            dispatch(kCount, words);
         }
     }
 }

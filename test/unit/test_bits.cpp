@@ -59,6 +59,17 @@ TEST("bytes: word reads honor their offset") {
     ASSERT_TRUE(cinux::base::ReadWord32(kBlob, 1) == 0x44332211);
 }
 
+TEST("bitmask: union intersection and complement keep narrow storage width") {
+    constexpr BitMask<unsigned char> kLeft{0x80};
+    constexpr BitMask<unsigned char> kRight{0x81};
+    static_assert((kLeft | kRight).raw == 0x81);
+    static_assert((kLeft & kRight).raw == 0x80);
+    static_assert((~kLeft).raw == 0x7F);
+    ASSERT_TRUE((kLeft | kRight).raw == 0x81);
+    ASSERT_TRUE((kLeft & kRight).raw == 0x80);
+    ASSERT_TRUE((~kLeft).raw == 0x7F);
+}
+
 int main() {
     return cinux::test::RunAll();
 }

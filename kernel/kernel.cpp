@@ -11,6 +11,7 @@
 #include "kernel/boot/boot_info.hpp"
 #include "kernel/boot/print.hpp"
 #include "kernel/console/screen.hpp"
+#include "kernel/fs/file_world.hpp"
 #include "kernel/init/init_sequence.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/layout.hpp"
@@ -153,30 +154,31 @@ void Main(const cinux::boot::BootInfo& boot_info) {
     Println("[kern] market closed the loop, preemption stays armed");
 
     Println("[kern] launching shell in ring 3");
-    auto launch_hello = +[]() {
-        static cinux::mm::AddressSpace hello_world;
-        cinux::base::safety::Check(hello_world.init(), "user address space failed");
+    cinux::fs::FileWorld::self().init();
+    auto launch_shell = +[]() {
+        static cinux::mm::AddressSpace shell_space;
+        cinux::base::safety::Check(shell_space.init(), "user address space failed");
         constexpr unsigned long kUserCodeBase  = 0x400000;
         constexpr unsigned long kUserStackBase = 0x500000;
         constexpr unsigned long kUserStackTop  = kUserStackBase + 4096;
-        auto const              kHelloPhys =
+        auto const              kShellPhys =
             reinterpret_cast<unsigned long>(&g_user_shell_start) - cinux::mm::kKernelImageBase;
-        cinux::base::safety::Check(hello_world.map_user(kUserCodeBase, kHelloPhys),
+        cinux::base::safety::Check(shell_space.map_user(kUserCodeBase, kShellPhys),
                                    "shell code page failed");
         const cinux::base::PhysAddr kStackFrame = cinux::mm::Pmm::self().allocate_page();
         cinux::base::safety::Check(kStackFrame != cinux::base::PhysAddr{},
                                    "user stack page failed");
-        cinux::base::safety::Check(hello_world.map_user(kUserStackBase, kStackFrame.raw),
+        cinux::base::safety::Check(shell_space.map_user(kUserStackBase, kStackFrame.raw),
                                    "user stack page failed");
-        cinux::proc::Scheduler::self().current()->user_root = hello_world.root();
+        cinux::proc::Scheduler::self().current()->user_root = shell_space.root();
         asm volatile("cli" : : : "memory");
-        hello_world.activate();
+        shell_space.activate();
         JumpToRing3(kUserCodeBase, kUserStackTop);
     };
-    auto* const kHello =
-        cinux::proc::TaskBuilder{}.set_entry(launch_hello).set_name("user_shell").build();
-    cinux::base::safety::Check(kHello != nullptr, "shell task failed to build");
-    cinux::proc::Scheduler::self().seat(*kHello);
+    auto* const kShell =
+        cinux::proc::TaskBuilder{}.set_entry(launch_shell).set_name("user_shell").build();
+    cinux::base::safety::Check(kShell != nullptr, "shell task failed to build");
+    cinux::proc::Scheduler::self().seat(*kShell);
     for (;;) {
         cinux::proc::Scheduler::self().run_until_done();
         asm volatile("hlt" : : : "memory");

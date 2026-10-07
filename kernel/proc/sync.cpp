@@ -1,17 +1,69 @@
 #include "kernel/proc/sync.hpp"
 
 #include <atomic>
+#include <type_traits>
 
 #include "cinux/assert.hpp"
 #include "kernel/arch/x86_64/instructions.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
+#include "kernel/proc/lockdep.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/task.hpp"
 
 namespace cinux::proc {
 
 SpinLedger& DefaultSpinLedger() {
     static constinit SpinLedger instance{};
     return instance;
+}
+
+namespace {
+
+template <typename Order>
+void record_acquire(Order& order, const void* lock) {
+    if constexpr (std::is_same_v<Order, LockOrder>) {
+        cinux::base::safety::Check(order.acquire(lock) == LockOrder::Status::kOk,
+                                   "lockdep acquisition failed: cycle, recursion or capacity");
+    }
+}
+
+template <typename Order>
+void record_release(Order& order, const void* lock) {
+    if constexpr (std::is_same_v<Order, LockOrder>) {
+        cinux::base::safety::Check(order.release(lock) == LockOrder::Status::kOk,
+                                   "lockdep release failed: not held or out of order");
+    }
+}
+
+template <typename Order>
+void forget_lock(Order& order, const void* lock) {
+    if constexpr (std::is_same_v<Order, LockOrder>) {
+        cinux::base::safety::Check(order.forget(lock), "lockdep destroyed held lock");
+    }
+}
+
+}  // namespace
+
+void SpinLedger::note_acquire(const void* lock) {
+    record_acquire(order_, lock);
+    ++depth_;
+}
+
+void SpinLedger::note_release(const void* lock) {
+    cinux::base::safety::Check(depth_ != 0, "spin ledger underflow");
+    record_release(order_, lock);
+    --depth_;
+}
+
+void SpinLedger::forget(const void* lock) {
+    forget_lock(order_, lock);
+}
+
+void Spinlock::retire() {
+    const cinux::arch::IrqGuard kGuard;
+    cinux::base::safety::Check(!held_.test(std::memory_order_relaxed), "destroyed held spinlock");
+    SpinLedger& ledger = ledger_ != nullptr ? *ledger_ : DefaultSpinLedger();
+    ledger.forget(this);
 }
 
 void Spinlock::lock() {
@@ -22,7 +74,7 @@ void Spinlock::lock() {
         cinux::arch::CpuRelax();
     }
     SpinLedger& ledger = ledger_ != nullptr ? *ledger_ : DefaultSpinLedger();
-    ledger.note_acquire();
+    ledger.note_acquire(this);
     holder_ = Scheduler::self().current();
 }
 
@@ -31,7 +83,7 @@ void Spinlock::unlock() {
                                "spinlock released by a non-holder");
     holder_            = nullptr;
     SpinLedger& ledger = ledger_ != nullptr ? *ledger_ : DefaultSpinLedger();
-    ledger.note_release();
+    ledger.note_release(this);
     held_.clear(std::memory_order_release);
     cinux::arch::RestoreIrq(irq_state_);
 }

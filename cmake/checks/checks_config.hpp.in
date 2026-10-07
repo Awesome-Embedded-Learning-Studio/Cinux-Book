@@ -1,0 +1,8 @@
+#pragma once
+
+namespace cinux::proc {
+
+/// Whether spinlocks record and check lock acquisition order.
+inline constexpr bool kLockdepEnabled = @CINUX_LOCKDEP_BOOL@;
+
+}

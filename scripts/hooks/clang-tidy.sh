@@ -16,7 +16,13 @@ fi
 # always parse host C++ headers under every project compile mode (the
 # atomic<long double> error under the no-SSE mode is the standing case).
 # Judge only diagnostics naming project files.
-if clang-tidy --quiet -p build "$@" 2>&1 \
+mapfile -t inputs < <(python3 scripts/hooks/tidy_inputs.py "$@")
+if [ "${#inputs[@]}" -eq 0 ]; then
+    echo "[clang-tidy] no checkable inputs (refusing)"
+    exit 1
+fi
+
+if clang-tidy --quiet -p build "${inputs[@]}" 2>&1 \
         | grep -E "^/home/charliechen/Cinux/[^ ]*: (error|warning):" ; then
     exit 1
 fi

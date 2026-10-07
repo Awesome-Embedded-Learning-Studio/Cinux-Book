@@ -52,19 +52,20 @@ struct World {
     unsigned int      alpha_visits = 0;
     bool              clock_mode   = false;
 
-    explicit World(unsigned long long slot) : alpha(make_task(slot)), beta(make_task(slot + 1)) {
+    explicit World(unsigned long long slot) {
+        alpha.name       = "host";
+        alpha.stack_base = 0x1000ULL * slot;
+        beta.name        = "host";
+        beta.stack_base  = 0x1000ULL * (slot + 1);
         cinux::proc::Scheduler::self().init(sink);
         cinux::proc::Scheduler::self().seat(alpha);
         cinux::proc::Scheduler::self().seat(beta);
     }
 
-    ~World() { g_world = nullptr; }
-
-    static cinux::proc::Task make_task(unsigned long long slot) {
-        cinux::proc::Task task{};
-        task.name       = "host";
-        task.stack_base = 0x1000ULL * slot;
-        return task;
+    ~World() {
+        g_world = this;
+        cinux::proc::Scheduler::self().run_until_done();
+        g_world = nullptr;
     }
 
     void run_body_of(cinux::proc::Task& task) {

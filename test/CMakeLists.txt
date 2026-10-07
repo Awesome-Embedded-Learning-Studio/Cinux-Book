@@ -41,15 +41,33 @@ add_cinux_test(keyboard ${CMAKE_SOURCE_DIR}/kernel/driver/scancode.cpp)
 add_cinux_test(pmm ${CMAKE_SOURCE_DIR}/kernel/mm/pmm.cpp)
 add_cinux_test(heap ${CMAKE_SOURCE_DIR}/kernel/mm/heap.cpp)
 add_cinux_test(tick)
+find_package(Threads REQUIRED)
+target_link_libraries(test_tick PRIVATE Threads::Threads)
+add_cinux_test(lockdep ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
+add_cinux_test(directed_graph)
+add_cinux_test(static_stack)
+add_cinux_test(slot_table)
+add_cinux_test(ref_count)
 add_cinux_test(context ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp)
 add_cinux_test(self_list)
 add_cinux_test(sync ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                       ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
-                      ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp)
+                      ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
+                      ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
 add_cinux_test(guard)
 add_cinux_test(scheduler ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
-                          ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp)
+                          ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
+add_cinux_test(vfs ${CMAKE_SOURCE_DIR}/kernel/fs/vfs.cpp)
+add_cinux_test(file_table)
+add_cinux_test(ramfs ${CMAKE_SOURCE_DIR}/kernel/fs/ramfs/ramfs.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/fs/vfs.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
+add_cinux_test(ustar ${CMAKE_SOURCE_DIR}/kernel/fs/ustar.cpp)
 
 add_test(NAME kernel_image
     COMMAND ${CMAKE_COMMAND}

@@ -27,16 +27,20 @@ namespace cinux::base {
 /**
  * @brief   Common error codes shared by the base layer.
  *
- * Six entries on day one; kCount is a sentinel used by ErrorString() to
- * keep its name table in sync at compile time.
+ * Ten entries after the fs floor arrived; kCount is a sentinel used by
+ * ErrorString() to keep its name table in sync at compile time.
  */
 enum class KernelError : std::uint8_t {
-    kOk = 0,           ///< No error.
-    kOutOfMemory,      ///< Allocation failed.
-    kInvalidArgument,  ///< Caller passed an unusable argument.
-    kNotFound,         ///< Looked-up object does not exist.
-    kIOError,          ///< Device or transport failure.
-    kWouldBlock,       ///< Operation would block in non-blocking mode.
+    kOk = 0,             ///< No error.
+    kOutOfMemory,        ///< Allocation failed.
+    kInvalidArgument,    ///< Caller passed an unusable argument.
+    kNotFound,           ///< Looked-up object does not exist.
+    kIOError,            ///< Device or transport failure.
+    kWouldBlock,         ///< Operation would block in non-blocking mode.
+    kAlreadyExists,      ///< Creation hit an existing name.
+    kNotADirectory,      ///< A path component used as a directory is a file.
+    kIsADirectory,       ///< A file-only operation met a directory.
+    kDirectoryNotEmpty,  ///< Removal met a directory still holding entries.
 
     kCount,  ///< Sentinel: number of real entries. Never returned.
 };
@@ -57,7 +61,8 @@ enum class KernelError : std::uint8_t {
  */
 constexpr const char* ErrorString(KernelError error) {
     constexpr const char* kNames[] = {
-        "Ok", "OutOfMemory", "InvalidArgument", "NotFound", "IOError", "WouldBlock",
+        "Ok",         "OutOfMemory",   "InvalidArgument", "NotFound",     "IOError",
+        "WouldBlock", "AlreadyExists", "NotADirectory",   "IsADirectory", "DirectoryNotEmpty",
     };
     static_assert(sizeof(kNames) / sizeof(kNames[0]) == std::to_underlying(KernelError::kCount));
 
@@ -90,7 +95,7 @@ public:
      * @ingroup       base_result
      */
     Result(RawResult value) : is_ok_(true) {  // NOLINT(google-explicit-constructor)
-        new (&internal_storage_.value) RawResult(std::move(value));
+        new (static_cast<void*>(&internal_storage_.value)) RawResult(std::move(value));
     }
 
     /**
@@ -121,7 +126,8 @@ public:
      */
     Result(const Result& other) : is_ok_(other.is_ok_) {
         if (is_ok_) {
-            new (&internal_storage_.value) RawResult(other.internal_storage_.value);
+            new (static_cast<void*>(&internal_storage_.value))
+                RawResult(other.internal_storage_.value);
         } else {
             internal_storage_.error = other.internal_storage_.error;
         }
@@ -141,7 +147,8 @@ public:
     Result(Result&& other) noexcept(std::is_nothrow_move_constructible_v<RawResult>)
         : is_ok_(other.is_ok_) {
         if (is_ok_) {
-            new (&internal_storage_.value) RawResult(std::move(other.internal_storage_.value));
+            new (static_cast<void*>(&internal_storage_.value))
+                RawResult(std::move(other.internal_storage_.value));
         } else {
             internal_storage_.error = other.internal_storage_.error;
         }
@@ -163,7 +170,8 @@ public:
             release_self();
             is_ok_ = other.is_ok_;
             if (is_ok_) {
-                new (&internal_storage_.value) RawResult(other.internal_storage_.value);
+                new (static_cast<void*>(&internal_storage_.value))
+                    RawResult(other.internal_storage_.value);
             } else {
                 internal_storage_.error = other.internal_storage_.error;
             }
@@ -187,7 +195,8 @@ public:
             release_self();
             is_ok_ = other.is_ok_;
             if (is_ok_) {
-                new (&internal_storage_.value) RawResult(std::move(other.internal_storage_.value));
+                new (static_cast<void*>(&internal_storage_.value))
+                    RawResult(std::move(other.internal_storage_.value));
             } else {
                 internal_storage_.error = other.internal_storage_.error;
             }

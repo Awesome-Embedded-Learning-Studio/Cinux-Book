@@ -24,6 +24,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "kernel/fs/fs_config.hpp"
+
 namespace cinux::syscall {
 
 /**
@@ -35,22 +37,50 @@ namespace cinux::syscall {
  */
 // NOLINTNEXTLINE(performance-enum-size)
 enum class SyscallNr : std::uint16_t {
-    kRead  = 0,   ///< read(fd, buf, count)
-    kWrite = 1,   ///< write(fd, buf, count)
-    kYield = 24,  ///< cooperative yield to the scheduler
-    kExit  = 60,  ///< exit(code), never returns
+    kRead     = 0,    ///< read(fd, buf, count)
+    kWrite    = 1,    ///< write(fd, buf, count)
+    kOpen     = 2,    ///< open(path, flags)
+    kClose    = 3,    ///< close(fd)
+    kYield    = 24,   ///< cooperative yield to the scheduler
+    kExit     = 60,   ///< exit(code), never returns
+    kMkdir    = 83,   ///< mkdir(path)
+    kUnlink   = 87,   ///< unlink(path)
+    kGetdents = 217,  ///< getdents(fd, entry): one directory entry per call
 };
 
-/// Linux errno values the early handlers can produce.
-inline constexpr int kEnosys = 38;  ///< No such syscall at this number.
-inline constexpr int kEbadf  = 9;   ///< Not a descriptor the kernel serves.
-inline constexpr int kEfault = 14;  ///< The buffer does not live in the user half.
+/// Linux errno values the handlers can produce.
+inline constexpr int kEnoent    = 2;   ///< No such file or directory.
+inline constexpr int kEbadf     = 9;   ///< Not a descriptor the kernel serves.
+inline constexpr int kEnomem    = 12;  ///< The kernel has no room for this.
+inline constexpr int kEfault    = 14;  ///< The buffer does not live in the user half.
+inline constexpr int kEexist    = 17;  ///< The name already exists.
+inline constexpr int kEnotdir   = 20;  ///< A path component is a file.
+inline constexpr int kEisdir    = 21;  ///< A file-only operation met a directory.
+inline constexpr int kEinval    = 22;  ///< Unusable argument.
+inline constexpr int kEnotempty = 39;  ///< The directory still holds entries.
+inline constexpr int kEnosys    = 38;  ///< No such syscall at this number.
+
+/// open() flag the kernel serves: create the file when it is missing.
+inline constexpr unsigned long long kOpenCreat = 0x40;
 
 /// One past the highest served number; the dispatch table spans it.
-constexpr unsigned long long kSyscallCount = 61;
+constexpr unsigned long long kSyscallCount = 218;
 
 /// The lowest address that is none of ring 3's business.
 constexpr unsigned long long kUserAddressLimit = 0x0000800000000000ULL;
+
+/**
+ * @brief   One directory entry, as getdents hands it to ring 3.
+ * @note    One entry per call instead of Linux's packed buffer — the
+ *          teaching shape; the number and the semantics match, the
+ *          packing can follow when busybox needs it.
+ * @since   0.1.0
+ * @ingroup kernel_syscall
+ */
+struct SyscallDirent {
+    char          name[cinux::fs::kFsNameMax];  ///< NUL-terminated entry name.
+    unsigned char type;                         ///< 0 for a file, 1 for a directory.
+};
 
 /**
  * @brief   The frame the entry trampoline builds on the kernel stack.

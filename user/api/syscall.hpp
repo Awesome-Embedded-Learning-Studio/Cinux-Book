@@ -81,6 +81,63 @@ inline long long Yield() {
     return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kYield), 0, 0, 0);
 }
 
+/**
+ * @brief         open(path, flags): claim a descriptor for a path.
+ * @param[in]     path   Absolute path; the file system serves it.
+ * @param[in]     flags  Zero to open, kOpenCreat to create when missing.
+ * @return        The descriptor (from 3 up), or a negative errno.
+ * @since         0.1.0
+ */
+inline long long Open(const char* path, unsigned long long flags) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kOpen),
+                    reinterpret_cast<unsigned long long>(path), flags, 0);
+}
+
+/**
+ * @brief         close(fd): give a descriptor back.
+ * @param[in]     descriptor   The number open handed out.
+ * @return        Zero, or a negative errno.
+ * @since         0.1.0
+ */
+inline long long Close(unsigned long long descriptor) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kClose), descriptor,
+                    0, 0);
+}
+
+/**
+ * @brief         mkdir(path): create a directory.
+ * @param[in]     path   Absolute path of the new directory.
+ * @return        Zero, or a negative errno.
+ * @since         0.1.0
+ */
+inline long long Mkdir(const char* path) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kMkdir),
+                    reinterpret_cast<unsigned long long>(path), 0, 0);
+}
+
+/**
+ * @brief         unlink(path): remove a file or an empty directory.
+ * @param[in]     path   Absolute path of the entry.
+ * @return        Zero, or a negative errno.
+ * @since         0.1.0
+ */
+inline long long Unlink(const char* path) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kUnlink),
+                    reinterpret_cast<unsigned long long>(path), 0, 0);
+}
+
+/**
+ * @brief         getdents(fd, entry): read one directory entry.
+ * @param[in]     descriptor   An open directory.
+ * @param[out]    entry        Filled with the next name and its type.
+ * @return        One when filled, zero at the end, or a negative errno.
+ * @since         0.1.0
+ */
+inline long long Getdents(unsigned long long descriptor, cinux::syscall::SyscallDirent* entry) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kGetdents),
+                    descriptor, reinterpret_cast<unsigned long long>(entry), 0);
+}
+
 /// exit(code): end this task; never returns.
 [[noreturn]] inline void Exit(unsigned long long code) {
     static_cast<void>(
