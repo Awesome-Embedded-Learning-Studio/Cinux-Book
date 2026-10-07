@@ -20,6 +20,7 @@
 #pragma once
 
 #include "cinux/literal_types.hpp"
+#include "cinux/singleton.hpp"
 
 namespace cinux::driver {
 
@@ -31,17 +32,10 @@ namespace cinux::driver {
  * @since         0.1.0
  * @ingroup       kernel_driver
  */
-class Pit {
-public:
-    /**
-     * @brief         The one timer device.
-     *
-     * @return        Reference to the PIT instance.
-     * @since         0.2.0
-     * @ingroup       kernel_driver
-     */
-    static Pit& self();
+class Pit : public cinux::base::Singleton<Pit> {
+    friend class cinux::base::Singleton<Pit>;
 
+public:
     /**
      * @brief         Programs channel 0 as a square wave at the given rate.
      *

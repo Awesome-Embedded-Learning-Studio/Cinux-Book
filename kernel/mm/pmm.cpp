@@ -5,6 +5,7 @@
 #include "cinux/addr.hpp"
 #include "cinux/bit_ops/bitmap.hpp"
 #include "cinux/math.hpp"
+#include "kernel/arch/x86_64/irq_guard.hpp"  // NOLINT(misc-include-cleaner) IrqGuard is used below
 #include "kernel/arch/x86_64/page.hpp"
 #include "kernel/boot/boot_info.hpp"
 #include "kernel/mm/pmm_config.hpp"

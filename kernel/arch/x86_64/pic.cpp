@@ -62,11 +62,6 @@ const cinux::driver::PortWrite kSlaveSetup[] = {
 
 namespace cinux::arch {
 
-Pic& Pic::self() {
-    static Pic local_pic;
-    return local_pic;
-}
-
 void Pic::remap() {
     cinux::driver::OutB(kMasterSetup);
     cinux::driver::OutB(kSlaveSetup);

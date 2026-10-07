@@ -1,7 +1,7 @@
 # We Need CMake Acquired above 3.16 :)
 cmake_minimum_required(VERSION 3.16)
 
-project(Cinux VERSION 0.1.0 LANGUAGES CXX)
+project(Cinux VERSION 0.1.0 LANGUAGES CXX ASM)
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
@@ -36,8 +36,9 @@ set(CINUX_QEMU_DEVICE_ARGS
 # test/kernel/test_<name>.cpp (integration: test/kernel/integration/) =
 # one kernel = one image = one QEMU boot = one CTest case. The stage
 # names the init-ladder level the test main walks before running cases.
-set(CINUX_KTEST_STAGES exceptions irq keyboard mm)
-set(CINUX_KTESTS selfcheck:exceptions tick:irq keyboard:keyboard vmm:mm heap:mm aspace:mm)
+set(CINUX_KTEST_STAGES exceptions irq keyboard mm proc)
+set(CINUX_KTESTS selfcheck:exceptions tick:irq keyboard:keyboard vmm:mm heap:mm aspace:mm
+    sched:proc)
 set(CINUX_KTESTS_INTEGRATION "")
 
 message("Configuring Boot")

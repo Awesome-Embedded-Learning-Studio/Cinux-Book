@@ -1,10 +1,19 @@
+#include "cinux/ptr.hpp"
 #include "kernel/arch/x86_64/halt.hpp"
 #include "kernel/arch/x86_64/isr.hpp"
 #include "kernel/boot/print.hpp"
+#include "kernel/debug/trace.hpp"
 
 namespace cinux::arch::isr {
 
 namespace {
+
+unsigned long long faulting_frame_base() {
+    unsigned long long reporter_frame = 0;  // NOLINT(misc-const-correctness)
+    __asm__ volatile("movq %%rbp, %0" : "=r"(reporter_frame));
+    const auto* stub_frame = cinux::base::PtrAt<const unsigned long long>(reporter_frame);
+    return stub_frame[0];
+}
 
 const char* const kExceptionNames[32] = {
     "Division Error",
@@ -77,6 +86,7 @@ void ReportFault(unsigned long long vector, InterruptFrame& frame, unsigned long
                           name_of(static_cast<unsigned>(vector)));
     cinux::print::Println("[kern]  rip=%X cs=%X rflags=%X rsp=%X err=%X", frame.rip, frame.cs,
                           frame.rflags, frame.rsp, error_code);
+    cinux::debug::TraceFrom(faulting_frame_base());
     cinux::arch::Halt();
 }
 

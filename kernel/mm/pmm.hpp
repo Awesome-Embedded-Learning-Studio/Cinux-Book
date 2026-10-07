@@ -23,6 +23,7 @@
 
 #include "cinux/addr.hpp"
 #include "cinux/bit_ops/bitmap.hpp"
+#include "cinux/singleton.hpp"
 #include "kernel/boot/boot_info.hpp"
 #include "kernel/mm/pmm_config.hpp"
 
@@ -36,24 +37,10 @@ namespace cinux::mm {
  * @since   0.1.0
  * @ingroup kernel_mm
  */
-class Pmm {
-public:
-    /**
-     * @brief         The kernel-wide ledger singleton.
-     *
-     * @return        Reference to the one Pmm instance.
-     * @note          The instance is constant-initialized, so it lands in
-     *                .bss as pure zeroed storage — no constructor call, no
-     *                guard machinery, which is what lets it live in a
-     *                freestanding kernel that never runs global ctors.
-     * @since         0.2.0
-     * @ingroup       kernel_mm
-     */
-    static Pmm& self() {
-        static Pmm local_pmm;
-        return local_pmm;
-    }
+class Pmm : public cinux::base::Singleton<Pmm> {
+    friend class cinux::base::Singleton<Pmm>;
 
+public:
     /** @brief   Address type carried through the whole public face. */
     using PhysAddr = cinux::base::PhysAddr;
     /**

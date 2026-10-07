@@ -24,6 +24,7 @@
 
 #include <concepts>
 
+#include "cinux/singleton.hpp"
 #include "kernel/interrupt/irq_config.hpp"
 
 namespace cinux::interrupt {
@@ -67,17 +68,10 @@ concept IrqChip = requires(Chip& chip, IrqLine line) {
  * @since         0.1.0
  * @ingroup       kernel_interrupt
  */
-class Irq {
-public:
-    /**
-     * @brief         The one service instance.
-     *
-     * @return        Reference to the dispatch table owner.
-     * @since         0.1.0
-     * @ingroup       kernel_interrupt
-     */
-    static Irq& self();
+class Irq : public cinux::base::Singleton<Irq> {
+    friend class cinux::base::Singleton<Irq>;
 
+public:
     /**
      * @brief         Injects the interrupt chip backing the service.
      *

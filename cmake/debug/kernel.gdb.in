@@ -1,0 +1,5 @@
+file @CMAKE_BINARY_DIR@/kernel/cinux_kernel
+set architecture i386:x86-64
+target remote :1234
+hbreak KernelEntry
+continue

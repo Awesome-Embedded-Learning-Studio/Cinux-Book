@@ -22,23 +22,17 @@
 #include <stdint.h>
 
 #include "cinux/container/ring_queue.hpp"
+#include "cinux/singleton.hpp"
 #include "kernel/driver/keyboard_config.hpp"
 #include "kernel/driver/scancode.hpp"
 
 namespace cinux::driver {
 
 /// The PS/2 keyboard device as a Meyers singleton.
-class Keyboard {
-public:
-    /**
-     * @brief     The one keyboard instance.
-     *
-     * @return    Reference to the Meyers singleton.
-     * @since     0.1.0
-     * @ingroup   kernel_driver
-     */
-    static Keyboard& self();
+class Keyboard : public cinux::base::Singleton<Keyboard> {
+    friend class cinux::base::Singleton<Keyboard>;
 
+public:
     /**
      * @brief         Walk the 8042 bring-up: both ports off, output
      *                flushed, config rewritten (IRQ1 on, IRQ12 off,

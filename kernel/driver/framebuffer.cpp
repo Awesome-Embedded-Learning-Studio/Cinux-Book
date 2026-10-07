@@ -8,11 +8,6 @@
 
 namespace cinux::driver {
 
-Framebuffer& Framebuffer::self() {
-    static Framebuffer local_framebuffer;
-    return local_framebuffer;
-}
-
 bool Framebuffer::init(const cinux::boot::FramebufferInfo& info) {
     if (info.bpp != 32 || info.width == 0 || info.height == 0 || info.pitch < info.width * 4U) {
         return false;

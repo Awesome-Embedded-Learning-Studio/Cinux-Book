@@ -22,9 +22,11 @@
 
 #pragma once
 
+#include <atomic>
 #include <concepts>
 
 #include "cinux/literal_types.hpp"
+#include "cinux/singleton.hpp"
 #include "kernel/time/tick_config.hpp"
 
 namespace cinux::time {
@@ -52,17 +54,10 @@ concept TickSource = requires(Backend& backend, cinux::base::Hertz rate) {
  * @since         0.1.0
  * @ingroup       kernel_time
  */
-class Tick {
-public:
-    /**
-     * @brief         The one service instance.
-     *
-     * @return        Reference to the tick counter owner.
-     * @since         0.1.0
-     * @ingroup       kernel_time
-     */
-    static Tick& self();
+class Tick : public cinux::base::Singleton<Tick> {
+    friend class cinux::base::Singleton<Tick>;
 
+public:
     /**
      * @brief         Registers a backend and starts the heartbeat.
      *
@@ -83,7 +78,7 @@ public:
             static_cast<Backend*>(backend_ptr)->start(rate);
         };
         source_ = &backend;
-        ticks_  = 0;
+        ticks_.store(0, std::memory_order_relaxed);
         start_(source_, kTickHz);
     }
 
@@ -93,12 +88,14 @@ public:
      * @return        None
      * @note          Inline so it instantiates inside the no-SSE
      *                interrupt island of its caller; the gate has
-     *                interrupts off on entry, so the increment races
-     *                nothing.
+     *                interrupts off on entry. Atomic access makes the
+     *                update visible to polling code even when self()
+     *                and since_boot() are inlined; relaxed ordering is
+     *                enough because this counter publishes no other data.
      * @since         0.1.0
      * @ingroup       kernel_time
      */
-    void on_interrupt() { ++ticks_; }
+    void on_interrupt() { ticks_.fetch_add(1, std::memory_order_relaxed); }
 
     /**
      * @brief         Heartbeats counted since init.
@@ -107,14 +104,19 @@ public:
      * @since         0.1.0
      * @ingroup       kernel_time
      */
-    [[nodiscard]] unsigned long long since_boot() const { return ticks_; }
+    [[nodiscard]] unsigned long long since_boot() const {
+        return ticks_.load(std::memory_order_relaxed);
+    }
 
 private:
     Tick() = default;
 
+    static_assert(std::atomic<unsigned long long>::is_always_lock_free,
+                  "The IRQ counter must not call a locking runtime");
+
     void (*start_)(void*, cinux::base::Hertz) = nullptr;
-    void*              source_                = nullptr;
-    unsigned long long ticks_                 = 0;
+    void*                           source_   = nullptr;
+    std::atomic<unsigned long long> ticks_    = 0;
 };
 
 }  // namespace cinux::time

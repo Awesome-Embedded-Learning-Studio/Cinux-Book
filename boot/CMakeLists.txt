@@ -99,6 +99,15 @@ add_custom_target(run
     DEPENDS boot_image
 )
 
+add_custom_target(run_debug
+    COMMAND ${CMAKE_COMMAND} -E echo
+            "gdb stub on :1234, machine frozen at reset; attach with: gdb -q -x ${CMAKE_BINARY_DIR}/kernel.gdb"
+    COMMAND ${CINUX_QEMU_PROGRAM} ${CINUX_QEMU_DEVICE_ARGS}
+            -drive format=raw,file=${CMAKE_CURRENT_BINARY_DIR}/cinux.img
+            -serial stdio -S -s
+    DEPENDS boot_image
+)
+
 add_custom_target(run_gui
     COMMAND ${CINUX_QEMU_PROGRAM} -accel kvm -no-reboot
             -drive format=raw,file=${CMAKE_CURRENT_BINARY_DIR}/cinux.img

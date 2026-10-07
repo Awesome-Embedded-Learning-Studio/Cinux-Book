@@ -10,7 +10,7 @@ namespace cinux::mm {
 namespace {
 
 constexpr unsigned long kHeaderBytes  = 32;
-constexpr unsigned long kFooterBytes  = 8;
+constexpr unsigned long kFooterBytes  = 16;
 constexpr unsigned long kPayloadAlign = 16;
 constexpr unsigned long kMinPayload   = 16;
 

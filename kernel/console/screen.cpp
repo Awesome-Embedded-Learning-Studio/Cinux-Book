@@ -9,11 +9,6 @@
 
 namespace cinux::console {
 
-TextConsole& TextConsole::self() {
-    static TextConsole local_screen;
-    return local_screen;
-}
-
 bool TextConsole::init(const cinux::boot::FramebufferInfo& info) {
     alive_ = false;
     caret_ = Caret{};

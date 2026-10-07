@@ -399,6 +399,11 @@ def check_enum_struct_docs(content: str, file: Path) -> List[Violation]:
         # Also track where the entire match starts (for checking if keywords are part of this declaration)
         decl_start = match.start()
 
+        # A friend declaration grants access to an existing type, not a
+        # separately documented type definition (including qualified names).
+        if re.search(r'\bfriend\s*$', content[:decl_start]):
+            continue
+
         # Skip if type is inside a @code block (example code)
         if is_in_code_block(type_pos, content):
             continue

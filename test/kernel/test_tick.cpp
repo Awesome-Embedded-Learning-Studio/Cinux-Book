@@ -1,4 +1,5 @@
 #include "framework_kernel.hpp"
+#include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/time/tick.hpp"
 #include "test_assert.hpp"
 #include "test_case.hpp"  // NOLINT(misc-include-cleaner) consumed by the TEST() macro body
@@ -22,12 +23,13 @@ TEST("tick: heartbeats arrive once the gates are open") {
 }
 
 TEST("tick: silence while the cpu gates are closed") {
-    asm volatile("cli" : : : "memory");
-    const unsigned long long kFrozen = cinux::time::Tick::self().since_boot();
+    const cinux::arch::IrqGuard kGuard;
+    const unsigned long long    kFrozen = cinux::time::Tick::self().since_boot();
     for (unsigned long long spins = 0; spins < kQuietSpinCap; ++spins) {
+        // Keep a real wait even under optimization; no memory is touched here.
+        asm volatile("" : : : "memory");
     }
     ASSERT_EQ(cinux::time::Tick::self().since_boot(), kFrozen);
-    asm volatile("sti" : : : "memory");
 }
 
 }  // namespace

@@ -21,6 +21,7 @@
 
 #include <stdint.h>
 
+#include "cinux/singleton.hpp"
 #include "kernel/boot/boot_info.hpp"
 #include "kernel/console/console_grid.hpp"
 #include "kernel/console/font.hpp"
@@ -28,17 +29,10 @@
 namespace cinux::console {
 
 /// The character screen over the framebuffer, as a Meyers singleton.
-class TextConsole {
-public:
-    /**
-     * @brief     The one text screen instance.
-     *
-     * @return    Reference to the Meyers singleton.
-     * @since     0.1.0
-     * @ingroup   kernel_driver
-     */
-    static TextConsole& self();
+class TextConsole : public cinux::base::Singleton<TextConsole> {
+    friend class cinux::base::Singleton<TextConsole>;
 
+public:
     /**
      * @brief         Adopt the geometry, parse the embedded font, and
      *                clear the screen.

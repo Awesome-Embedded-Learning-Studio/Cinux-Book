@@ -34,11 +34,6 @@ constexpr uint8_t kSquareWaveCommand = 0x36;
 
 namespace cinux::driver {
 
-Pit& Pit::self() {
-    static Pit local_pit;
-    return local_pit;
-}
-
 void Pit::start(cinux::base::Hertz rate) {
     const auto kDivisor = static_cast<unsigned short>(kPitInputHz / rate.value);
 

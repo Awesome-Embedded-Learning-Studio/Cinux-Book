@@ -75,6 +75,19 @@ public:
         assert_len(violations, 1)
         assert_equal(violations[0].symbol, "TestClass")
 
+    def test_friend_declarations_are_not_type_definitions(self) -> None:
+        """Qualified CRTP friends need no separate type documentation."""
+        content = """/** @brief A service. */
+class Service {
+public:
+    friend class cinux::base::Singleton<Service>;
+    friend struct Helper;
+};
+struct Undocumented { int value; };"""
+        violations = lint.check_enum_struct_docs(content, Path("test.h"))
+        assert_len(violations, 1)
+        assert_equal(violations[0].symbol, "Undocumented")
+
     def test_private_enum_is_skipped(self) -> None:
         """Test that private enum is skipped."""
         content = """/**

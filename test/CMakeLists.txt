@@ -11,7 +11,8 @@ function(add_cinux_test name)
         unit/test_${name}.cpp
         ${ARGN}
         framework/framework.cpp
-        framework/assert_host.cpp)
+        framework/assert_host.cpp
+        framework/irq_guard_host.cpp)
     target_include_directories(test_${name} PRIVATE ${TEST_INCLUDE_DIRS})
     target_link_libraries(test_${name} PRIVATE cinux_base cinux_warnings)
     add_test(NAME ${name} COMMAND test_${name})
@@ -39,7 +40,16 @@ add_cinux_test(console)
 add_cinux_test(keyboard ${CMAKE_SOURCE_DIR}/kernel/driver/scancode.cpp)
 add_cinux_test(pmm ${CMAKE_SOURCE_DIR}/kernel/mm/pmm.cpp)
 add_cinux_test(heap ${CMAKE_SOURCE_DIR}/kernel/mm/heap.cpp)
-add_cinux_test(tick ${CMAKE_SOURCE_DIR}/kernel/time/tick.cpp)
+add_cinux_test(tick)
+add_cinux_test(context ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp)
+add_cinux_test(self_list)
+add_cinux_test(sync ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
+                      ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
+                      ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp)
+add_cinux_test(guard)
+add_cinux_test(scheduler ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp)
 
 add_test(NAME kernel_image
     COMMAND ${CMAKE_COMMAND}

@@ -57,11 +57,6 @@ void irq1_thunk() {
 
 namespace cinux::driver {
 
-Keyboard& Keyboard::self() {
-    static Keyboard local_keyboard;
-    return local_keyboard;
-}
-
 bool Keyboard::init() {
     send_command(kCommandDisableFirst);
     send_command(kCommandDisableSecond);

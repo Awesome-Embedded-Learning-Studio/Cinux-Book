@@ -1,4 +1,5 @@
 set(CINUX_KERNEL_CORE_SOURCES
+    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/entry.S
     ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/entry.cpp
     ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/exception.cpp
     ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/gdt.cpp
@@ -21,12 +22,19 @@ set(CINUX_KERNEL_CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/kernel/mm/heap.cpp
     ${CMAKE_SOURCE_DIR}/kernel/mm/heap_runtime.cpp
     ${CMAKE_SOURCE_DIR}/kernel/mm/address_space.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/time/tick.cpp
     ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/pic.cpp
         ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_stubs.cpp
         ${CMAKE_SOURCE_DIR}/kernel/interrupt/irq.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/debug/trace.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/context_switch.S
+    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_guard.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/proc/task_runtime.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
     ${CMAKE_SOURCE_DIR}/kernel/console/console.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/lib/assert.cpp)
+    ${CMAKE_SOURCE_DIR}/kernel/lib/assert.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/lib/mem.cpp)
 
 add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/font_blob.o
@@ -56,7 +64,12 @@ function(add_cinux_kernel name bin_stem)
         ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/pic.cpp
             ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_stubs.cpp
         ${CMAKE_SOURCE_DIR}/kernel/interrupt/irq.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/time/tick.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/debug/trace.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_guard.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/proc/task_runtime.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
         PROPERTIES COMPILE_OPTIONS "-mgeneral-regs-only")
     target_include_directories(${name} PRIVATE
         ${CMAKE_SOURCE_DIR}/base/include
@@ -105,7 +118,12 @@ function(add_cinux_ktest name stage)
         ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/pic.cpp
             ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_stubs.cpp
         ${CMAKE_SOURCE_DIR}/kernel/interrupt/irq.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/time/tick.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/debug/trace.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_guard.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/proc/task_runtime.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
+        ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
         PROPERTIES COMPILE_OPTIONS "-mgeneral-regs-only")
     target_include_directories(cinux_ktest_${name} PRIVATE
         ${CMAKE_SOURCE_DIR}/base/include
@@ -142,6 +160,9 @@ function(add_cinux_ktest name stage)
 endfunction()
 
 add_cinux_kernel(cinux_kernel kernel)
+
+configure_file(${CMAKE_SOURCE_DIR}/cmake/debug/kernel.gdb.in
+               ${CMAKE_BINARY_DIR}/kernel.gdb @ONLY)
 
 foreach(entry IN LISTS CINUX_KTESTS CINUX_KTESTS_INTEGRATION)
     string(REPLACE ":" ";" entry_parts "${entry}")

@@ -21,11 +21,6 @@
 
 namespace cinux::interrupt {
 
-Irq& Irq::self() {
-    static Irq local_irq;
-    return local_irq;
-}
-
 void Irq::register_handler(IrqLine line, IrqHandler handler) {
     if (line.value < kIrqLineCount) {
         seats_[line.value] = handler;

@@ -12,5 +12,6 @@ target_compile_options(cinux_kernel_flags INTERFACE
     -fno-rtti
     -fno-threadsafe-statics
     -mno-red-zone
+    -fno-omit-frame-pointer
     -ftree-vectorize
 )

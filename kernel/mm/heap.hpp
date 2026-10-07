@@ -22,6 +22,9 @@
 
 #pragma once
 
+#include "cinux/singleton.hpp"
+
+
 namespace cinux::mm {
 
 /**
@@ -31,22 +34,10 @@ namespace cinux::mm {
  * @since   0.1.0
  * @ingroup kernel_mm
  */
-class Heap {
-public:
-    /**
-     * @brief         The kernel-wide heap singleton.
-     *
-     * @return        Reference to the one instance.
-     * @note          Constant-initialized storage, so it lives in .bss
-     *                with no constructor call, as the kernel requires.
-     * @since         0.1.0
-     * @ingroup       kernel_mm
-     */
-    static Heap& self() {
-        static Heap local_heap;
-        return local_heap;
-    }
+class Heap : public cinux::base::Singleton<Heap> {
+    friend class cinux::base::Singleton<Heap>;
 
+public:
     /**
      * @brief         Claims a span as the heap's whole world.
      *

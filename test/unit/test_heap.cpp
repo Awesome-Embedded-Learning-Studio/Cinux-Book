@@ -19,7 +19,7 @@ unsigned long pool_base() {
 TEST("heap: init claims the span as one free block") {
     cinux::mm::Heap heap;
     ASSERT_TRUE(heap.init(pool_base(), 16_KiB));
-    ASSERT_TRUE(heap.free_bytes() == 16_KiB - 32 - 8);
+    ASSERT_TRUE(heap.free_bytes() == 16_KiB - 32 - 16);
     ASSERT_TRUE(heap.top() == pool_base() + 16_KiB);
     ASSERT_TRUE(!heap.init(pool_base() + 8, 16_KiB));
 }
@@ -32,7 +32,7 @@ TEST("heap: allocate returns aligned payloads and spends free bytes") {
     void* const         kBlock  = heap.allocate(64);
     ASSERT_TRUE(kBlock != nullptr);
     ASSERT_TRUE(reinterpret_cast<unsigned long>(kBlock) % 16 == 0);
-    ASSERT_TRUE(heap.free_bytes() == kBefore - 64 - 32 - 8);
+    ASSERT_TRUE(heap.free_bytes() == kBefore - 64 - 32 - 16);
     ASSERT_TRUE(heap.allocate(1) != nullptr);
 }
 

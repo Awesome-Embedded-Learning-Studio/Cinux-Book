@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include "cinux/singleton.hpp"
 #include "kernel/interrupt/irq.hpp"
 
 namespace cinux::arch {
@@ -31,17 +32,10 @@ namespace cinux::arch {
  * @since         0.2.0
  * @ingroup       kernel_arch
  */
-class Pic {
-public:
-    /**
-     * @brief         The one interrupt chip pair.
-     *
-     * @return        Reference to the PIC instance.
-     * @since         0.2.0
-     * @ingroup       kernel_arch
-     */
-    static Pic& self();
+class Pic : public cinux::base::Singleton<Pic> {
+    friend class cinux::base::Singleton<Pic>;
 
+public:
     /**
      * @brief         Remaps both chips onto vectors 0x20/0x28, all lines off.
      *

@@ -26,6 +26,7 @@
 #include "kernel/arch/x86_64/isr.hpp"
 #include "kernel/arch/x86_64/pic.hpp"
 #include "kernel/interrupt/irq.hpp"
+#include "kernel/proc/scheduler.hpp"
 #include "kernel/time/tick.hpp"
 
 namespace {
@@ -42,12 +43,14 @@ constexpr unsigned int kTimerLine      = 0;
 
 void heartbeat() {
     cinux::time::Tick::self().on_interrupt();
+    cinux::proc::Scheduler::self().on_timer_tick();
 }
 
 template <unsigned int Vector>
 __attribute__((interrupt)) void irq_entry([[maybe_unused]] InterruptFrame* frame) {
     cinux::interrupt::Irq::self().dispatch(
         cinux::interrupt::IrqLine{.value = Vector - kFirstIrqVector});
+    cinux::proc::Scheduler::self().maybe_preempt();
 }
 
 void install(unsigned int vector, void (*handler)(InterruptFrame*)) {

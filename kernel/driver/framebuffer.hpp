@@ -21,6 +21,7 @@
 
 #include <stdint.h>
 
+#include "cinux/singleton.hpp"
 #include "kernel/boot/boot_info.hpp"
 
 namespace cinux::driver {
@@ -73,17 +74,10 @@ constexpr uint64_t PixelByteOffset(uint32_t pitch, uint32_t column, uint32_t row
 }
 
 /// The mapped linear framebuffer as a singleton device.
-class Framebuffer {
-public:
-    /**
-     * @brief     The one framebuffer instance.
-     *
-     * @return    Reference to the Meyers singleton.
-     * @since     0.1.0
-     * @ingroup   kernel_driver
-     */
-    static Framebuffer& self();
+class Framebuffer : public cinux::base::Singleton<Framebuffer> {
+    friend class cinux::base::Singleton<Framebuffer>;
 
+public:
     /**
      * @brief         Adopt the boot-reported geometry and masks.
      *
