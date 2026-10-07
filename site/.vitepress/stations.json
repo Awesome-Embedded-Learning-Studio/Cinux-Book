@@ -111,6 +111,16 @@
       "trail": ["framebuffer", "PSF2", "8042", "IRQ1"]
     },
     {
+      "id": "11",
+      "slug": "11-reign",
+      "title": "内存当家",
+      "titleEn": "In Charge",
+      "desc": "内核自己接管页表:一张公告头把虚拟世界挂上墙,CR3 里读出根,种子柜备页、直接映射通车、帧缓冲搬家,低半边整片拆掉。一份走查两个世界一起跑,堆把整页切成零钱、接管全局 new,AddressSpace 能造世界、能进场、能回家。",
+      "note": "布局定盘、种子柜、双世界走查、消失的那通 call、镜像半边——虚拟这一半,从这天起有人当家",
+      "status": "open",
+      "trail": ["CR3", "direct map", "page walk", "AddressSpace"]
+    },
+    {
       "id": "act2",
       "eyebrow": "幕间 & ACT II(预告)",
       "title": "重来一遍,从地基到系统",
