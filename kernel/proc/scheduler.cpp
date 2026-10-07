@@ -136,6 +136,7 @@ void Scheduler::unblock(Task& task) {
 }
 
 void Scheduler::run_until_done() {
+    const cinux::arch::IrqGuard kGuard;
     cinux::base::safety::Check(current_ == nullptr, "run_until_done called from a task");
     cinux::base::safety::Check(sink_ready(), "scheduler has no sink installed");
     Task* next = nullptr;

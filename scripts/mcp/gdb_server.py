@@ -66,9 +66,7 @@ def call_tool(name, args):
         return stopped_summary(session.stopped)
     if name == "debug_regs":
         wanted = args.get("regs") or gdb.GENERAL_REGS
-        quoted = " ".join(wanted)
-        answer, _ = session.mi(f"-data-list-register-values --skip-unavailable x {quoted}")
-        return answer
+        return session.console("info registers " + " ".join(wanted))
     if name == "debug_mem":
         address = args["address"]
         words = int(args.get("words", 8))

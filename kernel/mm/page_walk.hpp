@@ -194,13 +194,16 @@ SlotAt FindSlot(World& world, unsigned long root, unsigned long virtual_address)
  * @param[in,out] world            The table world the walk runs on.
  * @param[in]     root             Physical address of the PML4 to walk.
  * @param[in]     virtual_address   The address whose page table is wanted.
+ * @param[in]     leaf_flags        Flags each freshly created table
+ *                                  carries in its pointer entry.
  * @return        The final page table, or null on refusal or on meeting
  *                a large-page leaf that cannot host a 4 KiB slot.
  * @since         0.2.0
  * @ingroup       kernel_mm
  */
 template <TableWorld World>
-Entry* EnsureLeafTable(World& world, unsigned long root, unsigned long virtual_address) {
+Entry* EnsureLeafTable(World& world, unsigned long root, unsigned long virtual_address,
+                       Entry leaf_flags) {
     Entry* table = world.table(root);
     for (const WalkLevel kLevel : kUpperLevels) {
         Entry& slot = table[SlotIndex(virtual_address, kLevel)];
@@ -209,7 +212,8 @@ Entry* EnsureLeafTable(World& world, unsigned long root, unsigned long virtual_a
             if (kFresh == 0) {
                 return nullptr;
             }
-            slot  = cinux::arch::page::MakeTableEntry(kFresh, cinux::arch::page::kWritable);
+            slot  = cinux::arch::page::MakeTableEntry(kFresh,
+                                                      cinux::arch::page::kWritable | leaf_flags);
             table = world.table(kFresh);
         } else if (slot.has(cinux::arch::page::kLarge)) {
             return nullptr;
@@ -230,11 +234,10 @@ Entry* EnsureLeafTable(World& world, unsigned long root, unsigned long virtual_a
  *                                  physical side are dropped by the entry.
  * @param[in]     physical          Physical page to map.
  * @return        true when the final entry was written.
- * @note          Writes present-plus-writable entries throughout; when a
- *                consumer needs other flags the parameter grows then.
- *                Refuses to split a large-page leaf it meets mid-walk;
- *                that collision is the caller's policy problem, not the
- *                walk's to fix silently.
+ * @note          Writes present-plus-writable entries throughout; the
+ *                kernel-side face. Refuses to split a large-page leaf it
+ *                meets mid-walk; that collision is the caller's policy
+ *                problem.
  * @warning       None
  * @throws        None
  * @since         0.1.0
@@ -243,12 +246,42 @@ Entry* EnsureLeafTable(World& world, unsigned long root, unsigned long virtual_a
 template <TableWorld World>
 bool MapPage(World& world, unsigned long root, unsigned long virtual_address,
              unsigned long physical) {
-    Entry* const kTable = EnsureLeafTable(world, root, virtual_address);
+    Entry* const kTable = EnsureLeafTable(world, root, virtual_address, Entry{});
     if (kTable == nullptr) {
         return false;
     }
     kTable[SlotIndex(virtual_address, WalkLevel::kPageTable)] =
         cinux::arch::page::MakeTableEntry(physical, cinux::arch::page::kWritable);
+    return true;
+}
+
+/**
+ * @brief         Maps one 4 KiB page ring 3 may reach.
+ *
+ * @param[in,out] world            The table world the walk runs on.
+ * @param[in]     root             Physical address of the PML4 to walk.
+ * @param[in]     virtual_address   Target address; the low bits of the
+ *                                  physical side are dropped by the entry.
+ * @param[in]     physical          Physical page to map.
+ * @return        true when the final entry was written.
+ * @note          Same walk with kUser on every level it touches —
+ *                including each freshly created table, because a
+ *                clearance lost at any one level denies the walk below
+ *                it.
+ * @warning       None
+ * @throws        None
+ * @since         0.2.0
+ * @ingroup       kernel_mm
+ */
+template <TableWorld World>
+bool MapUserPage(World& world, unsigned long root, unsigned long virtual_address,
+                 unsigned long physical) {
+    Entry* const kTable = EnsureLeafTable(world, root, virtual_address, cinux::arch::page::kUser);
+    if (kTable == nullptr) {
+        return false;
+    }
+    kTable[SlotIndex(virtual_address, WalkLevel::kPageTable)] = cinux::arch::page::MakeTableEntry(
+        physical, cinux::arch::page::kWritable | cinux::arch::page::kUser);
     return true;
 }
 

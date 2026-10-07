@@ -1,7 +1,11 @@
 #include "kernel/arch/x86_64/context.hpp"
 #include "kernel/arch/x86_64/halt.hpp"
+#include "kernel/arch/x86_64/per_cpu.hpp"
+#include "kernel/arch/x86_64/registers.hpp"
+#include "kernel/arch/x86_64/tss.hpp"
 #include "kernel/mm/layout.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/mm/vmm.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
@@ -20,15 +24,35 @@ static_assert((1U << kStackOrder) == kStackPages, "order matches the stack size"
     cinux::arch::Halt();
 }
 
+void arm_task_entry(const Task& task) {
+    unsigned long long const kStackTop              = task.stack_base + kStackBytes;
+    cinux::arch::tss::Tss::self().rsp0              = kStackTop;
+    cinux::arch::per_cpu::PerCpu::self().kernel_rsp = kStackTop;
+    unsigned long long const kRoot =
+        (task.user_root != 0) ? task.user_root : cinux::mm::KernelPageRoot();
+    if (cinux::arch::ReadCr3() != kRoot) {
+        cinux::arch::LoadCr3(kRoot);
+    }
+}
+
 class KernelSwitchSink {
 public:
     void switch_tasks(Task& outgoing, Task& incoming) {
+        arm_task_entry(incoming);
         ContextSwitch(&outgoing.ctx, &incoming.ctx);
     }
 
-    void enter_from_main(Task& incoming) { ContextSwitch(&main_ctx_, &incoming.ctx); }
+    void enter_from_main(Task& incoming) {
+        arm_task_entry(incoming);
+        ContextSwitch(&main_ctx_, &incoming.ctx);
+    }
 
-    void return_to_main(Task& outgoing) { ContextSwitch(&outgoing.ctx, &main_ctx_); }
+    void return_to_main(Task& outgoing) {
+        if (cinux::arch::ReadCr3() != cinux::mm::KernelPageRoot()) {
+            cinux::arch::LoadCr3(cinux::mm::KernelPageRoot());
+        }
+        ContextSwitch(&outgoing.ctx, &main_ctx_);
+    }
 
     void reclaim(Task& dead) {
         const auto kStackPhys = cinux::mm::DirectMapPhys(dead.stack_base);

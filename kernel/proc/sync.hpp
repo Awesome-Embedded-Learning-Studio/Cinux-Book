@@ -138,7 +138,7 @@ public:
      * @since         0.1.0
      * @ingroup       kernel_proc
      */
-    explicit Spinlock(SpinLedger* ledger = nullptr);
+    constexpr explicit Spinlock(SpinLedger* ledger = nullptr) : ledger_(ledger) {}
 
     /**
      * @brief     Take the lock; interrupts off until unlock.
@@ -174,7 +174,7 @@ public:
 private:
     friend class SpinGuardImpl;
 
-    std::atomic_flag   held_      = ATOMIC_FLAG_INIT;
+    std::atomic_flag   held_;
     unsigned long long irq_state_ = 0;
     Task*              holder_    = nullptr;
     SpinLedger*        ledger_    = nullptr;
@@ -234,7 +234,7 @@ public:
      * @since         0.1.0
      * @ingroup       kernel_proc
      */
-    Semaphore() = default;
+    constexpr Semaphore() = default;
 
     explicit Semaphore(long long initial);
 

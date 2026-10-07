@@ -14,8 +14,6 @@ SpinLedger& DefaultSpinLedger() {
     return instance;
 }
 
-Spinlock::Spinlock(SpinLedger* ledger) : ledger_(ledger) {}
-
 void Spinlock::lock() {
     cinux::base::safety::Check(!held_.test(std::memory_order_relaxed),
                                "spinlock re-entered on one core");

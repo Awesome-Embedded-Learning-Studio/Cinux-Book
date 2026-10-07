@@ -37,6 +37,10 @@ inline constexpr Entry kPresent = base::bit::MaskBit<uint64_t>(0);
 /// Bit 1: the mapping is writable.
 inline constexpr Entry kWritable = base::bit::MaskBit<uint64_t>(1);
 
+/// Bit 2: ring 3 may walk through this entry; every level of the
+/// descent must carry it or the whole path refuses user mode.
+inline constexpr Entry kUser = base::bit::MaskBit<uint64_t>(2);
+
 /// Bit 7: this entry is a large page, not a pointer to the next table.
 inline constexpr Entry kLarge = base::bit::MaskBit<uint64_t>(7);
 

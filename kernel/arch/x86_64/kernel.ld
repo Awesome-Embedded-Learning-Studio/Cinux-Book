@@ -13,6 +13,7 @@ SECTIONS
         *(.text*)
     }
     .rodata : ALIGN(16) { KEEP(*(.rodata.font)) *(.rodata*) }
+    .user ALIGN(4096) : { KEEP(*(usertext.user)) }
     .data : ALIGN(16) {
         *(.data*)
         . = ALIGN(16);

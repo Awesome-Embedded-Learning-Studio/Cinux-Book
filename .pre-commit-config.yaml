@@ -18,3 +18,8 @@ repos:
         language: system
         files: '\.(c|h|hpp|cpp|cc|cxx|hxx)$'
         exclude: '^test/tools/'
+      - id: no-void-cast
+        name: no (void)x casts, use [[maybe_unused]] or bare calls
+        entry: bash scripts/hooks/no_void_cast.sh
+        language: system
+        files: '\.(c|h|hpp|cpp|cc|cxx|hxx)$'

@@ -39,14 +39,14 @@ bool await_event() {
 TEST("keyboard: an injected press lands in the queue") {
     inject_byte(0x1E);
     ASSERT_TRUE(await_event());
-    ASSERT_EQ(cinux::driver::Keyboard::self().take(), 'a');
+    ASSERT_EQ(cinux::driver::Keyboard::self().take(false), 'a');
 }
 
 TEST("keyboard: shift then press arrives lifted") {
     inject_byte(0x2A);
     inject_byte(0x1E);
     ASSERT_TRUE(await_event());
-    ASSERT_EQ(cinux::driver::Keyboard::self().take(), 'A');
+    ASSERT_EQ(cinux::driver::Keyboard::self().take(false), 'A');
     inject_byte(0xAA);
 }
 
@@ -56,6 +56,6 @@ TEST("keyboard: a burst keeps its order") {
     inject_byte(0x20);
     for (char const kExpected : {'a', 's', 'd'}) {
         ASSERT_TRUE(await_event());
-        ASSERT_EQ(cinux::driver::Keyboard::self().take(), kExpected);
+        ASSERT_EQ(cinux::driver::Keyboard::self().take(false), kExpected);
     }
 }

@@ -25,6 +25,7 @@
 #include "cinux/singleton.hpp"
 #include "kernel/driver/keyboard_config.hpp"
 #include "kernel/driver/scancode.hpp"
+#include "kernel/proc/sync.hpp"
 
 namespace cinux::driver {
 
@@ -75,21 +76,30 @@ public:
     [[nodiscard]] bool poll() const;
 
     /**
-     * @brief         Take the oldest event.
+     * @brief         Take the oldest event, on the caller's patience.
      *
-     * @return        The event's character.
-     * @warning       Undefined when poll() is false; callers gate on
-     *                poll.
-     * @since         0.1.0
+     * @param[in]     wait   True: sleep until a character exists.
+     *                       False: return 0 at once when the queue is
+     *                       empty.
+     * @return        The event's character, or 0 when declining to
+     *                wait on an empty queue.
+     * @note          The blocking flavor sleeps in the scheduler, not
+     *                in a spin: the reader-gate semaphore counts
+     *                arrived bytes — on_byte posts one unit per queued
+     *                character, a waiting take spends one before
+     *                re-checking the queue. The IRQ1 wake-up is the
+     *                whole design.
+     * @since         0.3.0
      * @ingroup       kernel_driver
      */
-    char take();
+    char take(bool wait);
 
 private:
     Keyboard() = default;
 
     TranslatorState                                          state_{};
     base::container::RingQueue<char, kKeyboardEventCapacity> events_{};
+    proc::Semaphore                                          readable_{};
 };
 
 }  // namespace cinux::driver

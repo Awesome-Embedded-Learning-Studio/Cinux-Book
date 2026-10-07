@@ -74,6 +74,22 @@ public:
     [[nodiscard]] bool map(unsigned long virtual_address, unsigned long physical) const;
 
     /**
+     * @brief         Maps one 4 KiB page ring 3 may reach.
+     *
+     * @param[in]     virtual_address   Where the page appears here.
+     * @param[in]     physical          The frame it shows.
+     * @return        true when the walk wrote the final entry.
+     * @note          Same walk carrying kUser on every level, so ring 3
+     *                        can descend the whole path; without it the
+     *                        page is kernel-only even in the low half.
+     * @warning       None
+     * @throws        None
+     * @since         0.2.0
+     * @ingroup       kernel_mm
+     */
+    [[nodiscard]] bool map_user(unsigned long virtual_address, unsigned long physical) const;
+
+    /**
      * @brief         Translates an address through this space's tables.
      *
      * @param[in]     virtual_address   The byte to resolve.

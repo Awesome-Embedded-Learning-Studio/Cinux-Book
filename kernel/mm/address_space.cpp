@@ -17,6 +17,7 @@ namespace {
 
 using cinux::arch::page::Entry;
 using walk::MapPage;
+using walk::MapUserPage;
 using walk::TranslatePage;
 
 constexpr unsigned long kKernelHalfSlots = 256;
@@ -48,6 +49,14 @@ bool AddressSpace::map(unsigned long virtual_address, unsigned long physical) co
     }
     KernelTables tables;
     return MapPage(tables, root_, virtual_address, physical);
+}
+
+bool AddressSpace::map_user(unsigned long virtual_address, unsigned long physical) const {
+    if (root_ == 0) {
+        return false;
+    }
+    KernelTables tables;
+    return MapUserPage(tables, root_, virtual_address, physical);
 }
 
 unsigned long AddressSpace::translate(unsigned long virtual_address) const {

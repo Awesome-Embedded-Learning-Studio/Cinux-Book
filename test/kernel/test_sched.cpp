@@ -1,4 +1,5 @@
 #include "cinux/assert.hpp"
+#include "cinux/bit_ops/bitmask.hpp"
 #include "cinux/ptr.hpp"
 #include "framework_kernel.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
@@ -84,6 +85,47 @@ void probe_task() {
 }
 
 void instant_exit_task() {}
+
+cinux::proc::Semaphore g_blocking_gate;
+bool                   g_blocking_task_irq_enabled = false;
+
+bool irq_enabled(unsigned long long snapshot) {
+    using cinux::base::bit::BitMask;
+    using cinux::base::bit::MaskBit;
+    return BitMask<unsigned long long>{snapshot}.has(MaskBit<unsigned long long>(9));
+}
+
+void blocking_task() {
+    g_blocking_gate.wait();
+    const unsigned long long kSnapshot = cinux::arch::SaveAndDisableIrq();
+    g_blocking_task_irq_enabled        = irq_enabled(kSnapshot);
+    cinux::arch::RestoreIrq(kSnapshot);
+}
+
+void check_blocking_round_trip(bool main_irq_enabled) {
+    auto& scheduler                  = cinux::proc::Scheduler::self();
+    g_blocking_task_irq_enabled      = false;
+    const unsigned long long kBefore = cinux::arch::SaveAndDisableIrq();
+    cinux::arch::RestoreIrq(kBefore);
+    auto* const kTask =
+        cinux::proc::TaskBuilder{}.set_entry(blocking_task).set_name("blocked").build();
+    cinux::base::safety::Check(kTask != nullptr, "blocking test task failed to build");
+    scheduler.seat(*kTask);
+    scheduler.run_until_done();
+    const unsigned long long kAfterBlock = cinux::arch::SaveAndDisableIrq();
+    const bool               kParked     = kTask->state == cinux::proc::TaskState::kBlocked;
+    cinux::arch::RestoreIrq(kBefore);
+    g_blocking_gate.post();
+    scheduler.run_until_done();
+    const unsigned long long kAfterExit = cinux::arch::SaveAndDisableIrq();
+    cinux::arch::RestoreIrq(kBefore);
+    ASSERT_TRUE(irq_enabled(kBefore) == main_irq_enabled);
+    ASSERT_TRUE(kParked);
+    ASSERT_TRUE(irq_enabled(kAfterBlock) == main_irq_enabled);
+    ASSERT_TRUE(irq_enabled(kAfterExit) == main_irq_enabled);
+    ASSERT_TRUE(g_blocking_task_irq_enabled);
+    ASSERT_TRUE(scheduler.current() == nullptr);
+}
 
 struct VisitLog {
     unsigned int tids[64];
@@ -183,6 +225,16 @@ TEST("sched: spawn-exit cycles return pages to the pmm") {
     }
     scheduler.run_until_done();
     ASSERT_TRUE(ledger.free_page_count() == kBefore);
+}
+
+TEST("sched: blocking and exiting restore main's enabled interrupts") {
+    cinux::arch::RestoreIrq(cinux::base::bit::MaskBit<unsigned long long>(9).raw);
+    check_blocking_round_trip(true);
+}
+
+TEST("sched: blocking and exiting preserve main's disabled interrupts") {
+    const cinux::arch::IrqGuard kGuard;
+    check_blocking_round_trip(false);
 }
 
 TEST("sched: the clock rotates tasks that never yield") {

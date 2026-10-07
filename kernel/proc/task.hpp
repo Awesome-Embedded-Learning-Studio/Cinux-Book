@@ -54,6 +54,7 @@ struct Task : cinux::base::container::SelfNode<Task> {
     unsigned long long      tid{};         ///< Identity, handed out by the scheduler.
     const char*             name{};        ///< Label for dumps, caller-owned storage.
     unsigned long long      stack_base{};  ///< Direct-map base of the owned stack.
+    unsigned long long      user_root{};   ///< PML4 of the user world, 0 while kernel-only.
 };
 
 /**

@@ -46,6 +46,8 @@ add_subdirectory(boot)
 
 add_subdirectory(base)
 
+add_subdirectory(user)
+
 add_subdirectory(kernel)
 
 add_subdirectory(test)

@@ -1,40 +1,46 @@
+set(CINUX_ARCHITECTURE "x86_64" CACHE STRING "Architecture directory under kernel/arch")
+
+file(GLOB_RECURSE CINUX_KERNEL_TREE_SOURCES CONFIGURE_DEPENDS
+    ${CMAKE_SOURCE_DIR}/kernel/*.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/*.S)
+
+set(CINUX_KERNEL_PORTABLE_SOURCES "")
+set(CINUX_KERNEL_ARCH_SOURCES "")
+foreach(source IN LISTS CINUX_KERNEL_TREE_SOURCES)
+    if(source MATCHES "/arch/")
+        if(source MATCHES "/arch/${CINUX_ARCHITECTURE}/")
+            list(APPEND CINUX_KERNEL_ARCH_SOURCES ${source})
+        endif()
+    else()
+        list(APPEND CINUX_KERNEL_PORTABLE_SOURCES ${source})
+    endif()
+endforeach()
+list(SORT CINUX_KERNEL_PORTABLE_SOURCES)
+list(SORT CINUX_KERNEL_ARCH_SOURCES)
+
+list(REMOVE_ITEM CINUX_KERNEL_PORTABLE_SOURCES ${CMAKE_SOURCE_DIR}/kernel/kernel.cpp)
+
 set(CINUX_KERNEL_CORE_SOURCES
-    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/entry.S
-    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/entry.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/exception.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/gdt.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/idt.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/isr.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/image_header_data.cpp
+    ${CINUX_KERNEL_PORTABLE_SOURCES}
+    ${CINUX_KERNEL_ARCH_SOURCES}
     ${CMAKE_SOURCE_DIR}/base/src/format/entry.cpp
     ${CMAKE_SOURCE_DIR}/base/src/format/radix.cpp
-    ${CMAKE_SOURCE_DIR}/boot/early/libc.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/driver/base/io.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/driver/serial.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/driver/pit.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/driver/keyboard.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/driver/scancode.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/console/font.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/driver/framebuffer.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/console/screen.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/mm/pmm.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/mm/vmm.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/mm/heap.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/mm/heap_runtime.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/mm/address_space.cpp
+    ${CMAKE_SOURCE_DIR}/boot/early/libc.cpp)
+
+set(CINUX_KERNEL_NO_SSE_ISLAND
+    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/isr.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/exception.cpp
     ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/pic.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_stubs.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/interrupt/irq.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_stubs.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/interrupt/irq.cpp
     ${CMAKE_SOURCE_DIR}/kernel/debug/trace.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/context_switch.S
     ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_guard.cpp
     ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
     ${CMAKE_SOURCE_DIR}/kernel/proc/task_runtime.cpp
     ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/console/console.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/lib/assert.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/lib/mem.cpp)
+    ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp)
+
+set_source_files_properties(${CINUX_KERNEL_NO_SSE_ISLAND} PROPERTIES COMPILE_OPTIONS "-mgeneral-regs-only")
 
 add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/font_blob.o
@@ -50,27 +56,29 @@ add_custom_command(
     DEPENDS ${CMAKE_SOURCE_DIR}/assets/font.psf
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/user_blob.o
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/user/shell.bin
+            ${CMAKE_CURRENT_BINARY_DIR}/shell.bin
+    COMMAND ${CMAKE_OBJCOPY} -I binary -O elf64-x86-64 -B i386:x86-64
+            --rename-section .data=usertext.user
+            --redefine-sym _binary_shell_bin_start=g_user_shell_start
+            --redefine-sym _binary_shell_bin_end=g_user_shell_end
+            --set-section-flags usertext.user=alloc,load,readonly,data
+            shell.bin
+            user_blob.o
+    DEPENDS user_shell ${CMAKE_BINARY_DIR}/user/shell.bin
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
 function(add_cinux_kernel name bin_stem)
     add_executable(${name}
         ${CMAKE_SOURCE_DIR}/kernel/kernel.cpp
         ${CINUX_KERNEL_CORE_SOURCES}
         ${CMAKE_CURRENT_BINARY_DIR}/font_blob.o
+        ${CMAKE_CURRENT_BINARY_DIR}/user_blob.o
         ${ARGN})
     target_link_libraries(${name} PRIVATE cinux_warnings cinux_kernel_flags)
     target_compile_options(${name} PRIVATE -mcmodel=kernel)
-    set_source_files_properties(
-        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/isr.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/exception.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/pic.cpp
-            ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_stubs.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/interrupt/irq.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/debug/trace.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_guard.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/proc/task_runtime.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
-        PROPERTIES COMPILE_OPTIONS "-mgeneral-regs-only")
     target_include_directories(${name} PRIVATE
         ${CMAKE_SOURCE_DIR}/base/include
         ${CMAKE_SOURCE_DIR})
@@ -112,19 +120,6 @@ function(add_cinux_ktest name stage)
         ${ARGN})
     target_link_libraries(cinux_ktest_${name} PRIVATE cinux_warnings cinux_kernel_flags)
     target_compile_options(cinux_ktest_${name} PRIVATE -mcmodel=kernel)
-    set_source_files_properties(
-        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/isr.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/exception.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/pic.cpp
-            ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_stubs.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/interrupt/irq.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/debug/trace.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_guard.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/proc/task_runtime.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
-        ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
-        PROPERTIES COMPILE_OPTIONS "-mgeneral-regs-only")
     target_include_directories(cinux_ktest_${name} PRIVATE
         ${CMAKE_SOURCE_DIR}/base/include
         ${CMAKE_SOURCE_DIR}

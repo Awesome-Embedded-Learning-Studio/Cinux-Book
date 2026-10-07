@@ -45,7 +45,7 @@ void write_data(uint8_t value) {
 
 void flush_output() {
     while ((cinux::driver::InB(kCommandPort) & kStatusOutputFull) != 0) {
-        (void)cinux::driver::InB(kDataPort);
+        cinux::driver::InB(kDataPort);
     }
 }
 
@@ -85,7 +85,8 @@ void Keyboard::attach() {
 void Keyboard::on_byte(uint8_t raw_byte) {
     char const kGlyph = TranslateScancode(state_, raw_byte);
     if (kGlyph != 0) {
-        (void)events_.push(kGlyph);
+        events_.push(kGlyph);
+        readable_.post();
     }
 }
 
@@ -93,9 +94,16 @@ bool Keyboard::poll() const {
     return events_.count() != 0;
 }
 
-char Keyboard::take() {
+char Keyboard::take(bool wait) {
+    if (wait) {
+        while (!poll()) {
+            readable_.wait();
+        }
+    } else if (!poll()) {
+        return 0;
+    }
     char code = 0;
-    (void)events_.pop(code);
+    events_.pop(code);
     return code;
 }
 

@@ -3,26 +3,26 @@
 #include "cinux/addr.hpp"
 #include "cinux/assert.hpp"
 #include "cinux/ptr.hpp"
-#include "kernel/arch/x86_64/halt.hpp"
-#include "kernel/arch/x86_64/irq_stubs.hpp"
-#include "kernel/arch/x86_64/pic.hpp"
+#include "kernel/arch/x86_64/instructions.hpp"
+#include "kernel/arch/x86_64/msr.hpp"
+#include "kernel/arch/x86_64/per_cpu.hpp"
+#include "kernel/arch/x86_64/tss.hpp"
+#include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/boot/boot_info.hpp"
 #include "kernel/boot/print.hpp"
-#include "kernel/console/console.hpp"
 #include "kernel/console/screen.hpp"
-#include "kernel/driver/keyboard.hpp"
-#include "kernel/driver/pit.hpp"
-#include "kernel/driver/serial.hpp"
-#include "kernel/interrupt/irq.hpp"
-#include "kernel/mm/heap_runtime.hpp"
+#include "kernel/init/init_sequence.hpp"
+#include "kernel/mm/address_space.hpp"
 #include "kernel/mm/layout.hpp"
 #include "kernel/mm/pmm.hpp"
-#include "kernel/mm/vmm.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/sync.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/time/tick.hpp"
 #include "kernel/time/tick_config.hpp"
+
+extern "C" unsigned char g_user_shell_start[];
+extern "C" unsigned char g_user_shell_end[];
 
 namespace kernel {
 
@@ -31,55 +31,32 @@ using cinux::print::Println;
 
 // NOLINTNEXTLINE(misc-use-internal-linkage)
 void Main(const cinux::boot::BootInfo& boot_info) {
-    cinux::driver::SerialInit();
-    cinux::mm::Pmm& ledger = cinux::mm::Pmm::self();
-    if (!ledger.init(boot_info)) {
-        Println("[kern] pmm init failed");
-        cinux::arch::Halt();
-    }
-    const cinux::boot::BootInfo* info = cinux::mm::BringUpAddressSpace(boot_info);
-    if (info == nullptr) {
-        Println("[kern] address space bring-up failed");
-        cinux::arch::Halt();
-    }
-    cinux::console::TextConsole::self().init(info->framebuffer);
+    auto const* const kInfo  = cinux::init::RunInitSequence(&boot_info);
+    cinux::mm::Pmm&   ledger = cinux::mm::Pmm::self();
     Println("[kern] 64-bit C++ world alive");
     Println("[kern] gdt+idt self-owned, sse on");
-    Println("[kern] bootinfo: %u e820 entries, fb %u*%u*%u", info->e820_count,
-            info->framebuffer.width, info->framebuffer.height, info->framebuffer.bpp);
+    Println("[kern] tss loaded tr=%X gs base %X efer %X", cinux::arch::tss::ReadTaskRegister(),
+            cinux::arch::per_cpu::ReadGsBase(), cinux::arch::ReadMsr(cinux::arch::msr::kEfer));
+    Println("[kern] kernel gs base %X", cinux::arch::per_cpu::ReadKernelGsBase());
+    Println("[kern] bootinfo: %u e820 entries, fb %u*%u*%u", kInfo->e820_count,
+            kInfo->framebuffer.width, kInfo->framebuffer.height, kInfo->framebuffer.bpp);
     if (cinux::console::TextConsole::self().alive()) {
         Println("[kern] screen console %u cols %u rows",
                 cinux::console::TextConsole::self().columns(),
                 cinux::console::TextConsole::self().rows());
     }
-    Println("[kern] kernel at %X size %X entry %X", info->kernel_paddr, info->kernel_mem_size,
-            info->kernel_entry);
+    Println("[kern] kernel at %X size %X entry %X", kInfo->kernel_paddr, kInfo->kernel_mem_size,
+            kInfo->kernel_entry);
     cinux::base::PhysAddr const kProbe = ledger.allocate_page();
     ledger.free_page(kProbe);
     Println("[kern] pmm: %u pages free (probe %X ok)", ledger.free_page_count(), kProbe.raw);
     auto const kMagic = *cinux::base::PtrAt<const uint32_t>(
-        cinux::mm::DirectMapVirt(static_cast<unsigned long>(info->kernel_paddr)));
+        cinux::mm::DirectMapVirt(static_cast<unsigned long>(kInfo->kernel_paddr)));
     Println("[kern] vmm: address space up, magic %X", kMagic);
-    if (!cinux::mm::BringUpHeap()) {
-        Println("[kern] heap bring-up failed");
-        cinux::arch::Halt();
-    }
     auto* const kHeapProbe = new unsigned long;
     *kHeapProbe            = 0x114514UL;
     Println("[kern] heap: new/delete live (probe %X)", *kHeapProbe);
     delete kHeapProbe;
-
-    cinux::arch::Pic::self().remap();
-    cinux::time::Tick::self().init(cinux::driver::Pit::self());
-    cinux::arch::irq::InstallIrqStubs();
-    cinux::interrupt::Irq::self().enable_line(cinux::interrupt::IrqLine{.value = 0});
-    cinux::driver::Keyboard& keyboard = cinux::driver::Keyboard::self();
-    if (!keyboard.init()) {
-        Println("[kern] keyboard self-test failed");
-        cinux::arch::Halt();
-    }
-    keyboard.attach();
-    asm volatile("sti" : : : "memory");
     Println("[kern] irq on, tick %uHz", cinux::time::kTickHz.value);
     Println("[kern] keyboard on, type to echo");
 
@@ -175,11 +152,34 @@ void Main(const cinux::boot::BootInfo& boot_info) {
     Println("[kern] preemptive tasks drained without a single yield");
     Println("[kern] market closed the loop, preemption stays armed");
 
+    Println("[kern] launching shell in ring 3");
+    auto launch_hello = +[]() {
+        static cinux::mm::AddressSpace hello_world;
+        cinux::base::safety::Check(hello_world.init(), "user address space failed");
+        constexpr unsigned long kUserCodeBase  = 0x400000;
+        constexpr unsigned long kUserStackBase = 0x500000;
+        constexpr unsigned long kUserStackTop  = kUserStackBase + 4096;
+        auto const              kHelloPhys =
+            reinterpret_cast<unsigned long>(&g_user_shell_start) - cinux::mm::kKernelImageBase;
+        cinux::base::safety::Check(hello_world.map_user(kUserCodeBase, kHelloPhys),
+                                   "shell code page failed");
+        const cinux::base::PhysAddr kStackFrame = cinux::mm::Pmm::self().allocate_page();
+        cinux::base::safety::Check(kStackFrame != cinux::base::PhysAddr{},
+                                   "user stack page failed");
+        cinux::base::safety::Check(hello_world.map_user(kUserStackBase, kStackFrame.raw),
+                                   "user stack page failed");
+        cinux::proc::Scheduler::self().current()->user_root = hello_world.root();
+        asm volatile("cli" : : : "memory");
+        hello_world.activate();
+        JumpToRing3(kUserCodeBase, kUserStackTop);
+    };
+    auto* const kHello =
+        cinux::proc::TaskBuilder{}.set_entry(launch_hello).set_name("user_shell").build();
+    cinux::base::safety::Check(kHello != nullptr, "shell task failed to build");
+    cinux::proc::Scheduler::self().seat(*kHello);
     for (;;) {
+        cinux::proc::Scheduler::self().run_until_done();
         asm volatile("hlt" : : : "memory");
-        while (keyboard.poll()) {
-            PutChar(keyboard.take());
-        }
     }
 }
 
