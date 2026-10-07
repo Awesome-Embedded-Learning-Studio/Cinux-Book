@@ -91,6 +91,26 @@
       "trail": ["GDT", "IDT", "ud2", "SSE"]
     },
     {
+      "id": "09",
+      "slug": "09-listen",
+      "title": "会听",
+      "titleEn": "Listen",
+      "desc": "先给内核一条自己验自己的路:测试内核在 QEMU 里开机,成绩用退出码亲口报给构建。再把电话线接进来:两片 8259 搬家,PIT 敲起 100Hz 心跳,sti 一声,面板亮起第六行。",
+      "note": "双轨测试、PIC 搬家、PIT 心跳、中立中断桌、sti 开闸——机器从关灯等死,翻成睡着听世界",
+      "status": "open",
+      "trail": ["PIC", "PIT", "IRQ", "sti"]
+    },
+    {
+      "id": "10",
+      "slug": "10-echo",
+      "title": "自己的脸,自己的耳朵",
+      "titleEn": "Face and Ears",
+      "desc": "第三扇门开进显存,一盒 PSF2 字模随内核上镜像,串口与画面一张脸两张嘴。键盘六步带电,set 1 扫描码一位之差翻成字符,键进来,字上屏,内核头一回有问有答。",
+      "note": "1GiB 门、PSF2 字模、双输出、8042 六步、环形队列、回显闭环——黑了几卷的屏幕,亮了",
+      "status": "open",
+      "trail": ["framebuffer", "PSF2", "8042", "IRQ1"]
+    },
+    {
       "id": "act2",
       "eyebrow": "幕间 & ACT II(预告)",
       "title": "重来一遍,从地基到系统",
