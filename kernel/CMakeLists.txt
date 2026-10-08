@@ -25,6 +25,7 @@ set(CINUX_KERNEL_CORE_SOURCES
     ${CINUX_KERNEL_ARCH_SOURCES}
     ${CMAKE_SOURCE_DIR}/base/src/format/entry.cpp
     ${CMAKE_SOURCE_DIR}/base/src/format/radix.cpp
+    ${CMAKE_SOURCE_DIR}/base/src/parse.cpp
     ${CMAKE_SOURCE_DIR}/boot/early/libc.cpp)
 
 set(CINUX_KERNEL_NO_SSE_ISLAND
@@ -38,7 +39,8 @@ set(CINUX_KERNEL_NO_SSE_ISLAND
     ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
     ${CMAKE_SOURCE_DIR}/kernel/proc/task_runtime.cpp
     ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp)
+    ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
 
 set_source_files_properties(${CINUX_KERNEL_NO_SSE_ISLAND} PROPERTIES COMPILE_OPTIONS "-mgeneral-regs-only")
 
@@ -70,12 +72,29 @@ add_custom_command(
     DEPENDS user_shell ${CMAKE_BINARY_DIR}/user/shell.bin
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
+file(GLOB CINUX_INITRD_FILES CONFIGURE_DEPENDS
+    ${CMAKE_SOURCE_DIR}/assets/initrd/* ${CMAKE_SOURCE_DIR}/assets/initrd/*/*)
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/initrd_blob.o
+    COMMAND tar --format=ustar -C ${CMAKE_SOURCE_DIR}/assets/initrd -cf
+            ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar readme.txt docs
+    COMMAND ${CMAKE_OBJCOPY} -I binary -O elf64-x86-64 -B i386:x86-64
+            --rename-section .data=.rodata.initrd
+            --redefine-sym _binary_initrd_tar_start=g_initrd_start
+            --redefine-sym _binary_initrd_tar_end=g_initrd_end
+            --set-section-flags .rodata.initrd=alloc,load,readonly,data
+            initrd.tar
+            initrd_blob.o
+    DEPENDS ${CINUX_INITRD_FILES}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
 function(add_cinux_kernel name bin_stem)
     add_executable(${name}
         ${CMAKE_SOURCE_DIR}/kernel/kernel.cpp
         ${CINUX_KERNEL_CORE_SOURCES}
         ${CMAKE_CURRENT_BINARY_DIR}/font_blob.o
         ${CMAKE_CURRENT_BINARY_DIR}/user_blob.o
+        ${CMAKE_CURRENT_BINARY_DIR}/initrd_blob.o
         ${ARGN})
     target_link_libraries(${name} PRIVATE cinux_warnings cinux_kernel_flags)
     target_compile_options(${name} PRIVATE -mcmodel=kernel)

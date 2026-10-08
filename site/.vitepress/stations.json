@@ -121,6 +121,16 @@
       "trail": ["CR3", "direct map", "page walk", "AddressSpace"]
     },
     {
+      "id": "12",
+      "slug": "12-turns",
+      "title": "轮流当家",
+      "titleEn": "Taking Turns",
+      "desc": "内核长出第二条执行流:八个 callee-saved 槽加一副 SIMD 现场换手,新任务从蹦床起跑,调度器只管决策不亲手切换。时钟一响,出口调度在 iretq 前替不让的任务换位;自旋锁、互斥锁、信号量立起排队的次序,睡下去的人还能被叫醒。",
+      "note": "护具先行、照片与蹦床、还一笔对齐旧债、出口调度、跟着 iretq 回来的旗、被删掉的等待循环、零构造家规——一让一抢一排队,自家人轮流坐庄",
+      "status": "open",
+      "trail": ["context switch", "time slice", "spinlock", "semaphore"]
+    },
+    {
       "id": "13",
       "slug": "13-userland",
       "title": "下楼开张",

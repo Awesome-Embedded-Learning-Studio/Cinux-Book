@@ -23,6 +23,7 @@
 
 #include "cinux/container/self_list.hpp"
 #include "kernel/arch/x86_64/context.hpp"
+#include "kernel/fs/file_table.hpp"
 
 namespace cinux::proc {
 
@@ -55,6 +56,7 @@ struct Task : cinux::base::container::SelfNode<Task> {
     const char*             name{};        ///< Label for dumps, caller-owned storage.
     unsigned long long      stack_base{};  ///< Direct-map base of the owned stack.
     unsigned long long      user_root{};   ///< PML4 of the user world, 0 while kernel-only.
+    cinux::fs::FileTable    files;         ///< This task's open files, keyed by descriptor.
 };
 
 /**

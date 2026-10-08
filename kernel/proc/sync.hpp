@@ -25,8 +25,11 @@
 #pragma once
 
 #include <atomic>
+#include <type_traits>
 
 #include "cinux/container/self_list.hpp"
+#include "kernel/proc/checks_config.hpp"
+#include "kernel/proc/lockdep.hpp"
 #include "kernel/proc/task.hpp"
 
 namespace cinux::proc {
@@ -52,14 +55,14 @@ public:
      * @since     0.1.0
      * @ingroup   kernel_proc
      */
-    void note_acquire() { depth_++; }
+    void note_acquire(const void* lock);
 
     /**
      * @brief     Record one spinlock scope dropped.
      * @since     0.1.0
      * @ingroup   kernel_proc
      */
-    void note_release() { depth_--; }
+    void note_release(const void* lock);
 
     /**
      * @brief     Live spinlock scopes right now.
@@ -69,8 +72,18 @@ public:
      */
     [[nodiscard]] unsigned int depth() const { return depth_; }
 
+    /**
+     * @brief   Drop the identity of an unheld lock before storage reuse.
+     * @since   0.1.0
+     * @ingroup kernel_proc
+     */
+    void forget(const void* lock);
+
 private:
-    unsigned int depth_ = 0;
+    struct InactiveOrder {};
+    using Order = std::conditional_t<kLockdepEnabled, LockOrder, InactiveOrder>;
+    unsigned int                depth_ = 0;
+    [[no_unique_address]] Order order_{};
 };
 
 /**
@@ -91,6 +104,13 @@ SpinLedger& DefaultSpinLedger();
  */
 class SpinGuard {
 public:
+    /**
+     * @brief   Acquire the supplied lock for this scope.
+     * @param[in,out] lock Lock released when the scope ends.
+     * @return  None.
+     * @since   0.1.0
+     * @ingroup kernel_proc
+     */
     explicit SpinGuard(Spinlock& lock);
     ~SpinGuard();
 
@@ -139,6 +159,15 @@ public:
      * @ingroup       kernel_proc
      */
     constexpr explicit Spinlock(SpinLedger* ledger = nullptr) : ledger_(ledger) {}
+
+    /**
+     * @brief   Forget a temporary lock before its address is reused.
+     * @return  None.
+     * @note    Requires no holder; permanent locks need no retirement.
+     * @since   0.1.0
+     * @ingroup kernel_proc
+     */
+    void retire();
 
     /**
      * @brief     Take the lock; interrupts off until unlock.

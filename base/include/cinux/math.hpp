@@ -1,13 +1,13 @@
 /**
  * @file    math.hpp
- * @brief   Unit-aligned arithmetic: round down, round up, count the span.
+ * @brief   Small arithmetic verbs: pick, bound, round, count the span.
  *
  * Small and OS-independent on purpose — the unit is a parameter, so pages,
- * sectors, or any other granularity use the same three verbs.
+ * sectors, or any other granularity use the same verbs.
  *
  * @author  Charliechen114514
  * @date    2026-10-02
- * @version 0.1
+ * @version 0.2
  * @since   0.1.0
  * @ingroup base_math
  * @copyright Copyright (c) 2026
@@ -16,6 +16,55 @@
 #pragma once
 
 namespace cinux::base::math {
+
+/**
+ * @brief         Picks the smaller of two values.
+ *
+ * @param[in]     left   One value.
+ * @param[in]     right  The other value.
+ * @return        The minimum.
+ * @note          None
+ * @warning       None
+ * @throws        None
+ * @since         0.2.0
+ * @ingroup       base_math
+ */
+constexpr unsigned long Min(unsigned long left, unsigned long right) {
+    return left < right ? left : right;
+}
+
+/**
+ * @brief         Picks the larger of two values.
+ *
+ * @param[in]     left   One value.
+ * @param[in]     right  The other value.
+ * @return        The maximum.
+ * @note          None
+ * @warning       None
+ * @throws        None
+ * @since         0.2.0
+ * @ingroup       base_math
+ */
+constexpr unsigned long Max(unsigned long left, unsigned long right) {
+    return left > right ? left : right;
+}
+
+/**
+ * @brief         Bounds a value into a closed interval.
+ *
+ * @param[in]     value   The value to bound.
+ * @param[in]     floor   The lowest allowed value.
+ * @param[in]     top     The highest allowed value.
+ * @return        value, or the nearest bound it crossed.
+ * @note          An inverted interval (floor above top) answers top.
+ * @warning       None
+ * @throws        None
+ * @since         0.2.0
+ * @ingroup       base_math
+ */
+constexpr unsigned long Clamp(unsigned long value, unsigned long floor, unsigned long top) {
+    return Min(Max(value, floor), top);
+}
 
 /**
  * @brief         Rounds a value down to a whole number of units.

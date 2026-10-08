@@ -9,6 +9,7 @@
 #include "kernel/proc/sync.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/time/tick.hpp"
+#include "test/mock/file_refs.hpp"
 #include "test_assert.hpp"
 #include "test_case.hpp"  // NOLINT(misc-include-cleaner) consumed by the TEST() macro body
 
@@ -85,6 +86,14 @@ void probe_task() {
 }
 
 void instant_exit_task() {}
+
+cinux::test::FileRefs g_file_refs;
+
+void leave_files_open_task() {
+    auto& files = cinux::proc::Scheduler::self().current()->files;
+    ASSERT_TRUE(files.alloc(&cinux::test::FileRefs::kOps, &g_file_refs, {}).ok());
+    ASSERT_TRUE(files.alloc(&cinux::test::FileRefs::kOps, &g_file_refs, {}).ok());
+}
 
 cinux::proc::Semaphore g_blocking_gate;
 bool                   g_blocking_task_irq_enabled = false;
@@ -225,6 +234,15 @@ TEST("sched: spawn-exit cycles return pages to the pmm") {
     }
     scheduler.run_until_done();
     ASSERT_TRUE(ledger.free_page_count() == kBefore);
+}
+
+TEST("sched: task reclamation closes files left open at exit") {
+    g_file_refs = {};
+    seat_built(
+        cinux::proc::TaskBuilder{}.set_entry(leave_files_open_task).set_name("files").build());
+    cinux::proc::Scheduler::self().run_until_done();
+    ASSERT_TRUE(g_file_refs.retained == 2);
+    ASSERT_TRUE(g_file_refs.released == 2);
 }
 
 TEST("sched: blocking and exiting restore main's enabled interrupts") {

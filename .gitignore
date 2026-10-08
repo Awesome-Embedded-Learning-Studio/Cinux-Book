@@ -7,9 +7,6 @@ meta/
 .notes/
 FAILED_DOXYGEN.md
 
-# ============================================================
-# Python virtual environment & profiles
-# ============================================================
 .venv/
 .cinux_profiles.json
 __pycache__/
@@ -28,73 +25,33 @@ Makefile
 *.img
 !test/data/ext2_test.img
 
-# cinux 的编译产物
-cinux.img
-
-# ============================================================
-# IDE 和编辑器
-# ============================================================
-
-# TODO: 忽略 VSCode 配置
-#   模式: .vscode/
 .vscode/
 
-# TODO: 忽略 Vim 临时文件
-#   模式: *.swp, *.swo, *~
 *.swp
 *.swo
 *~
 
-# TODO: 忽略 Emacs 临时文件
-#   模式: *~, \#*\#
 \#*\#
 
-# TODO: 忽略其他编辑器
-#   模式: .idea/, *.sublime-*
 .idea/
 *.sublime-*
 
-# ============================================================
-# 调试和日志文件
-# ============================================================
 
-# TODO: 忽略 GDB 配置
-#   模式: .gdbinit, .gdb_history
 .gdbinit
 .gdb_history
 
-# TODO: 忽略 QEMU 串口日志
-#   模式: serial.log
 serial.log
 
-# ============================================================
-# 操作系统文件
-# ============================================================
-
-# TODO: 忽略 macOS 系统文件
-#   模式: .DS_Store, ._*
 .DS_Store
 ._*
 
-# TODO: 忽略 Windows 系统文件
-#   模式: Thumbs.db, desktop.ini
 Thumbs.db
 desktop.ini
-
-# ============================================================
-# 测试覆盖率（后续）
-# ============================================================
-
-# TODO: 忽略测试覆盖率报告
-#   模式: coverage/, *.gcda, *.gcno, *.gcov
 coverage/
 *.gcda
 *.gcno
 *.gcov
 
-# ============================================================
-# VitePress 文档站点
-# ============================================================
 node_modules/
 site/.vitepress/dist/
 site/.vitepress/cache/
@@ -105,9 +62,5 @@ site/.vitepress/config/.search-cache/
 site/.vitepress/theme/components/animations/generated/posters/
 document/_build/
 dist-single/
-
-# Python虚拟环境
 .venv/
-
-# 一些其他开发相关的目录
 meta/site/.vitepress/config/.search-cache/

@@ -24,6 +24,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 include(cmake/compilers/warning_standard.cmake)
 include(cmake/compilers/boot_modes.cmake)
 include(cmake/compilers/kernel_modes.cmake)
+include(cmake/checks/options.cmake)
 
 set(CINUX_QEMU_PROGRAM qemu-system-x86_64 CACHE STRING "QEMU binary driving Cinux")
 set(CINUX_QEMU_DEVICE_ARGS

@@ -77,7 +77,17 @@ struct BitMask {
      * @since         0.1.0
      * @ingroup       base_bit_ops
      */
-    constexpr BitMask operator|(BitMask other) const { return BitMask{raw | other.raw}; }
+    constexpr BitMask operator|(BitMask other) const {
+        return BitMask{static_cast<T>(raw | other.raw)};
+    }
+
+    /// Intersection of two masks of the same word width.
+    constexpr BitMask operator&(BitMask other) const {
+        return BitMask{static_cast<T>(raw & other.raw)};
+    }
+
+    /// Complement within the storage word width.
+    constexpr BitMask operator~() const { return BitMask{static_cast<T>(~raw)}; }
 
     /**
      * @brief         Read a field: shift down by low, keep width bits.
