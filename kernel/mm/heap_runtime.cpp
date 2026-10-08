@@ -47,6 +47,7 @@ bool BringUpHeap() {
 }
 
 void* HeapAllocate(unsigned long bytes) {
+    const cinux::arch::IrqGuard kGuard;
     if (void* const kBlock = Heap::self().allocate(bytes)) {
         return kBlock;
     }
@@ -60,6 +61,7 @@ void* HeapAllocate(unsigned long bytes) {
 }
 
 bool HeapFree(void* block) {
+    const cinux::arch::IrqGuard kGuard;
     return Heap::self().free(block);
 }
 

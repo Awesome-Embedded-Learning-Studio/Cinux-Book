@@ -44,6 +44,7 @@ bool Pmm::init(const cinux::boot::BootInfo& info) {
 }
 
 PhysAddr Pmm::allocate_pages(int order) {
+    const cinux::arch::IrqGuard kGuard;
     if (order < 0 || order > kMaxOrder) {
         return PhysAddr{};
     }
@@ -51,6 +52,7 @@ PhysAddr Pmm::allocate_pages(int order) {
 }
 
 void Pmm::free_pages(PhysAddr phys, int order) {
+    const cinux::arch::IrqGuard kGuard;
     if (phys == PhysAddr{}) {
         return;
     }
