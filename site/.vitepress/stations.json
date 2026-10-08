@@ -121,6 +121,16 @@
       "trail": ["CR3", "direct map", "page walk", "AddressSpace"]
     },
     {
+      "id": "13",
+      "slug": "13-userland",
+      "title": "下楼开张",
+      "titleEn": "Userland",
+      "desc": "内核第一次把执行流放进 ring3:GDT 添客座、TSS 备换栈、MSR 件与 GS 落脚点打桩,跳板五条指令一跳而下。SYSCALL 柜台立起,编号、寄存器、负 errno 三条约定一次定死贴 Linux;shell 睡着等键、醒了干活,Main 退位守 idle,世界上从此有了「别人」。",
+      "note": "首跳 ring3、七槽与 0x23、只烧 rax/rcx/r11 的承诺、睡着的读、常驻 shell、丢了的 IF——三块砖铺向将来的 rootfs",
+      "status": "open",
+      "trail": ["ring3", "TSS", "SYSCALL", "shell"]
+    },
+    {
       "id": "act2",
       "eyebrow": "幕间 & ACT II(预告)",
       "title": "重来一遍,从地基到系统",
