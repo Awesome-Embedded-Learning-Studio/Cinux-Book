@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include "kernel/arch/x86_64/page_entry.hpp"
 #include "kernel/boot/boot_info.hpp"
 
@@ -74,6 +76,24 @@ public:
  * @ingroup       kernel_mm
  */
 void MapFramebufferDoor(const cinux::boot::BootInfo& info);
+
+/**
+ * @brief         Maps one device window into the ioremap alias, uncached.
+ *
+ * @param[in]     physical  Base the device decodes.
+ * @param[in]     bytes     Window size; the walk rounds up to large pages.
+ * @return        True when every slice landed in the live tables.
+ * @note          Walk tables the window lacks come from the PMM, and
+ *                  every slice carries cache-disable so register reads
+ *                  see the device, not a buffer. The kernel's own root
+ *                  is edited; task spaces mirror the upper half and
+ *                  inherit the edit.
+ * @warning       None
+ * @throws        None
+ * @since         0.2.0
+ * @ingroup       kernel_mm
+ */
+[[nodiscard]] bool MapDeviceWindow(uint64_t physical, unsigned long bytes);
 
 /**
  * @brief         Replaces the boot handoff doors with the published

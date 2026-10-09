@@ -47,6 +47,18 @@ public:
         return kIndex;
     }
 
+    /// @brief Default-construct in the first empty slot at or above first, for elements
+    ///        that cannot move; return its index or Capacity.
+    /// @note The caller fills the object through get() afterwards, still holding whatever
+    ///       lock guards this table.
+    [[nodiscard]] constexpr unsigned long insert_default(unsigned long first = 0) {
+        const auto kIndex = vacant(first);
+        if (kIndex != Capacity) {
+            slots_[kIndex].emplace();
+        }
+        return kIndex;
+    }
+
     /// @brief Stored object at index, or nullptr for an empty or invalid slot.
     [[nodiscard]] constexpr Element* get(unsigned long index) {
         if (index >= Capacity) {

@@ -8,4 +8,6 @@ unsigned long long SaveAndDisableIrq() {
 
 void RestoreIrq(unsigned long long /*snapshot*/) {}
 
+void EnableIrqAndHalt() {}
+
 }  // namespace cinux::arch

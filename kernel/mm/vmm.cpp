@@ -194,6 +194,45 @@ void MapFramebufferDoor(const cinux::boot::BootInfo& info) {
     kPml4[kIoremapPml4] = MakeTableEntry(kPdptPhys, kWritable);
 }
 
+bool MapDeviceWindow(uint64_t physical, unsigned long bytes) {
+    if (physical == 0 || bytes == 0) {
+        return false;
+    }
+    KernelTables  world;
+    Entry* const  kPml4       = world.table(KernelPageRoot());
+    // NOLINTNEXTLINE(clang-analyzer-core.FixedAddressDereference) ioremap walk folds to a constant
+    Entry&        k_pdpt_slot = kPml4[kIoremapPml4];
+    unsigned long pdpt_phys   = 0;
+    if (!k_pdpt_slot.has(cinux::arch::page::kPresent)) {
+        pdpt_phys = world.take_page();
+        if (pdpt_phys == 0) {
+            return false;
+        }
+        kPml4[kIoremapPml4] = MakeTableEntry(pdpt_phys, kWritable);
+    } else {
+        pdpt_phys = walk::EntryTarget(k_pdpt_slot);
+    }
+    Entry* const kPdpt = world.table(pdpt_phys);
+
+    const uint64_t kSpanTop = physical + bytes;
+    for (uint64_t base = LargePageBase(physical); base < kSpanTop; base += kLargePageSize) {
+        Entry&        k_directory_slot = kPdpt[SlotIndex(base, WalkLevel::kPdpt)];
+        unsigned long directory_phys   = 0;
+        if (!k_directory_slot.has(cinux::arch::page::kPresent)) {
+            directory_phys = world.take_page();
+            if (directory_phys == 0) {
+                return false;
+            }
+            kPdpt[SlotIndex(base, WalkLevel::kPdpt)] = MakeTableEntry(directory_phys, kWritable);
+        } else {
+            directory_phys = walk::EntryTarget(k_directory_slot);
+        }
+        world.table(directory_phys)[SlotIndex(base, WalkLevel::kPageDirectory)] =
+            MakeLargePageEntry(base, kWritable | cinux::arch::page::kCacheDisable);
+    }
+    return true;
+}
+
 const cinux::boot::BootInfo* BringUpAddressSpace(const cinux::boot::BootInfo& handoff) {
     HandoffArchive::self().store(handoff);
     Entry* const kPml4 = table_at(cinux::arch::ReadCr3());

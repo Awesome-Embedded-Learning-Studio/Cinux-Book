@@ -7,7 +7,9 @@
 #include "kernel/boot/boot_info.hpp"
 #include "kernel/boot/print.hpp"
 #include "kernel/console/screen.hpp"
+#include "kernel/driver/ahci/ahci.hpp"
 #include "kernel/driver/keyboard.hpp"
+#include "kernel/driver/pci/pci.hpp"
 #include "kernel/driver/pit.hpp"
 #include "kernel/driver/serial.hpp"
 #include "kernel/interrupt/irq.hpp"
@@ -77,9 +79,19 @@ constexpr InitStep kInitSteps[] = {
          driver::Keyboard::self().attach();
          return info;
      }},
+    {.name = "pci",
+     .run  = +[](const BootInfo* info) -> const BootInfo* {
+         driver::PciBus::self().init();
+         return info;
+     }},
     {.name = "interrupts",
      .run  = +[](const BootInfo* info) -> const BootInfo* {
          asm volatile("sti" : : : "memory");
+         return info;
+     }},
+    {.name = "ahci",
+     .run  = +[](const BootInfo* info) -> const BootInfo* {
+         driver::Ahci::self().init();
          return info;
      }},
 };

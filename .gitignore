@@ -64,3 +64,4 @@ document/_build/
 dist-single/
 .venv/
 meta/site/.vitepress/config/.search-cache/
+.note/

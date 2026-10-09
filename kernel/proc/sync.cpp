@@ -167,4 +167,49 @@ void Semaphore::post() {
     count_++;
 }
 
+bool Completion::finish(bool success) {
+    const SpinGuard kGuard(spin_);
+    if (state_ != State::kPending) {
+        return false;
+    }
+    state_            = success ? State::kSuccess : State::kFailed;
+    Task* const kNext = waiters_.pop_head();
+    if (kNext != nullptr) {
+        Scheduler::self().unblock(*kNext);
+    }
+    return true;
+}
+
+bool Completion::wait() {
+    Task* const kSelf = Scheduler::self().current();
+    {
+        const SpinGuard kGuard(spin_);
+        if (state_ != State::kPending) {
+            return state_ == State::kSuccess;
+        }
+        waiters_.push_back(*kSelf);
+    }
+    Scheduler::self().block_current();
+    {
+        const SpinGuard kGuard(spin_);
+        return state_ == State::kSuccess;
+    }
+}
+
+bool Completion::finished() const {
+    const SpinGuard kGuard(spin_);
+    return state_ != State::kPending;
+}
+
+bool Completion::success() const {
+    const SpinGuard kGuard(spin_);
+    return state_ == State::kSuccess;
+}
+
+void Completion::rearm() {
+    const SpinGuard kGuard(spin_);
+    cinux::base::safety::Check(waiters_.empty(), "rearm with a waiter still parked");
+    state_ = State::kPending;
+}
+
 }  // namespace cinux::proc

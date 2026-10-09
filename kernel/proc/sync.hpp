@@ -287,4 +287,67 @@ private:
     cinux::base::container::SelfList<Task> waiters_;
 };
 
+/**
+ * @brief         One request's completion: a one-shot state, no tokens.
+ * @note          finish() moves Pending to a terminal state exactly
+ *                once — later calls change nothing — so an unexpected
+ *                extra event cannot make the next waiter leave early
+ *                the way a surplus semaphore token could. wait() parks
+ *                a task until the terminal state; earlier contexts read
+ *                finished() and success() instead of waiting.
+ * @since         0.1.0
+ * @ingroup       kernel_proc
+ */
+class Completion {
+public:
+    constexpr Completion() = default;
+
+    /**
+     * @brief     Moves the state to its terminal form, once.
+     * @param[in] success   The verdict to publish.
+     * @return    True when this call made the transition.
+     * @since     0.1.0
+     * @ingroup   kernel_proc
+     */
+    bool finish(bool success);
+
+    /**
+     * @brief     Parks the current task until a terminal state.
+     * @return    The published verdict.
+     * @note      Task contexts only; a stocked state returns without
+     *            parking.
+     * @since     0.1.0
+     * @ingroup   kernel_proc
+     */
+    bool wait();
+
+    /// @brief Whether a terminal state arrived; safe from any context.
+    [[nodiscard]] bool finished() const;
+
+    /// @brief The published verdict; read after finished() turns true.
+    [[nodiscard]] bool success() const;
+
+    /**
+     * @brief     Returns a terminal completion to Pending.
+     * @note      For request pools that recycle slots: a still-pending
+     *            completion stays pending, a terminal one returns to
+     *                    pending, and any parked waiter refuses the
+     *                    call loudly.
+     * @since     0.1.0
+     * @ingroup   kernel_proc
+     */
+    void rearm();
+
+private:
+    enum class State : unsigned char {
+        kPending,
+        kSuccess,
+        kFailed,
+    };
+
+    mutable Spinlock                       spin_;
+    State                                  state_ = State::kPending;
+    cinux::base::container::SelfList<Task> waiters_;
+};
+
 }  // namespace cinux::proc

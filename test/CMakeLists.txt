@@ -68,6 +68,14 @@ add_cinux_test(ramfs ${CMAKE_SOURCE_DIR}/kernel/fs/ramfs/ramfs.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
 add_cinux_test(ustar ${CMAKE_SOURCE_DIR}/kernel/fs/ustar.cpp)
+add_cinux_test(pci ${CMAKE_SOURCE_DIR}/kernel/driver/pci/pci_layout.cpp)
+add_cinux_test(ahci ${CMAKE_SOURCE_DIR}/kernel/driver/ahci/ahci_identify.cpp
+                    ${CMAKE_SOURCE_DIR}/kernel/driver/ahci/ahci_layout.cpp)
+add_cinux_test(block ${CMAKE_SOURCE_DIR}/kernel/driver/block/block_queue.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
 
 add_test(NAME kernel_image
     COMMAND ${CMAKE_COMMAND}
@@ -100,6 +108,7 @@ foreach(entry IN LISTS CINUX_KTESTS CINUX_KTESTS_INTEGRATION)
                 -P ${CMAKE_SOURCE_DIR}/cmake/test/run_kernel_tests.cmake)
     set_tests_properties(kernel_test_${ktest} PROPERTIES TIMEOUT 120)
     list(APPEND CINUX_KTEST_IMAGE_TARGETS boot_ktest_${ktest})
+    add_dependencies(boot_ktest_${ktest} scratch_img)
 endforeach()
 
 add_custom_target(test_host

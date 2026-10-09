@@ -7,8 +7,8 @@
  vocabulary.
  *
  * @author  Charliechen114514
- * @date    2026-10-02
- * @version 0.1
+ * @date    2026-10-08
+ * @version 0.2
  * @since   0.1.0
  * @ingroup kernel_driver
  * @copyright Copyright (c) 2026
@@ -30,6 +30,18 @@ namespace cinux::driver {
 struct PortWrite {
     uint16_t port;
     uint8_t  value;
+};
+
+/**
+ * @brief   One dword port write as data: where and what.
+ * @note    Width lives in the name for the wider siblings of PortWrite;
+ *          PCI configuration cycles are the first consumer.
+ * @since   0.2.0
+ * @ingroup kernel_driver
+ */
+struct PortWrite32 {
+    uint16_t port;
+    uint32_t value;
 };
 
 /**
@@ -76,6 +88,33 @@ void OutB(const PortWrite (&writes)[Count]) {
  * @ingroup       kernel_driver
  */
 uint8_t InB(uint16_t port);
+
+/**
+ * @brief         Performs one dword port write described by the pair.
+ *
+ * @param[in]     write   Port and value to emit.
+ * @return        None
+ * @note          PCI configuration access selects a dword by writing the
+ *                address register first; this is that write.
+ * @warning       None
+ * @throws        None
+ * @since         0.2.0
+ * @ingroup       kernel_driver
+ */
+void Out32(PortWrite32 write);
+
+/**
+ * @brief         Reads one dword from a port.
+ *
+ * @param[in]     port   Port to read.
+ * @return        The dword the device answered.
+ * @note          PCI configuration data reads travel this face.
+ * @warning       None
+ * @throws        None
+ * @since         0.2.0
+ * @ingroup       kernel_driver
+ */
+uint32_t In32(uint16_t port);
 
 /**
  * @brief         Spins until every bit of mask reads one.

@@ -76,4 +76,21 @@ struct IrqLockPolicy {
 /// Interrupts saved on entry, restored on scope exit; nests safely.
 using IrqGuard = cinux::base::ScopedGuard<IrqLockPolicy>;
 
+/**
+ * @brief         Enables interrupts and halts, as one adjacent pair.
+ * @note          Contract: the caller runs at CPL0 with IF clear; the
+ *                STI interrupt shadow delays recognition by one
+ *                instruction, so the HLT executes before any handler —
+ *                the sleep is atomic with the enable. Unrelated
+ *                interrupts may wake the caller, who must therefore
+ *                re-check the awaited condition in a loop. Never call
+ *                this holding a spinlock, and never replace it with
+ *                RestoreIrq plus a separate HLT: that pair reopens the
+ *                wake-lost window this primitive exists to close.
+ *                Host worlds get a yield, keeping the shape runnable.
+ * @since         0.1.0
+ * @ingroup       kernel_arch
+ */
+void EnableIrqAndHalt();
+
 }  // namespace cinux::arch

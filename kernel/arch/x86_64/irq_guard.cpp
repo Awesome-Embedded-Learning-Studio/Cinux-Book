@@ -20,4 +20,8 @@ void RestoreIrq(unsigned long long snapshot) {
     }
 }
 
+void EnableIrqAndHalt() {
+    __asm__ volatile("sti; hlt" : : : "memory");
+}
+
 }  // namespace cinux::arch

@@ -44,6 +44,9 @@ inline constexpr Entry kUser = base::bit::MaskBit<uint64_t>(2);
 /// Bit 7: this entry is a large page, not a pointer to the next table.
 inline constexpr Entry kLarge = base::bit::MaskBit<uint64_t>(7);
 
+/// Bit 4: the CPU may not cache this page; device registers insist.
+inline constexpr Entry kCacheDisable = base::bit::MaskBit<uint64_t>(4);
+
 /// Shift of a 2MB large page: frame numbers below count in 2MB units.
 inline constexpr unsigned char kLargePageShift = 21;
 

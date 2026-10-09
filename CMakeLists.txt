@@ -27,19 +27,29 @@ include(cmake/compilers/kernel_modes.cmake)
 include(cmake/checks/options.cmake)
 
 set(CINUX_QEMU_PROGRAM qemu-system-x86_64 CACHE STRING "QEMU binary driving Cinux")
+set(CINUX_SCRATCH_IMG ${CMAKE_BINARY_DIR}/boot/scratch.img)
+add_custom_command(
+    OUTPUT ${CINUX_SCRATCH_IMG}
+    COMMAND ${CMAKE_COMMAND} -E touch ${CINUX_SCRATCH_IMG}
+    COMMAND truncate -s 1M ${CINUX_SCRATCH_IMG}
+    COMMENT "scratch disk for the AHCI experiments")
+add_custom_target(scratch_img DEPENDS ${CINUX_SCRATCH_IMG})
 set(CINUX_QEMU_DEVICE_ARGS
     -accel;kvm
     -display;none
     -no-reboot
-    -device;isa-debug-exit,iobase=0xf4,iosize=0x04)
+    -device;isa-debug-exit,iobase=0xf4,iosize=0x04
+    -device;ahci,id=sata0
+    -drive;format=raw,file=${CINUX_SCRATCH_IMG},if=none,id=spare
+    -device;ide-hd,drive=spare,bus=sata0.0)
 
 # Kernel test kernels: one entry "name:stage" = one test file
 # test/kernel/test_<name>.cpp (integration: test/kernel/integration/) =
 # one kernel = one image = one QEMU boot = one CTest case. The stage
 # names the init-ladder level the test main walks before running cases.
-set(CINUX_KTEST_STAGES exceptions irq keyboard mm proc)
+set(CINUX_KTEST_STAGES exceptions irq keyboard mm proc block)
 set(CINUX_KTESTS selfcheck:exceptions tick:irq keyboard:keyboard vmm:mm heap:mm aspace:mm
-    sched:proc)
+    sched:proc block:block)
 set(CINUX_KTESTS_INTEGRATION "")
 
 message("Configuring Boot")
