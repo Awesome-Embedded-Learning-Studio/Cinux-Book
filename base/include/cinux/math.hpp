@@ -116,4 +116,21 @@ constexpr unsigned long Span(unsigned long base, unsigned long top, unsigned lon
     return top > base ? Ceil(top, unit) - Floor(base, unit) : 0;
 }
 
+/**
+ * @brief         Rounds a byte count up to a multiple of a unit.
+ *
+ * @param[in]     value   Byte count; may already be aligned.
+ * @param[in]     unit    Alignment unit; must be nonzero.
+ * @return        The smallest multiple of unit that is at least value.
+ * @note          Ceil counts how many units cover the value; this one hands
+ *                back the covered byte count, for any unit.
+ * @warning       None
+ * @throws        None
+ * @since         0.1.0
+ * @ingroup       base_math
+ */
+constexpr unsigned long AlignUp(unsigned long value, unsigned long unit) {
+    return Ceil(value, unit) * unit;
+}
+
 }  // namespace cinux::base::math

@@ -1,0 +1,2 @@
+Cinux says hello from a real disk.
+This line lives in an ext2 volume, baked by mkfs at build time.

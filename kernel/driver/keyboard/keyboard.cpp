@@ -1,9 +1,9 @@
-#include "kernel/driver/keyboard.hpp"
+#include "kernel/driver/keyboard/keyboard.hpp"
 
 #include <stdint.h>
 
 #include "kernel/driver/base/io.hpp"
-#include "kernel/driver/scancode.hpp"
+#include "kernel/driver/keyboard/scancode.hpp"
 #include "kernel/interrupt/irq.hpp"
 
 namespace {

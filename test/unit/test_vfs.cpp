@@ -42,6 +42,11 @@ struct FakeFs {
                                        [[maybe_unused]] cinux::fs::FsDirent& entry) {
         return false;
     }
+    cinux::base::Result<void> stat([[maybe_unused]] cinux::fs::FsNode  node,
+                                   [[maybe_unused]] cinux::fs::FsStat& probed) {
+        probed = cinux::fs::FsStat{};
+        return {};
+    }
 };
 
 }  // namespace

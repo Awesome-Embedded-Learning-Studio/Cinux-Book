@@ -41,24 +41,30 @@ enum class SyscallNr : std::uint16_t {
     kWrite    = 1,    ///< write(fd, buf, count)
     kOpen     = 2,    ///< open(path, flags)
     kClose    = 3,    ///< close(fd)
+    kStat     = 6,    ///< stat(path, out): one node's metadata
     kYield    = 24,   ///< cooperative yield to the scheduler
     kExit     = 60,   ///< exit(code), never returns
+    kGetcwd   = 79,   ///< getcwd(buf, size): the caller's working directory
+    kChdir    = 80,   ///< chdir(path): move the caller's working directory
+    kReboot   = 169,  ///< reboot(): power the machine off through ACPI
     kMkdir    = 83,   ///< mkdir(path)
     kUnlink   = 87,   ///< unlink(path)
     kGetdents = 217,  ///< getdents(fd, entry): one directory entry per call
 };
 
 /// Linux errno values the handlers can produce.
-inline constexpr int kEnoent    = 2;   ///< No such file or directory.
-inline constexpr int kEbadf     = 9;   ///< Not a descriptor the kernel serves.
-inline constexpr int kEnomem    = 12;  ///< The kernel has no room for this.
-inline constexpr int kEfault    = 14;  ///< The buffer does not live in the user half.
-inline constexpr int kEexist    = 17;  ///< The name already exists.
-inline constexpr int kEnotdir   = 20;  ///< A path component is a file.
-inline constexpr int kEisdir    = 21;  ///< A file-only operation met a directory.
-inline constexpr int kEinval    = 22;  ///< Unusable argument.
-inline constexpr int kEnotempty = 39;  ///< The directory still holds entries.
-inline constexpr int kEnosys    = 38;  ///< No such syscall at this number.
+inline constexpr int kEnoent       = 2;   ///< No such file or directory.
+inline constexpr int kEbadf        = 9;   ///< Not a descriptor the kernel serves.
+inline constexpr int kEnomem       = 12;  ///< The kernel has no room for this.
+inline constexpr int kEfault       = 14;  ///< The buffer does not live in the user half.
+inline constexpr int kEexist       = 17;  ///< The name already exists.
+inline constexpr int kEnotdir      = 20;  ///< A path component is a file.
+inline constexpr int kEisdir       = 21;  ///< A file-only operation met a directory.
+inline constexpr int kEinval       = 22;  ///< Unusable argument.
+inline constexpr int kErange       = 34;  ///< The output buffer is too small.
+inline constexpr int kEnametoolong = 36;  ///< The folded path overflows its buffer.
+inline constexpr int kEnosys       = 38;  ///< No such syscall at this number.
+inline constexpr int kEnotempty    = 39;  ///< The directory still holds entries.
 
 /// open() flag the kernel serves: create the file when it is missing.
 inline constexpr unsigned long long kOpenCreat = 0x40;
@@ -79,7 +85,28 @@ constexpr unsigned long long kUserAddressLimit = 0x0000800000000000ULL;
  */
 struct SyscallDirent {
     char          name[cinux::fs::kFsNameMax];  ///< NUL-terminated entry name.
-    unsigned char type;                         ///< 0 for a file, 1 for a directory.
+    unsigned char type;                         ///< kDirentFile or kDirentDirectory.
+};
+
+/// getdents' type word for a regular file.
+inline constexpr unsigned char kDirentFile = 0;
+
+/// getdents' type word for a directory.
+inline constexpr unsigned char kDirentDirectory = 1;
+
+/**
+ * @brief   One node's metadata, as stat hands it to ring 3.
+ * @note    The file-system's FsStat with the kernel's types spelled in
+ *          full words; the half-size stat the concept calls for.
+ * @since   0.3.0
+ * @ingroup kernel_syscall
+ */
+struct SyscallStat {
+    unsigned long long ino;    ///< Inode number.
+    unsigned long long mode;   ///< Type and permission bits, as stored.
+    unsigned long long links;  ///< Directory entries naming this node.
+    unsigned long long size;   ///< File bytes; directories report their block bytes.
+    unsigned long long mtime;  ///< Modification time, Unix seconds.
 };
 
 /**

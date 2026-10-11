@@ -24,6 +24,7 @@
 #include "cinux/container/self_list.hpp"
 #include "kernel/arch/x86_64/context.hpp"
 #include "kernel/fs/file_table.hpp"
+#include "kernel/fs/fs_config.hpp"
 
 namespace cinux::proc {
 
@@ -50,13 +51,14 @@ enum class TaskState : unsigned char {
  * @ingroup       kernel_proc
  */
 struct Task : cinux::base::container::SelfNode<Task> {
-    cinux::arch::CpuContext ctx{};         ///< Register image the switcher moves.
-    TaskState               state{};       ///< Where this task is in its life.
-    unsigned long long      tid{};         ///< Identity, handed out by the scheduler.
-    const char*             name{};        ///< Label for dumps, caller-owned storage.
-    unsigned long long      stack_base{};  ///< Direct-map base of the owned stack.
-    unsigned long long      user_root{};   ///< PML4 of the user world, 0 while kernel-only.
-    cinux::fs::FileTable    files;         ///< This task's open files, keyed by descriptor.
+    cinux::arch::CpuContext ctx{};            ///< Register image the switcher moves.
+    TaskState               state{};          ///< Where this task is in its life.
+    unsigned long long      tid{};            ///< Identity, handed out by the scheduler.
+    const char*             name{};           ///< Label for dumps, caller-owned storage.
+    unsigned long long      stack_base{};     ///< Direct-map base of the owned stack.
+    unsigned long long      user_root{};      ///< PML4 of the user world, 0 while kernel-only.
+    cinux::fs::FileTable    files;            ///< This task's open files, keyed by descriptor.
+    char cwd[cinux::fs::kFsPathMax] = {'/'};  ///< Working directory, absolute, NUL-terminated.
 };
 
 /**

@@ -73,6 +73,26 @@ struct FsDirent {
 };
 
 /**
+ * @brief   The metadata one node answers when asked stat.
+ * @note    Half of the classical fourteen on purpose: identity (ino),
+ *          shape (mode, links), and size carry everything the teaching
+ *          shell prints, and mtime is the one timestamp that must be
+ *          real — creation stamps it, stat reports it. Backends
+ *          without a clock may report zero rather than invent one.
+ * @since   0.3.0
+ * @ingroup kernel_fs
+ */
+struct FsStat {
+    unsigned long      ino;    ///< Backend-assigned inode number.
+    std::uint32_t      mode;   ///< Type and permission bits, as stored.
+    unsigned long      links;  ///< Directory entries naming this node.
+    unsigned long      size;   ///< File bytes; a backend without block
+                               ///< bytes for directories may report zero.
+    unsigned long long mtime;  ///< Modification time, Unix seconds; zero
+                               ///< is honest for backends without a clock.
+};
+
+/**
  * @brief   What a file-system backend must offer, checked at compile time.
  * @tparam  Fs   The backend type being checked.
  * @note    Paths arrive without a leading slash, relative to the mount
@@ -86,7 +106,7 @@ struct FsDirent {
 template <typename Fs>
 concept FileSystem = requires(Fs& backend, std::string_view path, std::string_view name,
                               FsNode node, unsigned long offset, void* sink, const void* source,
-                              unsigned long count, FsDirent& entry) {
+                              unsigned long count, FsDirent& entry, FsStat& probed) {
     { backend.lookup(path) } -> std::same_as<base::Result<FsNode>>;
     { backend.make_file(path) } -> std::same_as<base::Result<FsNode>>;
     { backend.make_dir(path) } -> std::same_as<base::Result<FsNode>>;
@@ -94,6 +114,7 @@ concept FileSystem = requires(Fs& backend, std::string_view path, std::string_vi
     { backend.read(node, offset, sink, count) } -> std::same_as<base::Result<unsigned long>>;
     { backend.write(node, offset, source, count) } -> std::same_as<base::Result<unsigned long>>;
     { backend.read_dir(node, offset, entry) } -> std::same_as<base::Result<bool>>;
+    { backend.stat(node, probed) } -> std::same_as<base::Result<void>>;
     { backend.retain(node) } -> std::same_as<void>;
     { backend.release(node) } -> std::same_as<void>;
 };
@@ -126,6 +147,8 @@ struct FsOps {
                                          const void* source, unsigned long count);
     /// Fills entry with the index-th child; false means index is past the end.
     base::Result<bool> (*read_dir)(void* self, FsNode node, unsigned long index, FsDirent& entry);
+    /// Fills probed with the node's metadata.
+    base::Result<void> (*stat)(void* self, FsNode node, FsStat& probed);
     /// Pins a borrowed node for an open descriptor.
     void (*retain)(void* self, FsNode node);
     /// Drops a descriptor's pin, reclaiming an unlinked node at the last release.
@@ -157,6 +180,9 @@ template <FileSystem Fs>
         },
         [](void* self, FsNode node, unsigned long index, FsDirent& entry) {
             return static_cast<Fs*>(self)->read_dir(node, index, entry);
+        },
+        [](void* self, FsNode node, FsStat& probed) {
+            return static_cast<Fs*>(self)->stat(node, probed);
         },
         [](void* self, FsNode node) { static_cast<Fs*>(self)->retain(node); },
         [](void* self, FsNode node) { static_cast<Fs*>(self)->release(node); },

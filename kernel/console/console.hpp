@@ -84,4 +84,19 @@ inline void PutString(const char* text) {
     }
 }
 
+/**
+ * @brief         Waits until every console sink has finished sending.
+ *
+ * @return        None
+ * @note          The screen paints at once; the serial line keeps the
+ *                last bytes in its shift register. This drain belongs
+ *                in front of anything as final as power off, so the
+ *                farewell lines truly leave the machine.
+ * @warning       None
+ * @throws        None
+ * @since         0.4.0
+ * @ingroup kernel_boot
+ */
+void Flush();
+
 }  // namespace cinux::console

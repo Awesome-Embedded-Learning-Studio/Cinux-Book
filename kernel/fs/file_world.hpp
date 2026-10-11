@@ -1,17 +1,21 @@
 /**
  * @file    file_world.hpp
- * @brief   The kernel's one file-system world: a mount table, a root ramfs.
+ * @brief   The kernel's one file-system world: a mount table, an ext2 root.
  *
  * Backends are instance things — a test world builds its own Vfs and
- * RamFs — but the running kernel wants exactly one of each, wired once
- * at bring-up: the ramfs mounted at the root, everything reachable
- * through resolve. That whole is the FileWorld singleton, after Pmm and
- * Tick. Later stations add backends by mounting them here; the world
- * itself never grows another face.
+ * mocks — but the running kernel wants exactly one of each, wired once
+ * at bring-up: the block queue over the AHCI drive, the ext2
+ * volume over the queue, mounted at the root. The queue sleeps on its
+ * requests, so init() runs inside the kernel_init task — the named
+ * first thread of the system, PID 1 in the borrowed Linux vocabulary
+ * — never on the boot stack. The whole is the FileWorld singleton,
+ * after Pmm and Tick. The first backend, ramfs, stays in the tree as
+ * the host tests' volume and the concept's first example; the
+ * production root is the disk.
  *
  * @author  Charliechen114514
- * @date    2026-10-07
- * @version 0.1
+ * @date    2026-10-11
+ * @version 0.3
  * @since   0.1.0
  * @ingroup kernel_fs
  * @copyright Copyright (c) 2026
@@ -23,17 +27,26 @@
 
 #include "cinux/result.hpp"
 #include "cinux/singleton.hpp"
-#include "kernel/fs/ramfs/ramfs.hpp"
 #include "kernel/fs/vfs.hpp"
+
+namespace cinux::driver {
+class BlockCache;
+class BlockQueue;
+}  // namespace cinux::driver
+
+namespace cinux::fs::ext2 {
+class Ext2;
+}
 
 namespace cinux::fs {
 
 /**
- * @brief   The one mount table and its root backend, kernel-wide.
+ * @brief   The one mount table and its disk-backed root, kernel-wide.
  * @note    Constant-initialized shell after Pmm and Tick: the mount
- *          table rides inside, while the ramfs — a tree that owns heap
- *          and therefore has a destructor — is planted by init() once
- *          the kernel heap is up, and lives for the rest of the boot.
+ *          table rides inside, while the queue and the volume —
+ *          objects that own state and therefore want the heap — are
+ *          planted by init() once block devices are up, and live for
+ *          the rest of the boot.
  * @since   0.1.0
  * @ingroup kernel_fs
  */
@@ -42,27 +55,17 @@ class FileWorld : public cinux::base::Singleton<FileWorld> {
 
 public:
     /**
-     * @brief         Plants the ramfs and mounts it at the root.
+     * @brief   Plants the queue and volume, mounts ext2 at the root.
      *
-     * @return        None
-     * @note          Runs once at kernel bring-up; the mount refusing
-     *                is a bring-up bug and dies loudly through Check.
-     * @since         0.1.0
-     * @ingroup       kernel_fs
+     * @return  None
+     * @note    Runs exactly once, from inside the kernel_init task:
+     *          every block ask sleeps on the queue, so the caller must
+     *          already be schedulable. A volume refusing to mount is
+     *          a build or wiring bug and dies loudly.
+     * @since   0.1.0
+     * @ingroup kernel_fs
      */
     void init();
-
-    /**
-     * @brief         Walks the baked-in archive into the ramfs.
-     *
-     * @return        None
-     * @note          Runs inside init(), after the root mount. A tar
-     *                that the kernel refuses to plant is a build bug
-     *                and dies loudly through Check.
-     * @since         0.1.0
-     * @ingroup       kernel_fs
-     */
-    void plant_initrd();
 
     /**
      * @brief         Maps an absolute path onto the deepest mount.
@@ -78,8 +81,11 @@ public:
 private:
     FileWorld() = default;
 
-    Vfs    vfs_;
-    RamFs* ramfs_ = nullptr;
+    Vfs vfs_;
+
+    driver::BlockQueue* queue_  = nullptr;
+    driver::BlockCache* cache_  = nullptr;
+    ext2::Ext2*         volume_ = nullptr;
 };
 
 }  // namespace cinux::fs

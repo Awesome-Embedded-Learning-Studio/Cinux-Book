@@ -2,7 +2,7 @@
 
 #include "../framework/framework.hpp"
 #include "cinux/container/ring_queue.hpp"
-#include "kernel/driver/scancode.hpp"
+#include "kernel/driver/keyboard/scancode.hpp"
 #include "test_assert.hpp"
 
 using cinux::base::container::RingQueue;

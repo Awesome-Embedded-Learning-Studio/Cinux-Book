@@ -9,15 +9,15 @@
     defined(KTEST_STAGE_BLOCK)
 #    include "kernel/arch/x86_64/irq_stubs.hpp"
 #    include "kernel/arch/x86_64/pic.hpp"
-#    include "kernel/driver/pit.hpp"
+#    include "kernel/driver/pit/pit.hpp"
 #    include "kernel/interrupt/irq.hpp"
 #    include "kernel/time/tick.hpp"
 #endif
 #ifdef KTEST_STAGE_KEYBOARD
-#    include "kernel/driver/keyboard.hpp"
+#    include "kernel/driver/keyboard/keyboard.hpp"
 #endif
 #if defined(KTEST_STAGE_MM) || defined(KTEST_STAGE_PROC) || defined(KTEST_STAGE_BLOCK)
-#    include "kernel/driver/serial.hpp"
+#    include "kernel/driver/serial/serial.hpp"
 #    include "kernel/mm/heap_runtime.hpp"
 #    include "kernel/mm/pmm.hpp"
 #endif

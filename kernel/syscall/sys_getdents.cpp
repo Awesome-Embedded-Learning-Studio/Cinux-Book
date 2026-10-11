@@ -39,7 +39,7 @@ long long HandleGetdents(unsigned long long descriptor, unsigned long long buffe
     auto* const kOut =
         reinterpret_cast<SyscallDirent*>(buffer);  // NOLINT(performance-no-int-to-ptr)
     base::CopyBytes(kOut->name, entry.name, fs::kFsNameMax);
-    kOut->type = entry.type == fs::InodeType::kDirectory ? 1 : 0;
+    kOut->type = entry.type == fs::InodeType::kDirectory ? kDirentDirectory : kDirentFile;
     return 1;
 }
 

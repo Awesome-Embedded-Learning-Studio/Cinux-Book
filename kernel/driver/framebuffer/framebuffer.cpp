@@ -1,4 +1,4 @@
-#include "kernel/driver/framebuffer.hpp"
+#include "kernel/driver/framebuffer/framebuffer.hpp"
 
 #include <stdint.h>
 

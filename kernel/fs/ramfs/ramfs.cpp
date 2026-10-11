@@ -20,6 +20,8 @@
 
 #include "kernel/fs/ramfs/ramfs.hpp"
 
+#include <stdint.h>
+
 #include <memory>
 #include <string_view>
 
@@ -190,6 +192,17 @@ void RamFs::release(FsNode node) {
     const proc::SpinGuard kGuard(lock_);
     auto* const           kNode = static_cast<RamNode*>(node.opaque);
     kNode->release_ref();
+}
+
+base::Result<void> RamFs::stat(FsNode node, FsStat& probed) {
+    const proc::SpinGuard kGuard(lock_);
+    auto* const           kNode = static_cast<RamNode*>(node.opaque);
+    probed.ino                  = kNode->ino;
+    probed.mode                 = kNode->type == InodeType::kDirectory ? kFsDirMode : kFsFileMode;
+    probed.links                = kNode->type == InodeType::kDirectory ? 2UL : 1UL;
+    probed.size                 = kNode->type == InodeType::kDirectory ? 0UL : kNode->size;
+    probed.mtime                = 0ULL;
+    return {};
 }
 
 base::Result<unsigned long> RamFs::read(FsNode node, unsigned long offset, void* sink,

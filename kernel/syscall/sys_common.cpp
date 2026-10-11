@@ -1,5 +1,19 @@
+/**
+ * @file    sys_common.cpp
+ * @brief   The corridor every handler walks: errno, user paths, tasks.
+ *
+ * @author  Charliechen114514
+ * @date    2026-10-11
+ * @version 0.2
+ * @since   0.1.0
+ * @ingroup kernel_syscall
+ * @copyright Copyright (c) 2026
+ */
+
+#include "cinux/path.hpp"
 #include "cinux/result.hpp"
 #include "kernel/fs/file_table.hpp"
+#include "kernel/fs/fs_config.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
@@ -38,6 +52,20 @@ long long CopyUserPath(unsigned long long source, char* out, unsigned long cap) 
         }
     }
     return -kEinval;
+}
+
+long long FoldUserPath(unsigned long long source, char* out, unsigned long cap) {
+    char            raw[fs::kFsPathMax] = {};
+    const long long kRaw                = CopyUserPath(source, raw, sizeof(raw));
+    if (kRaw < 0) {
+        return kRaw;
+    }
+    const char* const  kBase = raw[0] == '/' ? "/" : CurrentTask()->cwd;
+    const base::Folded kFold = base::FoldOntoPath(kBase, raw, out, cap);
+    if (!kFold.ok) {
+        return -kEnametoolong;
+    }
+    return static_cast<long long>(kFold.length);
 }
 
 proc::Task* CurrentTask() {

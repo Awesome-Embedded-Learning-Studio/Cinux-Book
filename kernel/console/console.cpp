@@ -2,7 +2,7 @@
 
 #include "kernel/boot/boot_info.hpp"
 #include "kernel/console/screen.hpp"
-#include "kernel/driver/serial.hpp"
+#include "kernel/driver/serial/serial.hpp"
 
 namespace cinux::console {
 
@@ -14,6 +14,10 @@ void InitConsole(const cinux::boot::BootInfo& info) {
 void PutChar(char character) {
     cinux::driver::SerialPutChar(character);
     cinux::console::TextConsole::self().put_char(character);
+}
+
+void Flush() {
+    cinux::driver::SerialDrain();
 }
 
 }  // namespace cinux::console

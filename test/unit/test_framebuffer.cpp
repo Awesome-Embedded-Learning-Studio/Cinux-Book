@@ -2,7 +2,7 @@
 
 #include "../framework/framework.hpp"
 #include "kernel/boot/boot_info.hpp"
-#include "kernel/driver/framebuffer.hpp"
+#include "kernel/driver/framebuffer/framebuffer.hpp"
 #include "test_assert.hpp"
 
 using cinux::boot::FramebufferInfo;

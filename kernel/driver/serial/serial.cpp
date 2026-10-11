@@ -1,4 +1,4 @@
-#include "kernel/driver/serial.hpp"
+#include "kernel/driver/serial/serial.hpp"
 
 #include <stdint.h>
 
@@ -18,6 +18,7 @@ constexpr uint8_t kRegMcr  = 0x4;
 constexpr uint8_t kRegLsr  = 0x5;
 
 constexpr uint8_t kLsrThre = 0x20;
+constexpr uint8_t kLsrTemt = 0x40;
 
 constexpr PortWrite kInitSequence[] = {
     {.port = kCom1Base + kRegIer, .value = 0x00},  {.port = kCom1Base + kRegLcr, .value = 0x80},
@@ -34,6 +35,10 @@ void SerialInit() {
 void SerialPutChar(char character) {
     WaitBitsSet(kCom1Base + kRegLsr, kLsrThre);
     OutB({.port = kCom1Base + kRegData, .value = static_cast<uint8_t>(character)});
+}
+
+void SerialDrain() {
+    WaitBitsSet(kCom1Base + kRegLsr, kLsrTemt);
 }
 
 }  // namespace cinux::driver

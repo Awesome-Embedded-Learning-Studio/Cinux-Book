@@ -45,6 +45,18 @@ struct PortWrite32 {
 };
 
 /**
+ * @brief   One word port write as data: where and what.
+ * @note    The 16-bit sibling of the family; PM1 control registers in
+ *          ACPI are word-wide, and that is the first consumer.
+ * @since   0.3.0
+ * @ingroup kernel_driver
+ */
+struct PortWrite16 {
+    uint16_t port;
+    uint16_t value;
+};
+
+/**
  * @brief         Performs one port write described by the pair.
  *
  * @param[in]     write   Port and value to emit.
@@ -75,6 +87,19 @@ void OutB(const PortWrite (&writes)[Count]) {
         OutB(writes[index]);
     }
 }
+
+/**
+ * @brief         Performs one word port write described by the pair.
+ *
+ * @param[in]     write   Port and value to emit.
+ * @return        None
+ * @note          ACPI's PM1 control blocks are word registers.
+ * @warning       None
+ * @throws        None
+ * @since         0.3.0
+ * @ingroup       kernel_driver
+ */
+void Out16(PortWrite16 write);
 
 /**
  * @brief         Reads one byte from a port.

@@ -1,6 +1,7 @@
 #include "../framework/framework.hpp"
 #include "cinux/bit_ops/bitmap.hpp"
 #include "cinux/literal_types.hpp"
+#include "test_assert.hpp"
 
 using cinux::base::bit::Bitmap;
 using cinux::base::bit::kInvalidIndex;
@@ -134,6 +135,35 @@ TEST("bitmap: whole-capacity run and rejects") {
     ASSERT_TRUE(map.find_clear_run(64) == 0);
     ASSERT_TRUE(map.find_clear_run(65) == kInvalidIndex);
     ASSERT_TRUE(map.find_clear_run(0) == kInvalidIndex);
+}
+
+TEST("bitmap: adopt binds loaded words without wiping them") {
+    WordMask storage[2] = {};
+    storage[0].raw      = 0x8000000000000001UL;
+    storage[1].raw      = 0x00000000000000FFUL;
+    Bitmap map{};
+    map.adopt(storage, 100);
+    ASSERT_TRUE(map.test(0));
+    ASSERT_TRUE(map.test(63));
+    ASSERT_TRUE(map.test(64));
+    ASSERT_TRUE(map.test(71));
+    ASSERT_TRUE(!map.test(1));
+    ASSERT_TRUE(!map.test(99));
+    ASSERT_TRUE(map.set_count() == 10);
+    ASSERT_TRUE(map.find_clear_run(1) == 1);
+}
+
+TEST("bitmap: adopt keeps later counting honest") {
+    WordMask storage[2] = {};
+    storage[0].raw      = 0x8000000000000001UL;
+    storage[1].raw      = 0x00000000000000FFUL;
+    Bitmap map{};
+    map.adopt(storage, 100);
+    map.set(1);
+    ASSERT_TRUE(map.set_count() == 11);
+    map.clear(71);
+    ASSERT_TRUE(map.set_count() == 10);
+    ASSERT_TRUE(map.clear_count() == 90);
 }
 
 int main() {

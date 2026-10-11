@@ -34,10 +34,13 @@ add_cinux_test(vmm)
 add_cinux_test(page)
 add_cinux_test(image)
 add_cinux_test(bitmap)
+add_cinux_test(time)
+add_cinux_test(path)
+add_cinux_test(rtc)
 add_cinux_test(font)
 add_cinux_test(framebuffer)
 add_cinux_test(console)
-add_cinux_test(keyboard ${CMAKE_SOURCE_DIR}/kernel/driver/scancode.cpp)
+add_cinux_test(keyboard ${CMAKE_SOURCE_DIR}/kernel/driver/keyboard/scancode.cpp)
 add_cinux_test(pmm ${CMAKE_SOURCE_DIR}/kernel/mm/pmm.cpp)
 add_cinux_test(heap ${CMAKE_SOURCE_DIR}/kernel/mm/heap.cpp)
 add_cinux_test(tick)
@@ -68,6 +71,15 @@ add_cinux_test(ramfs ${CMAKE_SOURCE_DIR}/kernel/fs/ramfs/ramfs.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
 add_cinux_test(ustar ${CMAKE_SOURCE_DIR}/kernel/fs/ustar.cpp)
+add_cinux_test(ext2 ${CMAKE_SOURCE_DIR}/kernel/fs/ext2/ext2_layout.cpp
+                    ${CMAKE_SOURCE_DIR}/kernel/fs/ext2/ext2.cpp
+                    ${CMAKE_SOURCE_DIR}/kernel/fs/ext2/ext2_write.cpp
+                    ${CMAKE_SOURCE_DIR}/kernel/driver/block/block_cache.cpp
+                    ${CMAKE_SOURCE_DIR}/kernel/driver/block/block_queue.cpp
+                    ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
+                    ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
+                    ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
+                    ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
 add_cinux_test(pci ${CMAKE_SOURCE_DIR}/kernel/driver/pci/pci_layout.cpp)
 add_cinux_test(ahci ${CMAKE_SOURCE_DIR}/kernel/driver/ahci/ahci_identify.cpp
                     ${CMAKE_SOURCE_DIR}/kernel/driver/ahci/ahci_layout.cpp)
@@ -99,16 +111,18 @@ foreach(entry IN LISTS CINUX_KTESTS CINUX_KTESTS_INTEGRATION)
         message(FATAL_ERROR
             "ktest '${ktest}' declares unknown stage '${ktest_stage}'; known: ${CINUX_KTEST_STAGES}")
     endif()
+    string(REPLACE "boot/ext2.img" "boot/ext2_ktest.img" CINUX_KTEST_DEVICE_ARGS
+                   "${CINUX_QEMU_DEVICE_ARGS}")
     add_test(NAME kernel_test_${ktest}
         COMMAND ${CMAKE_COMMAND}
                 -DQEMU_PROGRAM=${CINUX_QEMU_PROGRAM}
-                "-DQEMU_DEVICE_ARGS=${CINUX_QEMU_DEVICE_ARGS}"
+                "-DQEMU_DEVICE_ARGS=${CINUX_KTEST_DEVICE_ARGS}"
                 -DIMAGE_FILE=${CMAKE_BINARY_DIR}/boot/cinux_ktest_${ktest}.img
                 -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/kernel_test_${ktest}
                 -P ${CMAKE_SOURCE_DIR}/cmake/test/run_kernel_tests.cmake)
     set_tests_properties(kernel_test_${ktest} PROPERTIES TIMEOUT 120)
     list(APPEND CINUX_KTEST_IMAGE_TARGETS boot_ktest_${ktest})
-    add_dependencies(boot_ktest_${ktest} scratch_img)
+    add_dependencies(boot_ktest_${ktest} ext2_ktest_img)
 endforeach()
 
 add_custom_target(test_host

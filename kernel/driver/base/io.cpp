@@ -10,6 +10,10 @@ void out_port(uint16_t port, uint8_t value) {
     asm volatile("outb %0, %1" : : "a"(value), "Nd"(port));
 }
 
+void out_port16(uint16_t port, uint16_t value) {
+    asm volatile("outw %0, %1" : : "a"(value), "Nd"(port));
+}
+
 uint8_t in_port(uint16_t port) {
     uint8_t value = 0;  // NOLINT(misc-const-correctness)
     asm volatile("inb %1, %0" : "=a"(value) : "Nd"(port));
@@ -34,6 +38,10 @@ void OutB(PortWrite write) {
 
 uint8_t InB(uint16_t port) {
     return in_port(port);
+}
+
+void Out16(PortWrite16 write) {
+    out_port16(write.port, write.value);
 }
 
 void Out32(PortWrite32 write) {

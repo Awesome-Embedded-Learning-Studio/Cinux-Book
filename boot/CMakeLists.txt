@@ -14,14 +14,14 @@ add_library(boot_pm OBJECT
     lm/page_tables.cpp
     load/ferry32.cpp
     ${CMAKE_SOURCE_DIR}/kernel/driver/base/io.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/driver/serial.cpp)
+    ${CMAKE_SOURCE_DIR}/kernel/driver/serial/serial.cpp)
 target_link_libraries(boot_pm PRIVATE cinux_warnings cinux_boot32)
 target_include_directories(boot_pm PRIVATE
     ${CMAKE_SOURCE_DIR}/base/include
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR})
 
-add_executable(lm_blob lm/lm.cpp ${CMAKE_SOURCE_DIR}/kernel/driver/base/io.cpp ${CMAKE_SOURCE_DIR}/kernel/driver/serial.cpp)
+add_executable(lm_blob lm/lm.cpp ${CMAKE_SOURCE_DIR}/kernel/driver/base/io.cpp ${CMAKE_SOURCE_DIR}/kernel/driver/serial/serial.cpp)
 add_cinux_boot_binary(lm_blob 64 lm/lm.ld)
 target_compile_options(lm_blob PRIVATE -mcmodel=small)
 

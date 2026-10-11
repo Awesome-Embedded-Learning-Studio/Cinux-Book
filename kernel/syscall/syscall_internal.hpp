@@ -54,6 +54,23 @@ int ErrnoFrom(base::KernelError error);
 long long CopyUserPath(Word source, char* out, unsigned long cap);
 
 /**
+ * @brief         Copies a ring-3 path and lays it on the caller's cwd.
+ * @param[in]     source   The user address of the path, relative or
+ *                         absolute.
+ * @param[out]    out      Kernel storage for the absolute result.
+ * @param[in]     cap      How many bytes out holds.
+ * @return        The folded path length, or a negative errno
+ *                (-kEfault, -kEinval, -kEnametoolong when folding
+ *                overflows).
+ * @note          The corridor every path syscall walks: dots fold away,
+ *                dot-dot pops, and a relative path lands under the
+ *                calling task's working directory.
+ * @since         0.3.0
+ * @ingroup       kernel_syscall
+ */
+long long FoldUserPath(Word source, char* out, unsigned long cap);
+
+/**
  * @brief         The task currently holding the CPU.
  * @return        The task whose syscall this is.
  * @since         0.1.0

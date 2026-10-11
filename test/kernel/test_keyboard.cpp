@@ -4,7 +4,7 @@
 
 #include "framework_kernel.hpp"
 #include "kernel/driver/base/io.hpp"
-#include "kernel/driver/keyboard.hpp"
+#include "kernel/driver/keyboard/keyboard.hpp"
 #include "test_assert.hpp"
 #include "test_case.hpp"  // NOLINT(misc-include-cleaner) consumed by the TEST() macro body
 

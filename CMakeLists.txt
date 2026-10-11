@@ -27,20 +27,26 @@ include(cmake/compilers/kernel_modes.cmake)
 include(cmake/checks/options.cmake)
 
 set(CINUX_QEMU_PROGRAM qemu-system-x86_64 CACHE STRING "QEMU binary driving Cinux")
-set(CINUX_SCRATCH_IMG ${CMAKE_BINARY_DIR}/boot/scratch.img)
+set(CINUX_EXT2_IMG ${CMAKE_BINARY_DIR}/boot/ext2.img)
 add_custom_command(
-    OUTPUT ${CINUX_SCRATCH_IMG}
-    COMMAND ${CMAKE_COMMAND} -E touch ${CINUX_SCRATCH_IMG}
-    COMMAND truncate -s 1M ${CINUX_SCRATCH_IMG}
-    COMMENT "scratch disk for the AHCI experiments")
-add_custom_target(scratch_img DEPENDS ${CINUX_SCRATCH_IMG})
+    OUTPUT ${CINUX_EXT2_IMG}
+    COMMAND ${CMAKE_COMMAND} -E touch ${CINUX_EXT2_IMG}
+    COMMAND bash ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh ${CINUX_EXT2_IMG}
+    COMMENT "teaching ext2 volume for the block and fs experiments")
+add_custom_target(ext2_img DEPENDS ${CINUX_EXT2_IMG})
+set(CINUX_EXT2_KTEST_IMG ${CMAKE_BINARY_DIR}/boot/ext2_ktest.img)
+add_custom_target(ext2_ktest_img
+    COMMAND ${CMAKE_COMMAND} -E rm -f ${CINUX_EXT2_KTEST_IMG}
+    COMMAND ${CMAKE_COMMAND} -E copy ${CINUX_EXT2_IMG} ${CINUX_EXT2_KTEST_IMG}
+    DEPENDS ext2_img
+    COMMENT "scratch copy of the ext2 volume for kernel tests")
 set(CINUX_QEMU_DEVICE_ARGS
     -accel;kvm
     -display;none
     -no-reboot
     -device;isa-debug-exit,iobase=0xf4,iosize=0x04
     -device;ahci,id=sata0
-    -drive;format=raw,file=${CINUX_SCRATCH_IMG},if=none,id=spare
+    -drive;format=raw,file=${CINUX_EXT2_IMG},if=none,id=spare
     -device;ide-hd,drive=spare,bus=sata0.0)
 
 # Kernel test kernels: one entry "name:stage" = one test file
@@ -49,7 +55,7 @@ set(CINUX_QEMU_DEVICE_ARGS
 # names the init-ladder level the test main walks before running cases.
 set(CINUX_KTEST_STAGES exceptions irq keyboard mm proc block)
 set(CINUX_KTESTS selfcheck:exceptions tick:irq keyboard:keyboard vmm:mm heap:mm aspace:mm
-    sched:proc block:block)
+    sched:proc block:block ext2:block)
 set(CINUX_KTESTS_INTEGRATION "")
 
 message("Configuring Boot")

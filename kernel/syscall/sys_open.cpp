@@ -14,7 +14,7 @@ namespace cinux::syscall {
 long long HandleOpen(unsigned long long path, unsigned long long flags,
                      [[maybe_unused]] unsigned long long third) {
     char storage[fs::kFsPathMax] = {};
-    if (const long long kBad = CopyUserPath(path, storage, fs::kFsPathMax); kBad < 0) {
+    if (const long long kBad = FoldUserPath(path, storage, fs::kFsPathMax); kBad < 0) {
         return kBad;
     }
     const base::Result<fs::FsView> kView = fs::FileWorld::self().resolve(storage);

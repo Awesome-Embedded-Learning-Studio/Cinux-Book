@@ -23,8 +23,8 @@
 
 #include "cinux/container/ring_queue.hpp"
 #include "cinux/singleton.hpp"
-#include "kernel/driver/keyboard_config.hpp"
-#include "kernel/driver/scancode.hpp"
+#include "kernel/driver/keyboard/keyboard_config.hpp"
+#include "kernel/driver/keyboard/scancode.hpp"
 #include "kernel/proc/sync.hpp"
 
 namespace cinux::driver {

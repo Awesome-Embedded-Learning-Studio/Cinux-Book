@@ -27,7 +27,7 @@ namespace cinux::base {
 /**
  * @brief   Common error codes shared by the base layer.
  *
- * Ten entries after the fs floor arrived; kCount is a sentinel used by
+ * Eleven entries after the fs floor arrived; kCount is a sentinel used by
  * ErrorString() to keep its name table in sync at compile time.
  */
 enum class KernelError : std::uint8_t {
@@ -41,6 +41,7 @@ enum class KernelError : std::uint8_t {
     kNotADirectory,      ///< A path component used as a directory is a file.
     kIsADirectory,       ///< A file-only operation met a directory.
     kDirectoryNotEmpty,  ///< Removal met a directory still holding entries.
+    kNotSupported,       ///< The backend refuses this operation for now.
 
     kCount,  ///< Sentinel: number of real entries. Never returned.
 };
@@ -61,8 +62,9 @@ enum class KernelError : std::uint8_t {
  */
 constexpr const char* ErrorString(KernelError error) {
     constexpr const char* kNames[] = {
-        "Ok",         "OutOfMemory",   "InvalidArgument", "NotFound",     "IOError",
-        "WouldBlock", "AlreadyExists", "NotADirectory",   "IsADirectory", "DirectoryNotEmpty",
+        "Ok",           "OutOfMemory",       "InvalidArgument", "NotFound",
+        "IOError",      "WouldBlock",        "AlreadyExists",   "NotADirectory",
+        "IsADirectory", "DirectoryNotEmpty", "NotSupported",
     };
     static_assert(sizeof(kNames) / sizeof(kNames[0]) == std::to_underlying(KernelError::kCount));
 

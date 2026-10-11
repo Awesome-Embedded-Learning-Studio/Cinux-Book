@@ -17,7 +17,7 @@ namespace {
 
 constexpr unsigned long kSector  = 512;
 constexpr unsigned      kRounds  = 8;
-constexpr uint64_t      kBaseLba = 64;
+constexpr uint64_t      kBaseLba = 8040;
 
 static_assert(cinux::driver::BlockDevice<cinux::driver::Ahci>,
               "the ahci drive satisfies the block face");
@@ -59,9 +59,9 @@ TEST("block: the queued drive answers single read and write") {
     for (unsigned long index = 0; index < pattern.size(); ++index) {
         pattern[index] = static_cast<uint8_t>(0xC0 + index);
     }
-    ASSERT_TRUE(queue.write(cinux::driver::Lba{.value = 32}, cinux::driver::BlockSpan{.value = 1},
+    ASSERT_TRUE(queue.write(cinux::driver::Lba{.value = 8000}, cinux::driver::BlockSpan{.value = 1},
                             pattern.data()));
-    ASSERT_TRUE(queue.read(cinux::driver::Lba{.value = 32}, cinux::driver::BlockSpan{.value = 1},
+    ASSERT_TRUE(queue.read(cinux::driver::Lba{.value = 8000}, cinux::driver::BlockSpan{.value = 1},
                            readback.data()));
     ASSERT_TRUE(cinux::base::EqualBytes(pattern.data(), readback.data(), pattern.size()));
     ASSERT_TRUE(queue.flush());

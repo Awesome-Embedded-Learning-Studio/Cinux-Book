@@ -26,6 +26,7 @@ set(CINUX_KERNEL_CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/base/src/format/entry.cpp
     ${CMAKE_SOURCE_DIR}/base/src/format/radix.cpp
     ${CMAKE_SOURCE_DIR}/base/src/parse.cpp
+    ${CMAKE_SOURCE_DIR}/base/src/path.cpp
     ${CMAKE_SOURCE_DIR}/boot/early/libc.cpp)
 
 set(CINUX_KERNEL_NO_SSE_ISLAND

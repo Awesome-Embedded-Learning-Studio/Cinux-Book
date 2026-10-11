@@ -1,10 +1,10 @@
 /**
  * @file    file_world.cpp
- * @brief   Wiring the world: one ramfs, one root, one baked-in archive.
+ * @brief   Wiring the world: one queue, one volume, one root mount.
  *
  * @author  Charliechen114514
- * @date    2026-10-07
- * @version 0.1
+ * @date    2026-10-11
+ * @version 0.3
  * @since   0.1.0
  * @ingroup kernel_fs
  * @copyright Copyright (c) 2026
@@ -16,49 +16,35 @@
 
 #include "cinux/assert.hpp"
 #include "cinux/result.hpp"
-#include "kernel/fs/ramfs/ramfs.hpp"
-#include "kernel/fs/ustar.hpp"
+#include "kernel/driver/ahci/ahci.hpp"
+#include "kernel/driver/block/block_cache.hpp"
+#include "kernel/driver/block/block_config.hpp"
+#include "kernel/driver/block/block_queue.hpp"
+#include "kernel/driver/rtc/rtc.hpp"
+#include "kernel/fs/ext2/ext2.hpp"
 #include "kernel/fs/vfs.hpp"
-
-extern "C" {
-
-/// First byte of the initrd archive the linker baked into the image.
-extern unsigned char g_initrd_start[];
-/// One past the last byte of that archive.
-
-extern unsigned char g_initrd_end[];
-}  // extern "C"
 
 namespace cinux::fs {
 
-void FileWorld::init() {
-    ramfs_                            = new RamFs{};
-    const base::Result<void> kMounted = vfs_.mount("/", *ramfs_);
-    base::safety::Check(kMounted.ok(), "root ramfs mount failed");
-    plant_initrd();
+namespace {
+
+constexpr unsigned long kCacheSlotSectors = 2;
+
+unsigned long long wall_clock() {
+    return driver::Rtc::self().now_seconds();
 }
 
-void FileWorld::plant_initrd() {
-    const unsigned long kArchiveBytes = reinterpret_cast<unsigned long>(g_initrd_end) -
-                                        reinterpret_cast<unsigned long>(g_initrd_start);
-    UstarReader         reader(g_initrd_start, kArchiveBytes);
-    UstarEntry          entry;
-    while (reader.next(entry).value()) {
-        if (entry.type == InodeType::kDirectory) {
-            std::string_view path = entry.name;
-            if (path.ends_with('/')) {
-                path.remove_suffix(1);
-            }
-            const base::Result<FsNode> kDir = ramfs_->make_dir(path);
-            base::safety::Check(kDir.ok(), "initrd directory refused");
-            continue;
-        }
-        const base::Result<FsNode> kFile = ramfs_->make_file(entry.name);
-        base::safety::Check(kFile.ok(), "initrd file refused");
-        const base::Result<unsigned long> kStored =
-            ramfs_->write(kFile.value(), 0, entry.data.data(), entry.size);
-        base::safety::Check(kStored.ok(), "initrd content refused");
-    }
+}  // namespace
+
+void FileWorld::init() {
+    queue_  = new driver::BlockQueue(driver::Ahci::self());
+    cache_  = new driver::BlockCache(*queue_, kCacheSlotSectors, driver::kBlockCacheSlots);
+    volume_ = new ext2::Ext2(*cache_, wall_clock);
+
+    const base::Result<void> kMounted = volume_->mount();
+    base::safety::Check(kMounted.ok(), "ext2 volume refused to mount");
+    const base::Result<void> kRoot = vfs_.mount("/", *volume_);
+    base::safety::Check(kRoot.ok(), "ext2 root mount failed");
 }
 
 base::Result<FsView> FileWorld::resolve(std::string_view path) {

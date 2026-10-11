@@ -1,4 +1,4 @@
-#include "kernel/driver/scancode.hpp"
+#include "kernel/driver/keyboard/scancode.hpp"
 
 #include <stdint.h>
 

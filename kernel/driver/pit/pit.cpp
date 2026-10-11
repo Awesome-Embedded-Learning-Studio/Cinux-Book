@@ -14,7 +14,7 @@
  * @copyright Copyright (c) 2026
  */
 
-#include "kernel/driver/pit.hpp"
+#include "kernel/driver/pit/pit.hpp"
 
 #include <stdint.h>
 

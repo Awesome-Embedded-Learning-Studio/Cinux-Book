@@ -146,6 +146,18 @@ public:
     [[nodiscard]] base::Result<bool> read_dir(FsNode node, unsigned long index, FsDirent& entry);
 
     /**
+     * @brief         Reads one node's metadata.
+     *
+     * @param[in]     node    Handle from lookup or creation.
+     * @param[out]    probed  The metadata; mtime is zero — memory nodes
+     *                        keep no clock, and zero is the honest word.
+     * @return        Success.
+     * @since         0.3.0
+     * @ingroup       kernel_fs
+     */
+    [[nodiscard]] base::Result<void> stat(FsNode node, FsStat& probed);
+
+    /**
      * @brief   Keeps a node alive for an open descriptor.
      * @param[in] node   A valid borrowed or already retained handle.
      * @note    The caller protects lookup through retain from unlink.

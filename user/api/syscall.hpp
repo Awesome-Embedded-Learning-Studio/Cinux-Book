@@ -9,8 +9,8 @@
  * file retires — the ABI it speaks is already ours.
  *
  * @author  Charliechen114514
- * @date    2026-10-07
- * @version 0.1
+ * @date    2026-10-11
+ * @version 0.2
  * @since   0.1.0
  * @copyright Copyright (c) 2026
  */
@@ -136,6 +136,51 @@ inline long long Unlink(const char* path) {
 inline long long Getdents(unsigned long long descriptor, cinux::syscall::SyscallDirent* entry) {
     return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kGetdents),
                     descriptor, reinterpret_cast<unsigned long long>(entry), 0);
+}
+
+/**
+ * @brief         stat(path, out): one node's metadata.
+ * @param[in]     path   The path, relative or absolute.
+ * @param[out]    out    Receives the node's metadata.
+ * @return        Zero, or a negative errno.
+ * @since         0.2.0
+ */
+inline long long Stat(const char* path, cinux::syscall::SyscallStat* out) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kStat),
+                    reinterpret_cast<unsigned long long>(path),
+                    reinterpret_cast<unsigned long long>(out), 0);
+}
+
+/**
+ * @brief         chdir(path): move the working directory.
+ * @param[in]     path   The directory to land in, relative or absolute.
+ * @return        Zero, or a negative errno.
+ * @since         0.2.0
+ */
+inline long long Chdir(const char* path) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kChdir),
+                    reinterpret_cast<unsigned long long>(path), 0, 0);
+}
+
+/**
+ * @brief         getcwd(buf, size): read the working directory.
+ * @param[out]    buffer   Receives the NUL-terminated absolute path.
+ * @param[in]     size     Bytes writable at buffer, NUL included.
+ * @return        Bytes written without the NUL, or a negative errno.
+ * @since         0.2.0
+ */
+inline long long Getcwd(char* buffer, unsigned long long size) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kGetcwd),
+                    reinterpret_cast<unsigned long long>(buffer), size, 0);
+}
+
+/**
+ * @brief         reboot(): power the machine off.
+ * @return        Zero when the write went out, or a negative errno.
+ * @since         0.3.0
+ */
+inline long long Reboot() {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kReboot), 0, 0, 0);
 }
 
 /// exit(code): end this task; never returns.

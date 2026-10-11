@@ -1,7 +1,7 @@
 #include "kernel/syscall/sys_read.hpp"
 
 #include "cinux/result.hpp"
-#include "kernel/driver/keyboard.hpp"
+#include "kernel/driver/keyboard/keyboard.hpp"
 #include "kernel/fs/file_table.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"

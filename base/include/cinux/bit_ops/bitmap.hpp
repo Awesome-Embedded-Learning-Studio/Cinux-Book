@@ -87,6 +87,38 @@ public:
         clear_all();
     }
 
+    /**
+     * @brief         Binds storage whose bits already mean something.
+     *
+     * @param[in]     words         Caller-owned word array holding the
+     *                              bits as they stand; at least
+     *                              words_for(bit_capacity) entries.
+     * @param[in]     bit_capacity  Number of bits the bitmap governs.
+     * @return        None
+     * @note          init wipes the words into a fresh empty map; adopt
+     *                keeps them — the face for bits read off a disk. The
+     *                set count is walked up from the words so later set
+     *                and clear stay honest.
+     * @since         0.1.0
+     * @ingroup       base_bit_ops
+     */
+    void adopt(WordMask* words, unsigned long bit_capacity) {
+        words_                     = words;
+        capacity_                  = bit_capacity;
+        count_set_                 = 0;
+        unsigned long const kWords = words_for(bit_capacity);
+        for (unsigned long word_index = 0; word_index < kWords; ++word_index) {
+            unsigned long const kBase = word_index * 64;
+            unsigned long const kLeft = capacity_ - kBase;
+            auto const          kSpan = static_cast<unsigned char>(kLeft < 64UL ? kLeft : 64UL);
+            for (unsigned char bit = 0; bit < kSpan; ++bit) {
+                if (words[word_index].has(MaskBit<unsigned long>(bit))) {
+                    ++count_set_;
+                }
+            }
+        }
+    }
+
     /** @brief         Marks one bit; already-set bits keep the count honest. */
     void set(unsigned long index) {
         WordMask& word = words_[index / 64];

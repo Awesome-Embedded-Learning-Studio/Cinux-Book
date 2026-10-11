@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <stdint.h>
+
 namespace cinux::fs {
 
 /**
@@ -41,5 +43,11 @@ inline constexpr unsigned long kFsPathMax = 96;
  * @ingroup kernel_fs
  */
 inline constexpr unsigned long kMountMax = 8;
+
+/// The mode word stat reports and creation stamps for a directory.
+inline constexpr std::uint32_t kFsDirMode = 040755;
+
+/// The mode word stat reports and creation stamps for a regular file.
+inline constexpr std::uint32_t kFsFileMode = 0100644;
 
 }  // namespace cinux::fs

@@ -78,24 +78,11 @@ bool window_touches_usable(const cinux::boot::BootInfo& info, unsigned long wind
     return false;
 }
 
-void fill_usable_ram_pages(Entry* page_directory, unsigned long window,
-                           const cinux::boot::BootInfo& info) {
+void fill_window_pages(Entry* page_directory, unsigned long window) {
     unsigned long const kWindowTop = window + kHugePageSize;
-    for (uint32_t index = 0; index < info.e820_count; ++index) {
-        if (info.e820[index].type != cinux::boot::kE820Usable) {
-            continue;
-        }
-        auto const          kBase = static_cast<unsigned long>(info.e820[index].base);
-        auto const          kTop  = kBase + static_cast<unsigned long>(info.e820[index].length);
-        unsigned long const kLo   = kBase > window ? kBase : window;
-        unsigned long const kHi   = kTop < kWindowTop ? kTop : kWindowTop;
-        if (kLo >= kHi) {
-            continue;
-        }
-        for (unsigned long base = LargePageBase(kLo); base < kHi; base += kLargePageSize) {
-            page_directory[SlotIndex(base, WalkLevel::kPageDirectory)] =
-                MakeLargePageEntry(base, kWritable);
-        }
+    for (unsigned long base = window; base < kWindowTop; base += kLargePageSize) {
+        page_directory[SlotIndex(base, WalkLevel::kPageDirectory)] =
+            MakeLargePageEntry(base, kWritable);
     }
 }
 
@@ -250,7 +237,7 @@ const cinux::boot::BootInfo* BringUpAddressSpace(const cinux::boot::BootInfo& ha
         if (kDirectoryPhys == 0) {
             return nullptr;
         }
-        fill_usable_ram_pages(table_at(kDirectoryPhys), window, HandoffArchive::self().record());
+        fill_window_pages(table_at(kDirectoryPhys), window);
         table_at(kPdptPhys)[SlotIndex(window, WalkLevel::kPdpt)] =
             MakeTableEntry(kDirectoryPhys, kWritable);
     }
