@@ -141,6 +141,16 @@
       "trail": ["ring3", "TSS", "SYSCALL", "shell"]
     },
     {
+      "id": "14",
+      "slug": "14-storage",
+      "title": "无盘起家",
+      "titleEn": "Diskless Beginnings",
+      "desc": "机器还连着零块盘,文件和名字先住进了内核的堆里:路名有念法,名字挂成头插的树,ramfs 一把锁守着按页生长的字节,VFS 门面把后端藏进挂载表,ustar 行李烤进镜像、开机就栽。柜台一号一间添到九件,编号照旧贴 Linux,负 errno 报满十种;文件册每任务一本、八格三号起,退出自动还册。锁座次图立起排队的规矩,lockdep 四条构建线盯着。面板一行不添,变化全在 shell 里——ls、cat、echo 重定向,机器有了自己的文件世界。",
+      "note": "头插的孩子链、按页扩容、最长前缀挂载、512 块八进制、一次一条的目录读、锁座次与 retire——无盘起家,真盘排在后面",
+      "status": "open",
+      "trail": ["VFS", "ramfs", "initrd", "lockdep"]
+    },
+    {
       "id": "act2",
       "eyebrow": "幕间 & ACT II(预告)",
       "title": "重来一遍,从地基到系统",
