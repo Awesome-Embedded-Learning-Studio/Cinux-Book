@@ -151,6 +151,16 @@
       "trail": ["VFS", "ramfs", "initrd", "lockdep"]
     },
     {
+      "id": "15",
+      "slug": "15-block",
+      "title": "验明正身",
+      "titleEn": "Checking Credentials",
+      "desc": "盘真的进门了,机器第一次认识一件真家伙:PCI 走线把总线整个报一遍,七台设备有名有姓;AHCI 开寄存器窗、复位引擎、跟盘一句一句对讲;IDENTIFY 换回 256 个词,六道准入一道道查,查过了才注册。值班队列替所有任务排队,判决用新原语 Completion 发,睡觉用 EnableIrqAndHalt 睡得原子。开机阶梯添了两级台阶,PCI 在开中断前、认盘在开中断后——发问的人,必须站在开中断的后面。",
+      "note": "config 走线、BAR5 寄存器窗、六道准入、PxSIG 躺着不用、中断裁决三段、值班制与 16 槽池——盘认下了,盘上的字在下一卷",
+      "status": "open",
+      "trail": ["PCI", "AHCI", "block", "lockdep"]
+    },
+    {
       "id": "act2",
       "eyebrow": "幕间 & ACT II(预告)",
       "title": "重来一遍,从地基到系统",
