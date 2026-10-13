@@ -161,6 +161,16 @@
       "trail": ["PCI", "AHCI", "block", "lockdep"]
     },
     {
+      "id": "16",
+      "slug": "16-ext2",
+      "title": "认字",
+      "titleEn": "Learning to Read",
+      "desc": "盘听得懂人话了,这一卷教它认字:mkfs 烤一卷真 ext2 当教材,superblock、块组、inode 表一层层认过去,mount 六道门把材料对不上的卷挡在门外;读有洞有间址,写有位图、计数与目录项一串次序,写穿缓存垫在中间。路径的规矩搬进内核,cwd 与 stat 让客人问得出生辰;RTC 报出真钟点,时间戳落进 inode。开机换了新故事:PID 0 怠速、kernel_init 接管挂根,ACPI 一道电闸干净收工——根从此是一卷写得住字的真盘。",
+      "note": "1 KiB 块与块组、六道 mount 门、写穿缓存 8 槽、写面一把睡眠锁、目录不添块的取舍、stat 坐 6 号的错位、initrd 死重——盘上认字,存储线三卷合龙",
+      "status": "open",
+      "trail": ["ext2", "block cache", "cwd", "RTC"]
+    },
+    {
       "id": "act2",
       "eyebrow": "幕间 & ACT II(预告)",
       "title": "重来一遍,从地基到系统",
