@@ -141,6 +141,36 @@
       "trail": ["ring3", "TSS", "SYSCALL", "shell"]
     },
     {
+      "id": "14",
+      "slug": "14-storage",
+      "title": "无盘起家",
+      "titleEn": "Diskless Beginnings",
+      "desc": "机器还连着零块盘,文件和名字先住进了内核的堆里:路名有念法,名字挂成头插的树,ramfs 一把锁守着按页生长的字节,VFS 门面把后端藏进挂载表,ustar 行李烤进镜像、开机就栽。柜台一号一间添到九件,编号照旧贴 Linux,负 errno 报满十种;文件册每任务一本、八格三号起,退出自动还册。锁座次图立起排队的规矩,lockdep 四条构建线盯着。面板一行不添,变化全在 shell 里——ls、cat、echo 重定向,机器有了自己的文件世界。",
+      "note": "头插的孩子链、按页扩容、最长前缀挂载、512 块八进制、一次一条的目录读、锁座次与 retire——无盘起家,真盘排在后面",
+      "status": "open",
+      "trail": ["VFS", "ramfs", "initrd", "lockdep"]
+    },
+    {
+      "id": "15",
+      "slug": "15-block",
+      "title": "验明正身",
+      "titleEn": "Checking Credentials",
+      "desc": "盘真的进门了,机器第一次认识一件真家伙:PCI 走线把总线整个报一遍,七台设备有名有姓;AHCI 开寄存器窗、复位引擎、跟盘一句一句对讲;IDENTIFY 换回 256 个词,六道准入一道道查,查过了才注册。值班队列替所有任务排队,判决用新原语 Completion 发,睡觉用 EnableIrqAndHalt 睡得原子。开机阶梯添了两级台阶,PCI 在开中断前、认盘在开中断后——发问的人,必须站在开中断的后面。",
+      "note": "config 走线、BAR5 寄存器窗、六道准入、PxSIG 躺着不用、中断裁决三段、值班制与 16 槽池——盘认下了,盘上的字在下一卷",
+      "status": "open",
+      "trail": ["PCI", "AHCI", "block", "lockdep"]
+    },
+    {
+      "id": "16",
+      "slug": "16-ext2",
+      "title": "认字",
+      "titleEn": "Learning to Read",
+      "desc": "盘听得懂人话了,这一卷教它认字:mkfs 烤一卷真 ext2 当教材,superblock、块组、inode 表一层层认过去,mount 六道门把材料对不上的卷挡在门外;读有洞有间址,写有位图、计数与目录项一串次序,写穿缓存垫在中间。路径的规矩搬进内核,cwd 与 stat 让客人问得出生辰;RTC 报出真钟点,时间戳落进 inode。开机换了新故事:PID 0 怠速、kernel_init 接管挂根,ACPI 一道电闸干净收工——根从此是一卷写得住字的真盘。",
+      "note": "1 KiB 块与块组、六道 mount 门、写穿缓存 8 槽、写面一把睡眠锁、目录不添块的取舍、stat 坐 6 号的错位、initrd 死重——盘上认字,存储线三卷合龙",
+      "status": "open",
+      "trail": ["ext2", "block cache", "cwd", "RTC"]
+    },
+    {
       "id": "act2",
       "eyebrow": "幕间 & ACT II(预告)",
       "title": "重来一遍,从地基到系统",
