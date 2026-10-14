@@ -1,17 +1,32 @@
+#include "cinux/addr.hpp"
 #include "cinux/assert.hpp"
 #include "cinux/bit_ops/bitmask.hpp"
+#include "cinux/literal_types.hpp"
 #include "cinux/ptr.hpp"
 #include "framework_kernel.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
+#include "kernel/arch/x86_64/isr.hpp"
+#include "kernel/arch/x86_64/per_cpu.hpp"
+#include "kernel/arch/x86_64/registers.hpp"
+#include "kernel/mm/address_space.hpp"
+#include "kernel/mm/cow.hpp"
+#include "kernel/mm/layout.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/mm/vmm.hpp"
+#include "kernel/proc/fork.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/sync.hpp"
 #include "kernel/proc/task.hpp"
+#include "kernel/syscall/syscall.hpp"
 #include "kernel/time/tick.hpp"
 #include "test/mock/file_refs.hpp"
 #include "test_assert.hpp"
 #include "test_case.hpp"  // NOLINT(misc-include-cleaner) consumed by the TEST() macro body
+
+extern "C" void ForkChildEntry();
+
+using cinux::base::operator""_KiB;
 
 namespace {
 
@@ -40,14 +55,14 @@ void ping_pong_task() {
     auto& scheduler = cinux::proc::Scheduler::self();
     for (unsigned int round = 0; round < 3; ++round) {
         if (g_order_index < 8) {
-            g_order[g_order_index++] = static_cast<unsigned int>(scheduler.current()->tid);
+            g_order[g_order_index++] = static_cast<unsigned int>(scheduler.current()->pid);
         }
         scheduler.yield();
     }
 }
 
 void probe_task() {
-    auto&              scheduler = cinux::proc::Scheduler::self();
+    const auto&        scheduler = cinux::proc::Scheduler::self();
     // NOLINTBEGIN(misc-const-correctness) written by the asm output below
     unsigned long long r12       = 0;
     unsigned long long r13       = 0;
@@ -137,7 +152,7 @@ void check_blocking_round_trip(bool main_irq_enabled) {
 }
 
 struct VisitLog {
-    unsigned int tids[64];
+    unsigned int pids[64];
     unsigned int len;
 };
 
@@ -149,12 +164,12 @@ VisitLog* log_for(const char* name) {
 }
 
 void preempt_probe_task() {
-    auto&                    scheduler = cinux::proc::Scheduler::self();
+    const auto&              scheduler = cinux::proc::Scheduler::self();
     VisitLog*                log       = log_for(scheduler.current()->name);
     const unsigned long long kDeadline = cinux::time::Tick::self().since_boot() + 50;
     while (cinux::time::Tick::self().since_boot() < kDeadline) {
         if (log->len < 64) {
-            log->tids[log->len++] = static_cast<unsigned int>(scheduler.current()->tid);
+            log->pids[log->len++] = static_cast<unsigned int>(scheduler.current()->pid);
         }
     }
 }
@@ -206,6 +221,119 @@ void consumer_task() {
     }
 }
 
+cinux::proc::ChildReceipt g_receipt{};
+bool                      g_wait_ok      = false;
+unsigned long long        g_child_pid    = 0;
+unsigned int              g_grand_reaped = 0;
+
+void coded_child_task() {
+    cinux::proc::Scheduler::self().exit_current(42);
+}
+
+void waiting_parent_task() {
+    auto&       scheduler = cinux::proc::Scheduler::self();
+    auto* const kChild    = cinux::proc::TaskBuilder{}
+                                .set_entry(coded_child_task)
+                                .set_name("coded_child")
+                                .set_parent(*scheduler.current())
+                                .build();
+    cinux::base::safety::Check(kChild != nullptr, "wait test child failed to build");
+    scheduler.seat(*kChild);
+    g_wait_ok = scheduler.wait_child(-1, g_receipt);
+}
+
+void returning_child_task() {}
+
+void late_waiter_parent_task() {
+    auto&       scheduler = cinux::proc::Scheduler::self();
+    auto* const kChild    = cinux::proc::TaskBuilder{}
+                                .set_entry(returning_child_task)
+                                .set_name("early_child")
+                                .set_parent(*scheduler.current())
+                                .build();
+    cinux::base::safety::Check(kChild != nullptr, "late wait child failed to build");
+    scheduler.seat(*kChild);
+    g_child_pid = kChild->pid;
+    for (unsigned int round = 0; round < 4; ++round) {
+        scheduler.yield();
+    }
+    g_wait_ok = scheduler.wait_child(static_cast<long long>(g_child_pid), g_receipt);
+}
+
+void childless_waiter_task() {
+    g_wait_ok = cinux::proc::Scheduler::self().wait_child(-1, g_receipt);
+}
+
+void slow_orphan_child_task() {
+    for (unsigned int round = 0; round < 4; ++round) {
+        cinux::proc::Scheduler::self().yield();
+    }
+}
+
+void doomed_parent_task() {
+    auto&       scheduler = cinux::proc::Scheduler::self();
+    auto* const kChild    = cinux::proc::TaskBuilder{}
+                                .set_entry(slow_orphan_child_task)
+                                .set_name("orphan_child")
+                                .set_parent(*scheduler.current())
+                                .build();
+    cinux::base::safety::Check(kChild != nullptr, "orphan child failed to build");
+    scheduler.seat(*kChild);
+}
+
+void seed_clone_fixture(const cinux::mm::AddressSpace& parent, const unsigned long spots[3],
+                        cinux::base::PhysAddr frames[2]) {
+    auto& ledger = cinux::mm::Pmm::self();
+    for (unsigned int which = 0; which < 2; ++which) {
+        frames[which] = ledger.allocate_page();
+        cinux::base::safety::Check(frames[which] != cinux::base::PhysAddr{},
+                                   "clone fixture out of frames");
+    }
+    cinux::base::safety::Check(parent.map_user(spots[0], frames[0].raw), "fixture map a");
+    cinux::base::safety::Check(parent.map_user(spots[1], frames[0].raw), "fixture map b");
+    cinux::base::safety::Check(parent.map_user(spots[2], frames[1].raw), "fixture map c");
+}
+
+void sibling_parent_task() {
+    auto&       scheduler = cinux::proc::Scheduler::self();
+    auto* const kChild    = cinux::proc::TaskBuilder{}
+                                .set_entry(returning_child_task)
+                                .set_name("sibling_child")
+                                .set_parent(*scheduler.current())
+                                .build();
+    cinux::base::safety::Check(kChild != nullptr, "sibling child failed to build");
+    scheduler.seat(*kChild);
+    for (unsigned int round = 0; round < 6; ++round) {
+        scheduler.yield();
+    }
+    g_wait_ok = scheduler.wait_child(-1, g_receipt);
+}
+
+void grandmother_task() {
+    auto&       scheduler = cinux::proc::Scheduler::self();
+    auto* const kDoomed   = cinux::proc::TaskBuilder{}
+                                .set_entry(doomed_parent_task)
+                                .set_name("doomed_sibling")
+                                .set_parent(*scheduler.current())
+                                .build();
+    auto* const kWaiter   = cinux::proc::TaskBuilder{}
+                                .set_entry(sibling_parent_task)
+                                .set_name("waiting_sibling")
+                                .set_parent(*scheduler.current())
+                                .build();
+    cinux::base::safety::Check(kDoomed != nullptr && kWaiter != nullptr,
+                               "siblings failed to build");
+    scheduler.seat(*kDoomed);
+    scheduler.seat(*kWaiter);
+    for (unsigned int round = 0; round < 12; ++round) {
+        scheduler.yield();
+    }
+    cinux::proc::ChildReceipt gone{};
+    while (scheduler.wait_child(-1, gone)) {
+        g_grand_reaped++;
+    }
+}
+
 }  // namespace
 
 TEST("sched: two tasks ping-pong through cooperative yield") {
@@ -226,7 +354,7 @@ TEST("sched: callee-saved registers and xmm0 survive switches") {
 
 TEST("sched: spawn-exit cycles return pages to the pmm") {
     auto&               scheduler = cinux::proc::Scheduler::self();
-    auto&               ledger    = cinux::mm::Pmm::self();
+    const auto&         ledger    = cinux::mm::Pmm::self();
     const unsigned long kBefore   = ledger.free_page_count();
     for (unsigned int round = 0; round < 8; ++round) {
         seat_built(
@@ -266,7 +394,7 @@ TEST("sched: the clock rotates tasks that never yield") {
     scheduler.set_preemption(false);
     ASSERT_TRUE(g_log_a.len > 0);
     ASSERT_TRUE(g_log_b.len > 0);
-    ASSERT_TRUE(g_log_a.tids[0] != g_log_b.tids[0]);
+    ASSERT_TRUE(g_log_a.pids[0] != g_log_b.pids[0]);
 }
 
 TEST("sched: producer and consumer close the loop through locks") {
@@ -304,4 +432,271 @@ TEST("sched: the irq guard freezes the clock until its outermost exit") {
     while (cinux::time::Tick::self().since_boot() < kResumeDeadline) {
     }
     ASSERT_TRUE(cinux::time::Tick::self().since_boot() > kBefore);
+}
+
+TEST("sched: a parent's wait reaps the child and carries its exit word") {
+    g_receipt = cinux::proc::ChildReceipt{};
+    g_wait_ok = false;
+    seat_built(
+        cinux::proc::TaskBuilder{}.set_entry(waiting_parent_task).set_name("parent").build());
+    cinux::proc::Scheduler::self().run_until_done();
+    ASSERT_TRUE(g_wait_ok);
+    ASSERT_TRUE(g_receipt.code == 42);
+    ASSERT_TRUE(g_receipt.pid != 0);
+}
+
+TEST("sched: a child that died before the wait still answers it") {
+    g_receipt   = cinux::proc::ChildReceipt{};
+    g_wait_ok   = false;
+    g_child_pid = 0;
+    seat_built(
+        cinux::proc::TaskBuilder{}.set_entry(late_waiter_parent_task).set_name("late").build());
+    cinux::proc::Scheduler::self().run_until_done();
+    ASSERT_TRUE(g_wait_ok);
+    ASSERT_TRUE(g_receipt.code == 0);
+    ASSERT_TRUE(g_receipt.pid == g_child_pid);
+}
+
+TEST("sched: waiting with no child refuses instead of parking") {
+    g_wait_ok = true;
+    seat_built(
+        cinux::proc::TaskBuilder{}.set_entry(childless_waiter_task).set_name("childless").build());
+    cinux::proc::Scheduler::self().run_until_done();
+    ASSERT_TRUE(!g_wait_ok);
+}
+
+TEST("sched: waited spawn-exit cycles also return pages to the pmm") {
+    auto&               scheduler = cinux::proc::Scheduler::self();
+    const auto&         ledger    = cinux::mm::Pmm::self();
+    const unsigned long kBefore   = ledger.free_page_count();
+    for (unsigned int round = 0; round < 4; ++round) {
+        seat_built(
+            cinux::proc::TaskBuilder{}.set_entry(waiting_parent_task).set_name("waiter").build());
+    }
+    scheduler.run_until_done();
+    ASSERT_TRUE(ledger.free_page_count() == kBefore);
+}
+
+TEST("sched: a parent dying first releases its child to a parentless life") {
+    auto&               scheduler = cinux::proc::Scheduler::self();
+    const auto&         ledger    = cinux::mm::Pmm::self();
+    const unsigned long kBefore   = ledger.free_page_count();
+    for (unsigned int round = 0; round < 4; ++round) {
+        seat_built(
+            cinux::proc::TaskBuilder{}.set_entry(doomed_parent_task).set_name("doomed").build());
+    }
+    scheduler.run_until_done();
+    ASSERT_TRUE(ledger.free_page_count() == kBefore);
+}
+
+TEST("sched: one family's deaths leave another family's waits intact") {
+    auto&               scheduler = cinux::proc::Scheduler::self();
+    const auto&         ledger    = cinux::mm::Pmm::self();
+    const unsigned long kBefore   = ledger.free_page_count();
+    g_receipt                     = cinux::proc::ChildReceipt{};
+    g_wait_ok                     = false;
+    g_grand_reaped                = 0;
+    seat_built(cinux::proc::TaskBuilder{}.set_entry(grandmother_task).set_name("grand").build());
+    scheduler.run_until_done();
+    ASSERT_TRUE(g_wait_ok);
+    ASSERT_TRUE(g_grand_reaped == 2);
+    ASSERT_TRUE(ledger.free_page_count() == kBefore);
+}
+
+TEST("fork: the clone mirrors every parent page") {
+    const auto* const kWarm = new cinux::mm::AddressSpace{};
+    delete kWarm;
+    const auto&             ledger  = cinux::mm::Pmm::self();
+    const unsigned long     kBefore = ledger.free_page_count();
+    cinux::mm::AddressSpace parent;
+    ASSERT_TRUE(parent.init());
+    const unsigned long kSpots[3] = {
+        cinux::mm::kUserNullTop + 64_KiB,
+        cinux::mm::kUserNullTop + 68_KiB,
+        cinux::mm::kUserBrkMmapSplit + 32_KiB,
+    };
+    cinux::base::PhysAddr frames[2] = {};
+    seed_clone_fixture(parent, kSpots, frames);
+    cinux::mm::AddressSpace* const kChild = cinux::mm::cow::CloneSharedSpace(parent);
+    ASSERT_TRUE(kChild != nullptr);
+    ASSERT_EQ(kChild->translate(kSpots[0]), frames[0].raw);
+    ASSERT_EQ(kChild->translate(kSpots[1]), frames[0].raw);
+    ASSERT_EQ(kChild->translate(kSpots[2]), frames[1].raw);
+    kChild->teardown();
+    delete kChild;
+    parent.teardown();
+    ASSERT_EQ(ledger.free_page_count(), kBefore);
+}
+
+TEST("fork: a write on one side leaves the other side's view alone") {
+    const auto* const kWarm = new cinux::mm::AddressSpace{};
+    delete kWarm;
+    const auto&             ledger  = cinux::mm::Pmm::self();
+    const unsigned long     kBefore = ledger.free_page_count();
+    cinux::mm::AddressSpace parent;
+    ASSERT_TRUE(parent.init());
+    const unsigned long kSpots[3] = {
+        cinux::mm::kUserNullTop + 72_KiB,
+        cinux::mm::kUserNullTop + 76_KiB,
+        cinux::mm::kUserBrkMmapSplit + 36_KiB,
+    };
+    cinux::base::PhysAddr frames[2] = {};
+    seed_clone_fixture(parent, kSpots, frames);
+    cinux::mm::AddressSpace* const kChild = cinux::mm::cow::CloneSharedSpace(parent);
+    ASSERT_TRUE(kChild != nullptr);
+    kChild->activate();
+    ASSERT_TRUE(cinux::mm::cow::TryResolvePageFault(
+        kSpots[0], cinux::arch::isr::kFaultWasWrite | cinux::arch::isr::kFaultFromUser));
+    ASSERT_TRUE(kChild->translate(kSpots[0]) != frames[0].raw);
+    ASSERT_EQ(kChild->translate(kSpots[1]), frames[0].raw);
+    ASSERT_EQ(parent.translate(kSpots[0]), frames[0].raw);
+    cinux::arch::LoadCr3(cinux::mm::KernelPageRoot());
+    kChild->teardown();
+    delete kChild;
+    parent.teardown();
+    ASSERT_EQ(ledger.free_page_count(), kBefore);
+}
+
+namespace {
+
+constexpr unsigned long long kForkUserR12 = 0xF012000000000001ULL;
+constexpr unsigned long long kForkUserR13 = 0xF013000000000002ULL;
+constexpr unsigned long long kForkUserR14 = 0xF014000000000003ULL;
+constexpr unsigned long long kForkUserR15 = 0xF015000000000004ULL;
+constexpr unsigned long long kForkUserRsp = 0x0000000000005000ULL;
+constexpr unsigned long long kForkUserRip = 0x0000000000400016ULL;
+
+cinux::mm::AddressSpace      g_fork_world;
+cinux::syscall::SyscallFrame g_fork_frame{};
+bool                         g_fork_built = false;
+
+void bank_entry_values() {
+    auto& bank         = cinux::arch::per_cpu::PerCpu::self();
+    bank.user_r12      = kForkUserR12;
+    bank.user_r13      = kForkUserR13;
+    bank.user_r14      = kForkUserR14;
+    bank.user_r15      = kForkUserR15;
+    bank.syscall_frame = reinterpret_cast<unsigned long long>(&g_fork_frame);
+}
+
+void retire_fork_child(cinux::proc::Task& child) {
+    delete child.space;
+    const auto kStackPhys = cinux::mm::DirectMapPhys(child.stack_base);
+    cinux::mm::Pmm::self().free_pages(cinux::base::PhysAddr{kStackPhys}, cinux::proc::kStackOrder);
+    delete &child;
+}
+
+void arm_fork_frame() {
+    g_fork_frame          = cinux::syscall::SyscallFrame{};
+    g_fork_frame.user_rsp = kForkUserRsp;
+    g_fork_frame.rcx      = kForkUserRip;
+    g_fork_frame.r11      = 0x202;
+    g_fork_frame.rax      = 57;
+}
+
+void inspect_fork_family(cinux::proc::Task& child, cinux::proc::Task& parent,
+                         unsigned long first_fd) {
+    ASSERT_TRUE(child.parent == &parent);
+    ASSERT_TRUE(child.user_root != g_fork_world.root());
+    ASSERT_EQ(child.user_root, child.space->root());
+    ASSERT_TRUE(child.space != nullptr);
+    ASSERT_TRUE(child.space != &g_fork_world);
+    ASSERT_TRUE(child.files.get(first_fd).ok());
+    ASSERT_EQ(parent.files.get(first_fd).value()->offset, 128UL);
+    ASSERT_EQ(child.files.get(first_fd).value()->offset, 128UL);
+}
+
+void inspect_fork_child(cinux::proc::Task& child, cinux::proc::Task& parent,
+                        unsigned long first_fd) {
+    ASSERT_EQ(child.ctx.rip, reinterpret_cast<unsigned long long>(&ForkChildEntry));
+    ASSERT_EQ(child.ctx.rsp + sizeof(cinux::syscall::SyscallFrame),
+              child.stack_base + cinux::proc::kStackBytes);
+    ASSERT_EQ(child.ctx.r12, kForkUserR12);
+    ASSERT_EQ(child.ctx.r13, kForkUserR13);
+    ASSERT_EQ(child.ctx.r14, kForkUserR14);
+    ASSERT_EQ(child.ctx.r15, kForkUserR15);
+    const auto* const kCopied =
+        cinux::base::PtrAt<const cinux::syscall::SyscallFrame>(child.ctx.rsp);
+    ASSERT_EQ(kCopied->user_rsp, kForkUserRsp);
+    ASSERT_EQ(kCopied->rcx, kForkUserRip);
+    inspect_fork_family(child, parent, first_fd);
+}
+
+void fork_exit_child() {
+    cinux::proc::Scheduler::self().exit_current(42);
+}
+
+void fork_wait_parent_task() {
+    auto&       scheduler = cinux::proc::Scheduler::self();
+    auto* const kSelf     = scheduler.current();
+    kSelf->space          = &g_fork_world;
+    cinux::base::safety::Check(g_fork_world.init(), "fork wait world failed");
+    auto* const kChild = cinux::proc::TaskBuilder{}
+                             .set_entry(fork_exit_child)
+                             .set_name("fork_calf")
+                             .set_parent(*kSelf)
+                             .build();
+    cinux::base::safety::Check(kChild != nullptr, "fork wait child failed");
+    scheduler.seat(*kChild);
+    g_receipt    = cinux::proc::ChildReceipt{};
+    g_wait_ok    = scheduler.wait_child(-1, g_receipt);
+    kSelf->space = nullptr;
+    g_fork_world.teardown();
+}
+
+void forking_parent_task() {
+    const auto& scheduler = cinux::proc::Scheduler::self();
+    auto* const kSelf     = scheduler.current();
+    cinux::base::safety::Check(g_fork_world.init(), "fork fixture world failed");
+    const cinux::base::PhysAddr kPage = cinux::mm::Pmm::self().allocate_page();
+    cinux::base::safety::Check(kPage != cinux::base::PhysAddr{}, "fork fixture frame failed");
+    cinux::base::safety::Check(g_fork_world.map_user(cinux::mm::kUserNullTop + 80_KiB, kPage.raw),
+                               "fork fixture map failed");
+    kSelf->space       = &g_fork_world;
+    const auto kFirst  = kSelf->files.alloc(&cinux::test::FileRefs::kOps, &g_file_refs, {});
+    const auto kSecond = kSelf->files.alloc(&cinux::test::FileRefs::kOps, &g_file_refs, {});
+    cinux::base::safety::Check(kFirst.ok() && kSecond.ok(), "fork fixture fds failed");
+    kSelf->files.get(kFirst.value()).value()->offset = 128;
+    arm_fork_frame();
+    bank_entry_values();
+    cinux::proc::Task* const kChild =
+        cinux::proc::BuildForkChild(reinterpret_cast<unsigned long long>(&g_fork_frame));
+    g_fork_built = kChild != nullptr;
+    if (kChild == nullptr) {
+        return;
+    }
+    inspect_fork_child(*kChild, *kSelf, kFirst.value());
+    retire_fork_child(*kChild);
+    kSelf->space = nullptr;
+    g_fork_world.teardown();
+}
+
+}  // namespace
+
+TEST("fork: a seated child exits into the parent's wait") {
+    auto&               scheduler = cinux::proc::Scheduler::self();
+    const auto&         ledger    = cinux::mm::Pmm::self();
+    const unsigned long kBefore   = ledger.free_page_count();
+    g_wait_ok                     = false;
+    seat_built(cinux::proc::TaskBuilder{}
+                   .set_entry(fork_wait_parent_task)
+                   .set_name("fork_waiter")
+                   .build());
+    scheduler.run_until_done();
+    ASSERT_TRUE(g_wait_ok);
+    ASSERT_TRUE(g_receipt.code == 42);
+    ASSERT_TRUE(g_receipt.pid != 0);
+    ASSERT_EQ(ledger.free_page_count(), kBefore);
+}
+
+TEST("fork: a built child carries the frame, the files, and the family") {
+    auto&               scheduler = cinux::proc::Scheduler::self();
+    const auto&         ledger    = cinux::mm::Pmm::self();
+    const unsigned long kBefore   = ledger.free_page_count();
+    g_fork_built                  = false;
+    seat_built(
+        cinux::proc::TaskBuilder{}.set_entry(forking_parent_task).set_name("fparent").build());
+    scheduler.run_until_done();
+    ASSERT_TRUE(g_fork_built);
+    ASSERT_EQ(ledger.free_page_count(), kBefore);
 }

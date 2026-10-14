@@ -30,6 +30,7 @@
 
 #include "cinux/container/slot_table.hpp"
 #include "cinux/memory.hpp"
+#include "cinux/own.hpp"
 #include "cinux/result.hpp"
 #include "kernel/fs/fs_config.hpp"
 
@@ -201,6 +202,22 @@ struct FsView {
     void*            self;  ///< The winning backend instance.
     std::string_view rest;  ///< Path past the mount point.
 };
+
+/**
+ * @brief         Reads one whole file into an owned heap buffer.
+ * @param[in]     view        The resolved backend face for the file.
+ * @param[out]    out         Receives the buffer; empty on refusal.
+ * @param[out]    out_bytes   The file's byte count.
+ * @return        true when every byte landed.
+ * @note          exec and init share this ladder: lookup, stat, one
+ *                allocation, one read, a size match. Short reads are
+ *                refusals — a program image that arrives incomplete
+ *                must never run.
+ * @since         0.4.0
+ * @ingroup kernel_fs
+ */
+[[nodiscard]] bool ReadWholeFile(const FsView& view, base::Own<unsigned char[]>& out,
+                                 unsigned long& out_bytes);
 
 /**
  * @brief   The mount table: path prefixes to backends, nothing more.

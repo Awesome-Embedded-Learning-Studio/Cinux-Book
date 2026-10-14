@@ -20,6 +20,31 @@
 
 namespace cinux::arch::isr {
 
+/// The vector the CPU hands the kernel for a page fault.
+inline constexpr unsigned long long kPageFaultVector = 14;
+
+/// Page-fault error code, bit 0: the mapping exists; the fault is a
+/// permission clash, not a missing page.
+inline constexpr unsigned long long kFaultProtection = 1ULL << 0U;
+
+/// Page-fault error code, bit 1: the access was a write.
+inline constexpr unsigned long long kFaultWasWrite = 1ULL << 1U;
+
+/// Page-fault error code, bit 2: the access came from ring 3.
+inline constexpr unsigned long long kFaultFromUser = 1ULL << 2U;
+
+/**
+ * @brief         One chance to answer a page fault without dying.
+ * @param[in]     address     CR2 as the handler read it.
+ * @param[in]     error_code  The CPU-pushed fault code.
+ * @return        true when the mapping was repaired and the faulting
+ *                instruction may re-run; false to fall through to the
+ *                dump (or an armed recovery).
+ * @since         0.2.0
+ * @ingroup       kernel_arch
+ */
+using PageFaultResolver = bool (*)(unsigned long long address, unsigned long long error_code);
+
 struct [[gnu::packed]] InterruptFrame {
     unsigned long long rip;
     unsigned long long cs;
@@ -68,6 +93,20 @@ bool ArmRecoverableFault(unsigned long long vector, unsigned long long skip_byte
  * @ingroup       kernel_arch
  */
 unsigned long long TakeRecoveredVector();
+
+/**
+ * @brief         Seat the one resolver every page fault is offered to.
+ * @param[in]     resolver   The callback, or nullptr to uninstall.
+ * @return        None.
+ * @note          The memory theme's copy-on-write answer installs here;
+ *                a resolver that declines (returns false) changes nothing,
+ *                the fault falls through to the armed-recovery probe and
+ *                then the dump. One seat on purpose: the kernel has one
+ *                story about why a page fault may be survivable.
+ * @since         0.2.0
+ * @ingroup       kernel_arch
+ */
+void InstallPageFaultResolver(PageFaultResolver resolver);
 
 /**
  * @brief         Arm all 32 CPU exception vectors with attribute stubs.

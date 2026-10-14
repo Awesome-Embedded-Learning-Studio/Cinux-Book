@@ -9,7 +9,11 @@ namespace {
 
 cinux::fs::FsNode sample_node(unsigned long ino) {
     return cinux::fs::FsNode{
-        .opaque = nullptr, .type = cinux::fs::InodeType::kFile, .ino = ino, .size = 0};
+        .opaque = nullptr,
+        .type   = cinux::fs::InodeType::kFile,
+        .ino    = ino,
+        .size   = 0,
+    };
 }
 
 }  // namespace

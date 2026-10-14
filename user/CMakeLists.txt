@@ -18,16 +18,28 @@ target_include_directories(user_shell PRIVATE
     ${CMAKE_SOURCE_DIR})
 target_compile_definitions(user_shell PRIVATE __USER__)
 target_link_options(user_shell PRIVATE
-    -T ${CMAKE_CURRENT_SOURCE_DIR}/linker.ld
     -nostdlib
     -static
     -no-pie
+    -Wl,-e,_start
     -lgcc)
 set_target_properties(user_shell PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
-    OUTPUT_NAME "shell")
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user)
 
-add_custom_command(TARGET user_shell POST_BUILD
-    COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:user_shell> ${CMAKE_BINARY_DIR}/user/shell.bin
-    COMMENT "Converting user shell to flat binary"
-    VERBATIM)
+set_target_properties(user_shell PROPERTIES OUTPUT_NAME "shell.elf")
+
+add_executable(user_hello programs/hello.cpp)
+target_compile_options(user_hello PRIVATE ${USER_COMPILE_FLAGS})
+target_include_directories(user_hello PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR})
+target_compile_definitions(user_hello PRIVATE __USER__)
+target_link_options(user_hello PRIVATE
+    -nostdlib
+    -static
+    -no-pie
+    -Wl,-e,_start
+    -lgcc)
+set_target_properties(user_hello PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
+    OUTPUT_NAME "hello.elf")

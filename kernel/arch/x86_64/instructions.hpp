@@ -51,7 +51,7 @@ inline unsigned long long ReadMsr(unsigned int index) {
     // NOLINTNEXTLINE(misc-const-correctness)
     unsigned int high = 0;
     __asm__ volatile("rdmsr" : "=a"(low), "=d"(high) : "c"(index));
-    return (static_cast<unsigned long long>(high) << 32) | low;
+    return (static_cast<unsigned long long>(high) << 32U) | static_cast<unsigned long long>(low);
 }
 
 /**
@@ -69,7 +69,7 @@ inline unsigned long long ReadMsr(unsigned int index) {
  */
 inline void WriteMsr(unsigned int index, unsigned long long value) {
     auto const kLow  = static_cast<unsigned int>(value & 0xFFFFFFFFULL);
-    auto const kHigh = static_cast<unsigned int>(value >> 32);
+    auto const kHigh = static_cast<unsigned int>(value >> 32U);
     __asm__ volatile("wrmsr" : : "c"(index), "a"(kLow), "d"(kHigh) : "memory");
 }
 

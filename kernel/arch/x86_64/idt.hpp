@@ -44,13 +44,15 @@ struct [[gnu::packed]] GateEntry {
  */
 constexpr GateEntry EncodeGate(unsigned long long handler, unsigned short selector,
                                unsigned char ist, unsigned char type_attr) {
-    return GateEntry{.offset_low  = static_cast<unsigned short>(handler & 0xFFFF),
-                     .selector    = selector,
-                     .ist         = ist,
-                     .type_attr   = type_attr,
-                     .offset_mid  = static_cast<unsigned short>((handler >> 16) & 0xFFFF),
-                     .offset_high = static_cast<unsigned int>(handler >> 32),
-                     .reserved    = 0};
+    return GateEntry{
+        .offset_low  = static_cast<unsigned short>(handler & 0xFFFFU),
+        .selector    = selector,
+        .ist         = ist,
+        .type_attr   = type_attr,
+        .offset_mid  = static_cast<unsigned short>((handler >> 16U) & 0xFFFFU),
+        .offset_high = static_cast<unsigned int>(handler >> 32U),
+        .reserved    = 0,
+    };
 }
 
 struct [[gnu::packed]] TablePointer {

@@ -144,8 +144,8 @@ constexpr unsigned long IoremapVirt(unsigned long physical) {
     return kIoremapBase + physical;
 }
 
-static_assert(kPml4EntrySpan == (1UL << 39), "one PML4 entry spans 2^39 bytes");
-static_assert(kDirectMapBase == (0xFFFF000000000000UL | (kDirectMapPml4 << 39)),
+static_assert(kPml4EntrySpan == (1UL << 39U), "one PML4 entry spans 2^39 bytes");
+static_assert(kDirectMapBase == (0xFFFF000000000000UL | (kDirectMapPml4 << 39U)),
               "direct map sits exactly at its PML4 slot");
 static_assert(kHeapBase == kDirectMapBase + kPml4EntrySpan, "heap owns the next entry");
 static_assert(kVmallocBase == kHeapBase + kPml4EntrySpan, "vmalloc owns the next entry");
@@ -153,12 +153,12 @@ static_assert(kIoremapBase == kVmallocBase + kPml4EntrySpan, "ioremap owns the n
 static_assert(kIoremapBase + kPml4EntrySpan <= 0xFFFFFF8000000000UL,
               "reserved entries stop before the kernel image entry");
 static_assert(kKernelImageBase ==
-                  (0xFFFF000000000000UL | (kKernelPml4 << 39) | (kKernelImagePdpt << 30)),
+                  (0xFFFF000000000000UL | (kKernelPml4 << 39U) | (kKernelImagePdpt << 30U)),
               "image window sits exactly at its PDPT slot");
-static_assert(kModuleBase == (0xFFFF000000000000UL | (kKernelPml4 << 39) | (kModulePdpt << 30)),
+static_assert(kModuleBase == (0xFFFF000000000000UL | (kKernelPml4 << 39U) | (kModulePdpt << 30U)),
               "module reservation sits exactly at its PDPT slot");
 static_assert(kModuleBase == kKernelImageBase + 1_GiB, "modules follow the image window");
-static_assert(kUserTop == (1UL << 47), "user half ends at the canonical boundary");
+static_assert(kUserTop == (1UL << 47U), "user half ends at the canonical boundary");
 static_assert(kUserStackTop + cinux::arch::page::kSize == kUserTop,
               "one guard page separates the stack top from user top");
 static_assert(kUserNullTop < kUserBrkMmapSplit && kUserBrkMmapSplit < kUserMmapTop &&

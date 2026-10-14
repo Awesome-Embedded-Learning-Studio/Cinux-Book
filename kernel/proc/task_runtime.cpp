@@ -1,8 +1,10 @@
+#include "cinux/own.hpp"
 #include "kernel/arch/x86_64/context.hpp"
 #include "kernel/arch/x86_64/halt.hpp"
 #include "kernel/arch/x86_64/per_cpu.hpp"
 #include "kernel/arch/x86_64/registers.hpp"
 #include "kernel/arch/x86_64/tss.hpp"
+#include "kernel/mm/address_space.hpp"  // NOLINT(misc-include-cleaner) delete needs the complete type
 #include "kernel/mm/layout.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vmm.hpp"
@@ -14,13 +16,11 @@ namespace cinux::proc {
 
 namespace {
 
-/// log2(kStackPages); the PMM frees with the same order it granted.
-constexpr int kStackOrder = 2;
-
-static_assert((1U << kStackOrder) == kStackPages, "order matches the stack size");
+static_assert((1U << static_cast<unsigned>(kStackOrder)) == kStackPages,
+              "order matches the stack size");
 
 [[noreturn]] void task_exit_hook() {
-    Scheduler::self().exit_current();
+    Scheduler::self().exit_current(0);
     cinux::arch::Halt();
 }
 
@@ -55,6 +55,7 @@ public:
     }
 
     void reclaim(Task& dead) {
+        delete dead.space;
         const auto kStackPhys = cinux::mm::DirectMapPhys(dead.stack_base);
         cinux::mm::Pmm::self().free_pages(cinux::base::PhysAddr{kStackPhys}, kStackOrder);
         delete &dead;
@@ -82,6 +83,11 @@ TaskBuilder& TaskBuilder::set_name(const char* name) {
     return *this;
 }
 
+TaskBuilder& TaskBuilder::set_parent(Task& parent) {
+    parent_ = &parent;
+    return *this;
+}
+
 Task* TaskBuilder::build() {
     if (entry_ == nullptr) {
         return nullptr;
@@ -90,22 +96,26 @@ Task* TaskBuilder::build() {
     if (kBase == cinux::base::PhysAddr{}) {
         return nullptr;
     }
-    auto* const kTask = new Task{};
-    if (kTask == nullptr) {
+    base::Own<Task> k_task = base::MakeOwn<Task>();
+    if (!k_task.holds()) {
         cinux::mm::Pmm::self().free_pages(kBase, kStackOrder);
         return nullptr;
     }
+    Task* const         kBorn      = k_task.get();
     const unsigned long kStackVirt = cinux::mm::DirectMapVirt(kBase.raw);
-    const StartPlan     kPlan{.trampoline   = reinterpret_cast<unsigned long long>(&TaskTrampoline),
-                              .entry        = reinterpret_cast<unsigned long long>(entry_),
-                              .exit_hook    = reinterpret_cast<unsigned long long>(&task_exit_hook),
-                              .stack_bottom = kStackVirt,
-                              .stack_top    = kStackVirt + kStackBytes};
-    PrepareTaskContext(kTask->ctx, kPlan);
-    kTask->state      = TaskState::kReady;
-    kTask->name       = name_;
-    kTask->stack_base = kStackVirt;
-    return kTask;
+    const StartPlan     kPlan{
+        .trampoline   = reinterpret_cast<unsigned long long>(&TaskTrampoline),
+        .entry        = reinterpret_cast<unsigned long long>(entry_),
+        .exit_hook    = reinterpret_cast<unsigned long long>(&task_exit_hook),
+        .stack_bottom = kStackVirt,
+        .stack_top    = kStackVirt + kStackBytes,
+    };
+    PrepareTaskContext(kBorn->ctx, kPlan);
+    kBorn->state      = TaskState::kReady;
+    kBorn->name       = name_;
+    kBorn->stack_base = kStackVirt;
+    kBorn->parent     = parent_;
+    return k_task.release();
 }
 
 }  // namespace cinux::proc

@@ -57,7 +57,7 @@ target_include_directories(stage2 PRIVATE ${CMAKE_SOURCE_DIR}/base/src)
 target_compile_options(stage2 PRIVATE -ffunction-sections)
 add_dependencies(stage2 lm_blob_obj)
 
-add_custom_target(stage2_size_check
+add_custom_target(stage2_size_check ALL
     COMMAND ${CMAKE_COMMAND}
             -DSIZE_FILE=${CMAKE_CURRENT_BINARY_DIR}/stage2.bin
             -DMAX_SECTORS=${CMAKE_MATCH_1}
@@ -66,7 +66,7 @@ add_custom_target(stage2_size_check
 )
 
 function(add_cinux_image name image_file kernel_bin kernel_dep)
-    add_custom_target(${name}
+    add_custom_target(${name} ALL
         COMMAND ${CMAKE_COMMAND} -E remove ${image_file}
         COMMAND dd if=/dev/zero of=${image_file} bs=1M count=1 status=none
         COMMAND dd if=${CMAKE_BINARY_DIR}/boot/mbr.bin

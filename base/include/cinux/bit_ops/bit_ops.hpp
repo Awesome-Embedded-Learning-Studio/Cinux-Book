@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <type_traits>
+
 namespace cinux::base::bit {
 /**
  * @brief         Low nibble of any integer: the least significant 4 bits.
@@ -26,7 +28,7 @@ namespace cinux::base::bit {
  */
 template <typename T>
 constexpr T LowNibble(T value) {
-    return value & 0xF;
+    return static_cast<T>(static_cast<unsigned>(value) & 0xFU);
 }
 
 /**
@@ -42,7 +44,7 @@ constexpr T LowNibble(T value) {
  */
 template <typename T>
 constexpr T HighNibble(T value) {
-    return (value >> 4) & 0xF;
+    return static_cast<T>((static_cast<unsigned>(value) >> 4U) & 0xFU);
 }
 
 /**
@@ -58,7 +60,7 @@ constexpr T HighNibble(T value) {
  */
 template <typename T>
 constexpr T LowByte(T value) {
-    return value & 0xFF;
+    return static_cast<T>(static_cast<unsigned>(value) & 0xFFU);
 }
 
 /**
@@ -74,7 +76,7 @@ constexpr T LowByte(T value) {
  */
 template <typename T>
 constexpr T HighByte(T value) {
-    return (value >> 8) & 0xFF;
+    return static_cast<T>((static_cast<unsigned>(value) >> 8U) & 0xFFU);
 }
 
 /**
@@ -91,7 +93,7 @@ constexpr T HighByte(T value) {
  */
 template <typename T>
 constexpr T NibbleAt(T value, unsigned char shift) {
-    return (value >> shift) & 0xF;
+    return static_cast<T>((static_cast<unsigned>(value) >> shift) & 0xFU);
 }
 
 // Lets Learn Rust, Test Static locally :)

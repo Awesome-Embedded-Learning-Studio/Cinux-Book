@@ -40,18 +40,18 @@ struct [[gnu::packed]] SegmentDescriptor {
 /// Access-byte grammar of a code/data descriptor; two vocabularies that
 /// must never mix, hence two scoped enums instead of raw bytes.
 enum class SegmentAccess : unsigned char {
-    kPresent    = 1U << 7,  ///< Bit 7: the segment exists.
-    kRing0      = 0U << 5,  ///< Bits 6..5: descriptor privilege level, kernel.
-    kRing3      = 3U << 5,  ///< Bits 6..5: descriptor privilege level, user.
-    kCodeData   = 1U << 4,  ///< Bit 4: a code or data segment, not a system one.
-    kExecutable = 1U << 3,  ///< Bit 3: executable — a code segment.
-    kReadWrite  = 1U << 1,  ///< Bit 1: readable for code, writable for data.
+    kPresent    = 1U << 7U,  ///< Bit 7: the segment exists.
+    kRing0      = 0U << 5U,  ///< Bits 6..5: descriptor privilege level, kernel.
+    kRing3      = 3U << 5U,  ///< Bits 6..5: descriptor privilege level, user.
+    kCodeData   = 1U << 4U,  ///< Bit 4: a code or data segment, not a system one.
+    kExecutable = 1U << 3U,  ///< Bit 3: executable — a code segment.
+    kReadWrite  = 1U << 1U,  ///< Bit 1: readable for code, writable for data.
 };
 
 /// Flag-nibble grammar: the top nibble of flags_limit_high, bits 3..0.
 enum class SegmentFlags : unsigned char {
-    kGranularity4K = 1U << 3,  ///< Nibble bit 3: limit counts in 4K units.
-    kLongMode      = 1U << 1,  ///< Nibble bit 1: L=1, the 64-bit default size.
+    kGranularity4K = 1U << 3U,  ///< Nibble bit 3: limit counts in 4K units.
+    kLongMode      = 1U << 1U,  ///< Nibble bit 1: L=1, the 64-bit default size.
 };
 
 /**
@@ -90,8 +90,8 @@ enum class SegmentFlags : unsigned char {
  * @ingroup       kernel_arch
  */
 constexpr unsigned char MakeFlagsLimitHigh(SegmentFlags flags) {
-    return static_cast<unsigned char>((static_cast<unsigned char>(flags) << 4) |
-                                      cinux::base::bit::Ones<unsigned char>(4));
+    return static_cast<unsigned char>((static_cast<unsigned>(flags) << 4U) |
+                                      cinux::base::bit::Ones<unsigned>(4));
 }
 
 /// Selector of the second entry: the kernel code segment.
@@ -114,8 +114,8 @@ inline constexpr unsigned short kSelectorUserCode = kSysretStarBase + 16;
 
 static_assert(kSelectorUserData == 0x2B, "SYSRETQ user data lands at 0x2B");
 static_assert(kSelectorUserCode == 0x33, "SYSRETQ user code lands at 0x33");
-static_assert((kSelectorUserData >> 3) == 5, "user data is slot five");
-static_assert((kSelectorUserCode >> 3) == 6, "user code is slot six");
+static_assert((static_cast<unsigned>(kSelectorUserData) >> 3U) == 5U, "user data is slot five");
+static_assert((static_cast<unsigned>(kSelectorUserCode) >> 3U) == 6U, "user code is slot six");
 
 /**
  * @brief         Build the long-mode code descriptor: base 0, L=1, D=0.
@@ -135,7 +135,8 @@ constexpr SegmentDescriptor MakeLongCodeDescriptor() {
                                              SegmentAccess::kReadWrite),
         .flags_limit_high =
             MakeFlagsLimitHigh(SegmentFlags::kGranularity4K | SegmentFlags::kLongMode),
-        .base_high = 0x00};
+        .base_high = 0x00,
+    };
 }
 
 /**
@@ -154,7 +155,8 @@ constexpr SegmentDescriptor MakeLongDataDescriptor() {
         .access = static_cast<unsigned char>(SegmentAccess::kPresent | SegmentAccess::kRing0 |
                                              SegmentAccess::kCodeData | SegmentAccess::kReadWrite),
         .flags_limit_high = MakeFlagsLimitHigh(SegmentFlags::kGranularity4K),
-        .base_high        = 0x00};
+        .base_high        = 0x00,
+    };
 }
 
 /**
@@ -176,7 +178,8 @@ constexpr SegmentDescriptor MakeUserCodeDescriptor() {
                                              SegmentAccess::kReadWrite),
         .flags_limit_high =
             MakeFlagsLimitHigh(SegmentFlags::kGranularity4K | SegmentFlags::kLongMode),
-        .base_high = 0x00};
+        .base_high = 0x00,
+    };
 }
 
 /**
@@ -193,7 +196,8 @@ constexpr SegmentDescriptor MakeUserDataDescriptor() {
         .access = static_cast<unsigned char>(SegmentAccess::kPresent | SegmentAccess::kRing3 |
                                              SegmentAccess::kCodeData | SegmentAccess::kReadWrite),
         .flags_limit_high = MakeFlagsLimitHigh(SegmentFlags::kGranularity4K),
-        .base_high        = 0x00};
+        .base_high        = 0x00,
+    };
 }
 
 /// A 64-bit task-state descriptor spans two slots: the familiar shape
@@ -220,14 +224,17 @@ static_assert(sizeof(TssDescriptor) == 16, "a 64-bit TSS descriptor is 16 bytes"
 constexpr TssDescriptor MakeTssDescriptor(unsigned long long base, unsigned int limit) {
     return TssDescriptor{
         .low =
-            SegmentDescriptor{.limit_low        = static_cast<unsigned short>(limit & 0xFFFF),
-                              .base_low         = static_cast<unsigned short>(base & 0xFFFF),
-                              .base_mid         = static_cast<unsigned char>((base >> 16) & 0xFF),
-                              .access           = static_cast<unsigned char>(0x89),
-                              .flags_limit_high = static_cast<unsigned char>((limit >> 16) & 0x0F),
-                              .base_high        = static_cast<unsigned char>((base >> 24) & 0xFF)},
-        .base_high = static_cast<unsigned int>((base >> 32) & 0xFFFFFFFFULL),
-        .reserved  = 0};
+            SegmentDescriptor{
+                .limit_low        = static_cast<unsigned short>(limit & 0xFFFFU),
+                .base_low         = static_cast<unsigned short>(base & 0xFFFFU),
+                .base_mid         = static_cast<unsigned char>((base >> 16U) & 0xFFU),
+                .access           = static_cast<unsigned char>(0x89),
+                .flags_limit_high = static_cast<unsigned char>((limit >> 16U) & 0x0FU),
+                .base_high        = static_cast<unsigned char>((base >> 24U) & 0xFFU),
+            },
+        .base_high = static_cast<unsigned int>((base >> 32U) & 0xFFFFFFFFULL),
+        .reserved  = 0,
+    };
 }
 
 struct [[gnu::packed]] KernelGdt {
@@ -255,14 +262,16 @@ static_assert(offsetof(KernelGdt, user_code) == 48, "user code is slot six");
  * @ingroup       kernel_arch
  */
 constexpr KernelGdt MakeKernelGdt() {
-    return KernelGdt{.null      = SegmentDescriptor{},
-                     .code      = MakeLongCodeDescriptor(),
-                     .data      = MakeLongDataDescriptor(),
-                     .tss_low   = SegmentDescriptor{},
-                     .tss_upper = 0,
-                     .tss_zero  = 0,
-                     .user_data = MakeUserDataDescriptor(),
-                     .user_code = MakeUserCodeDescriptor()};
+    return KernelGdt{
+        .null      = SegmentDescriptor{},
+        .code      = MakeLongCodeDescriptor(),
+        .data      = MakeLongDataDescriptor(),
+        .tss_low   = SegmentDescriptor{},
+        .tss_upper = 0,
+        .tss_zero  = 0,
+        .user_data = MakeUserDataDescriptor(),
+        .user_code = MakeUserCodeDescriptor(),
+    };
 }
 
 struct [[gnu::packed]] TablePointer {

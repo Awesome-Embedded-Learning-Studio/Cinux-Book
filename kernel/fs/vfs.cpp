@@ -18,6 +18,7 @@
 
 #include <string_view>
 
+#include "cinux/own.hpp"
 #include "cinux/result.hpp"
 
 namespace cinux::fs {
@@ -49,6 +50,31 @@ base::Result<FsView> Vfs::resolve(std::string_view path) const {
         ++rest_start;
     }
     return FsView{.ops = best->ops, .self = best->self, .rest = path.substr(rest_start)};
+}
+
+
+bool ReadWholeFile(const FsView& view, base::Own<unsigned char[]>& out, unsigned long& out_bytes) {
+    const base::Result<FsNode> kNode = view.ops->lookup(view.self, view.rest);
+    if (!kNode.ok()) {
+        return false;
+    }
+    FsStat                   probe{};
+    const base::Result<void> kProbed = view.ops->stat(view.self, kNode.value(), probe);
+    if (!kProbed.ok()) {
+        return false;
+    }
+    base::Own<unsigned char[]> buffer(new unsigned char[probe.size]);
+    if (!buffer.holds()) {
+        return false;
+    }
+    const base::Result<unsigned long> kGot =
+        view.ops->read(view.self, kNode.value(), 0, buffer.get(), probe.size);
+    if (!kGot.ok() || kGot.value() != probe.size) {
+        return false;
+    }
+    out       = static_cast<base::Own<unsigned char[]>&&>(buffer);
+    out_bytes = probe.size;
+    return true;
 }
 
 }  // namespace cinux::fs

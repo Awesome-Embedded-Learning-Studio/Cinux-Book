@@ -6,13 +6,14 @@
  * (PML4 entries 256..511) is copied from the kernel's own root, so
  * kernel code keeps running no matter which world is active, while the
  * user half starts empty and grows only through this space's own
- * mappings. Destruction and recursive recycling of the user subtree
- * wait for the owning process lifecycle; this face is the stable
- * core — build, mirror, map, translate, activate.
+ * mappings. The owning process lifecycle ends here now: teardown
+ * retires the whole user subtree back to the frame allocator, so this
+ * face covers the full life — build, mirror, map, translate, activate,
+ * retire.
  *
  * @author  Charliechen114514
- * @date    2026-10-05
- * @version 0.1
+ * @date    2026-10-12
+ * @version 0.2
  * @since   0.1.0
  * @ingroup kernel_mm
  * @copyright Copyright (c) 2026
@@ -115,6 +116,39 @@ public:
      * @ingroup       kernel_mm
      */
     void activate() const;
+
+    /**
+     * @brief         Returns every frame and table of the user half.
+     *
+     * @return        None.
+     * @note          The retiring call of an owning process: walks the
+     *                      user half only — the kernel half is a mirror,
+     *                      its frames belong to the kernel — freeing leaf
+     *                      frames, the tables that routed to them, and
+     *                      the root itself. The space returns to its
+     *                      pre-init shape with root 0 and must not be
+     *                      the live CR3 of any CPU when this runs.
+     * @warning       None
+     * @throws        None
+     * @since         0.2.0
+     * @ingroup       kernel_mm
+     */
+    void teardown();
+
+    /**
+     * @brief         Tears the user half down unless already torn.
+     *
+     * @return        None.
+     * @note          The RAII half of the lifecycle: a world that goes
+     *                      out of scope returns its frames by itself, so
+     *                      owners delete and nothing more. Explicit
+     *                      teardown leaves root zero and this runs empty.
+     * @warning       Must not be the live CR3 of any CPU at destruction.
+     * @throws        None
+     * @since         0.3.0
+     * @ingroup       kernel_mm
+     */
+    ~AddressSpace() { teardown(); }
 
 private:
     unsigned long root_ = 0;

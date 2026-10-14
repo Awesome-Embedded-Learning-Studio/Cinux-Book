@@ -13,8 +13,8 @@
  * from drifting apart.
  *
  * @author  Charliechen114514
- * @date    2026-10-07
- * @version 0.1
+ * @date    2026-10-12
+ * @version 0.2
  * @since   0.1.0
  * @ingroup kernel_arch
  * @copyright Copyright (c) 2026
@@ -33,8 +33,13 @@ namespace cinux::arch::per_cpu {
  * @note          kernel_rsp is the ring-0 stack the syscall entry
  *                loads; user_rsp holds the caller's stack across that
  *                switch; scratch is the one-slot lifeline for values
- *                that must cross the frame teardown. All three start
- *                zero and are written only by entry/exit assembly.
+ *                that must cross the frame teardown; syscall_frame and
+ *                user_r12..r15 bank what fork needs from the moment of
+ *                the call — the entry frame's address and the four
+ *                callee-saved registers the minimal frame does not
+ *                push, kept the only way they can be, before any
+ *                kernel code borrows those registers for itself. All
+ *                start zero and are written only by entry assembly.
  *                One CPU, one block today; the multicore station
  *                grows one per CPU and self() learns whose to hand
  *                out — the call sites never learn the difference.
@@ -42,15 +47,25 @@ namespace cinux::arch::per_cpu {
  * @ingroup       kernel_arch
  */
 struct PerCpu : public cinux::base::Singleton<PerCpu> {
-    unsigned long long kernel_rsp;  ///< gs:0, the syscall-entry stack.
-    unsigned long long user_rsp;    ///< gs:8, the caller's stack, staged here.
-    unsigned long long scratch;     ///< gs:16, one quadword of crossing room.
+    unsigned long long kernel_rsp;     ///< gs:0, the syscall-entry stack.
+    unsigned long long user_rsp;       ///< gs:8, the caller's stack, staged here.
+    unsigned long long scratch;        ///< gs:16, one quadword of crossing room.
+    unsigned long long syscall_frame;  ///< gs:24, where the entry frame sits.
+    unsigned long long user_r12;       ///< gs:32, the caller's r12 at entry.
+    unsigned long long user_r13;       ///< gs:40, the caller's r13 at entry.
+    unsigned long long user_r14;       ///< gs:48, the caller's r14 at entry.
+    unsigned long long user_r15;       ///< gs:56, the caller's r15 at entry.
 };
 
-static_assert(sizeof(PerCpu) == 24, "an empty base must not pad the GS block");
+static_assert(sizeof(PerCpu) == 64, "the GS block is eight quadwords now");
 static_assert(offsetof(PerCpu, kernel_rsp) == 0, "assembly reaches kernel_rsp at gs:0");
 static_assert(offsetof(PerCpu, user_rsp) == 8, "assembly stages user_rsp at gs:8");
 static_assert(offsetof(PerCpu, scratch) == 16, "assembly keeps its scratch at gs:16");
+static_assert(offsetof(PerCpu, syscall_frame) == 24, "assembly banks the frame at gs:24");
+static_assert(offsetof(PerCpu, user_r12) == 32, "assembly banks user r12 at gs:32");
+static_assert(offsetof(PerCpu, user_r13) == 40, "assembly banks user r13 at gs:40");
+static_assert(offsetof(PerCpu, user_r14) == 48, "assembly banks user r14 at gs:48");
+static_assert(offsetof(PerCpu, user_r15) == 56, "assembly banks user r15 at gs:56");
 
 /**
  * @brief         Point both GS bases at the per-CPU block.

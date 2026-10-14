@@ -19,6 +19,7 @@
 
 #include <cinux/assert.hpp>
 #include <cstdint>
+#include <new>  // NOLINT(misc-include-cleaner) placement new lives here
 #include <type_traits>
 #include <utility>
 
@@ -96,7 +97,8 @@ public:
      * @since         0.1.0
      * @ingroup       base_result
      */
-    Result(RawResult value) : is_ok_(true) {  // NOLINT(google-explicit-constructor)
+    // NOLINTNEXTLINE(google-explicit-constructor, misc-explicit-constructor)
+    Result(RawResult value) : is_ok_(true) {
         new (static_cast<void*>(&internal_storage_.value)) RawResult(std::move(value));
     }
 
@@ -111,9 +113,8 @@ public:
      * @since         0.1.0
      * @ingroup       base_result
      */
-    constexpr Result(ErrorType error) : is_ok_(false) {  // NOLINT(google-explicit-constructor)
-        internal_storage_.error = error;
-    }
+    // NOLINTNEXTLINE(google-explicit-constructor, misc-explicit-constructor)
+    constexpr Result(ErrorType error) : is_ok_(false) { internal_storage_.error = error; }
 
     /**
      * @brief         Copy constructor.
@@ -392,7 +393,7 @@ public:
      * @since         0.1.0
      * @ingroup       base_result
      */
-    // NOLINTNEXTLINE(google-explicit-constructor)
+    // NOLINTNEXTLINE(google-explicit-constructor, misc-explicit-constructor)
     constexpr Result(ErrorType error) : error_(error), is_ok_(false) {}
 
     /**

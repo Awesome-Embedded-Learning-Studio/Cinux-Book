@@ -11,7 +11,7 @@ struct FileRefs {
     static const fs::FsOps kOps;
 };
 
-inline constinit const fs::FsOps FileRefs::kOps = []() noexcept {
+inline constinit const fs::FsOps FileRefs::kOps = [] noexcept {
     fs::FsOps ops{};
     ops.retain = [](void* self, [[maybe_unused]] fs::FsNode node) {
         static_cast<FileRefs*>(self)->retained++;

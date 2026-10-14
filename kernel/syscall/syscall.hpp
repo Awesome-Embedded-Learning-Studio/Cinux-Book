@@ -43,7 +43,12 @@ enum class SyscallNr : std::uint16_t {
     kClose    = 3,    ///< close(fd)
     kStat     = 6,    ///< stat(path, out): one node's metadata
     kYield    = 24,   ///< cooperative yield to the scheduler
+    kGetpid   = 39,   ///< getpid(): the caller's own identity
+    kFork     = 57,   ///< fork(): one call, two returns
+    kExecve   = 59,   ///< execve(path): replace this world with a program
     kExit     = 60,   ///< exit(code), never returns
+    kWait4    = 61,   ///< wait4(pid, status): block for one child
+    kGetppid  = 110,  ///< getppid(): who the caller may be waited on by
     kGetcwd   = 79,   ///< getcwd(buf, size): the caller's working directory
     kChdir    = 80,   ///< chdir(path): move the caller's working directory
     kReboot   = 169,  ///< reboot(): power the machine off through ACPI
@@ -54,7 +59,9 @@ enum class SyscallNr : std::uint16_t {
 
 /// Linux errno values the handlers can produce.
 inline constexpr int kEnoent       = 2;   ///< No such file or directory.
+inline constexpr int kEio          = 5;   ///< The volume read came back short.
 inline constexpr int kEbadf        = 9;   ///< Not a descriptor the kernel serves.
+inline constexpr int kEchild       = 10;  ///< The wait names no child of the caller.
 inline constexpr int kEnomem       = 12;  ///< The kernel has no room for this.
 inline constexpr int kEfault       = 14;  ///< The buffer does not live in the user half.
 inline constexpr int kEexist       = 17;  ///< The name already exists.

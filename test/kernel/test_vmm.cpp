@@ -24,7 +24,7 @@ using cinux::mm::walk::TranslatePage;
 using cinux::mm::walk::UnmapPage;
 
 TEST("vmm: the user half of the live root is dead") {
-    auto* const kPml4 = cinux::base::PtrAt<Entry>(DirectMapVirt(cinux::arch::ReadCr3()));
+    const auto* const kPml4 = cinux::base::PtrAt<Entry>(DirectMapVirt(cinux::arch::ReadCr3()));
     for (unsigned long slot = 0; slot < cinux::mm::kDirectMapPml4; ++slot) {
         ASSERT_EQ(kPml4[slot].raw, 0ULL);
     }
@@ -45,9 +45,9 @@ TEST("vmm: a page lives in the heap window only while mapped") {
     ASSERT_TRUE(kPage != cinux::base::PhysAddr{});
     unsigned long const kSpot = cinux::mm::kHeapBase + 4_KiB;
     ASSERT_TRUE(MapPage(tables, kRoot, kSpot, kPage.raw));
-    // NOLINTNEXTLINE(clang-analyzer-core.FixedAddressDereference)
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.FixedAddressDereference)
     *cinux::base::PtrAt<unsigned long>(kSpot) = 0x114514UL;
-    // NOLINTNEXTLINE(clang-analyzer-core.FixedAddressDereference)
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.FixedAddressDereference)
     ASSERT_EQ(*cinux::base::PtrAt<unsigned long>(kSpot), 0x114514UL);
     ASSERT_EQ(TranslatePage(tables, kRoot, kSpot), kPage.raw);
     Entry const kGone = UnmapPage(tables, kRoot, kSpot);

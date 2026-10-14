@@ -32,7 +32,7 @@ public:
         kRecursive,
         kCapacity,
         kNotHeld,
-        kOutOfOrder
+        kOutOfOrder,
     };
     /// Maximum distinct live locks and maximum simultaneous nesting.
     static constexpr unsigned int kLocks = 64;

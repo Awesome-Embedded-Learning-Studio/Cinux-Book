@@ -20,6 +20,44 @@
 
 namespace cinux::arch {
 
+/// CR0 bit 16: supervisor writes honor read-only pages. Clear at reset,
+/// which lets ring 0 pierce any W=0 mapping silently — copy-on-write and
+/// every write-xor-execute plan both stand on this bit being set.
+inline constexpr unsigned long long kCr0WriteProtect = 1ULL << 16U;
+
+/**
+ * @brief         Reads CR0, the machine's coarse behavior switches.
+ *
+ * @return        The current CR0 image.
+ * @note          One home for the reads the kernel-world makes; the boot
+ *                worlds touch CR0 in their own copies.
+ * @warning       None
+ * @throws        None
+ * @since         0.2.0
+ * @ingroup       kernel_arch
+ */
+inline unsigned long long ReadCr0() {
+    // NOLINTNEXTLINE(misc-const-correctness)
+    unsigned long long value = 0;
+    asm volatile("movq %%cr0, %0" : "=r"(value));
+    return value;
+}
+
+/**
+ * @brief         Writes CR0 wholesale.
+ *
+ * @param[in]     value   The new image.
+ * @return        None.
+ * @note          Callers flip named bits, never rebuild the word.
+ * @warning       None
+ * @throws        None
+ * @since         0.2.0
+ * @ingroup       kernel_arch
+ */
+inline void WriteCr0(unsigned long long value) {
+    asm volatile("movq %0, %%cr0" : : "r"(value) : "memory");
+}
+
 /**
  * @brief         Reads the physical address of the current page-table root.
  *
@@ -36,6 +74,25 @@ inline unsigned long ReadCr3() {
     // NOLINTNEXTLINE(misc-const-correctness)
     unsigned long value = 0;
     asm volatile("movq %%cr3, %0" : "=r"(value));
+    return value;
+}
+
+/**
+ * @brief         Reads CR2, the address the last page fault touched.
+ *
+ * @return        The faulting virtual address.
+ * @note          Meaningful only while handling vector 14: the CPU writes
+ *                it before entering the handler and nothing else keeps it,
+ *                so the page-fault path reads it first thing.
+ * @warning       None
+ * @throws        None
+ * @since         0.2.0
+ * @ingroup       kernel_arch
+ */
+inline unsigned long ReadCr2() {
+    // NOLINTNEXTLINE(misc-const-correctness)
+    unsigned long value = 0;
+    asm volatile("movq %%cr2, %0" : "=r"(value));
     return value;
 }
 

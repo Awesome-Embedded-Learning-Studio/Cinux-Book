@@ -1,12 +1,18 @@
 #include "cinux/ptr.hpp"
 #include "kernel/arch/x86_64/halt.hpp"
 #include "kernel/arch/x86_64/isr.hpp"
+#include "kernel/arch/x86_64/page_entry.hpp"
+#include "kernel/arch/x86_64/registers.hpp"
 #include "kernel/boot/print.hpp"
 #include "kernel/debug/trace.hpp"
+#include "kernel/mm/layout.hpp"
+#include "kernel/mm/page_walk.hpp"
 
 namespace cinux::arch::isr {
 
 namespace {
+
+PageFaultResolver g_page_fault_resolver = nullptr;
 
 unsigned long long faulting_frame_base() {
     unsigned long long reporter_frame = 0;  // NOLINT(misc-const-correctness)
@@ -54,6 +60,41 @@ const char* name_of(unsigned int vector) {
     return vector < 32 ? kExceptionNames[vector] : "Unknown";
 }
 
+void report_page_fault(unsigned long long address, unsigned long long error_code) {
+    const char* const kAccess = (error_code & kFaultWasWrite) != 0 ? "write" : "read";
+    const char* const kOrigin = (error_code & kFaultFromUser) != 0 ? "user" : "kernel";
+    const char* const kCause  = (error_code & kFaultProtection) != 0 ? "protection" : "not-present";
+    print::Println("[kern]  cr2=%X err=%X (%s, %s, %s)", address, error_code, kAccess, kOrigin,
+                   kCause);
+    using cinux::arch::page::Entry;
+    using cinux::mm::walk::IndexRange;
+    using cinux::mm::walk::SlotIndex;
+    using cinux::mm::walk::WalkLevel;
+    const unsigned long kRoot = cinux::arch::ReadCr3();
+    print::Println("[kern]  root=%X (cr3 at fault time)", kRoot);
+    unsigned long     table          = kRoot;
+    const char* const kLevelNames[4] = {"pml4e", "pdpte", "pde", "pte"};
+    for (unsigned int depth = 0; depth < 4; ++depth) {
+        const auto         kLevel   = static_cast<WalkLevel>(depth);
+        const Entry* const kSlot    = cinux::base::PtrAt<Entry>(table) + SlotIndex(address, kLevel);
+        const bool         kPresent = kSlot->has(cinux::arch::page::kPresent);
+        const bool         kWrite   = kSlot->has(cinux::arch::page::kWritable);
+        const bool         kUser    = kSlot->has(cinux::arch::page::kUser);
+        const bool         kLarge   = kSlot->has(cinux::arch::page::kLarge);
+        print::Println("[kern]  %s[%u]=%X %s%s%s%s%s", kLevelNames[depth],
+                       static_cast<unsigned>(SlotIndex(address, kLevel)), kSlot->raw,
+                       kPresent ? "P" : "-", kWrite ? "W" : "-", kUser ? "U" : "-",
+                       kLarge ? "L" : "", kPresent ? "" : " walk ends here");
+        if (!kPresent) {
+            return;
+        }
+        if (depth == 3 || kLarge) {
+            return;
+        }
+        table = cinux::mm::DirectMapVirt(cinux::mm::walk::EntryTarget(*kSlot));
+    }
+}
+
 struct RecoveryPlan {
     unsigned long long vector;
     unsigned long long skip_bytes;
@@ -78,7 +119,15 @@ bool try_recover(unsigned long long vector, InterruptFrame& frame) {
 
 }  // namespace
 
+void InstallPageFaultResolver(PageFaultResolver resolver) {
+    g_page_fault_resolver = resolver;
+}
+
 void ReportFault(unsigned long long vector, InterruptFrame& frame, unsigned long long error_code) {
+    if (vector == kPageFaultVector && g_page_fault_resolver != nullptr &&
+        g_page_fault_resolver(ReadCr2(), error_code)) {
+        return;
+    }
     if (try_recover(vector, frame)) {
         return;
     }
@@ -86,6 +135,9 @@ void ReportFault(unsigned long long vector, InterruptFrame& frame, unsigned long
                           name_of(static_cast<unsigned>(vector)));
     cinux::print::Println("[kern]  rip=%X cs=%X rflags=%X rsp=%X err=%X", frame.rip, frame.cs,
                           frame.rflags, frame.rsp, error_code);
+    if (vector == kPageFaultVector) {
+        report_page_fault(ReadCr2(), error_code);
+    }
     cinux::debug::TraceFrom(faulting_frame_base());
     cinux::arch::Halt();
 }

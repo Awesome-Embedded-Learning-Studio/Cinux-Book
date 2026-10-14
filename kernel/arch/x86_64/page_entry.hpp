@@ -47,6 +47,11 @@ inline constexpr Entry kLarge = base::bit::MaskBit<uint64_t>(7);
 /// Bit 4: the CPU may not cache this page; device registers insist.
 inline constexpr Entry kCacheDisable = base::bit::MaskBit<uint64_t>(4);
 
+/// Bit 9, software-only: this read-only mapping shares its frame, and a
+/// write fault against it means "unshare me" rather than "die". One of
+/// the available-to-software bits the hardware ignores outright.
+inline constexpr Entry kCow = base::bit::MaskBit<uint64_t>(9);
+
 /// Shift of a 2MB large page: frame numbers below count in 2MB units.
 inline constexpr unsigned char kLargePageShift = 21;
 

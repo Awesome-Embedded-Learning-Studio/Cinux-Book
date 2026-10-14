@@ -31,6 +31,9 @@ def call_tool(name, args):
         return SESSION.screendump(int(args.get("text_rows", 10)))
     if name == "qemu_serial":
         return SESSION.serial(int(args.get("lines", 20)))
+    if name == "qemu_pagewalk":
+        return SESSION.pagewalk(int(args.get("address", "0"), 0),
+                                bool(args.get("full_level", False)))
     if name == "qemu_quit":
         result = SESSION.quit(int(args.get("lines", 20)))
         SESSION = None
@@ -70,6 +73,17 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {"lines": {"type": "integer"}},
+        },
+    },
+    {
+        "name": "qemu_pagewalk",
+        "description": "Walk the live page tables from CR3 toward one virtual address, printing each level's entry with P/W/U/L flags and physical target. Set full_level to also list the present-slot indexes of every level on the path.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "address": {"type": "string", "description": "Virtual address to walk toward, hex or decimal"},
+                "full_level": {"type": "boolean", "description": "Also summarize each level's present slots"},
+            },
         },
     },
     {

@@ -22,7 +22,8 @@ cinux::proc::StartPlan plan_for(FakeStack& stack) {
         .entry        = kFakeEntry,
         .exit_hook    = kFakeExitHook,
         .stack_bottom = reinterpret_cast<unsigned long long>(&stack.slots[0]),
-        .stack_top    = reinterpret_cast<unsigned long long>(&stack.slots[64])};
+        .stack_top    = reinterpret_cast<unsigned long long>(&stack.slots[64]),
+    };
 }
 
 TEST("context: layout matches the assembly contract") {

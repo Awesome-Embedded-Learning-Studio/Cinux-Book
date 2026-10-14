@@ -137,7 +137,7 @@ constexpr unsigned char GlyphRowBits(const unsigned char* data, const Psf2Font& 
  * @ingroup       kernel_driver
  */
 constexpr bool GlyphPixel(unsigned char row_bits, uint32_t column) {
-    return ((row_bits >> (kPsf2MaxWidth - 1U - column)) & 1U) != 0;
+    return ((static_cast<unsigned>(row_bits) >> (kPsf2MaxWidth - 1U - column)) & 1U) != 0;
 }
 
 }  // namespace cinux::console

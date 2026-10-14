@@ -89,8 +89,14 @@ constexpr CaretStep AdvanceCaret(Caret current, uint32_t columns, uint32_t total
         return CaretStep{.caret = {.row = current.row, .column = kBacked}, .scrolled = false};
     }
     if (current.column + 1U < columns) {
-        return CaretStep{.caret    = {.row = current.row, .column = current.column + 1U},
-                         .scrolled = false};
+        return CaretStep{
+            .caret =
+                {
+                    .row    = current.row,
+                    .column = current.column + 1U,
+                },
+            .scrolled = false,
+        };
     }
     return AdvanceLine(current, total_rows);
 }

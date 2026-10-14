@@ -92,11 +92,15 @@ constexpr AhciReg kIsTaskFileError = cinux::base::bit::MaskBit<uint32_t>(30);
 constexpr AhciReg kIsInterfaceFatal = cinux::base::bit::MaskBit<uint32_t>(31);
 
 /// @brief The events this driver watches.
-constexpr AhciReg kWatched{kIsDeviceToHost | kIsPioSetup | kIsHostBusData | kIsHostBusFatal |
-                           kIsTaskFileError | kIsInterfaceFatal};
+constexpr AhciReg kWatched{
+    kIsDeviceToHost | kIsPioSetup | kIsHostBusData | kIsHostBusFatal | kIsTaskFileError |
+        kIsInterfaceFatal,
+};
 
 /// @brief The events that fail the request outright.
-constexpr AhciReg kFatal{kIsHostBusData | kIsHostBusFatal | kIsTaskFileError | kIsInterfaceFatal};
+constexpr AhciReg kFatal{
+    kIsHostBusData | kIsHostBusFatal | kIsTaskFileError | kIsInterfaceFatal,
+};
 
 /// @brief The one command slot this driver issues through.
 constexpr AhciReg kSlotZero = cinux::base::bit::MaskBit<uint32_t>(0);
@@ -184,7 +188,8 @@ bool Ahci::init() {
     }
     regs_ = cinux::base::PtrAt<HbaMem>(mm::IoremapVirt(kRegisters));
 
-    // NOLINTNEXTLINE(clang-analyzer-core.FixedAddressDereference) ioremap alias folds to a constant
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.FixedAddressDereference) ioremap alias folds to a
+    // constant
     regs_->global_host_control = kGhcAhciEnable.raw;
     regs_->global_host_control = (kGhcAhciEnable | kGhcReset).raw;
     wait_clear_observed(&regs_->global_host_control, kGhcReset, kResetBudgetTicks, "host reset");
@@ -241,7 +246,7 @@ bool Ahci::init() {
     line_                 = interrupt::IrqLine{.value = device->interrupt_line};
     port.interrupt_status = kWatched.raw;
     regs_->interrupt_status =
-        (cinux::base::bit::MaskBit<uint32_t>(static_cast<unsigned char>(port_index_))).raw;
+        cinux::base::bit::MaskBit<uint32_t>(static_cast<unsigned char>(port_index_)).raw;
     interrupt::Irq::self().register_handler(line_, irq_thunk);
     interrupt::Irq::self().enable_line(line_);
     port.interrupt_enable      = kWatched.raw;
@@ -362,7 +367,7 @@ void Ahci::on_interrupt() {
     }
     port.interrupt_status = (kEvents & kWatched).raw;
     regs_->interrupt_status =
-        (cinux::base::bit::MaskBit<uint32_t>(static_cast<unsigned char>(port_index_))).raw;
+        cinux::base::bit::MaskBit<uint32_t>(static_cast<unsigned char>(port_index_)).raw;
     [[maybe_unused]] const AhciReg kEcho{regs_->interrupt_status};
 }
 

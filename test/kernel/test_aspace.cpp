@@ -19,11 +19,11 @@ using cinux::arch::page::Entry;
 TEST("aspace: a fresh space mirrors the kernel half and nothing else") {
     cinux::mm::AddressSpace space;
     ASSERT_TRUE(space.init());
-    auto* const kFresh = cinux::base::PtrAt<Entry>(cinux::mm::DirectMapVirt(space.root()));
+    const Entry* const kFresh = cinux::base::PtrAt<Entry>(cinux::mm::DirectMapVirt(space.root()));
     for (unsigned long slot = 0; slot < cinux::mm::kDirectMapPml4; ++slot) {
         ASSERT_EQ(kFresh[slot].raw, 0ULL);
     }
-    auto* const kKernel =
+    const Entry* const kKernel =
         cinux::base::PtrAt<Entry>(cinux::mm::DirectMapVirt(cinux::mm::KernelPageRoot()));
     ASSERT_EQ(kFresh[cinux::mm::kDirectMapPml4].raw, kKernel[cinux::mm::kDirectMapPml4].raw);
     ASSERT_EQ(kFresh[cinux::mm::kKernelPml4].raw, kKernel[cinux::mm::kKernelPml4].raw);
@@ -49,13 +49,37 @@ TEST("aspace: activation switches the machine and comes home") {
     ASSERT_TRUE(kPage != cinux::base::PhysAddr{});
     ASSERT_TRUE(space.map(kSpot, kPage.raw));
     space.activate();
-    // NOLINTNEXTLINE(clang-analyzer-core.FixedAddressDereference)
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.FixedAddressDereference)
     *cinux::base::PtrAt<unsigned long>(kSpot) = 0x114514UL;
-    // NOLINTNEXTLINE(clang-analyzer-core.FixedAddressDereference)
-    ASSERT_EQ(*cinux::base::PtrAt<unsigned long>(kSpot), 0x114514UL);
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.FixedAddressDereference)
+    ASSERT_EQ(*cinux::base::PtrAt<unsigned long>(kSpot),
+              0x114514UL);  // NOLINT(clang-analyzer-optin.core.FixedAddressDereference)
     ASSERT_EQ(cinux::arch::ReadCr3(), space.root());
     cinux::arch::LoadCr3(cinux::mm::KernelPageRoot());
     ASSERT_EQ(cinux::arch::ReadCr3(), cinux::mm::KernelPageRoot());
+}
+
+TEST("aspace: teardown returns the whole user half to the frame allocator") {
+    auto&                   ledger  = cinux::mm::Pmm::self();
+    unsigned long const     kBefore = ledger.free_page_count();
+    cinux::mm::AddressSpace space;
+    ASSERT_TRUE(space.init());
+    unsigned long const kSpots[4] = {
+        cinux::mm::kUserBrkMmapSplit + 16_KiB,
+        cinux::mm::kUserBrkMmapSplit + 20_KiB,
+        cinux::mm::kUserNullTop,
+        cinux::mm::kUserNullTop + 8_KiB,
+    };
+    cinux::base::PhysAddr frames[4] = {};
+    for (unsigned int index = 0; index < 4; ++index) {
+        frames[index] = ledger.allocate_page();
+        ASSERT_TRUE(frames[index] != cinux::base::PhysAddr{});
+        ASSERT_TRUE(space.map_user(kSpots[index], frames[index].raw));
+    }
+    ASSERT_TRUE(ledger.free_page_count() < kBefore);
+    space.teardown();
+    ASSERT_EQ(ledger.free_page_count(), kBefore);
+    ASSERT_EQ(space.root(), 0UL);
 }
 
 }  // namespace

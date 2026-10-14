@@ -5,10 +5,10 @@
 
 namespace cinux::syscall {
 
-[[noreturn]] long long HandleExit([[maybe_unused]] unsigned long long first,
+[[noreturn]] long long HandleExit(unsigned long long                  first,
                                   [[maybe_unused]] unsigned long long second,
                                   [[maybe_unused]] unsigned long long third) {
-    proc::Scheduler::self().exit_current();
+    proc::Scheduler::self().exit_current(static_cast<long long>(first));
     arch::Halt();
 }
 

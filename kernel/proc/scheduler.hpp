@@ -27,6 +27,7 @@
 #include <concepts>
 
 #include "cinux/container/ring_queue.hpp"
+#include "cinux/container/self_list.hpp"
 #include "cinux/scoped_guard.hpp"
 #include "cinux/singleton.hpp"
 #include "kernel/proc/proc_config.hpp"
@@ -35,6 +36,16 @@
 namespace cinux::proc {
 
 class Scheduler;
+
+/**
+ * @brief         What a reaped child hands its waiting parent.
+ * @since         0.2.0
+ * @ingroup       kernel_proc
+ */
+struct ChildReceipt {
+    unsigned long long pid;   ///< The child the wait retired.
+    long long          code;  ///< The exit word it died carrying.
+};
 
 /**
  * @brief         What a switch executor must do for the scheduler.
@@ -94,7 +105,7 @@ public:
 
     /**
      * @brief         Hand one ready task to the queue.
-     * @param[in,out] task   Armed task, state and tid get assigned.
+     * @param[in,out] task   Armed task, state and pid get assigned.
      * @return        None.
      * @note          The seam tests drive directly: seat a hand-made
      *                task, install a recording sink, and the decision
@@ -181,17 +192,41 @@ public:
 
     /**
      * @brief         End the current task; never returns to it.
+     * @param[in]     code   The exit word ring 3 asked for, zero when
+     *                       a kernel thread's entry merely returned.
      * @return        None.
      * @note          Reached through the trampoline's exit hook when
-     *                an entry returns, or directly by choice. Reclaim
-     *                is decided here and executed after the switch.
-     *                Returning at all is only observable under a sink
-     *                whose switches return — the recording sink of a
-     *                host test; the kernel sink never does.
-     * @since         0.1.0
+     *                an entry returns, or directly by choice. A task
+     *                with a parent turns zombie and stays for that
+     *                parent's wait; a parentless one goes straight to
+     *                reclaim, executed after the switch. Either way
+     *                the task's own offspring are settled first —
+     *                zombie grandchildren reaped, live ones released
+     *                to a parentless life — so no pointer outlives its
+     *                target. Returning at all is only observable under
+     *                a sink whose switches return — the recording sink
+     *                of a host test; the kernel sink never does.
+     * @since         0.2.0
      * @ingroup       kernel_proc
      */
-    void exit_current();
+    void exit_current(long long code = 0);
+
+    /**
+     * @brief         Wait for one child to exit and retire it.
+     * @param[in]     wanted    Child pid, or -1 for any child.
+     * @param[out]    receipt   The reaped child's pid and exit word.
+     * @return        True when a child was reaped; false when the
+     *                caller has no child left to wait for.
+     * @note          Parks the caller until a matching zombie exists,
+     *                the same park the lock family uses. A child's
+     *                exit is the only wakeup, and it lands on the
+     *                parent alone — the child knows exactly whose wait
+     *                it finishes. Waking with no match simply parks
+     *                again, so spurious wakeups cost nothing.
+     * @since         0.2.0
+     * @ingroup       kernel_proc
+     */
+    bool wait_child(long long wanted, ChildReceipt& receipt);
 
     /**
      * @brief         Park the current task off the ready queue and
@@ -245,6 +280,8 @@ private:
     void               reap_pending();
     void               rotate_from_interrupt();
     void               park_current();
+    Task*              take_zombie_child(Task& watcher, long long wanted, bool& has_any_child);
+    void               detach_offspring(Task& dying);
 
     void (*switch_tasks_)(void*, Task&, Task&) = nullptr;
     void (*enter_from_main_)(void*, Task&)     = nullptr;
@@ -253,9 +290,11 @@ private:
     void* sink_                                = nullptr;
 
     cinux::base::container::RingQueue<Task*, kReadyQueueCapacity> ready_;
+    cinux::base::container::SelfList<Task, &Task::child_link>     offspring_;
+    cinux::base::container::SelfList<Task>                        waiters_;
     Task*                                                         current_               = nullptr;
     Task*                                                         pending_reap_          = nullptr;
-    unsigned long long                                            next_tid_              = 1;
+    unsigned long long                                            next_pid_              = 1;
     unsigned int                                                  slice_ticks_           = 0;
     bool                                                          rotate_due_            = false;
     bool                                                          preemption_            = false;

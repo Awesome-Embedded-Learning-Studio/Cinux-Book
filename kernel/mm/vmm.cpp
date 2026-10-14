@@ -187,7 +187,7 @@ bool MapDeviceWindow(uint64_t physical, unsigned long bytes) {
     }
     KernelTables  world;
     Entry* const  kPml4       = world.table(KernelPageRoot());
-    // NOLINTNEXTLINE(clang-analyzer-core.FixedAddressDereference) ioremap walk folds to a constant
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.FixedAddressDereference)
     Entry&        k_pdpt_slot = kPml4[kIoremapPml4];
     unsigned long pdpt_phys   = 0;
     if (!k_pdpt_slot.has(cinux::arch::page::kPresent)) {

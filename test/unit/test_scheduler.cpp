@@ -15,8 +15,8 @@ enum class Action : unsigned char {
 
 struct Recorded {
     Action             action;
-    unsigned long long from_tid;
-    unsigned long long to_tid;
+    unsigned long long from_pid;
+    unsigned long long to_pid;
 };
 
 struct World;
@@ -29,7 +29,7 @@ public:
     void enter_from_main(cinux::proc::Task& incoming);
     void return_to_main(cinux::proc::Task& outgoing);
     void reclaim(cinux::proc::Task& dead) {
-        record(Action::kReclaim, dead.tid, 0);
+        record(Action::kReclaim, dead.pid, 0);
         reclaimed_count++;
     }
 
@@ -38,9 +38,9 @@ public:
     unsigned int reclaimed_count = 0;
 
 private:
-    void record(Action action, unsigned long long from_tid, unsigned long long to_tid) {
+    void record(Action action, unsigned long long from_pid, unsigned long long to_pid) {
         if (played < 16) {
-            log[played++] = Recorded{.action = action, .from_tid = from_tid, .to_tid = to_tid};
+            log[played++] = Recorded{.action = action, .from_pid = from_pid, .to_pid = to_pid};
         }
     }
 };
@@ -106,22 +106,22 @@ struct World {
 };
 
 void RecordingSink::enter_from_main(cinux::proc::Task& incoming) {
-    record(Action::kEnter, 0, incoming.tid);
+    record(Action::kEnter, 0, incoming.pid);
     g_world->run_body_of(incoming);
 }
 
 void RecordingSink::switch_tasks(cinux::proc::Task& outgoing, cinux::proc::Task& incoming) {
-    record(Action::kSwitch, outgoing.tid, incoming.tid);
+    record(Action::kSwitch, outgoing.pid, incoming.pid);
     g_world->run_body_of(incoming);
 }
 
 void RecordingSink::return_to_main(cinux::proc::Task& outgoing) {
-    record(Action::kReturnMain, outgoing.tid, 0);
+    record(Action::kReturnMain, outgoing.pid, 0);
 }
 
-TEST("scheduler: seat hands out consecutive tids and parks ready") {
+TEST("scheduler: seat hands out consecutive pids and parks ready") {
     const World kWorld(100);
-    ASSERT_TRUE(kWorld.beta.tid == kWorld.alpha.tid + 1);
+    ASSERT_TRUE(kWorld.beta.pid == kWorld.alpha.pid + 1);
     ASSERT_TRUE(kWorld.alpha.state == cinux::proc::TaskState::kReady);
     ASSERT_TRUE(kWorld.beta.state == cinux::proc::TaskState::kReady);
 }
@@ -132,15 +132,15 @@ TEST("scheduler: drain enters the queue in fifo order") {
     cinux::proc::Scheduler::self().run_until_done();
     ASSERT_TRUE(world.sink.played >= 1);
     ASSERT_TRUE(world.sink.log[0].action == Action::kEnter);
-    ASSERT_TRUE(world.sink.log[0].to_tid == world.alpha.tid);
+    ASSERT_TRUE(world.sink.log[0].to_pid == world.alpha.pid);
     ASSERT_TRUE(cinux::proc::Scheduler::self().current() == nullptr);
 }
 
-void check_step(const Recorded& step, Action action, unsigned long long from_tid,
-                unsigned long long to_tid) {
+void check_step(const Recorded& step, Action action, unsigned long long from_pid,
+                unsigned long long to_pid) {
     ASSERT_TRUE(step.action == action);
-    ASSERT_TRUE(step.from_tid == from_tid);
-    ASSERT_TRUE(step.to_tid == to_tid);
+    ASSERT_TRUE(step.from_pid == from_pid);
+    ASSERT_TRUE(step.to_pid == to_pid);
 }
 
 TEST("scheduler: yield alternates, exit drains, both reclaims run") {
@@ -150,12 +150,12 @@ TEST("scheduler: yield alternates, exit drains, both reclaims run") {
 
     ASSERT_TRUE(world.alpha_visits == 2);
     ASSERT_TRUE(world.sink.played == 6);
-    check_step(world.sink.log[0], Action::kEnter, 0, world.alpha.tid);
-    check_step(world.sink.log[1], Action::kSwitch, world.alpha.tid, world.beta.tid);
-    check_step(world.sink.log[2], Action::kSwitch, world.beta.tid, world.alpha.tid);
-    check_step(world.sink.log[3], Action::kReclaim, world.beta.tid, 0);
-    check_step(world.sink.log[4], Action::kReturnMain, world.alpha.tid, 0);
-    check_step(world.sink.log[5], Action::kReclaim, world.alpha.tid, 0);
+    check_step(world.sink.log[0], Action::kEnter, 0, world.alpha.pid);
+    check_step(world.sink.log[1], Action::kSwitch, world.alpha.pid, world.beta.pid);
+    check_step(world.sink.log[2], Action::kSwitch, world.beta.pid, world.alpha.pid);
+    check_step(world.sink.log[3], Action::kReclaim, world.beta.pid, 0);
+    check_step(world.sink.log[4], Action::kReturnMain, world.alpha.pid, 0);
+    check_step(world.sink.log[5], Action::kReclaim, world.alpha.pid, 0);
     ASSERT_TRUE(world.sink.reclaimed_count == 2);
     ASSERT_TRUE(world.alpha.state == cinux::proc::TaskState::kDead);
     ASSERT_TRUE(world.beta.state == cinux::proc::TaskState::kDead);
@@ -170,10 +170,10 @@ TEST("scheduler: the exit hook rotates a task the clock flagged") {
 
     ASSERT_TRUE(world.sink.played >= 2);
     ASSERT_TRUE(world.sink.log[0].action == Action::kEnter);
-    ASSERT_TRUE(world.sink.log[0].to_tid == world.alpha.tid);
+    ASSERT_TRUE(world.sink.log[0].to_pid == world.alpha.pid);
     ASSERT_TRUE(world.sink.log[1].action == Action::kSwitch);
-    ASSERT_TRUE(world.sink.log[1].from_tid == world.alpha.tid);
-    ASSERT_TRUE(world.sink.log[1].to_tid == world.beta.tid);
+    ASSERT_TRUE(world.sink.log[1].from_pid == world.alpha.pid);
+    ASSERT_TRUE(world.sink.log[1].to_pid == world.beta.pid);
     ASSERT_TRUE(world.alpha_visits == 2);
     ASSERT_TRUE(world.sink.reclaimed_count == 2);
 }

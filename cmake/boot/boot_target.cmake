@@ -22,7 +22,7 @@ function(add_cinux_boot_binary target mode script)
         OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${target}.bin
         COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:${target}>
                 ${CMAKE_CURRENT_BINARY_DIR}/${target}.bin
-        DEPENDS ${target})
+        DEPENDS $<TARGET_FILE:${target}>)
     add_custom_target(${target}_bin
         DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${target}.bin)
 endfunction()

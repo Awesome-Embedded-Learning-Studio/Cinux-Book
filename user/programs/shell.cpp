@@ -110,7 +110,7 @@ const char* or_root(const char* arg) {
     return arg == nullptr ? "/" : arg;
 }
 
-void run_echo(unsigned long words, char** argv) {
+void run_echo(unsigned long words, const char* const* argv) {
     unsigned long end = words;
     for (unsigned long i = 1; i < words; ++i) {
         if (str_eq(argv[i], ">") && i + 1 < words) {
@@ -225,6 +225,7 @@ void run_pwd() {
 }
 
 void run_stat(const char* arg) {
+    // NOLINTNEXTLINE(misc-const-correctness) the kernel fills it via the syscall
     cinux::syscall::SyscallStat probed{};
     const long long             kAsked = user::Stat(or_root(arg), &probed);
     if (kAsked < 0) {
@@ -247,7 +248,52 @@ void run_stat(const char* arg) {
 void run_help() {
     put_text(
         "commands: echo [text...] [> file], ls [dir], cat <file>, stat <path>, "
-        "touch <file>, mkdir <dir>, rm <path>, cd [dir], pwd, help, yield, exit, poweroff\n");
+        "touch <file>, mkdir <dir>, rm <path>, cd [dir], pwd, run <prog>, "
+        "help, yield, exit, poweroff\n");
+}
+
+void report_child(long long pid, int code) {
+    put_text("[");
+    put_decimal(static_cast<unsigned long long>(pid));
+    put_text("] exited with ");
+    put_decimal(static_cast<unsigned long long>(code));
+    put_text("\n");
+}
+
+void put_signed(long long value) {
+    if (value < 0) {
+        put_text("-");
+        value = -value;
+    }
+    put_decimal(static_cast<unsigned long long>(value));
+}
+
+void run_program(const char* path) {
+    if (path == nullptr) {
+        put_text("run: need a program path\n");
+        return;
+    }
+    const long long kPid = user::Fork();
+    if (kPid < 0) {
+        put_text("run: fork refused ");
+        put_signed(kPid);
+        put_text("\n");
+        return;
+    }
+    if (kPid == 0) {
+        user::Execve(path);
+        put_text("run: exec refused\n");
+        user::Exit(1);
+    }
+    int             code    = 0;
+    const long long kReaped = user::Wait4(-1, &code);
+    if (kReaped < 0) {
+        put_text("run: wait refused ");
+        put_signed(kReaped);
+        put_text("\n");
+        return;
+    }
+    report_child(kReaped, code);
 }
 
 void run_yield() {
@@ -274,7 +320,9 @@ void run_unknown(const char* word) {
     put_text("\n");
 }
 
-void dispatch(unsigned long words, char** argv) {
+void dispatch(unsigned long      words,
+              const char* const* argv) {  // NOLINT(misc-const-correctness) the parser hands a
+                                          // mutable buffer's view
     if (str_eq(argv[0], "echo")) {
         run_echo(words, argv);
         return;
@@ -295,6 +343,8 @@ void dispatch(unsigned long words, char** argv) {
         run_pwd();
     } else if (str_eq(argv[0], "stat")) {
         run_stat(argv[1]);
+    } else if (str_eq(argv[0], "run")) {
+        run_program(argv[1]);
     } else if (str_eq(argv[0], "help")) {
         run_help();
     } else if (str_eq(argv[0], "yield")) {

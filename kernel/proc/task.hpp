@@ -12,8 +12,8 @@
  * (PMM pages, heap object) stays kernel-side in task_runtime.cpp.
  *
  * @author  Charliechen114514
- * @date    2026-10-07
- * @version 0.1
+ * @date    2026-10-12
+ * @version 0.2
  * @since   0.1.0
  * @ingroup kernel_proc
  * @copyright Copyright (c) 2026
@@ -26,6 +26,10 @@
 #include "kernel/fs/file_table.hpp"
 #include "kernel/fs/fs_config.hpp"
 
+namespace cinux::mm {
+class AddressSpace;
+}
+
 namespace cinux::proc {
 
 /**
@@ -37,6 +41,7 @@ enum class TaskState : unsigned char {
     kReady,    ///< Queued, waiting for a CPU.
     kRunning,  ///< On the CPU right now.
     kBlocked,  ///< Parked on a wait queue, not schedulable until woken.
+    kZombie,   ///< Exited with a parent alive; the body stays until reaped.
     kDead,     ///< Entry returned and exited; memory pending reclaim.
 };
 
@@ -46,19 +51,38 @@ enum class TaskState : unsigned char {
  *                that consumes them. stack_base is the virtual
  *                (direct-map) address of the first page, kept because
  *                freeing needs the allocation base, not any pointer
- *                the running thread ever holds.
+ *                the running thread ever holds. The family words —
+ *                parent, child_link, exit_code — exist so a task can
+ *                be waited on: an exited child turns zombie instead of
+ *                vanishing, and the parent's wait is what retires it.
+ *                The roll of offspring itself lives in the scheduler,
+ *                one list for the whole machine, because a list type
+ *                cannot be a member of the very task it links.
  * @since         0.1.0
  * @ingroup       kernel_proc
  */
 struct Task : cinux::base::container::SelfNode<Task> {
-    cinux::arch::CpuContext ctx{};            ///< Register image the switcher moves.
-    TaskState               state{};          ///< Where this task is in its life.
-    unsigned long long      tid{};            ///< Identity, handed out by the scheduler.
-    const char*             name{};           ///< Label for dumps, caller-owned storage.
-    unsigned long long      stack_base{};     ///< Direct-map base of the owned stack.
-    unsigned long long      user_root{};      ///< PML4 of the user world, 0 while kernel-only.
-    cinux::fs::FileTable    files;            ///< This task's open files, keyed by descriptor.
+    cinux::base::container::SelfNode<Task> child_link;  ///< Seat in the scheduler's offspring roll.
+    cinux::arch::CpuContext                ctx{};       ///< Register image the switcher moves.
+    TaskState                              state{};     ///< Where this task is in its life.
+    unsigned long long                     pid{};       ///< Identity, handed out by the scheduler.
+    Task*              parent{};      ///< Who may wait for this task; null when nobody can.
+    long long          exit_code{};   ///< What a zombie has to hand its parent.
+    const char*        name{};        ///< Label for dumps, caller-owned storage.
+    unsigned long long stack_base{};  ///< Direct-map base of the owned stack.
+    unsigned long long user_root{};   ///< PML4 of the user world, 0 while kernel-only.
+    cinux::mm::AddressSpace*
+        space{};  ///< The world this task retires with; null while kernel-only or borrowed.
+    cinux::fs::FileTable files;               ///< This task's open files, keyed by descriptor.
     char cwd[cinux::fs::kFsPathMax] = {'/'};  ///< Working directory, absolute, NUL-terminated.
+
+    /**
+     * @brief         The parent's pid, zero when nobody waits above.
+     * @return        Parent pid, or 0 for a parentless task.
+     * @since         0.2.0
+     * @ingroup       kernel_proc
+     */
+    [[nodiscard]] unsigned long long ppid() const { return parent != nullptr ? parent->pid : 0; }
 };
 
 /**
@@ -102,18 +126,46 @@ void PrepareTaskContext(cinux::arch::CpuContext& ctx, const StartPlan& plan);
  */
 class TaskBuilder {
 public:
-    /// Set the thread entry; required before build().
+    /**
+     * @brief         Set the thread entry; required before build().
+     *
+     * @param[in]     entry   The first function the task runs.
+     * @return        This builder, for chaining.
+     * @since         0.1.0
+     * @ingroup       kernel_proc
+     */
     TaskBuilder& set_entry(void (*entry)());
 
-    /// Set the dump label; caller keeps the storage alive.
+    /**
+     * @brief         Set the dump label; caller keeps the storage alive.
+     *
+     * @param[in]     name   Label for dumps; caller-owned storage.
+     * @return        This builder, for chaining.
+     * @since         0.1.0
+     * @ingroup       kernel_proc
+     */
     TaskBuilder& set_name(const char* name);
+
+    /**
+     * @brief         Adopting parent: the built task waits on this one.
+     * @param[in]     parent   The task whose children list takes the
+     *                         built task; its pid becomes the child's
+     *                         reported parent.
+     * @return        This builder, for chaining.
+     * @note          Without a parent the task exits straight to
+     *                reclaim — nobody can wait for it, so nothing is
+     *                held back.
+     * @since         0.2.0
+     */
+    TaskBuilder& set_parent(Task& parent);
 
     /// Allocate and arm the task, or nullptr with everything returned.
     [[nodiscard]] Task* build();
 
 private:
-    void (*entry_)()  = nullptr;
-    const char* name_ = "unnamed";
+    void (*entry_)()    = nullptr;
+    const char* name_   = "unnamed";
+    Task*       parent_ = nullptr;
 };
 
 /**

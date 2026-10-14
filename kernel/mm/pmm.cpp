@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "cinux/addr.hpp"
+#include "cinux/assert.hpp"
 #include "cinux/bit_ops/bitmap.hpp"
 #include "cinux/math.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"  // NOLINT(misc-include-cleaner) IrqGuard is used below
@@ -48,7 +49,7 @@ PhysAddr Pmm::allocate_pages(int order) {
     if (order < 0 || order > kMaxOrder) {
         return PhysAddr{};
     }
-    return allocate_run(1UL << order);
+    return allocate_run(1UL << static_cast<unsigned long>(order));
 }
 
 void Pmm::free_pages(PhysAddr phys, int order) {
@@ -56,7 +57,8 @@ void Pmm::free_pages(PhysAddr phys, int order) {
     if (phys == PhysAddr{}) {
         return;
     }
-    bitmap_.clear_range(cinux::base::math::Floor(phys.raw, cinux::arch::page::kSize), 1UL << order);
+    bitmap_.clear_range(cinux::base::math::Floor(phys.raw, cinux::arch::page::kSize),
+                        1UL << static_cast<unsigned long>(order));
 }
 
 unsigned long Pmm::free_page_count() const {
@@ -67,8 +69,31 @@ unsigned long Pmm::managed_page_count() const {
     return managed_pages_;
 }
 
+unsigned long Pmm::frame_index(PhysAddr phys) {
+    return cinux::base::math::Floor(phys.raw, cinux::arch::page::kSize);
+}
+
+void Pmm::retain_frame(PhysAddr phys) {
+    const cinux::arch::IrqGuard kGuard;
+    const unsigned long         kIndex = frame_index(phys);
+    cinux::base::safety::Check(kIndex < kPmmTotalPages, "retain of a frame the ledger never saw");
+    cinux::base::safety::Check(shares_[kIndex] != 0xFF, "frame shared past the count's width");
+    shares_[kIndex]++;
+}
+
+unsigned long Pmm::release_frame(PhysAddr phys) {
+    const cinux::arch::IrqGuard kGuard;
+    const unsigned long         kIndex = frame_index(phys);
+    if (kIndex >= kPmmTotalPages || shares_[kIndex] == 0) {
+        return 0;
+    }
+    shares_[kIndex]--;
+    return shares_[kIndex];
+}
+
 PhysAddr Pmm::allocate_run(unsigned long page_count) {
-    unsigned long const kBasePage = bitmap_.find_clear_run(page_count);
+    const cinux::arch::IrqGuard kGuard;
+    unsigned long const         kBasePage = bitmap_.find_clear_run(page_count);
     if (kBasePage == cinux::base::bit::kInvalidIndex) {
         return PhysAddr{};
     }

@@ -67,7 +67,7 @@ inline long long Write(unsigned long long descriptor, const void* buffer,
  * @return        Bytes read, or a negative errno.
  * @since         0.1.0
  */
-inline long long Read(unsigned long long descriptor, void* buffer, unsigned long long count) {
+inline long long Read(unsigned long long descriptor, const void* buffer, unsigned long long count) {
     return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kRead), descriptor,
                     reinterpret_cast<unsigned long long>(buffer), count);
 }
@@ -133,7 +133,8 @@ inline long long Unlink(const char* path) {
  * @return        One when filled, zero at the end, or a negative errno.
  * @since         0.1.0
  */
-inline long long Getdents(unsigned long long descriptor, cinux::syscall::SyscallDirent* entry) {
+inline long long Getdents(unsigned long long                   descriptor,
+                          const cinux::syscall::SyscallDirent* entry) {
     return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kGetdents),
                     descriptor, reinterpret_cast<unsigned long long>(entry), 0);
 }
@@ -145,7 +146,7 @@ inline long long Getdents(unsigned long long descriptor, cinux::syscall::Syscall
  * @return        Zero, or a negative errno.
  * @since         0.2.0
  */
-inline long long Stat(const char* path, cinux::syscall::SyscallStat* out) {
+inline long long Stat(const char* path, const cinux::syscall::SyscallStat* out) {
     return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kStat),
                     reinterpret_cast<unsigned long long>(path),
                     reinterpret_cast<unsigned long long>(out), 0);
@@ -169,6 +170,7 @@ inline long long Chdir(const char* path) {
  * @return        Bytes written without the NUL, or a negative errno.
  * @since         0.2.0
  */
+// NOLINTNEXTLINE(misc-const-correctness) the kernel writes the path via the syscall
 inline long long Getcwd(char* buffer, unsigned long long size) {
     return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kGetcwd),
                     reinterpret_cast<unsigned long long>(buffer), size, 0);
@@ -188,6 +190,60 @@ inline long long Reboot() {
     static_cast<void>(
         Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kExit), code, 0, 0));
     __builtin_unreachable();
+}
+
+/**
+ * @brief         getpid(): the caller's own identity.
+ * @return        The pid the scheduler handed this task.
+ * @since         0.3.0
+ */
+inline long long Getpid() {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kGetpid), 0, 0, 0);
+}
+
+/**
+ * @brief         fork(): one call, two returns.
+ * @return        The child's pid to the parent, 0 to the child, or a
+ *                negative errno.
+ * @since         0.3.0
+ */
+inline long long Fork() {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kFork), 0, 0, 0);
+}
+
+/**
+ * @brief         execve(path): replace this world with a program.
+ * @param[in]     path   The program's absolute path on the volume.
+ * @return        Never on success, or a negative errno.
+ * @since         0.3.0
+ */
+[[noreturn]] inline void Execve(const char* path) {
+    static_cast<void>(Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kExecve),
+                               reinterpret_cast<unsigned long long>(path), 0, 0));
+    __builtin_unreachable();
+}
+
+/**
+ * @brief         getppid(): who the caller may be waited on by.
+ * @return        The parent's pid, zero when parentless.
+ * @since         0.3.0
+ */
+inline long long Getppid() {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kGetppid), 0, 0, 0);
+}
+
+/**
+ * @brief         wait4(pid, status): block for one child, then retire it.
+ * @param[in]     pid    The child's pid, or -1 for any child.
+ * @param[out]    where  Receives the child's raw exit code; null skips.
+ * @return        The reaped child's pid, or a negative errno.
+ * @since         0.3.0
+ */
+// NOLINTNEXTLINE(misc-const-correctness) the kernel writes the code via the syscall
+inline long long Wait4(long long pid, int* where) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kWait4),
+                    static_cast<unsigned long long>(pid),
+                    reinterpret_cast<unsigned long long>(where), 0);
 }
 
 }  // namespace user

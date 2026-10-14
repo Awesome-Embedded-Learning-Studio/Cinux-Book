@@ -15,15 +15,20 @@
 
 #include "kernel/syscall/sys_chdir.hpp"
 #include "kernel/syscall/sys_close.hpp"
+#include "kernel/syscall/sys_exec.hpp"
 #include "kernel/syscall/sys_exit.hpp"
+#include "kernel/syscall/sys_fork.hpp"
 #include "kernel/syscall/sys_getcwd.hpp"
 #include "kernel/syscall/sys_getdents.hpp"
+#include "kernel/syscall/sys_getpid.hpp"
+#include "kernel/syscall/sys_getppid.hpp"
 #include "kernel/syscall/sys_mkdir.hpp"
 #include "kernel/syscall/sys_open.hpp"
 #include "kernel/syscall/sys_read.hpp"
 #include "kernel/syscall/sys_reboot.hpp"
 #include "kernel/syscall/sys_stat.hpp"
 #include "kernel/syscall/sys_unlink.hpp"
+#include "kernel/syscall/sys_wait.hpp"
 #include "kernel/syscall/sys_write.hpp"
 #include "kernel/syscall/sys_yield.hpp"
 #include "kernel/syscall/syscall.hpp"
@@ -43,7 +48,12 @@ constexpr Row kRows[] = {
     {.number = cinux::syscall::SyscallNr::kClose, .handler = cinux::syscall::HandleClose},
     {.number = cinux::syscall::SyscallNr::kStat, .handler = cinux::syscall::HandleStat},
     {.number = cinux::syscall::SyscallNr::kYield, .handler = cinux::syscall::HandleYield},
+    {.number = cinux::syscall::SyscallNr::kGetpid, .handler = cinux::syscall::HandleGetpid},
+    {.number = cinux::syscall::SyscallNr::kFork, .handler = cinux::syscall::HandleFork},
+    {.number = cinux::syscall::SyscallNr::kExecve, .handler = cinux::syscall::HandleExecve},
     {.number = cinux::syscall::SyscallNr::kExit, .handler = cinux::syscall::HandleExit},
+    {.number = cinux::syscall::SyscallNr::kWait4, .handler = cinux::syscall::HandleWait4},
+    {.number = cinux::syscall::SyscallNr::kGetppid, .handler = cinux::syscall::HandleGetppid},
     {.number = cinux::syscall::SyscallNr::kGetcwd, .handler = cinux::syscall::HandleGetcwd},
     {.number = cinux::syscall::SyscallNr::kChdir, .handler = cinux::syscall::HandleChdir},
     {.number = cinux::syscall::SyscallNr::kReboot, .handler = cinux::syscall::HandleReboot},

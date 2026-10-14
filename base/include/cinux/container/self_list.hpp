@@ -23,7 +23,6 @@
 
 #pragma once
 
-#include <type_traits>
 
 namespace cinux::base::container {
 
@@ -42,7 +41,7 @@ template <typename Stuff>
 // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility)
 struct SelfNode {
 private:
-    template <typename>
+    template <typename, auto>
     friend struct SelfList;
 
     Stuff* next_ = nullptr;
@@ -51,6 +50,15 @@ private:
 /**
  * @brief         FIFO intrusive list over SelfNode-carrying objects.
  * @tparam        Stuff   The linked type; must embed SelfNode<Stuff>.
+ * @tparam        member  Optional member-link selector: pass
+ *                        &Stuff::link_field to ride a member node
+ *                        instead of the base-class one, so one object
+ *                        can sit on several lists at once — the base
+ *                        link and each member link are separate wires.
+ * @note          The sharing hazard this solves: two lists both riding
+ *                the base link of the same object would corrupt each
+ *                other, because one link field can hold one successor
+ *                only.
  * @note          Head plus tail pointers, so append is constant time
  *                and pop is constant time. Trivially destructible
  *                and constant-initializable: safe inside freestanding
@@ -60,10 +68,24 @@ private:
  * @since         0.1.0
  * @ingroup       base_container
  */
+template <typename, auto>
+struct MemberNode;
+
+template <typename Stuff, SelfNode<Stuff>(Stuff::* LinkField)>
+struct MemberNode<Stuff, LinkField> {
+    /// Reads the link field the list rides.
+    static SelfNode<Stuff>& node_of(Stuff& item) { return item.*LinkField; }
+};
+
 template <typename Stuff>
+struct MemberNode<Stuff, nullptr> {
+    /// Reads the base-class link, the default ride.
+    static SelfNode<Stuff>& node_of(Stuff& item) { return item; }
+};
+
+template <typename Stuff, auto LinkField = nullptr>
 struct SelfList {
-    static_assert(std::is_base_of_v<SelfNode<Stuff>, Stuff>,
-                  "SelfList links types that embed SelfNode<Stuff>");
+    using NodeOf = MemberNode<Stuff, LinkField>;
 
     SelfList() = default;
 
@@ -87,11 +109,11 @@ struct SelfList {
      * @ingroup       base_container
      */
     void push_back(Stuff& item) {
-        item.SelfNode<Stuff>::next_ = nullptr;
+        NodeOf::node_of(item).next_ = nullptr;
         if (tail_ == nullptr) {
             stuff_ = &item;
         } else {
-            tail_->SelfNode<Stuff>::next_ = &item;
+            NodeOf::node_of(*tail_).next_ = &item;
         }
         tail_ = &item;
     }
@@ -104,7 +126,7 @@ struct SelfList {
      * @ingroup       base_container
      */
     void push_front(Stuff& item) {
-        item.SelfNode<Stuff>::next_ = stuff_;
+        NodeOf::node_of(item).next_ = stuff_;
         stuff_                      = &item;
         if (tail_ == nullptr) {
             tail_ = &item;
@@ -121,11 +143,11 @@ struct SelfList {
     [[nodiscard]] Stuff* pop_head() {
         Stuff* out = stuff_;
         if (out != nullptr) {
-            stuff_ = out->SelfNode<Stuff>::next_;
+            stuff_ = NodeOf::node_of(*out).next_;
             if (stuff_ == nullptr) {
                 tail_ = nullptr;
             }
-            out->SelfNode<Stuff>::next_ = nullptr;
+            NodeOf::node_of(*out).next_ = nullptr;
         }
         return out;
     }
@@ -144,18 +166,19 @@ struct SelfList {
         while (scan != nullptr) {
             if (scan == &item) {
                 if (prev == nullptr) {
-                    stuff_ = scan->SelfNode<Stuff>::next_;
+                    stuff_ = NodeOf::node_of(*scan).next_;
                 } else {
-                    prev->SelfNode<Stuff>::next_ = scan->SelfNode<Stuff>::next_;
+                    NodeOf::node_of(*prev).next_ = NodeOf::node_of(*scan).next_;
                 }
+                // NOLINTNEXTLINE(bugprone-branch-clone)
                 if (tail_ == &item) {
                     tail_ = prev;
                 }
-                item.SelfNode<Stuff>::next_ = nullptr;
+                NodeOf::node_of(item).next_ = nullptr;
                 return true;
             }
             prev = scan;
-            scan = scan->SelfNode<Stuff>::next_;
+            scan = NodeOf::node_of(*scan).next_;
         }
         return false;
     }

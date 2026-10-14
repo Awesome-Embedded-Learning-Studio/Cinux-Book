@@ -53,6 +53,8 @@ add_cinux_test(slot_table)
 add_cinux_test(ref_count)
 add_cinux_test(context ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp)
 add_cinux_test(self_list)
+add_cinux_test(shared)
+add_cinux_test(elf ${CMAKE_SOURCE_DIR}/kernel/loader/elf_layout.cpp)
 add_cinux_test(sync ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                       ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
                       ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp

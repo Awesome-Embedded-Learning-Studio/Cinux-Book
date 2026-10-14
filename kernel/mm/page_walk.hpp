@@ -48,6 +48,9 @@ concept TableWorld = requires(World& world, unsigned long physical) {
 
 constexpr unsigned int kEntriesPerTable = 512;
 
+/// Slots of one user half: the lower PML4 half a user world may own.
+constexpr unsigned int kUserHalfSlots = kEntriesPerTable / 2;
+
 /**
  * @brief   One step of the four-level descent, named.
  * @note    kPml4 reads the topmost nine index bits, kPageTable the
@@ -183,8 +186,10 @@ SlotAt FindSlot(World& world, unsigned long root, unsigned long virtual_address)
         }
         table = FollowTable(world, slot);
     }
-    return SlotAt{.entry = &table[SlotIndex(virtual_address, WalkLevel::kPageTable)],
-                  .level = WalkLevel::kPageTable};
+    return SlotAt{
+        .entry = &table[SlotIndex(virtual_address, WalkLevel::kPageTable)],
+        .level = WalkLevel::kPageTable,
+    };
 }
 
 /**

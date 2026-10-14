@@ -78,12 +78,14 @@ struct [[gnu::packed]] BootGdt {
  */
 constexpr SegmentDescriptor MakeFlatDescriptor(unsigned char access) {
     return SegmentDescriptor{
-        .limit_low        = 0xFFFF,
-        .base_low         = 0x0000,
-        .base_mid         = 0x00,
-        .access           = access,
-        .flags_limit_high = static_cast<unsigned char>((kFlagsFlat32 << 4) | 0x0F),
-        .base_high        = 0x00};
+        .limit_low = 0xFFFF,
+        .base_low  = 0x0000,
+        .base_mid  = 0x00,
+        .access    = access,
+        .flags_limit_high =
+            static_cast<unsigned char>((static_cast<unsigned>(kFlagsFlat32) << 4U) | 0x0FU),
+        .base_high = 0x00,
+    };
 }
 
 /**
@@ -96,12 +98,14 @@ constexpr SegmentDescriptor MakeFlatDescriptor(unsigned char access) {
  */
 constexpr SegmentDescriptor MakeLongCodeDescriptor() {
     return SegmentDescriptor{
-        .limit_low        = 0xFFFF,
-        .base_low         = 0x0000,
-        .base_mid         = 0x00,
-        .access           = kAccessKernelCode,
-        .flags_limit_high = static_cast<unsigned char>((kFlagsLongCode << 4) | 0x0F),
-        .base_high        = 0x00};
+        .limit_low = 0xFFFF,
+        .base_low  = 0x0000,
+        .base_mid  = 0x00,
+        .access    = kAccessKernelCode,
+        .flags_limit_high =
+            static_cast<unsigned char>((static_cast<unsigned>(kFlagsLongCode) << 4U) | 0x0FU),
+        .base_high = 0x00,
+    };
 }
 
 /**
@@ -114,12 +118,14 @@ constexpr SegmentDescriptor MakeLongCodeDescriptor() {
  */
 constexpr SegmentDescriptor MakeLongDataDescriptor() {
     return SegmentDescriptor{
-        .limit_low        = 0xFFFF,
-        .base_low         = 0x0000,
-        .base_mid         = 0x00,
-        .access           = kAccessKernelData,
-        .flags_limit_high = static_cast<unsigned char>((kFlagsLongData << 4) | 0x0F),
-        .base_high        = 0x00};
+        .limit_low = 0xFFFF,
+        .base_low  = 0x0000,
+        .base_mid  = 0x00,
+        .access    = kAccessKernelData,
+        .flags_limit_high =
+            static_cast<unsigned char>((static_cast<unsigned>(kFlagsLongData) << 4U) | 0x0FU),
+        .base_high = 0x00,
+    };
 }
 
 /**
@@ -134,12 +140,14 @@ constexpr SegmentDescriptor MakeLongDataDescriptor() {
  */
 constexpr SegmentDescriptor MakeCode16Descriptor() {
     return SegmentDescriptor{
-        .limit_low        = 0xFFFF,
-        .base_low         = 0x0000,
-        .base_mid         = 0x00,
-        .access           = kAccessKernelCode,
-        .flags_limit_high = static_cast<unsigned char>((kFlagsCode16 << 4) | 0x0F),
-        .base_high        = 0x00};
+        .limit_low = 0xFFFF,
+        .base_low  = 0x0000,
+        .base_mid  = 0x00,
+        .access    = kAccessKernelCode,
+        .flags_limit_high =
+            static_cast<unsigned char>((static_cast<unsigned>(kFlagsCode16) << 4U) | 0x0FU),
+        .base_high = 0x00,
+    };
 }
 
 /**
@@ -153,12 +161,14 @@ constexpr SegmentDescriptor MakeCode16Descriptor() {
  * @ingroup boot_gdt
  */
 constexpr BootGdt MakeBootGdt() {
-    return BootGdt{.null   = SegmentDescriptor{},
-                   .code   = MakeFlatDescriptor(kAccessKernelCode),
-                   .data   = MakeFlatDescriptor(kAccessKernelData),
-                   .code64 = MakeLongCodeDescriptor(),
-                   .data64 = MakeLongDataDescriptor(),
-                   .code16 = MakeCode16Descriptor()};
+    return BootGdt{
+        .null   = SegmentDescriptor{},
+        .code   = MakeFlatDescriptor(kAccessKernelCode),
+        .data   = MakeFlatDescriptor(kAccessKernelData),
+        .code64 = MakeLongCodeDescriptor(),
+        .data64 = MakeLongDataDescriptor(),
+        .code16 = MakeCode16Descriptor(),
+    };
 }
 
 constexpr BootGdt kTemplate = MakeBootGdt();

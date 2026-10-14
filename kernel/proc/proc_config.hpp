@@ -26,6 +26,9 @@ namespace cinux::proc {
 /// Pages of physical memory behind one kernel-thread stack.
 inline constexpr unsigned int kStackPages = 4;
 
+/// log2 of kStackPages; the PMM frees with the same order it granted.
+inline constexpr int kStackOrder = 2;
+
 /// Marker at the very bottom of every thread stack; changed means the
 /// stack ran past its end.
 inline constexpr unsigned long long kStackMagic = 0xDEADC0DEULL;
@@ -40,5 +43,13 @@ inline constexpr unsigned int kTimeSliceTicks = 2;
 /// Bytes of one kernel-thread stack.
 inline constexpr unsigned long kStackBytes =
     static_cast<unsigned long>(kStackPages) * cinux::arch::page::kSize;
+
+static_assert((1UL << static_cast<unsigned long>(kStackOrder)) == kStackPages,
+              "order and page count are one fact");
+
+/// Where the teaching user programs park their stack: top byte of the
+/// single mapped stack page, distinct by name from the address-space
+/// layout's own user-half ceiling.
+inline constexpr unsigned long kUserProgramStackTop = 0x0000000000501000UL;
 
 }  // namespace cinux::proc

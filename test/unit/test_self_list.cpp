@@ -104,6 +104,40 @@ static_assert(sizeof(cinux::base::container::SelfList<Item>) == 2 * sizeof(Item*
 
 }  // namespace
 
+
+namespace {
+
+struct DualHost : public cinux::base::container::SelfNode<DualHost> {
+    cinux::base::container::SelfNode<DualHost> second_link;
+    int                                        tag = 0;
+};
+
+TEST("self list: one object rides two lists without corrupting either") {
+    using cinux::base::container::SelfList;
+    DualHost first{};
+    DualHost second{};
+    DualHost third{};
+    first.tag  = 1;
+    second.tag = 2;
+    third.tag  = 3;
+    SelfList<DualHost>                         roll;
+    SelfList<DualHost, &DualHost::second_link> bench;
+    roll.push_back(first);
+    roll.push_back(second);
+    roll.push_back(third);
+    bench.push_back(second);
+    bench.push_back(first);
+    ASSERT_TRUE(roll.pop_head() == &first);
+    ASSERT_TRUE(roll.pop_head() == &second);
+    ASSERT_TRUE(roll.pop_head() == &third);
+    ASSERT_TRUE(roll.pop_head() == nullptr);
+    ASSERT_TRUE(bench.pop_head() == &second);
+    ASSERT_TRUE(bench.pop_head() == &first);
+    ASSERT_TRUE(bench.pop_head() == nullptr);
+}
+
+}  // namespace
+
 int main() {
     return cinux::test::RunAll();
 }

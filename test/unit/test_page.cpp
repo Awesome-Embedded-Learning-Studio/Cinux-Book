@@ -44,7 +44,7 @@ TEST("page: deposit and extract are inverse over the phys field") {
     ASSERT_TRUE(kEntry.has(kPresent));
     ASSERT_TRUE(kEntry.has(kWritable));
     ASSERT_TRUE(kEntry.has(kLarge));
-    ASSERT_TRUE(kEntry.extract(kLargePagePhys) == (0x600000 >> 21));
+    ASSERT_TRUE(kEntry.extract(kLargePagePhys) == (0x600000U >> 21U));
 }
 
 TEST("page: device doors cover the VBE framebuffer span") {

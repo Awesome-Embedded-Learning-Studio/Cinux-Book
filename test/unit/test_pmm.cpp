@@ -9,6 +9,7 @@
 #include "kernel/boot/boot_info.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/pmm_config.hpp"
+#include "test_assert.hpp"
 
 using cinux::base::PhysAddr;
 using cinux::mm::Pmm;
@@ -34,6 +35,13 @@ cinux::boot::BootInfo make_info(std::initializer_list<cinux::boot::E820Entry> en
     info.kernel_paddr    = kernel_base;
     info.kernel_mem_size = kernel_bytes;
     return info;
+}
+
+void run_last_release_ladder(Pmm& pmm, const PhysAddr& first, const PhysAddr& second) {
+    ASSERT_TRUE(pmm.release_frame(second) == 1);
+    ASSERT_TRUE(pmm.release_frame(first) == 1);
+    ASSERT_TRUE(pmm.release_frame(first) == 0);
+    ASSERT_TRUE(pmm.release_frame(second) == 0);
 }
 
 }  // namespace
@@ -104,6 +112,23 @@ TEST("pmm: a map with no usable ram allocates nothing") {
     ASSERT_TRUE(pmm.managed_page_count() == 0);
     ASSERT_TRUE(pmm.free_page_count() == 0);
     ASSERT_TRUE(pmm.allocate_page() == PhysAddr{});
+}
+
+TEST("pmm: neighboring frames keep independent share counts") {
+    Pmm pmm{};
+    ASSERT_TRUE(pmm.init(make_info({make_entry(1_MiB, 4_MiB, 1)}, 2_MiB, 8_KiB)));
+    const PhysAddr kFirst  = pmm.allocate_page();
+    const PhysAddr kSecond = pmm.allocate_page();
+    ASSERT_TRUE(kFirst != PhysAddr{});
+    ASSERT_TRUE(kSecond != PhysAddr{});
+    for (unsigned int mapping = 0; mapping < 4; ++mapping) {
+        pmm.retain_frame(kFirst);
+    }
+    pmm.retain_frame(kSecond);
+    pmm.retain_frame(kSecond);
+    ASSERT_TRUE(pmm.release_frame(kFirst) == 3);
+    ASSERT_TRUE(pmm.release_frame(kFirst) == 2);
+    run_last_release_ladder(pmm, kFirst, kSecond);
 }
 
 int main() {

@@ -23,6 +23,7 @@ Checks:
   - '-modernize-deprecated-headers'
   - '-clang-diagnostic-unknown-warning-option'
   - '-portability-avoid-pragma-once'
+  - '-portability-no-assembler'
 
 WarningsAsErrors: '*'
 

@@ -14,11 +14,11 @@ constexpr unsigned long long kInterruptFlagMask =
     cinux::base::bit::MaskBit<unsigned long long>(9).raw;
 
 constexpr unsigned long long kStarValue =
-    (static_cast<unsigned long long>(gdt::kSysretStarBase) << 48) |
-    (static_cast<unsigned long long>(gdt::kSelectorCode) << 32);
+    (static_cast<unsigned long long>(gdt::kSysretStarBase) << 48U) |
+    (static_cast<unsigned long long>(gdt::kSelectorCode) << 32U);
 
-static_assert((kStarValue >> 48) == gdt::kSysretStarBase, "SYSRET base keeps its RPL-3 folding");
-static_assert(((kStarValue >> 32) & 0xFFFF) == gdt::kSelectorCode,
+static_assert((kStarValue >> 48U) == gdt::kSysretStarBase, "SYSRET base keeps its RPL-3 folding");
+static_assert(((kStarValue >> 32U) & 0xFFFFU) == gdt::kSelectorCode,
               "SYSCALL entries start on the kernel code selector");
 
 }  // namespace

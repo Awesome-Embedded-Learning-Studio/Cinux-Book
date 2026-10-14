@@ -18,13 +18,18 @@ SyscallEntry:
     pushq %r11
     pushq %rcx
     pushq %gs:8
+    movq %rsp, %gs:24
+    movq %r12, %gs:32
+    movq %r13, %gs:40
+    movq %r14, %gs:48
+    movq %r15, %gs:56
     sti
     movq 24(%rsp), %rdi
     movq 32(%rsp), %rsi
     movq 40(%rsp), %rdx
     movq 48(%rsp), %rcx
     call InvokeSyscall
-    movq %rax, %gs:16
+    cli
     movq 32(%rsp), %rdi
     movq 40(%rsp), %rsi
     movq 48(%rsp), %rdx
@@ -36,7 +41,25 @@ SyscallEntry:
     movq 80(%rsp), %rbx
     movq 88(%rsp), %rbp
     movq (%rsp), %rsp
-    movq %gs:16, %rax
     swapgs
     sysretq
 .size SyscallEntry, . - SyscallEntry
+
+.global ForkChildEntry
+.type ForkChildEntry, @function
+ForkChildEntry:
+    movq 32(%rsp), %rdi
+    movq 40(%rsp), %rsi
+    movq 48(%rsp), %rdx
+    movq 56(%rsp), %r10
+    movq 64(%rsp), %r8
+    movq 72(%rsp), %r9
+    movq 8(%rsp), %rcx
+    movq 16(%rsp), %r11
+    movq 80(%rsp), %rbx
+    movq 88(%rsp), %rbp
+    movq (%rsp), %rsp
+    xorq %rax, %rax
+    swapgs
+    sysretq
+.size ForkChildEntry, . - ForkChildEntry

@@ -41,7 +41,9 @@ set(CINUX_KERNEL_NO_SSE_ISLAND
     ${CMAKE_SOURCE_DIR}/kernel/proc/task_runtime.cpp
     ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
     ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
-    ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
+    ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/mm/cow.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/proc/fork.cpp)
 
 set_source_files_properties(${CINUX_KERNEL_NO_SSE_ISLAND} PROPERTIES COMPILE_OPTIONS "-mgeneral-regs-only")
 
@@ -57,20 +59,6 @@ add_custom_command(
             font.psf
             font_blob.o
     DEPENDS ${CMAKE_SOURCE_DIR}/assets/font.psf
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-
-add_custom_command(
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/user_blob.o
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/user/shell.bin
-            ${CMAKE_CURRENT_BINARY_DIR}/shell.bin
-    COMMAND ${CMAKE_OBJCOPY} -I binary -O elf64-x86-64 -B i386:x86-64
-            --rename-section .data=usertext.user
-            --redefine-sym _binary_shell_bin_start=g_user_shell_start
-            --redefine-sym _binary_shell_bin_end=g_user_shell_end
-            --set-section-flags usertext.user=alloc,load,readonly,data
-            shell.bin
-            user_blob.o
-    DEPENDS user_shell ${CMAKE_BINARY_DIR}/user/shell.bin
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 file(GLOB CINUX_INITRD_FILES CONFIGURE_DEPENDS
@@ -94,7 +82,6 @@ function(add_cinux_kernel name bin_stem)
         ${CMAKE_SOURCE_DIR}/kernel/kernel.cpp
         ${CINUX_KERNEL_CORE_SOURCES}
         ${CMAKE_CURRENT_BINARY_DIR}/font_blob.o
-        ${CMAKE_CURRENT_BINARY_DIR}/user_blob.o
         ${CMAKE_CURRENT_BINARY_DIR}/initrd_blob.o
         ${ARGN})
     target_link_libraries(${name} PRIVATE cinux_warnings cinux_kernel_flags)
@@ -123,7 +110,8 @@ function(add_cinux_kernel name bin_stem)
         COMMAND ${CMAKE_COMMAND}
                 -DIMAGE_FILE=${CMAKE_BINARY_DIR}/kernel/${bin_stem}.bin
                 -P ${CMAKE_SOURCE_DIR}/cmake/kernel/image_size_check.cmake
-        DEPENDS ${name} ${CMAKE_SOURCE_DIR}/cmake/kernel/image_size_check.cmake
+        DEPENDS $<TARGET_FILE:${name}>
+                ${CMAKE_SOURCE_DIR}/cmake/kernel/image_size_check.cmake
     )
 
     add_custom_target(${bin_stem}_bin
@@ -166,7 +154,8 @@ function(add_cinux_ktest name stage)
         COMMAND ${CMAKE_COMMAND}
                 -DIMAGE_FILE=${CMAKE_BINARY_DIR}/kernel/cinux_ktest_${name}.bin
                 -P ${CMAKE_SOURCE_DIR}/cmake/kernel/image_size_check.cmake
-        DEPENDS cinux_ktest_${name} ${CMAKE_SOURCE_DIR}/cmake/kernel/image_size_check.cmake
+        DEPENDS $<TARGET_FILE:cinux_ktest_${name}>
+                ${CMAKE_SOURCE_DIR}/cmake/kernel/image_size_check.cmake
     )
 
     add_custom_target(cinux_ktest_${name}_bin

@@ -34,9 +34,11 @@ namespace cinux::base {
  * @ingroup       base_memory
  */
 inline void CopyBytes(void* destination, const void* source, unsigned long bytes) {
+    // NOLINTNEXTLINE(misc-const-correctness)
     auto*       dest_byte = static_cast<unsigned char*>(destination);
     auto const* src_byte  = static_cast<const unsigned char*>(source);
     while (bytes-- > 0) {
+        // NOLINTNEXTLINE(clang-analyzer-optin.core.FixedAddressDereference)
         *dest_byte++ = *src_byte++;
     }
 }
@@ -56,9 +58,10 @@ inline void CopyBytes(void* destination, const void* source, unsigned long bytes
  * @ingroup       base_memory
  */
 inline void SetBytes(void* destination, unsigned char value, unsigned long bytes) {
+    // NOLINTNEXTLINE(misc-const-correctness)
     auto* dest_byte = static_cast<unsigned char*>(destination);
     while (bytes-- > 0) {
-        // NOLINTNEXTLINE(clang-analyzer-core.FixedAddressDereference)
+        // NOLINTNEXTLINE(clang-analyzer-optin.core.FixedAddressDereference)
         *dest_byte++ = value;
     }
 }

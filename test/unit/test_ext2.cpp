@@ -327,8 +327,9 @@ std::vector<std::string> list_root(cinux::fs::ext2::Ext2& volume, const cinux::f
 }
 
 unsigned long root_first_block(const std::vector<std::uint8_t>& image) {
-    const unsigned long kTable = peek_u32(image, (2 * 1024) + 8);
-    const auto kInodeSize = static_cast<std::uint16_t>(image[1024 + 88] | (image[1024 + 89] << 8U));
+    const unsigned long kTable     = peek_u32(image, (2 * 1024) + 8);
+    const auto          kInodeSize = static_cast<std::uint16_t>(
+        static_cast<unsigned>(image[1024 + 88]) | (static_cast<unsigned>(image[1024 + 89]) << 8U));
     const unsigned long kRootOff = (kTable * 1024) + kInodeSize;
     std::uint32_t       first    = 0;
     for (unsigned long i = 0; i < 4; ++i) {
@@ -344,7 +345,8 @@ unsigned long entry_offset_of(const std::vector<std::uint8_t>& image, unsigned l
     while (cursor + 8 <= 1024) {
         const unsigned long kEntryBase = (dir_block * 1024) + cursor;
         const auto          kRec =
-            static_cast<std::uint16_t>(image[kEntryBase + 4] | (image[kEntryBase + 5] << 8U));
+            static_cast<std::uint16_t>(static_cast<unsigned>(image[kEntryBase + 4]) |
+                                       (static_cast<unsigned>(image[kEntryBase + 5]) << 8U));
         const std::uint32_t kIno = peek_u32(image, kEntryBase);
         if (kIno != 0) {
             if (seen == ordinal) {
@@ -778,7 +780,11 @@ TEST("ext2: faces before mount answer IOError") {
 
     std::vector<std::uint8_t> few(4, 0);
     const auto                kNode = cinux::fs::FsNode{
-        .opaque = nullptr, .type = cinux::fs::InodeType::kFile, .ino = 2, .size = 4};
+        .opaque = nullptr,
+        .type   = cinux::fs::InodeType::kFile,
+        .ino    = 2,
+        .size   = 4,
+    };
     const auto kRead = unmounted.read(kNode, 0, few.data(), few.size());
     ASSERT_TRUE(!kRead.ok());
     ASSERT_TRUE(kRead.error() == cinux::base::KernelError::kIOError);
@@ -840,10 +846,11 @@ std::vector<std::uint8_t> holed_copy_of_small() {
         return {};
     }
 
-    std::vector<std::uint8_t> holed  = bake.image;
-    const unsigned long       kTable = peek_u32(holed, (2 * 1024) + 8);
-    const std::uint32_t       kIpg   = peek_u32(holed, 1024 + 40);
-    const auto kInodeSize = static_cast<std::uint16_t>(holed[1024 + 88] | (holed[1024 + 89] << 8U));
+    std::vector<std::uint8_t> holed      = bake.image;
+    const unsigned long       kTable     = peek_u32(holed, (2 * 1024) + 8);
+    const std::uint32_t       kIpg       = peek_u32(holed, 1024 + 40);
+    const auto                kInodeSize = static_cast<std::uint16_t>(
+        static_cast<unsigned>(holed[1024 + 88]) | (static_cast<unsigned>(holed[1024 + 89]) << 8U));
     const unsigned long kInodeOff =
         (kTable * 1024) + ((((kNode.value().ino - 1) % kIpg) * kInodeSize) + 40);
     poke_u32(holed, kInodeOff, 0);

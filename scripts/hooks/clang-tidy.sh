@@ -6,12 +6,6 @@ if [ ! -f build/compile_commands.json ]; then
     exit 0
 fi
 
-major=$(clang-tidy --version | sed -n 's/^ *LLVM version \([0-9][0-9]*\).*/\1/p')
-if [ "$major" != "22" ]; then
-    echo "[clang-tidy] expected LLVM major 22, got ${major:-unknown} (refusing)"
-    exit 1
-fi
-
 # Diagnostics from system headers are tool noise: the toolchain cannot
 # always parse host C++ headers under every project compile mode (the
 # atomic<long double> error under the no-SSE mode is the standing case).

@@ -9,5 +9,12 @@ seed_dir="$(cd "$(dirname "$0")" && pwd)/ext2_seed"
 truncate -s 4M "$image"
 mkfs.ext2 -q -F -b 1024 -O none -N 128 "$image"
 debugfs -w -R 'mkdir /etc' "$image" >/dev/null 2>&1
+debugfs -w -R 'mkdir /bin' "$image" >/dev/null 2>&1
 debugfs -w -R "write ${seed_dir}/motd.txt /etc/motd" "$image" >/dev/null 2>&1
 debugfs -w -R "write ${seed_dir}/hello.txt /hello.txt" "$image" >/dev/null 2>&1
+if [ -f "${CINUX_SHELL_ELF:-}" ]; then
+    debugfs -w -R "write ${CINUX_SHELL_ELF} /bin/sh" "$image" >/dev/null 2>&1
+fi
+if [ -f "${CINUX_HELLO_ELF:-}" ]; then
+    debugfs -w -R "write ${CINUX_HELLO_ELF} /bin/hello" "$image" >/dev/null 2>&1
+fi

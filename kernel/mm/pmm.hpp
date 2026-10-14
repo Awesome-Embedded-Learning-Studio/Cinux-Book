@@ -10,8 +10,8 @@
  * their own ledgers from fake handoffs.
  *
  * @author  Charliechen114514
- * @date    2026-10-02
- * @version 0.2
+ * @date    2026-10-12
+ * @version 0.3
  * @since   0.1.0
  * @ingroup kernel_mm
  * @copyright Copyright (c) 2026
@@ -32,8 +32,11 @@ namespace cinux::mm {
 /**
  * @brief   One ledger over the machine's usable RAM.
  * @note    The bitmap storage is a member, so a Pmm is about half a
- *          megabyte of .bss at the current 16 GiB ceiling; place instances
- *          in static storage, not on small stacks.
+ *          megabyte of .bss at the current 16 GiB ceiling, and the
+ *          frame-share counts add one byte per governed page — the
+ *          teaching shape of struct page's refcount, one cell per
+ *          frame; place instances in static storage, not on small
+ *          stacks.
  * @since   0.1.0
  * @ingroup kernel_mm
  */
@@ -99,11 +102,45 @@ public:
     /** @brief         Pages the ledger governs at all. */
     [[nodiscard]] unsigned long managed_page_count() const;
 
+    /**
+     * @brief         Counts one more mapping sharing this frame.
+     *
+     * @param[in]     phys   The frame gaining a shareholder.
+     * @return        None.
+     * @note          Copy-on-write's marking half: a frame mapped at
+     *                several addresses, or by several address spaces,
+     *                carries one count per mapping. Frames nothing
+     *                shared sit at zero and never enter the count.
+     * @warning       None
+     * @throws        None
+     * @since         0.3.0
+     * @ingroup       kernel_mm
+     */
+    void retain_frame(PhysAddr phys);
+
+    /**
+     * @brief         Counts one fewer mapping and reports the company left.
+     *
+     * @param[in]     phys   The frame losing a shareholder.
+     * @return        Shareholders remaining after the drop; zero for a
+     *                frame that never counted.
+     * @note          The count is bookkeeping, not ownership: freeing
+     *                the frame stays a separate decision the caller
+     *                makes when the count reaches zero.
+     * @warning       None
+     * @throws        None
+     * @since         0.3.0
+     * @ingroup       kernel_mm
+     */
+    [[nodiscard]] unsigned long release_frame(PhysAddr phys);
+
 private:
-    [[nodiscard]] PhysAddr allocate_run(unsigned long page_count);
+    [[nodiscard]] PhysAddr             allocate_run(unsigned long page_count);
+    [[nodiscard]] static unsigned long frame_index(PhysAddr phys);
 
     cinux::base::bit::Bitmap   bitmap_;
     cinux::base::bit::WordMask words_[kPmmBitmapWords] = {};
+    unsigned char              shares_[kPmmTotalPages] = {};
     unsigned long              managed_pages_          = 0;
 };
 }  // namespace cinux::mm

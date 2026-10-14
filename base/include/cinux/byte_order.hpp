@@ -34,10 +34,10 @@ namespace cinux::base {
  * @ingroup       base_bytes
  */
 constexpr uint16_t ReadWord16(const unsigned char* data, uint32_t offset) {
-    const auto kLow =
-        static_cast<uint16_t>(data[offset]);  // NOLINT(clang-analyzer-core.FixedAddressDereference)
+    const auto kLow = static_cast<uint16_t>(
+        data[offset]);  // NOLINT(clang-analyzer-optin.core.FixedAddressDereference)
     const auto kHigh = static_cast<uint16_t>(
-        data[offset + 1]);  // NOLINT(clang-analyzer-core.FixedAddressDereference)
+        data[offset + 1]);  // NOLINT(clang-analyzer-optin.core.FixedAddressDereference)
     return static_cast<uint16_t>(kLow | static_cast<uint16_t>(kHigh << 8U));
 }
 
@@ -56,6 +56,22 @@ constexpr uint32_t ReadWord32(const unsigned char* data, uint32_t offset) {
     return static_cast<uint32_t>(data[offset]) | (static_cast<uint32_t>(data[offset + 1]) << 8U) |
            (static_cast<uint32_t>(data[offset + 2]) << 16U) |
            (static_cast<uint32_t>(data[offset + 3]) << 24U);
+}
+
+/**
+ * @brief         Read one little-endian 64-bit word out of a byte blob.
+ *
+ * @param[in]     data    Blob to read from.
+ * @param[in]     offset  Byte offset of the word's first byte.
+ * @return        The word at that offset.
+ * @warning       Undefined when the eight bytes leave the blob; callers
+ *                own the bounds.
+ * @since         0.2.0
+ * @ingroup       base_bytes
+ */
+constexpr uint64_t ReadWord64(const unsigned char* data, uint32_t offset) {
+    return static_cast<uint64_t>(ReadWord32(data, offset)) |
+           (static_cast<uint64_t>(ReadWord32(data, offset + 4)) << 32U);
 }
 
 /**
