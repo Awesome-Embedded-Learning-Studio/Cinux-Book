@@ -23,7 +23,7 @@ tags:
 
 还有一件事,咱们说在卷首,它是这一卷的骨架。您还记得开机那段阶梯吗?串口、内存、堆、时钟,一级一级往上爬。这一卷往阶梯里塞了两个新台阶:PCI 排在第 12 步,开中断的那步 sti 排第 13,AHCI 排第 14。次序在这里是因果——认盘这件事,要等盘拉一次中断才等得到回话,发问的人必须站在开中断的后面。所以这一卷的面板也换了模样:上一卷一行不添,这一卷一开机就添十行,而且全排在老面板头一行的前面。验收那一章,咱们逐字对数。
 
-<StationPanel tag="r15_block" build="cmake -B build && cmake --build build --target run" />
+<StationPanel tag="r15_block_device" build="cmake -B build && cmake --build build --target run" />
 
 <ChapterNav variant="sub">
   <ChapterLink num="1" href="01-why-knock-first" desc="名字立住了,盘还没有影。构建期一块空文件撑到 1 MiB,挂上 AHCI 扮裸盘。四件活点名:走线、对讲、验明、排队。面板预告:这一卷添十行,全排在老面板前面">为什么是认门</ChapterLink>

@@ -23,7 +23,7 @@ tags:
 
 还有一件事,咱们说在卷首。这一卷的新面孔不少,可承重的墙全是旧的:块缓存踩着上一卷值班队列的章程盖,写路径攥着进程那一卷的睡眠锁,挂载的门面一件新转发都不用擦,链是现成的。开机的故事也换了讲法:主流程把机器交给头一个真正的任务,自己退去怠速,面板因此添了行,验收那一章咱们逐字对数。
 
-<StationPanel tag="r16_ext2" build="cmake -B build && cmake --build build --target run" />
+<StationPanel tag="r16_ext2_initthread_poweroff" build="cmake -B build && cmake --build build --target run" />
 
 <ChapterNav variant="sub">
   <ChapterLink num="1" href="01-why-learn-to-read" desc="命令通道立住了,盘上的字节还只是字节。构建期烤一卷 4 MiB 的真 ext2 当教材:mkfs 定版式,debugfs 放种子,hello 在盘上等着。四件活点名:版式、读、写、换根,外加一串随行的家当">为什么是认字</ChapterLink>
