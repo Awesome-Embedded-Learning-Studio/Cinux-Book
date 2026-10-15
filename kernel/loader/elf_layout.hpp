@@ -2,14 +2,15 @@
  * @file    elf_layout.hpp
  * @brief   The ELF64 static-image vocabulary and its one parser.
  *
- * Exec needs exactly one question answered: where do the file's bytes
- * land in the new world, and where does the first instruction sit. The
- * ELF header answers both, and this file turns raw bytes into that
- * answer as pure arithmetic — no allocation, no mapping, no I/O — so
- * host tests drive the same parser the kernel does over hand-built
- * images. Only the static executive shape is served: a dynamic image
- * or a wrong machine is refused the same way a truncated one is,
- * because the musl station is where those questions earn answers.
+ * Exec needs two questions answered: where do the file's bytes land in
+ * the new world, where does the first instruction sit, and what may be
+ * done once it runs. The ELF header answers all of them, and this file
+ * turns raw bytes into those answers as pure arithmetic — no
+ * allocation, no mapping, no I/O — so host tests drive the same parser
+ * the kernel does over hand-built images. Only the static executive
+ * shape is served: a dynamic image or a wrong machine is refused the
+ * same way a truncated one is, because the musl station is where those
+ * questions earn answers.
  *
  * @author  Charliechen114514
  * @date    2026-10-12
@@ -34,6 +35,15 @@ inline constexpr std::uint8_t kElfMagic[4] = {0x7F, 'E', 'L', 'F'};
 /// The one program-header type the loader maps: a loadable segment.
 inline constexpr std::uint32_t kProgramLoad = 1;
 
+/// Program-header flag bit: the segment's pages may hold running code.
+inline constexpr std::uint32_t kSegmentExec = 0x1;
+
+/// Program-header flag bit: the segment's pages may be stored through.
+inline constexpr std::uint32_t kSegmentWrite = 0x2;
+
+/// Program-header flag bit: the segment's pages may be loaded from.
+inline constexpr std::uint32_t kSegmentRead = 0x4;
+
 /// The one file type served: a static executable image.
 inline constexpr std::uint16_t kTypeExecutable = 2;
 
@@ -46,6 +56,7 @@ struct ElfSegment {
     std::uint64_t file_offset;      ///< First file byte belonging to it.
     std::uint64_t file_bytes;       ///< Bytes from the file.
     std::uint64_t memory_bytes;     ///< Bytes in memory; the tail past file_bytes is bss.
+    std::uint32_t flags;            ///< Access terms: kSegmentRead/Write/Exec bits.
 };
 
 /// What one well-formed image reduces to.

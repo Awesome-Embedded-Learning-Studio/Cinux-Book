@@ -8,6 +8,7 @@
 #include "kernel/loader/loader.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/mm/vma.hpp"
 #include "kernel/mm/vmm.hpp"
 #include "test_assert.hpp"
 #include "test_case.hpp"  // NOLINT(misc-include-cleaner) consumed by the TEST() macro body
@@ -96,8 +97,10 @@ TEST("loader: segments land page-aligned and bss arrives zero") {
     const unsigned long     kBefore = ledger.free_page_count();
     cinux::mm::AddressSpace space;
     ASSERT_TRUE(space.init());
-    std::uint64_t entry = 0;
-    ASSERT_TRUE(cinux::loader::LoadElfIntoSpace(kGoodImage.bytes, kImageBytes, space, entry));
+    cinux::mm::VmaStore      vmas;
+    std::uint64_t            entry = 0;
+    cinux::loader::LoadWorld world{.space = space, .vmas = vmas, .file = {}};
+    ASSERT_TRUE(cinux::loader::LoadElfIntoSpace(kGoodImage.bytes, kImageBytes, world, entry));
     ASSERT_EQ(entry, 0x401000ULL);
     space.activate();
     check_payload_word();

@@ -28,8 +28,6 @@ namespace cinux::fs {
 
 namespace {
 
-constexpr unsigned long kCacheSlotSectors = 2;
-
 unsigned long long wall_clock() {
     return driver::Rtc::self().now_seconds();
 }
@@ -38,7 +36,7 @@ unsigned long long wall_clock() {
 
 void FileWorld::init() {
     queue_  = new driver::BlockQueue(driver::Ahci::self());
-    cache_  = new driver::BlockCache(*queue_, kCacheSlotSectors, driver::kBlockCacheSlots);
+    cache_  = new driver::BlockCache(*queue_, driver::kBlockCacheSlots);
     volume_ = new ext2::Ext2(*cache_, wall_clock);
 
     const base::Result<void> kMounted = volume_->mount();

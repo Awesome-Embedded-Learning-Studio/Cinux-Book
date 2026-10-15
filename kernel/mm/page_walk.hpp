@@ -265,28 +265,30 @@ bool MapPage(World& world, unsigned long root, unsigned long virtual_address,
  *
  * @param[in,out] world            The table world the walk runs on.
  * @param[in]     root             Physical address of the PML4 to walk.
- * @param[in]     virtual_address   Target address; the low bits of the
- *                                  physical side are dropped by the entry.
- * @param[in]     physical          Physical page to map.
+ * @param[in]     virtual_address   Target address; the address side of
+ *                                  the leaf decides the slot.
+ * @param[in]     leaf             The finished leaf entry: the caller
+ *                                  pairs the frame with its terms via
+ *                                  MakeTableEntry before the walk.
  * @return        true when the final entry was written.
  * @note          Same walk with kUser on every level it touches —
  *                including each freshly created table, because a
  *                clearance lost at any one level denies the walk below
- *                it.
+ *                it. Only the final entry takes the caller's leaf: a
+ *                table pointer's write bit is a supply detail, the
+ *                leaf's bits are the page's law.
  * @warning       None
  * @throws        None
- * @since         0.2.0
+ * @since         0.3.0
  * @ingroup       kernel_mm
  */
 template <TableWorld World>
-bool MapUserPage(World& world, unsigned long root, unsigned long virtual_address,
-                 unsigned long physical) {
+bool MapUserPage(World& world, unsigned long root, unsigned long virtual_address, Entry leaf) {
     Entry* const kTable = EnsureLeafTable(world, root, virtual_address, cinux::arch::page::kUser);
     if (kTable == nullptr) {
         return false;
     }
-    kTable[SlotIndex(virtual_address, WalkLevel::kPageTable)] = cinux::arch::page::MakeTableEntry(
-        physical, cinux::arch::page::kWritable | cinux::arch::page::kUser);
+    kTable[SlotIndex(virtual_address, WalkLevel::kPageTable)] = leaf;
     return true;
 }
 

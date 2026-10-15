@@ -33,8 +33,9 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E touch ${CINUX_EXT2_IMG}
     COMMAND ${CMAKE_COMMAND} -E env "CINUX_HELLO_ELF=$<TARGET_FILE:user_hello>"
             "CINUX_SHELL_ELF=$<TARGET_FILE:user_shell>"
+            "CINUX_MAPPER_ELF=$<TARGET_FILE:user_mapper>"
             bash ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh ${CINUX_EXT2_IMG}
-    DEPENDS user_hello user_shell
+    DEPENDS user_hello user_shell user_mapper
     COMMENT "teaching ext2 volume for the block and fs experiments")
 add_custom_target(ext2_img DEPENDS ${CINUX_EXT2_IMG})
 set(CINUX_EXT2_KTEST_IMG ${CMAKE_BINARY_DIR}/boot/ext2_ktest.img)
@@ -58,7 +59,7 @@ set(CINUX_QEMU_DEVICE_ARGS
 # names the init-ladder level the test main walks before running cases.
 set(CINUX_KTEST_STAGES exceptions irq keyboard mm proc block)
 set(CINUX_KTESTS selfcheck:exceptions tick:irq keyboard:keyboard vmm:mm heap:mm aspace:mm cow:mm
-    loader:mm sched:proc block:block ext2:block)
+    vma:mm demand:mm loader:mm sched:proc block:block ext2:block)
 set(CINUX_KTESTS_INTEGRATION "")
 
 message("Configuring Boot")

@@ -74,12 +74,14 @@ bool AddressSpace::map(unsigned long virtual_address, unsigned long physical) co
     return MapPage(tables, root_, virtual_address, physical);
 }
 
-bool AddressSpace::map_user(unsigned long virtual_address, unsigned long physical) const {
+bool AddressSpace::map_user(unsigned long virtual_address, unsigned long physical,
+                            cinux::arch::page::Entry leaf_bits) const {
     if (root_ == 0) {
         return false;
     }
     KernelTables tables;
-    return MapUserPage(tables, root_, virtual_address, physical);
+    return MapUserPage(tables, root_, virtual_address,
+                       cinux::arch::page::MakeTableEntry(physical, leaf_bits));
 }
 
 unsigned long AddressSpace::translate(unsigned long virtual_address) const {

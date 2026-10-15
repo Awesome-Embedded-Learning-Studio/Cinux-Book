@@ -191,6 +191,54 @@ struct SelfList {
      */
     [[nodiscard]] bool empty() const { return stuff_ == nullptr; }
 
+    /**
+     * @brief         How many objects are linked, counted by walking.
+     * @return        The object count.
+     * @note          Deliberately O(n): an intrusive list can gain and
+     *                lose members through another list's hands, so a
+     *                cached count would be a second bookkeeping copy
+     *                waiting to drift. Diagnosis faces call this once
+     *                in a blue moon; the walk is the honest price.
+     * @since         0.2.0
+     * @ingroup       base_container
+     */
+    [[nodiscard]] unsigned long long size() const {
+        unsigned long long count = 0;
+        for (const Stuff* scan = head(); scan != nullptr; scan = after(*scan)) {
+            ++count;
+        }
+        return count;
+    }
+
+    /**
+     * @brief         The object linked after this one, or nullptr at the tail.
+     * @param[in]     item   An object currently linked here.
+     * @return        Its successor on this list, nullptr when it is the tail.
+     * @note          The read-only walk face: pop_head is the only other way
+     *                past the head, and it tears the list down on the way.
+     *                Callers that only look — a range register searching for
+     *                a hit — walk head() plus after() without disturbing a
+     *                single link.
+     * @since         0.2.0
+     * @ingroup       base_container
+     */
+    [[nodiscard]] const Stuff* after(const Stuff& item) const {
+        return NodeOf::node_of(const_cast<Stuff&>(item)).next_;
+    }
+
+    /**
+     * @brief         The object linked after this one, walking writable.
+     * @param[in,out] item   An object currently linked here.
+     * @return        Its successor on this list, nullptr when it is the tail.
+     * @note          The same walk as the const face, for callers that
+     *                rewrite what they visit: a register rewriting the
+     *                terms of the spans it passes stays on the list's
+     *                rails instead of casting constness by hand.
+     * @since         0.2.0
+     * @ingroup       base_container
+     */
+    [[nodiscard]] Stuff* after(Stuff& item) { return NodeOf::node_of(item).next_; }
+
 private:
     Stuff* stuff_ = nullptr;
     Stuff* tail_  = nullptr;

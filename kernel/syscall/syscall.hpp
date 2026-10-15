@@ -42,6 +42,10 @@ enum class SyscallNr : std::uint16_t {
     kOpen     = 2,    ///< open(path, flags)
     kClose    = 3,    ///< close(fd)
     kStat     = 6,    ///< stat(path, out): one node's metadata
+    kMmap     = 9,    ///< mmap(hint, len, prot, flags, fd, offset)
+    kMunmap   = 10,   ///< munmap(addr, len)
+    kMprotect = 11,   ///< mprotect(addr, len, prot)
+    kBrk      = 12,   ///< brk(target): returns the break, not an errno
     kYield    = 24,   ///< cooperative yield to the scheduler
     kGetpid   = 39,   ///< getpid(): the caller's own identity
     kFork     = 57,   ///< fork(): one call, two returns
@@ -75,6 +79,16 @@ inline constexpr int kEnotempty    = 39;  ///< The directory still holds entries
 
 /// open() flag the kernel serves: create the file when it is missing.
 inline constexpr unsigned long long kOpenCreat = 0x40;
+
+/// mmap protection bits, Linux-shaped.
+inline constexpr unsigned long long kProtRead  = 0x1;  ///< Loads through the range promised.
+inline constexpr unsigned long long kProtWrite = 0x2;  ///< Stores through the range promised.
+inline constexpr unsigned long long kProtExec  = 0x4;  ///< Running code from the range promised.
+
+/// mmap flags. Private anonymous is the shape the kernel serves; a fixed
+/// address is refused rather than half-honored.
+inline constexpr unsigned long long kMapFixed     = 0x10;
+inline constexpr unsigned long long kMapAnonymous = 0x20;
 
 /// One past the highest served number; the dispatch table spans it.
 constexpr unsigned long long kSyscallCount = 218;

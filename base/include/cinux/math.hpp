@@ -133,4 +133,21 @@ constexpr unsigned long AlignUp(unsigned long value, unsigned long unit) {
     return Ceil(value, unit) * unit;
 }
 
+/**
+ * @brief         Rounds a byte count down to a multiple of a unit.
+ *
+ * @param[in]     value   Byte count; may already be aligned.
+ * @param[in]     unit    Alignment unit; must be nonzero.
+ * @return        The largest multiple of unit that is at most value.
+ * @note          The downward sibling of AlignUp: an address lands on the
+ *                page holding it, not the one after.
+ * @warning       None
+ * @throws        None
+ * @since         0.2.0
+ * @ingroup       base_math
+ */
+constexpr unsigned long AlignDown(unsigned long value, unsigned long unit) {
+    return Floor(value, unit) * unit;
+}
+
 }  // namespace cinux::base::math

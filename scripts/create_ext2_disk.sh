@@ -18,3 +18,6 @@ fi
 if [ -f "${CINUX_HELLO_ELF:-}" ]; then
     debugfs -w -R "write ${CINUX_HELLO_ELF} /bin/hello" "$image" >/dev/null 2>&1
 fi
+if [ -f "${CINUX_MAPPER_ELF:-}" ]; then
+    debugfs -w -R "write ${CINUX_MAPPER_ELF} /bin/mapper" "$image" >/dev/null 2>&1
+fi

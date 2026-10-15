@@ -16,6 +16,20 @@
 
 namespace cinux::proc {
 
+/// One line of the held-chain dump: the lock's registered label, or
+/// null when the lock has no name and only the address speaks.
+using LockdepSink = void (*)(const char* label, unsigned long long address);
+
+/**
+ * @brief   Install where the held-chain dump lines go.
+ * @note    Kernel-only callers hand in a printing bridge; without one
+ *          the dump is a silent walk, so host tests and dump-free
+ *          builds lose nothing.
+ * @since   0.4.0
+ * @ingroup kernel_proc
+ */
+void InstallLockdepSink(LockdepSink sink);
+
 /**
  * @brief Instance-based lock-order checker; callers serialize access.
  * @note  Identity is a live lock address. forget() removes destroyed locks.
@@ -47,11 +61,21 @@ public:
     /// Remove a destroyed, unheld lock and every incident edge.
     [[nodiscard]] bool forget(const void* lock);
 
+    /// Register the human name of a lock ahead of its first acquisition.
+    void name_lock(const void* lock, const char* label);
+
+    /**
+     * @brief   Walk the held chain, one sink call per lock, innermost last.
+     * @since   0.4.0
+     */
+    void dump_held();
+
 private:
     [[nodiscard]] unsigned int find_lock(const void* lock) const;
     [[nodiscard]] unsigned int vacant_slot() const;
 
     base::container::SlotTable<const void*, kLocks>    locks_;
+    const char*                                        names_[kLocks] = {};
     base::DirectedGraph<kLocks>                        graph_;
     base::container::StaticStack<unsigned int, kDepth> held_;
 };

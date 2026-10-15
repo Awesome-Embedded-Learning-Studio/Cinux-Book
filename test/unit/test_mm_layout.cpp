@@ -1,4 +1,5 @@
 #include "../framework/framework.hpp"
+#include "kernel/arch/x86_64/page.hpp"
 #include "kernel/mm/layout.hpp"
 #include "test_assert.hpp"
 
@@ -16,6 +17,7 @@ using cinux::mm::kPml4EntrySpan;
 using cinux::mm::kUserBrkMmapSplit;
 using cinux::mm::kUserMmapTop;
 using cinux::mm::kUserNullTop;
+using cinux::mm::kUserStackBottom;
 using cinux::mm::kUserStackTop;
 using cinux::mm::kUserTop;
 using cinux::mm::kVmallocBase;
@@ -66,6 +68,8 @@ TEST("mm layout: user half conventions") {
     ASSERT_TRUE(kUserMmapTop == 0x00007F8000000000UL);
     ASSERT_TRUE(kUserStackTop == 0x00007FFFFFFFF000UL);
     ASSERT_TRUE(kUserStackTop % 0x1000 == 0);
+    ASSERT_TRUE(kUserStackTop - kUserStackBottom == 0x100000UL + cinux::arch::page::kSize);
+    ASSERT_TRUE(kUserStackBottom % 0x1000 == 0);
 }
 
 int main() {

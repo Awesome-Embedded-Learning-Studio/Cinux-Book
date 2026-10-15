@@ -272,6 +272,21 @@ public:
      */
     [[nodiscard]] Task* current() const;
 
+    /**
+     * @brief         How many tasks still stand in the offspring roll.
+     * @return        The roll's headcount.
+     * @note          The diagnosis face for the orphan story: a task
+     *                joins the roll at seat because it has a parent,
+     *                and the only way off is its parent's exit Current
+     *                detaching it. When every family has finished its
+     *                rounds, the count must be back where it started —
+     *                anything left behind is a grandchild the detach
+     *                walk stranded on the roll.
+     * @since         0.5.0
+     * @ingroup       kernel_proc
+     */
+    [[nodiscard]] unsigned long long offspring_count() const;
+
 private:
     Scheduler() = default;
 

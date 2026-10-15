@@ -115,6 +115,7 @@ FsNode node_handle(RamNode& node) {
 }  // namespace
 
 RamFs::RamFs() : root_(new RamNode{}) {
+    lock_.set_name("ramfs volume");
     root_->type = InodeType::kDirectory;
     root_->ino  = 1;
 }
@@ -196,7 +197,7 @@ void RamFs::release(FsNode node) {
 
 base::Result<void> RamFs::stat(FsNode node, FsStat& probed) {
     const proc::SpinGuard kGuard(lock_);
-    auto* const           kNode = static_cast<RamNode*>(node.opaque);
+    const auto* const     kNode = static_cast<const RamNode*>(node.opaque);
     probed.ino                  = kNode->ino;
     probed.mode                 = kNode->type == InodeType::kDirectory ? kFsDirMode : kFsFileMode;
     probed.links                = kNode->type == InodeType::kDirectory ? 2UL : 1UL;
@@ -208,7 +209,7 @@ base::Result<void> RamFs::stat(FsNode node, FsStat& probed) {
 base::Result<unsigned long> RamFs::read(FsNode node, unsigned long offset, void* sink,
                                         unsigned long count) {
     const proc::SpinGuard kGuard(lock_);
-    auto* const           kFile = static_cast<RamNode*>(node.opaque);
+    const auto* const     kFile = static_cast<const RamNode*>(node.opaque);
     if (kFile->type != InodeType::kFile) {
         return base::KernelError::kIsADirectory;
     }

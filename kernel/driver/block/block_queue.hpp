@@ -81,6 +81,7 @@ public:
      */
     template <BlockDevice Dev>
     explicit BlockQueue(Dev& device) {
+        lock_.set_name("block queue");
         device_.adopt(device);
     }
 

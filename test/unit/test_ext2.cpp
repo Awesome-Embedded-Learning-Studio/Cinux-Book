@@ -201,7 +201,7 @@ std::vector<std::uint8_t> pattern_bytes(unsigned long count) {
 unsigned long inode_word_on_disk(cinux::test::ImageDisk& disk, unsigned long table_block,
                                  unsigned long byte_off) {
     cinux::driver::BlockQueue queue(disk);
-    cinux::driver::BlockCache cache(queue, 1, 4);
+    cinux::driver::BlockCache cache(queue, 4);
     const std::uint8_t*       view = nullptr;
     if (!cache.view(cinux::driver::Lba{.value = (table_block * 2) + (byte_off / 512)}, &view)) {
         return 0;
@@ -212,7 +212,7 @@ unsigned long inode_word_on_disk(cinux::test::ImageDisk& disk, unsigned long tab
 unsigned long inode_dword_on_disk(cinux::test::ImageDisk& disk, unsigned long table_block,
                                   unsigned long byte_off) {
     cinux::driver::BlockQueue queue(disk);
-    cinux::driver::BlockCache cache(queue, 1, 4);
+    cinux::driver::BlockCache cache(queue, 4);
     const std::uint8_t*       view = nullptr;
     if (!cache.view(cinux::driver::Lba{.value = (table_block * 2) + (byte_off / 512)}, &view)) {
         return 0;
@@ -225,12 +225,32 @@ bool inode_bit_clear_on_disk(cinux::test::ImageDisk& disk, const std::vector<std
     const unsigned long       kBitmapBlock = peek_u32(image, (2 * 1024) + 4);
     const unsigned long       kBit         = (ino - 1) % peek_u32(image, 1024 + 40);
     cinux::driver::BlockQueue queue(disk);
-    cinux::driver::BlockCache cache(queue, 2, 8);
+    cinux::driver::BlockCache cache(queue, 8);
     const std::uint8_t*       view = nullptr;
     if (!cache.view(cinux::driver::Lba{.value = kBitmapBlock * 2}, &view)) {
         return false;
     }
     return (view[kBit / 8] & (1U << (kBit % 8U))) == 0;
+}
+
+bool lists_a_dot_first(cinux::fs::ext2::Ext2& volume, const char* name) {
+    const auto kNode = volume.lookup(name);
+    if (!kNode.ok() || kNode.value().type != cinux::fs::InodeType::kDirectory) {
+        return false;
+    }
+    cinux::fs::FsDirent first{};
+    const auto          kFirst = volume.read_dir(kNode.value(), 0, first);
+    return kFirst.ok() && kFirst.value() && first.name == std::string(".");
+}
+
+bool inode_freed_on_disk(cinux::test::ImageDisk& disk, const std::vector<std::uint8_t>& image,
+                         unsigned long ino, unsigned long table) {
+    const unsigned long kInodeSize = peek_u16(image, 1024 + 88);
+    const unsigned long kStampOff  = ((ino - 1) * kInodeSize) + 20;
+    if (inode_dword_on_disk(disk, table, kStampOff) != frozen_clock()) {
+        return false;
+    }
+    return inode_bit_clear_on_disk(disk, image, ino);
 }
 
 bool write_file(const std::string& path, const std::vector<std::uint8_t>& bytes) {
@@ -299,7 +319,7 @@ BakedVolume& baked() {
 
     baked_once.disk   = std::make_unique<cinux::test::ImageDisk>(baked_once.image);
     baked_once.queue  = std::make_unique<cinux::driver::BlockQueue>(*baked_once.disk);
-    baked_once.cache  = std::make_unique<cinux::driver::BlockCache>(*baked_once.queue, 2, 8);
+    baked_once.cache  = std::make_unique<cinux::driver::BlockCache>(*baked_once.queue, 8);
     baked_once.volume = std::make_unique<cinux::fs::ext2::Ext2>(*baked_once.cache, frozen_clock);
     baked_once.ok     = baked_once.volume->mount().ok();
     return baked_once;
@@ -396,7 +416,7 @@ StretchedMount mount_with_stretched_tail_name() {
 
     static cinux::test::ImageDisk    disk(std::move(stretched));
     static cinux::driver::BlockQueue queue(disk);
-    static cinux::driver::BlockCache cache(queue, 2, 8);
+    static cinux::driver::BlockCache cache(queue, 8);
     auto                             volume = std::make_unique<cinux::fs::ext2::Ext2>(cache);
     const bool                       kOk    = volume->mount().ok();
     return {.volume = std::move(volume), .ok = kOk};
@@ -587,16 +607,9 @@ TEST("ext2: a made directory links its parent and lists") {
 
     const auto kMade = bake.volume->make_dir("made-dir");
     ASSERT_TRUE(kMade.ok());
+    ASSERT_TRUE(bake.cache->flush());
     ASSERT_TRUE(inode_word_on_disk(*bake.disk, kTable, kLinksOff) == kLinksBefore + 1);
-
-    const auto kNode = bake.volume->lookup("made-dir");
-    ASSERT_TRUE(kNode.ok());
-    ASSERT_TRUE(kNode.value().type == cinux::fs::InodeType::kDirectory);
-
-    cinux::fs::FsDirent first{};
-    const auto          kFirst = bake.volume->read_dir(kNode.value(), 0, first);
-    ASSERT_TRUE(kFirst.ok() && kFirst.value());
-    ASSERT_TRUE(first.name == std::string("."));
+    ASSERT_TRUE(lists_a_dot_first(*bake.volume, "made-dir"));
 }
 
 TEST("ext2: an unlinked directory restores the parent and frees its inode") {
@@ -616,10 +629,9 @@ TEST("ext2: an unlinked directory restores the parent and frees its inode") {
     const auto kRemoved = bake.volume->unlink("made-dir");
     ASSERT_TRUE(kRemoved.ok());
     ASSERT_TRUE(!bake.volume->lookup("made-dir").ok());
+    ASSERT_TRUE(bake.cache->flush());
     ASSERT_TRUE(inode_word_on_disk(*bake.disk, kTable, kLinksOff) == kLinksWhileHeld - 1);
-    const unsigned long kStampOff = ((kLive.value().ino - 1) * kInodeSize) + 20;
-    ASSERT_TRUE(inode_dword_on_disk(*bake.disk, kTable, kStampOff) == frozen_clock());
-    ASSERT_TRUE(inode_bit_clear_on_disk(*bake.disk, bake.image, kLive.value().ino));
+    ASSERT_TRUE(inode_freed_on_disk(*bake.disk, bake.image, kLive.value().ino, kTable));
 }
 
 TEST("ext2: without a clock deletion falls back to the volume's birth") {
@@ -628,7 +640,7 @@ TEST("ext2: without a clock deletion falls back to the volume's birth") {
 
     cinux::test::ImageDisk    spare(bake.image);
     cinux::driver::BlockQueue spare_queue(spare);
-    cinux::driver::BlockCache spare_cache(spare_queue, 2, 8);
+    cinux::driver::BlockCache spare_cache(spare_queue, 8);
     cinux::fs::ext2::Ext2     clockless(spare_cache);
     ASSERT_TRUE(clockless.mount().ok());
 
@@ -636,12 +648,13 @@ TEST("ext2: without a clock deletion falls back to the volume's birth") {
     ASSERT_TRUE(kMade.ok());
     const auto kGone = clockless.unlink("clockless-dir");
     ASSERT_TRUE(kGone.ok());
+    ASSERT_TRUE(spare_cache.flush());
 
     const unsigned long       kTable     = peek_u32(bake.image, (2 * 1024) + 8);
     const unsigned long       kInodeSize = peek_u16(bake.image, 1024 + 88);
     const unsigned long       kStampOff  = ((kMade.value().ino - 1) * kInodeSize) + 20;
     cinux::driver::BlockQueue probe_queue(spare);
-    cinux::driver::BlockCache probe_cache(probe_queue, 1, 4);
+    cinux::driver::BlockCache probe_cache(probe_queue, 4);
     const std::uint8_t*       probe_view = nullptr;
     ASSERT_TRUE(probe_cache.view(cinux::driver::Lba{.value = (kTable * 2) + (kStampOff / 512)},
                                  &probe_view));
@@ -665,7 +678,7 @@ TEST("ext2: the superblock magic survives the write session") {
     ASSERT_TRUE(kDir.ok());
 
     cinux::driver::BlockQueue fresh_queue(*bake.disk);
-    cinux::driver::BlockCache fresh_cache(fresh_queue, 2, 8);
+    cinux::driver::BlockCache fresh_cache(fresh_queue, 8);
     const std::uint8_t*       block_view = nullptr;
     ASSERT_TRUE(fresh_cache.view(cinux::driver::Lba{.value = 2}, &block_view));
     const unsigned kMagic =
@@ -677,7 +690,7 @@ TEST("ext2: mount refuses a volume that is not ext2") {
     std::vector<std::uint8_t> zeros(4_MiB, 0);
     cinux::test::ImageDisk    disk(std::move(zeros));
     cinux::driver::BlockQueue queue(disk);
-    cinux::driver::BlockCache cache(queue, 2, 8);
+    cinux::driver::BlockCache cache(queue, 8);
     cinux::fs::ext2::Ext2     volume(cache);
     const auto                kMount = volume.mount();
     ASSERT_TRUE(!kMount.ok());
@@ -771,7 +784,7 @@ TEST("ext2: faces before mount answer IOError") {
     std::vector<std::uint8_t> zeros(4_MiB, 1);
     cinux::test::ImageDisk    disk(std::move(zeros));
     cinux::driver::BlockQueue queue(disk);
-    cinux::driver::BlockCache cache(queue, 2, 8);
+    cinux::driver::BlockCache cache(queue, 8);
     cinux::fs::ext2::Ext2     unmounted(cache);
 
     const auto kLookup = unmounted.lookup("");
@@ -820,7 +833,7 @@ TEST("ext2: mount refuses volumes with broken or unsupported shapes") {
 
         cinux::test::ImageDisk    disk(std::move(broken));
         cinux::driver::BlockQueue queue(disk);
-        cinux::driver::BlockCache cache(queue, 2, 8);
+        cinux::driver::BlockCache cache(queue, 8);
         cinux::fs::ext2::Ext2     volume(cache);
         ASSERT_TRUE(!volume.mount().ok());
     }
@@ -867,7 +880,7 @@ TEST("ext2: a holed file still reports its full size") {
 
     cinux::test::ImageDisk    disk(kHoled);
     cinux::driver::BlockQueue queue(disk);
-    cinux::driver::BlockCache cache(queue, 2, 8);
+    cinux::driver::BlockCache cache(queue, 8);
     cinux::fs::ext2::Ext2     volume(cache);
     ASSERT_TRUE(volume.mount().ok());
 
@@ -884,7 +897,7 @@ TEST("ext2: bytes of a holed file read back as zeros") {
 
     cinux::test::ImageDisk    disk(kHoled);
     cinux::driver::BlockQueue queue(disk);
-    cinux::driver::BlockCache cache(queue, 2, 8);
+    cinux::driver::BlockCache cache(queue, 8);
     cinux::fs::ext2::Ext2     volume(cache);
     ASSERT_TRUE(volume.mount().ok());
 

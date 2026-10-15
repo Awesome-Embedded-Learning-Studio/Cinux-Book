@@ -13,6 +13,7 @@
 #include <array>
 #include <utility>
 
+#include "kernel/syscall/sys_brk.hpp"
 #include "kernel/syscall/sys_chdir.hpp"
 #include "kernel/syscall/sys_close.hpp"
 #include "kernel/syscall/sys_exec.hpp"
@@ -23,6 +24,9 @@
 #include "kernel/syscall/sys_getpid.hpp"
 #include "kernel/syscall/sys_getppid.hpp"
 #include "kernel/syscall/sys_mkdir.hpp"
+#include "kernel/syscall/sys_mmap.hpp"
+#include "kernel/syscall/sys_mprotect.hpp"
+#include "kernel/syscall/sys_munmap.hpp"
 #include "kernel/syscall/sys_open.hpp"
 #include "kernel/syscall/sys_read.hpp"
 #include "kernel/syscall/sys_reboot.hpp"
@@ -47,6 +51,10 @@ constexpr Row kRows[] = {
     {.number = cinux::syscall::SyscallNr::kOpen, .handler = cinux::syscall::HandleOpen},
     {.number = cinux::syscall::SyscallNr::kClose, .handler = cinux::syscall::HandleClose},
     {.number = cinux::syscall::SyscallNr::kStat, .handler = cinux::syscall::HandleStat},
+    {.number = cinux::syscall::SyscallNr::kMmap, .handler = cinux::syscall::HandleMmap},
+    {.number = cinux::syscall::SyscallNr::kMunmap, .handler = cinux::syscall::HandleMunmap},
+    {.number = cinux::syscall::SyscallNr::kMprotect, .handler = cinux::syscall::HandleMprotect},
+    {.number = cinux::syscall::SyscallNr::kBrk, .handler = cinux::syscall::HandleBrk},
     {.number = cinux::syscall::SyscallNr::kYield, .handler = cinux::syscall::HandleYield},
     {.number = cinux::syscall::SyscallNr::kGetpid, .handler = cinux::syscall::HandleGetpid},
     {.number = cinux::syscall::SyscallNr::kFork, .handler = cinux::syscall::HandleFork},

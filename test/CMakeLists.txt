@@ -52,6 +52,11 @@ add_cinux_test(static_stack)
 add_cinux_test(slot_table)
 add_cinux_test(ref_count)
 add_cinux_test(context ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp)
+add_cinux_test(fpu_gate ${CMAKE_SOURCE_DIR}/kernel/proc/fpu_gate.cpp
+                        ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
+                        ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
+                        ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
+set_source_files_properties(unit/test_fpu_gate.cpp PROPERTIES COMPILE_OPTIONS "-mno-sse;-mno-sse2")
 add_cinux_test(self_list)
 add_cinux_test(shared)
 add_cinux_test(elf ${CMAKE_SOURCE_DIR}/kernel/loader/elf_layout.cpp)
@@ -90,6 +95,7 @@ add_cinux_test(block ${CMAKE_SOURCE_DIR}/kernel/driver/block/block_queue.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
+add_cinux_test(vma ${CMAKE_SOURCE_DIR}/kernel/mm/vma.cpp)
 
 add_test(NAME kernel_image
     COMMAND ${CMAKE_COMMAND}

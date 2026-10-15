@@ -13,8 +13,10 @@
 #include "kernel/init/init_thread.hpp"
 
 #include <cstdint>
+#include <utility>
 
 #include "cinux/assert.hpp"
+#include "cinux/math.hpp"
 #include "cinux/own.hpp"
 #include "cinux/result.hpp"
 #include "kernel/arch/x86_64/page.hpp"
@@ -25,7 +27,9 @@
 #include "kernel/fs/vfs.hpp"
 #include "kernel/loader/loader.hpp"
 #include "kernel/mm/address_space.hpp"
+#include "kernel/mm/layout.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/mm/vma.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
@@ -39,24 +43,62 @@ namespace {
 std::uint64_t g_shell_entry = 0;
 unsigned long g_shell_root  = 0;
 
-/// Reads one whole file off the mounted volume into an owned buffer.
-bool read_volume_file(const char* path, base::Own<unsigned char[]>& out, unsigned long& out_bytes) {
+/// Reads one whole file off the mounted volume into an owned buffer,
+/// handing back the resolved view for the caller's own lookups.
+bool read_volume_file(const char* path, base::Own<unsigned char[]>& out, unsigned long& out_bytes,
+                      fs::FsView& view) {
     const base::Result<fs::FsView> kView = fs::FileWorld::self().resolve(path);
-    return kView.ok() && fs::ReadWholeFile(kView.value(), out, out_bytes);
+    if (!kView.ok()) {
+        return false;
+    }
+    view = kView.value();
+    return fs::ReadWholeFile(view, out, out_bytes);
 }
 
-/// Loads the volume's shell ELF into a fresh world with a stack page on top;
-/// nullptr with everything returned when any step refuses.
-base::Own<mm::AddressSpace> build_shell_world(std::uint64_t& entry) {
+/// One built shell world: the space and its range register, seat-ready.
+struct ShellWorld {
+    base::Own<mm::AddressSpace> space;
+    base::Own<mm::VmaStore>     vmas;
+};
+
+/// Loads the volume's shell ELF into a fresh world with a stack page and a
+/// full range register on top; an empty ShellWorld when any step refuses.
+ShellWorld build_shell_world(std::uint64_t& entry) {
     unsigned long              program_bytes = 0;
     base::Own<unsigned char[]> program;
-    if (!read_volume_file("/bin/sh", program, program_bytes)) {
+    fs::FsView                 view{.ops = nullptr, .self = nullptr, .rest = {}};
+    if (!read_volume_file("/bin/sh", program, program_bytes, view)) {
         print::Println("[kern] kernel_init: /bin/sh unreadable on the volume");
         return {};
     }
     base::Own<mm::AddressSpace> space(new mm::AddressSpace{});
-    if (!space.holds() || !space->init() ||
-        !loader::LoadElfIntoSpace(program.get(), program_bytes, *space, entry)) {
+    base::Own<mm::VmaStore>     vmas(new mm::VmaStore{});
+    if (!space.holds() || !vmas.holds() || !space->init()) {
+        return {};
+    }
+    const base::Result<fs::FsNode> kNode = view.ops->lookup(view.self, view.rest);
+    if (!kNode.ok()) {
+        return {};
+    }
+    loader::LoadWorld world{
+        .space     = *space,
+        .vmas      = *vmas,
+        .file      = kNode.value(),
+        .file_ops  = view.ops,
+        .file_self = view.self,
+    };
+    if (!loader::LoadElfIntoSpace(program.get(), program_bytes, world, entry)) {
+        return {};
+    }
+    vmas->seed_heap(cinux::base::math::AlignUp(vmas->max_end(), cinux::arch::page::kSize),
+                    mm::kUserBrkMmapSplit);
+    mm::VmaRegion stack_range{};
+    stack_range.start = proc::kUserProgramStackTop - mm::kUserStackBytes - cinux::arch::page::kSize;
+    stack_range.end   = proc::kUserProgramStackTop;
+    stack_range.kind  = mm::VmaKind::kStack;
+    stack_range.readable = true;
+    stack_range.writable = true;
+    if (!vmas->register_range(stack_range).ok()) {
         return {};
     }
     const mm::Pmm::PhysAddr kStackFrame = mm::Pmm::self().allocate_page();
@@ -67,19 +109,20 @@ base::Own<mm::AddressSpace> build_shell_world(std::uint64_t& entry) {
         mm::Pmm::self().free_page(kStackFrame);
         return {};
     }
-    return space;
+    return ShellWorld{.space = std::move(space), .vmas = std::move(vmas)};
 }
 
 /// Seats one shell task over a freshly built world; the task owns the world
-/// from here to its reclaim. False when the world refused to build.
+/// and its range register from here to their reclaim. False when the world
+/// refused to build.
 bool seat_shell_task(proc::Task& parent) {
-    std::uint64_t               entry = 0;
-    base::Own<mm::AddressSpace> space = build_shell_world(entry);
-    if (!space.holds()) {
+    std::uint64_t entry = 0;
+    ShellWorld    world = build_shell_world(entry);
+    if (!world.space.holds() || !world.vmas.holds()) {
         return false;
     }
     g_shell_entry    = entry;
-    g_shell_root     = space->root();
+    g_shell_root     = world.space->root();
     auto enter_ring3 = +[] {
         proc::Task* const kSelf = proc::Scheduler::self().current();
         kSelf->user_root        = g_shell_root;
@@ -95,7 +138,8 @@ bool seat_shell_task(proc::Task& parent) {
     if (kShell == nullptr) {
         return false;
     }
-    kShell->space = space.release();
+    kShell->space = world.space.release();
+    kShell->vmas  = world.vmas.release();
     proc::Scheduler::self().seat(*kShell);
     return true;
 }

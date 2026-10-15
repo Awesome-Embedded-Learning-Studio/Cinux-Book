@@ -19,18 +19,26 @@ SpinLedger& DefaultSpinLedger() {
 
 namespace {
 
-template <typename Order>
-void record_acquire(Order& order, const void* lock) {
+template <typename Order, typename Dump>
+void record_acquire(Order& order, const void* lock, Dump&& dump) {
     if constexpr (std::is_same_v<Order, LockOrder>) {
-        cinux::base::safety::Check(order.acquire(lock) == LockOrder::Status::kOk,
+        const LockOrder::Status kOutcome = order.acquire(lock);
+        if (kOutcome != LockOrder::Status::kOk) {
+            dump();
+        }
+        cinux::base::safety::Check(kOutcome == LockOrder::Status::kOk,
                                    "lockdep acquisition failed: cycle, recursion or capacity");
     }
 }
 
-template <typename Order>
-void record_release(Order& order, const void* lock) {
+template <typename Order, typename Dump>
+void record_release(Order& order, const void* lock, Dump&& dump) {
     if constexpr (std::is_same_v<Order, LockOrder>) {
-        cinux::base::safety::Check(order.release(lock) == LockOrder::Status::kOk,
+        const LockOrder::Status kOutcome = order.release(lock);
+        if (kOutcome != LockOrder::Status::kOk) {
+            dump();
+        }
+        cinux::base::safety::Check(kOutcome == LockOrder::Status::kOk,
                                    "lockdep release failed: not held or out of order");
     }
 }
@@ -44,14 +52,22 @@ void forget_lock(Order& order, const void* lock) {
 
 }  // namespace
 
+void SpinLedger::name_lock(const void* lock, const char* label) {
+    order_.name_lock(lock, label);
+}
+
+void SpinLedger::dump_held() {
+    order_.dump_held();
+}
+
 void SpinLedger::note_acquire(const void* lock) {
-    record_acquire(order_, lock);
+    record_acquire(order_, lock, [this] { dump_held(); });
     ++depth_;
 }
 
 void SpinLedger::note_release(const void* lock) {
     cinux::base::safety::Check(depth_ != 0, "spin ledger underflow");
-    record_release(order_, lock);
+    record_release(order_, lock, [this] { dump_held(); });
     --depth_;
 }
 
@@ -90,6 +106,12 @@ void Spinlock::unlock() {
 
 const char* Spinlock::holder_name() const {
     return holder_ != nullptr ? holder_->name : "irq/main";
+}
+
+void Spinlock::set_name(const char* label) {
+    name_              = label;
+    SpinLedger& ledger = ledger_ != nullptr ? *ledger_ : DefaultSpinLedger();
+    ledger.name_lock(this, label);
 }
 
 SpinGuard::SpinGuard(Spinlock& lock) : lock_(lock) {

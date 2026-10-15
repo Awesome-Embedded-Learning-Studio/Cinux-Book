@@ -13,10 +13,12 @@
 #include "kernel/driver/pit/pit.hpp"
 #include "kernel/driver/serial/serial.hpp"
 #include "kernel/interrupt/irq.hpp"
-#include "kernel/mm/cow.hpp"
 #include "kernel/mm/heap_runtime.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vmm.hpp"
+#include "kernel/proc/fault_diagnose.hpp"
+#include "kernel/proc/fault_resolve.hpp"
+#include "kernel/proc/lockdep.hpp"
 #include "kernel/time/tick.hpp"
 
 namespace cinux::init {
@@ -47,7 +49,15 @@ constexpr InitStep kInitSteps[] = {
     {
         .name = "page fault resolver",
         .run  = +[](const BootInfo* info) -> const BootInfo* {
-            mm::cow::InstallResolver();
+            proc::InstallFaultResolver();
+            proc::InstallFaultDiagnoser();
+            proc::InstallLockdepSink(+[](const char* label, unsigned long long address) {
+                if (label != nullptr) {
+                    print::Println("[lockdep] held: %s", label);
+                } else {
+                    print::Println("[lockdep] held: lock@%llx", address);
+                }
+            });
             return info;
         },
     },

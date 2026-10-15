@@ -43,3 +43,19 @@ target_link_options(user_hello PRIVATE
 set_target_properties(user_hello PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
     OUTPUT_NAME "hello.elf")
+
+add_executable(user_mapper programs/mapper.cpp)
+target_compile_options(user_mapper PRIVATE ${USER_COMPILE_FLAGS})
+target_include_directories(user_mapper PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR})
+target_compile_definitions(user_mapper PRIVATE __USER__)
+target_link_options(user_mapper PRIVATE
+    -nostdlib
+    -static
+    -no-pie
+    -Wl,-e,_start
+    -lgcc)
+set_target_properties(user_mapper PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
+    OUTPUT_NAME "mapper.elf")

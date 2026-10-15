@@ -28,7 +28,8 @@
 
 namespace cinux::mm {
 class AddressSpace;
-}
+class VmaStore;
+}  // namespace cinux::mm
 
 namespace cinux::proc {
 
@@ -63,9 +64,15 @@ enum class TaskState : unsigned char {
  */
 struct Task : cinux::base::container::SelfNode<Task> {
     cinux::base::container::SelfNode<Task> child_link;  ///< Seat in the scheduler's offspring roll.
-    cinux::arch::CpuContext                ctx{};       ///< Register image the switcher moves.
-    TaskState                              state{};     ///< Where this task is in its life.
-    unsigned long long                     pid{};       ///< Identity, handed out by the scheduler.
+    /// Seat on a sync-family wait list (Mutex, Semaphore, Completion),
+    /// kept apart from the base node so parking for a lock while a
+    /// parent waits above cannot ride one link into both lists.
+    cinux::base::container::SelfNode<Task> sync_wait_link;
+    cinux::arch::CpuContext                ctx{};  ///< Register image the switcher moves.
+    cinux::arch::FpuImage                  entry_fpu{};
+    unsigned long long                     fpu_gate_depth{};
+    TaskState                              state{};  ///< Where this task is in its life.
+    unsigned long long                     pid{};    ///< Identity, handed out by the scheduler.
     Task*              parent{};      ///< Who may wait for this task; null when nobody can.
     long long          exit_code{};   ///< What a zombie has to hand its parent.
     const char*        name{};        ///< Label for dumps, caller-owned storage.
@@ -73,6 +80,8 @@ struct Task : cinux::base::container::SelfNode<Task> {
     unsigned long long user_root{};   ///< PML4 of the user world, 0 while kernel-only.
     cinux::mm::AddressSpace*
         space{};  ///< The world this task retires with; null while kernel-only or borrowed.
+    cinux::mm::VmaStore*
+        vmas{};  ///< The registered ranges of its user world; lives exactly with space.
     cinux::fs::FileTable files;               ///< This task's open files, keyed by descriptor.
     char cwd[cinux::fs::kFsPathMax] = {'/'};  ///< Working directory, absolute, NUL-terminated.
 

@@ -23,13 +23,25 @@
 
 namespace cinux::driver {
 
-BlockCache::BlockCache(BlockQueue& queue, unsigned long slot_sectors, unsigned long slot_count)
-    : queue_(queue), slot_sectors_(slot_sectors), slot_bytes_(slot_sectors * kSectorBytes) {
+namespace {
+
+/// The page a sector ask lands in, and where inside that page it sits.
+unsigned long page_of(Lba sector) {
+    return sector.value / kCachePageSectors;
+}
+
+unsigned long offset_of(Lba sector) {
+    return (sector.value % kCachePageSectors) * kSectorBytes;
+}
+
+}  // namespace
+
+BlockCache::BlockCache(BlockQueue& queue, unsigned long slot_count)
+    : queue_(queue), slot_bytes_(kCachePageSectors * kSectorBytes) {
     const unsigned long kWanted = base::math::Min(slot_count, kBlockCacheSlots);
     for (unsigned long index = 0; index < kWanted; ++index) {
         auto* const         kFresh = new uint8_t[slot_bytes_]{};
-        const unsigned long kTaken =
-            slots_.insert(Slot{.first = Lba{}, .live = true, .bytes = kFresh});
+        const unsigned long kTaken = slots_.insert(Slot{.page = 0, .live = false, .bytes = kFresh});
         if (kTaken == kBlockCacheSlots) {
             delete[] kFresh;
         }
@@ -43,30 +55,38 @@ BlockCache::~BlockCache() {
 
 bool BlockCache::view(Lba first, const uint8_t** view_out) {
     const proc::MutexGuard kGate(gate_);
-    const Slot* const      kSlot = claim_slot(first);
+    const Slot* const      kSlot = claim_slot(page_of(first));
     if (kSlot == nullptr) {
         return false;
     }
-    *view_out = kSlot->bytes;
+    *view_out = kSlot->bytes + offset_of(first);
     return true;
 }
 
 bool BlockCache::patch(Lba first, unsigned long offset, unsigned long bytes, const void* source) {
-    if (offset + bytes > slot_bytes_) {
+    const unsigned long kInPage = offset_of(first);
+    if (kInPage + offset + bytes > slot_bytes_) {
         return false;
     }
     const proc::MutexGuard kGate(gate_);
-    Slot* const            kSlot = claim_slot(first);
+    Slot* const            kSlot = claim_slot(page_of(first));
     if (kSlot == nullptr) {
         return false;
     }
-    base::CopyBytes(kSlot->bytes + offset, source, bytes);
-    const BlockSpan kWhole{.value = static_cast<uint16_t>(slot_sectors_)};
-    if (!queue_.write(kSlot->first, kWhole, kSlot->bytes)) {
-        kSlot->live = false;
-        return false;
-    }
+    base::CopyBytes(kSlot->bytes + kInPage + offset, source, bytes);
+    kSlot->dirty = true;
     return true;
+}
+
+bool BlockCache::flush() {
+    const proc::MutexGuard kGate(gate_);
+    bool                   all = true;
+    slots_.for_each([this, &all](unsigned long, Slot& slot) {
+        if (slot.live && slot.dirty && !spill(slot)) {
+            all = false;
+        }
+    });
+    return all;
 }
 
 unsigned long BlockCache::slot_count() const {
@@ -74,16 +94,16 @@ unsigned long BlockCache::slot_count() const {
 }
 
 unsigned long BlockCache::slot_sectors() const {
-    return slot_sectors_;
+    return kCachePageSectors;
 }
 
-BlockCache::Slot* BlockCache::claim_slot(Lba first) {
+BlockCache::Slot* BlockCache::claim_slot(unsigned long page) {
     const unsigned long kTotal = slot_total_;
     if (kTotal == 0) {
         return nullptr;
     }
-    const unsigned long kHit = slots_.find_if(
-        [&first](const Slot& slot) { return slot.live && slot.first.value == first.value; });
+    const unsigned long kHit =
+        slots_.find_if([page](const Slot& slot) { return slot.live && slot.page == page; });
     if (const Slot* const kFound = slots_.get(kHit);
         kFound != nullptr && kFound->bytes != nullptr) {
         return slots_.get(kHit);
@@ -104,14 +124,29 @@ BlockCache::Slot* BlockCache::claim_slot(Lba first) {
     if (kVictim == nullptr) {
         return nullptr;
     }
-    kVictim->first = first;
+    if (kVictim->live && kVictim->dirty && !spill(*kVictim)) {
+        return nullptr;
+    }
+    const Lba       kPageStart{.value = page * kCachePageSectors};
+    const BlockSpan kWhole{.value = kCachePageSectors};
+    kVictim->page  = page;
     kVictim->live  = false;
-    const BlockSpan kWhole{.value = static_cast<uint16_t>(slot_sectors_)};
-    if (!queue_.read(first, kWhole, kVictim->bytes)) {
+    kVictim->dirty = false;
+    if (!queue_.read(kPageStart, kWhole, kVictim->bytes)) {
         return nullptr;
     }
     kVictim->live = true;
     return kVictim;
+}
+
+bool BlockCache::spill(Slot& slot) {
+    const Lba       kPageStart{.value = slot.page * kCachePageSectors};
+    const BlockSpan kWhole{.value = kCachePageSectors};
+    if (!queue_.write(kPageStart, kWhole, slot.bytes)) {
+        return false;
+    }
+    slot.dirty = false;
+    return true;
 }
 
 }  // namespace cinux::driver

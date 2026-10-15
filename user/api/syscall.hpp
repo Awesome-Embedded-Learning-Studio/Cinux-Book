@@ -246,4 +246,95 @@ inline long long Wait4(long long pid, int* where) {
                     reinterpret_cast<unsigned long long>(where), 0);
 }
 
+/**
+ * @brief         Issue one syscall with the full six-argument contract.
+ * @param[in]     number   Syscall number, lands in RAX.
+ * @param[in]     arg1     Lands in RDI.
+ * @param[in]     arg2     Lands in RSI.
+ * @param[in]     arg3     Lands in RDX.
+ * @param[in]     arg4     Lands in R10.
+ * @param[in]     arg5     Lands in R8.
+ * @param[in]     arg6     Lands in R9.
+ * @return        Whatever the kernel hands back in RAX.
+ * @note          The fourth argument is where this leaves the
+ *                three-register door: R10 instead of RCX, because the
+ *                syscall instruction banks the real RCX itself.
+ * @since         0.4.0
+ */
+// NOLINTNEXTLINE(readability-function-size) the ABI face itself is seven words wide
+inline long long Syscall6(unsigned long long number, unsigned long long arg1,
+                          unsigned long long arg2, unsigned long long arg3, unsigned long long arg4,
+                          unsigned long long arg5, unsigned long long arg6) {
+    // NOLINTNEXTLINE(misc-const-correctness)
+    long long                         ret                    = 0;
+    register const unsigned long long kFourth __asm__("r10") = arg4;
+    register const unsigned long long kFifth __asm__("r8")   = arg5;
+    register const unsigned long long kSixth __asm__("r9")   = arg6;
+    __asm__ volatile("syscall"
+                     : "=a"(ret)
+                     : "a"(number), "D"(arg1), "S"(arg2), "d"(arg3), "r"(kFourth), "r"(kFifth),
+                       "r"(kSixth)
+                     : "rcx", "r11", "memory");
+    return ret;
+}
+
+/**
+ * @brief         mmap(hint, len, prot, flags, fd, offset): promise a range.
+ * @param[in]     hint        Ignored; the kernel hunts for the spot.
+ * @param[in]     length      Bytes wanted, rounded up to whole pages.
+ * @param[in]     prot        kProtRead/kProtWrite/kProtExec bits.
+ * @param[in]     flags       kMapAnonymous for fresh zero pages; a file
+ *                            mapping passes zero and names the fd.
+ * @param[in]     descriptor  The file to map, unused when anonymous.
+ * @param[in]     offset      Byte offset into the file.
+ * @return        First byte of the promised range, or a negative errno.
+ * @note          Nothing is mapped yet; the first touch faults the
+ *                pages in.
+ * @since         0.4.0
+ */
+// NOLINTNEXTLINE(readability-function-size) the mmap ABI is six arguments wide by contract
+inline long long Mmap(unsigned long long hint, unsigned long long length, unsigned long long prot,
+                      unsigned long long flags, unsigned long long descriptor,
+                      unsigned long long offset) {
+    return Syscall6(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kMmap), hint, length,
+                    prot, flags, descriptor, offset);
+}
+
+/**
+ * @brief         munmap(addr, len): withdraw a promise, drop its pages.
+ * @param[in]     address  First byte of the range, as mmap handed it out.
+ * @param[in]     length   Bytes to withdraw.
+ * @return        Zero, or a negative errno.
+ * @since         0.4.0
+ */
+inline long long Munmap(unsigned long long address, unsigned long long length) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kMunmap), address,
+                    length, 0);
+}
+
+/**
+ * @brief         mprotect(addr, len, prot): rewrite a range's terms.
+ * @param[in]     address  First byte of a live range.
+ * @param[in]     length   Bytes to re-protect.
+ * @param[in]     prot     The new kProtRead/kProtWrite/kProtExec bits.
+ * @return        Zero, or a negative errno.
+ * @since         0.4.0
+ */
+inline long long Mprotect(unsigned long long address, unsigned long long length,
+                          unsigned long long prot) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kMprotect), address,
+                    length, prot);
+}
+
+/**
+ * @brief         brk(target): move the program break.
+ * @param[in]     target  Break wanted; zero only asks.
+ * @return        The break after the call. Failure reads as "the break
+ *                did not move", not as an errno.
+ * @since         0.4.0
+ */
+inline long long Brk(unsigned long long target) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kBrk), target, 0, 0);
+}
+
 }  // namespace user

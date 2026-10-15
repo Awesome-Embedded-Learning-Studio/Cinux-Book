@@ -41,7 +41,7 @@ void fill_pattern(uint8_t* bytes, unsigned long count) {
 
 TEST("ext2: the baked volume mounts") {
     cinux::driver::BlockQueue queue(cinux::driver::Ahci::self());
-    cinux::driver::BlockCache cache(queue, 2, 8);
+    cinux::driver::BlockCache cache(queue, 8);
     cinux::fs::ext2::Ext2     volume(cache);
     const auto                kMount = volume.mount();
     ASSERT_TRUE(kMount.ok());
@@ -49,7 +49,7 @@ TEST("ext2: the baked volume mounts") {
 
 TEST("ext2: hello.txt is found with its baked size") {
     cinux::driver::BlockQueue queue(cinux::driver::Ahci::self());
-    cinux::driver::BlockCache cache(queue, 2, 8);
+    cinux::driver::BlockCache cache(queue, 8);
     cinux::fs::ext2::Ext2     volume(cache);
     ASSERT_TRUE(volume.mount().ok());
 
@@ -60,7 +60,7 @@ TEST("ext2: hello.txt is found with its baked size") {
 
 TEST("ext2: hello.txt reads back its baked bytes") {
     cinux::driver::BlockQueue queue(cinux::driver::Ahci::self());
-    cinux::driver::BlockCache cache(queue, 2, 8);
+    cinux::driver::BlockCache cache(queue, 8);
     cinux::fs::ext2::Ext2     volume(cache);
     ASSERT_TRUE(volume.mount().ok());
 
@@ -75,7 +75,7 @@ TEST("ext2: hello.txt reads back its baked bytes") {
 
 TEST("ext2: stat reports the baked file's own stamp") {
     cinux::driver::BlockQueue queue(cinux::driver::Ahci::self());
-    cinux::driver::BlockCache cache(queue, 2, 8);
+    cinux::driver::BlockCache cache(queue, 8);
     cinux::fs::ext2::Ext2     volume(cache);
     ASSERT_TRUE(volume.mount().ok());
 
@@ -118,7 +118,7 @@ bool collect_root_names(cinux::fs::ext2::Ext2& volume, char (&kept)[32][cinux::f
 
 TEST("ext2: the root directory lists the baked entries") {
     cinux::driver::BlockQueue queue(cinux::driver::Ahci::self());
-    cinux::driver::BlockCache cache(queue, 2, 8);
+    cinux::driver::BlockCache cache(queue, 8);
     cinux::fs::ext2::Ext2     volume(cache);
     ASSERT_TRUE(volume.mount().ok());
 
@@ -141,7 +141,7 @@ TEST("ext2: the root directory lists the baked entries") {
 
 TEST("ext2: a fresh file takes bytes and grows") {
     cinux::driver::BlockQueue queue(cinux::driver::Ahci::self());
-    cinux::driver::BlockCache cache(queue, 2, 8);
+    cinux::driver::BlockCache cache(queue, 8);
     cinux::fs::ext2::Ext2     volume(cache);
     ASSERT_TRUE(volume.mount().ok());
 
@@ -162,7 +162,7 @@ TEST("ext2: a fresh file takes bytes and grows") {
 
 TEST("ext2: a written file reads back and unlinks") {
     cinux::driver::BlockQueue queue(cinux::driver::Ahci::self());
-    cinux::driver::BlockCache cache(queue, 2, 8);
+    cinux::driver::BlockCache cache(queue, 8);
     cinux::fs::ext2::Ext2     volume(cache);
     ASSERT_TRUE(volume.mount().ok());
 
@@ -184,7 +184,7 @@ TEST("ext2: a written file reads back and unlinks") {
 
 TEST("ext2: a made directory lists and empties") {
     cinux::driver::BlockQueue queue(cinux::driver::Ahci::self());
-    cinux::driver::BlockCache cache(queue, 2, 8);
+    cinux::driver::BlockCache cache(queue, 8);
     cinux::fs::ext2::Ext2     volume(cache);
     ASSERT_TRUE(volume.mount().ok());
 

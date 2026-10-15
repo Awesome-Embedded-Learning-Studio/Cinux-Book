@@ -13,10 +13,10 @@ constexpr unsigned long long kX87ControlWord = 0x037FULL;
 constexpr unsigned long long kMxcsrDefault   = 0x1F80ULL;
 
 void plant_clean_fpu_image(cinux::arch::CpuContext& ctx) {
-    cinux::base::SetBytes(ctx.fpu, 0, sizeof(ctx.fpu));
-    auto* const kFcw   = reinterpret_cast<unsigned short*>(&ctx.fpu[0]);
+    cinux::base::SetBytes(&ctx.fpu, 0, sizeof(ctx.fpu));
+    auto* const kFcw   = reinterpret_cast<unsigned short*>(&ctx.fpu.words[0]);
     kFcw[0]            = static_cast<unsigned short>(kX87ControlWord);
-    auto* const kMxcsr = reinterpret_cast<unsigned int*>(&ctx.fpu[4]);
+    auto* const kMxcsr = reinterpret_cast<unsigned int*>(&ctx.fpu.words[4]);
     kMxcsr[0]          = static_cast<unsigned int>(kMxcsrDefault);
 }
 

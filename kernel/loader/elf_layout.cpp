@@ -68,6 +68,7 @@ bool ReadSegment(const ElfImage& image, std::uint16_t index, ElfSegment& segment
         .file_offset     = base::ReadWord64(kAt, 8),
         .file_bytes      = base::ReadWord64(kAt, 32),
         .memory_bytes    = base::ReadWord64(kAt, 40),
+        .flags           = base::ReadWord32(kAt, 4),
     };
     return true;
 }

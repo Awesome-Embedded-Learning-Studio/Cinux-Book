@@ -7,6 +7,7 @@
 #include "kernel/mm/address_space.hpp"  // NOLINT(misc-include-cleaner) delete needs the complete type
 #include "kernel/mm/layout.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/mm/vma.hpp"  // NOLINT(misc-include-cleaner) delete needs the complete type
 #include "kernel/mm/vmm.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/scheduler.hpp"
@@ -55,6 +56,7 @@ public:
     }
 
     void reclaim(Task& dead) {
+        delete dead.vmas;
         delete dead.space;
         const auto kStackPhys = cinux::mm::DirectMapPhys(dead.stack_base);
         cinux::mm::Pmm::self().free_pages(cinux::base::PhysAddr{kStackPhys}, kStackOrder);

@@ -20,6 +20,7 @@
 #pragma once
 
 #include "kernel/arch/x86_64/page.hpp"
+#include "kernel/mm/layout.hpp"
 
 namespace cinux::proc {
 
@@ -47,9 +48,8 @@ inline constexpr unsigned long kStackBytes =
 static_assert((1UL << static_cast<unsigned long>(kStackOrder)) == kStackPages,
               "order and page count are one fact");
 
-/// Where the teaching user programs park their stack: top byte of the
-/// single mapped stack page, distinct by name from the address-space
-/// layout's own user-half ceiling.
-inline constexpr unsigned long kUserProgramStackTop = 0x0000000000501000UL;
+/// Where user programs park their stack: the address-space layout's own
+/// stack top, restated here so the proc theme names one fact once.
+inline constexpr unsigned long kUserProgramStackTop = mm::kUserStackTop;
 
 }  // namespace cinux::proc

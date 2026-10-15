@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include "kernel/arch/x86_64/page_entry.hpp"
+
 namespace cinux::mm {
 
 /**
@@ -79,16 +81,25 @@ public:
      *
      * @param[in]     virtual_address   Where the page appears here.
      * @param[in]     physical          The frame it shows.
+     * @param[in]     leaf_bits         Flags the final entry carries; the
+     *                                  default keeps the historical shape,
+     *                                  writable, while the fault path and
+     *                                  the loader pass narrower terms.
      * @return        true when the walk wrote the final entry.
      * @note          Same walk carrying kUser on every level, so ring 3
      *                        can descend the whole path; without it the
      *                        page is kernel-only even in the low half.
+     *                        Only the final entry takes leaf_bits: a
+     *                        table pointer's write bit is a supply
+     *                        detail, the leaf's is the page's law.
      * @warning       None
      * @throws        None
-     * @since         0.2.0
+     * @since         0.4.0
      * @ingroup       kernel_mm
      */
-    [[nodiscard]] bool map_user(unsigned long virtual_address, unsigned long physical) const;
+    [[nodiscard]] bool map_user(unsigned long virtual_address, unsigned long physical,
+                                cinux::arch::page::Entry leaf_bits =
+                                    cinux::arch::page::kWritable | cinux::arch::page::kUser) const;
 
     /**
      * @brief         Translates an address through this space's tables.

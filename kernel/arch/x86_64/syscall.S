@@ -23,6 +23,7 @@ SyscallEntry:
     movq %r13, %gs:40
     movq %r14, %gs:48
     movq %r15, %gs:56
+    call EnterFpuGate
     sti
     movq 24(%rsp), %rdi
     movq 32(%rsp), %rsi
@@ -30,6 +31,11 @@ SyscallEntry:
     movq 48(%rsp), %rcx
     call InvokeSyscall
     cli
+    pushq %rax
+    subq $8, %rsp
+    call ExitFpuGate
+    addq $8, %rsp
+    popq %rax
     movq 32(%rsp), %rdi
     movq 40(%rsp), %rsi
     movq 48(%rsp), %rdx

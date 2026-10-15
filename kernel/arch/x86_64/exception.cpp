@@ -1,4 +1,5 @@
 #include "cinux/ptr.hpp"
+#include "kernel/arch/x86_64/context.hpp"
 #include "kernel/arch/x86_64/halt.hpp"
 #include "kernel/arch/x86_64/isr.hpp"
 #include "kernel/arch/x86_64/page_entry.hpp"
@@ -7,12 +8,15 @@
 #include "kernel/debug/trace.hpp"
 #include "kernel/mm/layout.hpp"
 #include "kernel/mm/page_walk.hpp"
+#include "kernel/proc/fpu_gate.hpp"
 
 namespace cinux::arch::isr {
 
 namespace {
 
 PageFaultResolver g_page_fault_resolver = nullptr;
+
+PageFaultDiagnoser g_page_fault_diagnoser = nullptr;
 
 unsigned long long faulting_frame_base() {
     unsigned long long reporter_frame = 0;  // NOLINT(misc-const-correctness)
@@ -123,12 +127,27 @@ void InstallPageFaultResolver(PageFaultResolver resolver) {
     g_page_fault_resolver = resolver;
 }
 
+void InstallPageFaultDiagnoser(PageFaultDiagnoser diagnoser) {
+    g_page_fault_diagnoser = diagnoser;
+}
+
 void ReportFault(unsigned long long vector, InterruptFrame& frame, unsigned long long error_code) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
+    FpuImage interrupted_fpu;
+    SaveFpu(interrupted_fpu);
+    EnterFpuGate();
     if (vector == kPageFaultVector && g_page_fault_resolver != nullptr &&
         g_page_fault_resolver(ReadCr2(), error_code)) {
+        ExitFpuGate();
+        RestoreFpu(interrupted_fpu);
         return;
     }
+    if (vector == kPageFaultVector && g_page_fault_diagnoser != nullptr) {
+        g_page_fault_diagnoser(ReadCr2(), error_code);
+    }
     if (try_recover(vector, frame)) {
+        ExitFpuGate();
+        RestoreFpu(interrupted_fpu);
         return;
     }
     cinux::print::Println("[kern] exception #%u %s", vector,

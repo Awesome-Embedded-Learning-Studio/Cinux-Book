@@ -2,6 +2,7 @@
 
 #include <cstdint>
 
+#include "cinux/math.hpp"
 #include "cinux/own.hpp"
 #include "cinux/ptr.hpp"
 #include "cinux/result.hpp"
@@ -12,7 +13,9 @@
 #include "kernel/fs/vfs.hpp"
 #include "kernel/loader/loader.hpp"
 #include "kernel/mm/address_space.hpp"
+#include "kernel/mm/layout.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/mm/vma.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
@@ -41,12 +44,38 @@ long long HandleExecve(Word path_word, Word /*second*/, Word /*third*/) {
     if (!fs::ReadWholeFile(kView.value(), program, program_size)) {
         return -kEio;
     }
-    proc::Task* const           kSelf     = CurrentTask();
-    mm::AddressSpace* const     kOldWorld = kSelf->space;  // NOLINT(misc-const-correctness)
+    proc::Task* const              kSelf     = CurrentTask();
+    mm::AddressSpace* const        kOldWorld = kSelf->space;  // NOLINT(misc-const-correctness)
+    const base::Result<fs::FsNode> kNode =
+        kView.value().ops->lookup(kView.value().self, kView.value().rest);
+    if (!kNode.ok()) {
+        return -kEnoent;
+    }
     base::Own<mm::AddressSpace> fresh(new mm::AddressSpace{});
+    base::Own<mm::VmaStore>     ranges(new mm::VmaStore{});
     std::uint64_t               entry = 0;
-    if (!fresh.holds() || !fresh->init() ||
-        !loader::LoadElfIntoSpace(program.get(), program_size, *fresh, entry)) {
+    if (!fresh.holds() || !ranges.holds() || !fresh->init()) {
+        return -kEnomem;
+    }
+    loader::LoadWorld world{
+        .space     = *fresh,
+        .vmas      = *ranges,
+        .file      = kNode.value(),
+        .file_ops  = kView.value().ops,
+        .file_self = kView.value().self,
+    };
+    if (!loader::LoadElfIntoSpace(program.get(), program_size, world, entry)) {
+        return -kEnomem;
+    }
+    ranges->seed_heap(cinux::base::math::AlignUp(ranges->max_end(), cinux::arch::page::kSize),
+                      mm::kUserBrkMmapSplit);
+    mm::VmaRegion stack_range{};
+    stack_range.start = proc::kUserProgramStackTop - mm::kUserStackBytes - cinux::arch::page::kSize;
+    stack_range.end   = proc::kUserProgramStackTop;
+    stack_range.kind  = mm::VmaKind::kStack;
+    stack_range.readable = true;
+    stack_range.writable = true;
+    if (!ranges->register_range(stack_range).ok()) {
         return -kEnomem;
     }
     const mm::Pmm::PhysAddr kStackFrame = mm::Pmm::self().allocate_page();
@@ -58,12 +87,13 @@ long long HandleExecve(Word path_word, Word /*second*/, Word /*third*/) {
         return -kEnomem;
     }
     kSelf->space     = fresh.release();
+    kSelf->vmas      = ranges.release();
     kSelf->user_root = kSelf->space->root();
     kSelf->space->activate();
     delete kOldWorld;
     auto* const kFrame =
         cinux::base::PtrAt<SyscallFrame>(arch::per_cpu::PerCpu::self().syscall_frame);
-    kFrame->user_rsp = proc::kUserProgramStackTop - 16;
+    kFrame->user_rsp = proc::kUserProgramStackTop - 8;
     kFrame->rcx      = entry;
     kFrame->r11      = kUserFlags;
     kFrame->rax      = 0;

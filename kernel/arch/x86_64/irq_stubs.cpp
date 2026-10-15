@@ -21,11 +21,13 @@
 
 #include <utility>
 
+#include "kernel/arch/x86_64/context.hpp"
 #include "kernel/arch/x86_64/gdt.hpp"
 #include "kernel/arch/x86_64/idt.hpp"
 #include "kernel/arch/x86_64/isr.hpp"
 #include "kernel/arch/x86_64/pic.hpp"
 #include "kernel/interrupt/irq.hpp"
+#include "kernel/proc/fpu_gate.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/time/tick.hpp"
 
@@ -48,9 +50,15 @@ void heartbeat() {
 
 template <unsigned int Vector>
 __attribute__((interrupt)) void irq_entry([[maybe_unused]] InterruptFrame* frame) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
+    cinux::arch::FpuImage interrupted_fpu;
+    cinux::arch::SaveFpu(interrupted_fpu);
+    EnterFpuGate();
     cinux::interrupt::Irq::self().dispatch(
         cinux::interrupt::IrqLine{.value = Vector - kFirstIrqVector});
     cinux::proc::Scheduler::self().maybe_preempt();
+    ExitFpuGate();
+    cinux::arch::RestoreFpu(interrupted_fpu);
 }
 
 void install(unsigned int vector, void (*handler)(InterruptFrame*)) {

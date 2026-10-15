@@ -14,6 +14,7 @@
 #include "kernel/mm/cow.hpp"
 #include "kernel/mm/layout.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/mm/vma.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
@@ -51,6 +52,11 @@ Task* BuildForkChild(unsigned long long frame_address) {
     if (!space.holds()) {
         return nullptr;
     }
+    cinux::base::safety::Check(kParent->vmas != nullptr, "fork parent lost its range register");
+    base::Own<mm::VmaStore> vmas(kParent->vmas->clone());
+    if (!vmas.holds()) {
+        return nullptr;
+    }
     const cinux::base::PhysAddr kStack = mm::Pmm::self().allocate_pages(kStackOrder);
     if (kStack == cinux::base::PhysAddr{}) {
         return nullptr;
@@ -60,9 +66,9 @@ Task* BuildForkChild(unsigned long long frame_address) {
         mm::Pmm::self().free_pages(kStack, kStackOrder);
         return nullptr;
     }
-    Task* const kBorn = child.get();
-    kBorn->ctx        = kParent->ctx;
-    asm volatile("fxsave64 %0" : "=m"(kBorn->ctx.fpu) : : "memory");
+    Task* const kBorn              = child.get();
+    kBorn->ctx                     = kParent->ctx;
+    kBorn->ctx.fpu                 = kParent->entry_fpu;
     kBorn->ctx.r12                 = kUserR12;
     kBorn->ctx.r13                 = kUserR13;
     kBorn->ctx.r14                 = kUserR14;
@@ -78,6 +84,7 @@ Task* BuildForkChild(unsigned long long frame_address) {
     kBorn->stack_base = kStackVirt;
     kBorn->user_root  = space->root();
     kBorn->space      = space.release();
+    kBorn->vmas       = vmas.release();
     kBorn->parent     = kParent;
     cinux::base::CopyBytes(kBorn->cwd, kParent->cwd, fs::kFsPathMax);
     for (unsigned long descriptor = fs::kFirstDescriptor; descriptor < fs::kFileTableMax;

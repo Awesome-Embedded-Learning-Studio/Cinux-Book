@@ -109,6 +109,33 @@ unsigned long long TakeRecoveredVector();
 void InstallPageFaultResolver(PageFaultResolver resolver);
 
 /**
+ * @brief         The shape of the reporter's second opinion on a dead fault.
+ * @param[in]     address      The faulting virtual address, as CR2 held it.
+ * @param[in]     error_code   The stub's error word.
+ * @return        None.
+ * @note          Called only after the resolver has declined and the fault
+ *                is on its way to the dump; whatever this prints is
+ *                evidence, never control flow.
+ * @since         0.3.0
+ * @ingroup       kernel_arch
+ */
+using PageFaultDiagnoser = void (*)(unsigned long long address, unsigned long long error_code);
+
+/**
+ * @brief         Seat the one diagnoser declined faults are shown to.
+ * @param[in]     diagnoser   The callback, or nullptr to uninstall.
+ * @return        None.
+ * @note          A mirror of the resolver seat: arch owns the seat, the
+ *                memory theme owns the knowledge, so the reporter never
+ *                learns what a range register is. The diagnoser runs after
+ *                the resolver declines and before the dump; a pending
+ *                armed recovery still fires after it.
+ * @since         0.3.0
+ * @ingroup       kernel_arch
+ */
+void InstallPageFaultDiagnoser(PageFaultDiagnoser diagnoser);
+
+/**
  * @brief         Arm all 32 CPU exception vectors with attribute stubs.
  * @return        None.
  * @note          Vectors 8, 10-14, 17, 21, 29 and 30 take the error-code

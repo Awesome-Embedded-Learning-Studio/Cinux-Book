@@ -26,6 +26,7 @@ namespace cinux::mm {
 
 using cinux::base::operator""_GiB;
 using cinux::base::operator""_KiB;
+using cinux::base::operator""_MiB;
 
 /** @brief Bytes one PML4 entry spans; every reserved region is sized in whole entries. */
 inline constexpr unsigned long kPml4EntrySpan = 512_GiB;
@@ -70,6 +71,13 @@ inline constexpr unsigned long kUserBrkMmapSplit = 0x0000400000000000UL;
 inline constexpr unsigned long kUserMmapTop      = 0x00007F8000000000UL;
 /** @brief Upper edge of the default main stack; the page above stays unmapped. */
 inline constexpr unsigned long kUserStackTop     = kUserTop - cinux::arch::page::kSize;
+/** @brief How far the main stack may grow down from its top: one megabyte
+           of address range, filled page by page on demand. */
+inline constexpr unsigned long kUserStackBytes   = 1_MiB;
+/** @brief Lower edge of the stack's registered range: the stack span plus
+           one guard page below it, which demand filling refuses to map. */
+inline constexpr unsigned long kUserStackBottom =
+    kUserStackTop - kUserStackBytes - cinux::arch::page::kSize;
 
 /**
  * @brief         Turns a physical address into its direct-map alias.
@@ -161,6 +169,8 @@ static_assert(kModuleBase == kKernelImageBase + 1_GiB, "modules follow the image
 static_assert(kUserTop == (1UL << 47U), "user half ends at the canonical boundary");
 static_assert(kUserStackTop + cinux::arch::page::kSize == kUserTop,
               "one guard page separates the stack top from user top");
+static_assert(kUserMmapTop < kUserStackBottom,
+              "the stack's full span stays clear of the mmap area");
 static_assert(kUserNullTop < kUserBrkMmapSplit && kUserBrkMmapSplit < kUserMmapTop &&
                   kUserMmapTop < kUserStackTop,
               "user conventions stay ordered inside the user half");

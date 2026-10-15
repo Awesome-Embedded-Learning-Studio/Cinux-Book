@@ -25,4 +25,7 @@ inline constexpr uint16_t kBlockQueueDepth = 16;
 /// @brief Slots the block cache keeps at most.
 inline constexpr unsigned long kBlockCacheSlots = 8;
 
+/// @brief Sectors one cache slot covers: one 4 KiB page of the platter.
+inline constexpr unsigned long kCachePageSectors = 8;
+
 }  // namespace cinux::driver

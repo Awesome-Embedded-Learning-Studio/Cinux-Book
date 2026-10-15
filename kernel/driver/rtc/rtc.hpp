@@ -124,12 +124,14 @@ struct RawClock {
         }
     }
 
-    return base::time::UnixSecondsOf({.year   = (century * 100UL) + kYearTwo,
-                                      .month  = kMonth,
-                                      .day    = kDay,
-                                      .hour   = hours,
-                                      .minute = kMinutes,
-                                      .second = kSeconds});
+    return base::time::UnixSecondsOf({
+        .year   = (century * 100UL) + kYearTwo,
+        .month  = kMonth,
+        .day    = kDay,
+        .hour   = hours,
+        .minute = kMinutes,
+        .second = kSeconds,
+    });
 }
 
 /**

@@ -100,6 +100,43 @@ TEST("self list: tail survives head removals and keeps append O(1) shape") {
     ASSERT_TRUE(list.pop_head() == &next);
 }
 
+TEST("self list: after walks the chain read-only") {
+    cinux::base::container::SelfList<Item> list;
+    Item                                   first  = make(1);
+    Item                                   second = make(2);
+    Item                                   third  = make(3);
+    list.push_back(first);
+    list.push_back(second);
+    list.push_back(third);
+
+    ASSERT_TRUE(list.after(first) == &second);
+    ASSERT_TRUE(list.after(second) == &third);
+    ASSERT_TRUE(list.after(third) == nullptr);
+    ASSERT_TRUE(list.after(first)->value == 2);
+    ASSERT_TRUE(list.pop_head() == &first);
+    ASSERT_TRUE(list.pop_head() == &second);
+    ASSERT_TRUE(list.pop_head() == &third);
+    ASSERT_TRUE(list.empty());
+}
+
+TEST("self list: size counts without disturbing a single link") {
+    cinux::base::container::SelfList<Item> list;
+    Item                                   first  = make(1);
+    Item                                   second = make(2);
+    Item                                   third  = make(3);
+    ASSERT_TRUE(list.empty());
+    list.push_back(first);
+    list.push_back(second);
+    list.push_back(third);
+    ASSERT_TRUE(list.size() == 3);
+    ASSERT_TRUE(list.after(first) == &second);
+    list.remove(second);
+    ASSERT_TRUE(list.size() == 2);
+    ASSERT_TRUE(list.after(first) == &third);
+    ASSERT_TRUE(list.pop_head() == &first);
+    ASSERT_TRUE(list.size() == 1);
+}
+
 static_assert(sizeof(cinux::base::container::SelfList<Item>) == 2 * sizeof(Item*));
 
 }  // namespace

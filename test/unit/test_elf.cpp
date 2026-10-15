@@ -71,6 +71,20 @@ void check_good_segment(const cinux::loader::ElfImage& image) {
     ASSERT_TRUE(segment.file_offset == kEhdrBytes + kPhdrBytes);
     ASSERT_TRUE(segment.file_bytes == kPayloadBytes);
     ASSERT_TRUE(segment.memory_bytes == 96);
+    ASSERT_TRUE(segment.flags == (cinux::loader::kSegmentRead | cinux::loader::kSegmentExec));
+}
+
+TEST("elf: segment flags travel with the loadable facts") {
+    const auto kParsed = cinux::loader::ParseElf64(kGoodImage.bytes, kImageBytes);
+    ASSERT_TRUE(kParsed.ok());
+    TestImage writable = kGoodImage;
+    put_dword(writable, kEhdrBytes + 4, 6);
+    const auto kRewritten = cinux::loader::ParseElf64(writable.bytes, kImageBytes);
+    ASSERT_TRUE(kRewritten.ok());
+    cinux::loader::ElfSegment segment{};
+    ASSERT_TRUE(cinux::loader::ReadSegment(kRewritten.value(), 0, segment));
+    ASSERT_TRUE(segment.flags == (cinux::loader::kSegmentRead | cinux::loader::kSegmentWrite));
+    ASSERT_TRUE(segment.virtual_address == 0x401000);
 }
 
 TEST("elf: a well-formed static image parses to entry and segments") {

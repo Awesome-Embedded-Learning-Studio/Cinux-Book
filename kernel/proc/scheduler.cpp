@@ -28,6 +28,10 @@ Task* Scheduler::current() const {
     return current_;
 }
 
+unsigned long long Scheduler::offspring_count() const {
+    return offspring_.size();
+}
+
 void Scheduler::yield() {
     const cinux::arch::IrqGuard kGuard;
     cinux::base::safety::Check(current_ != nullptr, "yield called outside any task");
@@ -118,11 +122,11 @@ void Scheduler::exit_current(long long code) {
 }
 
 Task* Scheduler::take_zombie_child(Task& watcher, long long wanted, bool& has_any_child) {
-    Task*                                  match = nullptr;
-    cinux::base::container::SelfList<Task> keep{};
-    Task*                                  scan = nullptr;
-    has_any_child                               = false;
-    const bool               kAnyChild          = wanted < 0;
+    Task*                match = nullptr;
+    decltype(offspring_) keep{};
+    Task*                scan          = nullptr;
+    has_any_child                      = false;
+    const bool               kAnyChild = wanted < 0;
     const unsigned long long kWantedPid =
         kAnyChild ? 0ULL : static_cast<unsigned long long>(wanted);
     while ((scan = offspring_.pop_head()) != nullptr) {
@@ -146,8 +150,8 @@ Task* Scheduler::take_zombie_child(Task& watcher, long long wanted, bool& has_an
 }
 
 void Scheduler::detach_offspring(Task& dying) {
-    cinux::base::container::SelfList<Task> keep{};
-    Task*                                  scan = nullptr;
+    decltype(offspring_) keep{};
+    Task*                scan = nullptr;
     while ((scan = offspring_.pop_head()) != nullptr) {
         if (scan->parent != &dying) {
             keep.push_back(*scan);
@@ -157,6 +161,10 @@ void Scheduler::detach_offspring(Task& dying) {
         if (scan->state == TaskState::kZombie) {
             reclaim_(sink_, *scan);
         }
+        // Nobody can ever wait for a parentless task again, so it
+        // leaves the roll here instead of lingering until its own exit.
+        // A zombie grandchild already left via reclaim above; a live
+        // one simply drops off the list by not re-entering keep.
     }
     while ((scan = keep.pop_head()) != nullptr) {
         offspring_.push_back(*scan);

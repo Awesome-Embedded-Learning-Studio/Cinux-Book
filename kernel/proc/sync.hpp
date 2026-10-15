@@ -73,6 +73,20 @@ public:
     [[nodiscard]] unsigned int depth() const { return depth_; }
 
     /**
+     * @brief     Register the human name of a lock on this ledger.
+     * @since     0.4.0
+     * @ingroup   kernel_proc
+     */
+    void name_lock(const void* lock, const char* label);
+
+    /**
+     * @brief     Walk this ledger's held chain for the dump face.
+     * @since     0.4.0
+     * @ingroup   kernel_proc
+     */
+    void dump_held();
+
+    /**
      * @brief   Drop the identity of an unheld lock before storage reuse.
      * @since   0.1.0
      * @ingroup kernel_proc
@@ -80,7 +94,12 @@ public:
     void forget(const void* lock);
 
 private:
-    struct InactiveOrder {};
+    /// Mirrors the LockOrder faces the ledger forwards to, as no-ops,
+    /// so the forwarding code compiles unchanged in dump-free builds.
+    struct InactiveOrder {
+        void name_lock(const void* /*lock*/, const char* /*label*/) {}
+        void dump_held() {}
+    };
     using Order = std::conditional_t<kLockdepEnabled, LockOrder, InactiveOrder>;
     unsigned int                depth_ = 0;
     [[no_unique_address]] Order order_{};
@@ -200,6 +219,16 @@ public:
      */
     [[nodiscard]] const char* holder_name() const;
 
+    /**
+     * @brief     Give the lock its name in the ledger's registry.
+     * @param[in] label   Caller-owned storage outliving the lock.
+     * @note      Call once, before the first acquisition; the label is
+     *            what the held-chain dump prints for this lock.
+     * @since     0.4.0
+     * @ingroup   kernel_proc
+     */
+    void set_name(const char* label);
+
 private:
     friend class SpinGuardImpl;
 
@@ -207,6 +236,7 @@ private:
     unsigned long long irq_state_ = 0;
     Task*              holder_    = nullptr;
     SpinLedger*        ledger_    = nullptr;
+    const char*        name_      = nullptr;
 };
 
 /**
@@ -242,9 +272,9 @@ public:
     [[nodiscard]] MutexGuard guard();
 
 private:
-    Spinlock                               spin_;
-    Task*                                  owner_ = nullptr;
-    cinux::base::container::SelfList<Task> waiters_;
+    Spinlock                                                      spin_;
+    Task*                                                         owner_ = nullptr;
+    cinux::base::container::SelfList<Task, &Task::sync_wait_link> waiters_;
 };
 
 /**
@@ -282,9 +312,9 @@ public:
     void post();
 
 private:
-    Spinlock                               spin_;
-    long long                              count_ = 0;
-    cinux::base::container::SelfList<Task> waiters_;
+    Spinlock                                                      spin_;
+    long long                                                     count_ = 0;
+    cinux::base::container::SelfList<Task, &Task::sync_wait_link> waiters_;
 };
 
 /**
@@ -345,9 +375,9 @@ private:
         kFailed,
     };
 
-    mutable Spinlock                       spin_;
-    State                                  state_ = State::kPending;
-    cinux::base::container::SelfList<Task> waiters_;
+    mutable Spinlock                                              spin_;
+    State                                                         state_ = State::kPending;
+    cinux::base::container::SelfList<Task, &Task::sync_wait_link> waiters_;
 };
 
 }  // namespace cinux::proc

@@ -27,6 +27,42 @@
 namespace cinux::arch {
 
 /**
+ * @brief         Aligned x87, MXCSR and SSE register image for FXSAVE64.
+ * @since         0.1.0
+ * @ingroup       kernel_arch
+ */
+struct alignas(16) FpuImage {
+    unsigned long long words[64];
+};
+
+static_assert(sizeof(FpuImage) == 512, "FXSAVE64 writes 512 bytes");
+static_assert(alignof(FpuImage) >= 16, "FXSAVE64 demands 16-byte alignment");
+
+/**
+ * @brief         Save the live floating-point state into an aligned image.
+ * @param[out]    image   Receives the x87, MXCSR and SSE registers.
+ * @return        None.
+ * @since         0.1.0
+ * @ingroup       kernel_arch
+ */
+// NOLINTNEXTLINE(misc-const-correctness)
+inline void SaveFpu(FpuImage& image) {
+    asm volatile("fxsave64 %0" : "=m"(image) : : "memory");
+}
+
+/**
+ * @brief         Restore floating-point state from an aligned image.
+ * @param[in]     image   A valid FXSAVE64 register image.
+ * @return        None.
+ * @note          Call from code compiled with general registers only.
+ * @since         0.1.0
+ * @ingroup       kernel_arch
+ */
+inline void RestoreFpu(const FpuImage& image) {
+    asm volatile("fxrstor64 %0" : : "m"(image) : "memory");
+}
+
+/**
  * @brief         Callee-saved register snapshot plus FXSAVE64 image.
  * @note          Field order and offsets are load-bearing: they are
  *                the contract with context_switch.S, guarded by the
@@ -36,15 +72,15 @@ namespace cinux::arch {
  * @ingroup       kernel_arch
  */
 struct alignas(16) CpuContext {
-    unsigned long long r15;      ///< Slot 0, offset 0.
-    unsigned long long r14;      ///< Slot 1, offset 8.
-    unsigned long long r13;      ///< Slot 2, offset 16.
-    unsigned long long r12;      ///< Slot 3, offset 24.
-    unsigned long long rbp;      ///< Slot 4, offset 32.
-    unsigned long long rbx;      ///< Slot 5, offset 40.
-    unsigned long long rsp;      ///< Slot 6, offset 48.
-    unsigned long long rip;      ///< Slot 7, offset 56.
-    unsigned long long fpu[64];  ///< FXSAVE64 image, offset 64.
+    unsigned long long r15;  ///< Slot 0, offset 0.
+    unsigned long long r14;  ///< Slot 1, offset 8.
+    unsigned long long r13;  ///< Slot 2, offset 16.
+    unsigned long long r12;  ///< Slot 3, offset 24.
+    unsigned long long rbp;  ///< Slot 4, offset 32.
+    unsigned long long rbx;  ///< Slot 5, offset 40.
+    unsigned long long rsp;  ///< Slot 6, offset 48.
+    unsigned long long rip;  ///< Slot 7, offset 56.
+    FpuImage           fpu;
 };
 
 static_assert(offsetof(CpuContext, r15) == 0, "assembly reads r15 at 0");
