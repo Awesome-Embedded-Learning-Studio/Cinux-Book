@@ -2,12 +2,13 @@
  * @file    proc_config.hpp
  * @brief   Tunable facts of kernel threading.
  *
- * Three knobs, each a fact the rest of the proc theme reads: how many
- * pages one kernel-thread stack spans, the marker written at its bottom
- * as a post-mortem overflow probe, and how many tasks may sit ready at
- * once. Overflow of the ready queue is a Check failure, not a silent
- * drop — losing a wakeup is undebuggable, failing loudly is one serial
- * line.
+ * The facts of kernel threading, one constant each: how many pages
+ * one kernel-thread stack spans, the marker written at its bottom as
+ * a post-mortem overflow probe, how many tasks may wait in one
+ * scheduling class's ready row, and how the scheduler's slice and
+ * class registry are sized. Overflow of a ready row is a Check
+ * failure, not a silent drop — losing a wakeup is undebuggable,
+ * failing loudly is one serial line.
  *
  * @author  Charliechen114514
  * @date    2026-10-07
@@ -34,12 +35,16 @@ inline constexpr int kStackOrder = 2;
 /// stack ran past its end.
 inline constexpr unsigned long long kStackMagic = 0xDEADC0DEULL;
 
-/// Tasks that may wait in the ready queue at once.
+/// Tasks that may wait in one class's ready row at once; every
+/// scheduling class owns a row of this size.
 inline constexpr unsigned int kReadyQueueCapacity = 16;
 
 /// Timer ticks one task may run before the scheduler asks for a
 /// rotation; two at 100 Hz is 20 ms per slice.
 inline constexpr unsigned int kTimeSliceTicks = 2;
+
+/// Scheduling classes the scheduler accepts registrations from.
+inline constexpr unsigned int kMaxSchedulingClasses = 4;
 
 /// Bytes of one kernel-thread stack.
 inline constexpr unsigned long kStackBytes =

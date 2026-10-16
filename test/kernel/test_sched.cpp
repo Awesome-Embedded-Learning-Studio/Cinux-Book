@@ -17,6 +17,7 @@
 #include "kernel/mm/vmm.hpp"
 #include "kernel/proc/fork.hpp"
 #include "kernel/proc/proc_config.hpp"
+#include "kernel/proc/sched_class.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/sync.hpp"
 #include "kernel/proc/task.hpp"
@@ -179,6 +180,16 @@ void preempt_probe_task() {
 void seat_built(cinux::proc::Task* task) {
     cinux::base::safety::Check(task != nullptr, "test task failed to build");
     cinux::proc::Scheduler::self().seat(*task);
+}
+
+VisitLog g_order_roll{};
+
+void visit_once_task() {
+    if (g_order_roll.len < 64) {
+        g_order_roll.pids[g_order_roll.len++] =
+            static_cast<unsigned int>(cinux::proc::Scheduler::self().current()->pid);
+    }
+    cinux::proc::Scheduler::self().exit_current();
 }
 
 struct Market {
@@ -428,6 +439,29 @@ TEST("sched: the clock rotates tasks that never yield") {
     ASSERT_TRUE(g_log_a.len > 0);
     ASSERT_TRUE(g_log_b.len > 0);
     ASSERT_TRUE(g_log_a.pids[0] != g_log_b.pids[0]);
+}
+
+TEST("sched: the priority class sends its smallest weight in first") {
+    auto& scheduler                  = cinux::proc::Scheduler::self();
+    g_order_roll                     = VisitLog{};
+    cinux::proc::Task* const kLate   = cinux::proc::TaskBuilder{}
+                                           .set_entry(visit_once_task)
+                                           .set_name("p-low")
+                                           .set_class(cinux::proc::PriorityClass())
+                                           .set_priority(9)
+                                           .build();
+    cinux::proc::Task* const kUrgent = cinux::proc::TaskBuilder{}
+                                           .set_entry(visit_once_task)
+                                           .set_name("p-urgent")
+                                           .set_class(cinux::proc::PriorityClass())
+                                           .set_priority(1)
+                                           .build();
+    seat_built(kLate);
+    seat_built(kUrgent);
+    scheduler.run_until_done();
+    ASSERT_TRUE(g_order_roll.len == 2);
+    ASSERT_TRUE(g_order_roll.pids[0] == kUrgent->pid);
+    ASSERT_TRUE(g_order_roll.pids[1] == kLate->pid);
 }
 
 TEST("sched: producer and consumer close the loop through locks") {

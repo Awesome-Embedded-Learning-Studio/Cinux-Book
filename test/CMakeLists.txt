@@ -54,6 +54,7 @@ add_cinux_test(ref_count)
 add_cinux_test(context ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp)
 add_cinux_test(fpu_gate ${CMAKE_SOURCE_DIR}/kernel/proc/fpu_gate.cpp
                         ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
+                        ${CMAKE_SOURCE_DIR}/kernel/proc/sched_class.cpp
                         ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
                         ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
 set_source_files_properties(unit/test_fpu_gate.cpp PROPERTIES COMPILE_OPTIONS "-mno-sse;-mno-sse2")
@@ -67,8 +68,14 @@ add_cinux_test(sync ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
 add_cinux_test(guard)
 add_cinux_test(scheduler ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/proc/sched_class.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
+add_cinux_test(sched_class ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
+                            ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
+                            ${CMAKE_SOURCE_DIR}/kernel/proc/sched_class.cpp
+                            ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
+                            ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
 add_cinux_test(vfs ${CMAKE_SOURCE_DIR}/kernel/fs/vfs.cpp)
 add_cinux_test(file_table)
 add_cinux_test(ramfs ${CMAKE_SOURCE_DIR}/kernel/fs/ramfs/ramfs.cpp
@@ -96,6 +103,7 @@ add_cinux_test(block ${CMAKE_SOURCE_DIR}/kernel/driver/block/block_queue.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
 add_cinux_test(vma ${CMAKE_SOURCE_DIR}/kernel/mm/vma.cpp)
+add_cinux_test(kallsyms ${CMAKE_SOURCE_DIR}/kernel/debug/kallsyms.cpp)
 
 add_test(NAME kernel_image
     COMMAND ${CMAKE_COMMAND}

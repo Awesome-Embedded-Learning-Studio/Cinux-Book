@@ -32,6 +32,10 @@ class VmaStore;
 }  // namespace cinux::mm
 
 namespace cinux::proc {
+class SchedulingClass;
+}  // namespace cinux::proc
+
+namespace cinux::proc {
 
 /**
  * @brief         Lifecycle of one task.
@@ -84,6 +88,12 @@ struct Task : cinux::base::container::SelfNode<Task> {
         vmas{};  ///< The registered ranges of its user world; lives exactly with space.
     cinux::fs::FileTable files;               ///< This task's open files, keyed by descriptor.
     char cwd[cinux::fs::kFsPathMax] = {'/'};  ///< Working directory, absolute, NUL-terminated.
+    /// Scheduling weight inside its class; smaller runs earlier. Only
+    /// the priority class reads it, everyone else ignores it.
+    unsigned char    priority{};
+    /// The class this task queues on; null rides the first-registered
+    /// class, decided once at seat time.
+    SchedulingClass* sched_class{};
 
     /**
      * @brief         The parent's pid, zero when nobody waits above.
@@ -168,13 +178,37 @@ public:
      */
     TaskBuilder& set_parent(Task& parent);
 
+    /**
+     * @brief         Set the task's scheduling weight.
+     *
+     * @param[in]     priority   Smaller runs earlier inside the
+     *                            priority class; ignored elsewhere.
+     * @return        This builder, for chaining.
+     * @since         0.6.0
+     * @ingroup       kernel_proc
+     */
+    TaskBuilder& set_priority(unsigned char priority);
+
+    /**
+     * @brief         Name the scheduling class this task queues on.
+     *
+     * @param[in]     cls   A registered SchedulingClass; left unset the
+     *                       task rides the first-registered class.
+     * @return        This builder, for chaining.
+     * @since         0.6.0
+     * @ingroup       kernel_proc
+     */
+    TaskBuilder& set_class(SchedulingClass& cls);
+
     /// Allocate and arm the task, or nullptr with everything returned.
     [[nodiscard]] Task* build();
 
 private:
-    void (*entry_)()    = nullptr;
-    const char* name_   = "unnamed";
-    Task*       parent_ = nullptr;
+    void (*entry_)()           = nullptr;
+    const char*      name_     = "unnamed";
+    Task*            parent_   = nullptr;
+    unsigned char    priority_ = 0;
+    SchedulingClass* class_    = nullptr;
 };
 
 /**

@@ -178,6 +178,20 @@ public:
     [[nodiscard]] bool empty() const { return regions_.empty(); }
 
     /**
+     * @brief         How many promises the register holds.
+     *
+     * @return        Chain region count; the brk span is not counted.
+     * @note          The overview face for the panic dump: a number a
+     *                human compares against what the program meant to
+     *                map, without walking the chain itself.
+     * @warning       None
+     * @throws        None
+     * @since         0.3.0
+     * @ingroup       kernel_mm
+     */
+    [[nodiscard]] unsigned long long region_count() const { return regions_.size(); }
+
+    /**
      * @brief         Names the heap span this world grows by brk.
      *
      * @param[in]     base   Where the program image ends; the break starts

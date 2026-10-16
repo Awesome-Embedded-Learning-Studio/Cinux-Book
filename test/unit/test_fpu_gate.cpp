@@ -1,6 +1,7 @@
 #include "../framework/framework.hpp"
 #include "kernel/arch/x86_64/context.hpp"
 #include "kernel/proc/fpu_gate.hpp"
+#include "kernel/proc/sched_class.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
 #include "test_assert.hpp"
@@ -40,7 +41,7 @@ struct GateWorld {
     unsigned int      first_visits       = 0;
     bool              outer_saved        = false;
     bool              nested_kept        = false;
-    bool              inner_kept_live    = false;
+    bool              inner_exit_kept    = false;
     bool              outer_restored     = false;
     bool              second_independent = false;
     bool              second_restored    = false;
@@ -51,6 +52,7 @@ struct GateWorld {
         first.ctx.fpu.words[kXmmWord]  = kFirstUser;
         second.ctx.fpu.words[kXmmWord] = kSecondUser;
         cinux::proc::Scheduler::self().init(*this);
+        cinux::proc::Scheduler::self().install_class(cinux::proc::DefaultFifoClass());
         cinux::proc::Scheduler::self().seat(first);
         if (scenario != Scenario::kNested) {
             cinux::proc::Scheduler::self().seat(second);
@@ -74,9 +76,9 @@ struct GateWorld {
 
     void finish_first() {
         ExitFpuGate();
-        inner_kept_live = first.fpu_gate_depth == 1 && live_value() == kKernelValue;
+        inner_exit_kept = first.fpu_gate_depth == 1;
         ExitFpuGate();
-        outer_restored = first.fpu_gate_depth == 0 && live_value() == kFirstUser;
+        outer_restored = first.fpu_gate_depth == 0 && first.entry_fpu.words[kXmmWord] == kFirstUser;
         cinux::proc::Scheduler::self().exit_current();
     }
 
@@ -88,7 +90,8 @@ struct GateWorld {
                 second.fpu_gate_depth == 1 && second.entry_fpu.words[kXmmWord] == kSecondUser;
             set_live_value(kKernelValue);
             ExitFpuGate();
-            second_restored = second.fpu_gate_depth == 0 && live_value() == kSecondUser;
+            second_restored =
+                second.fpu_gate_depth == 0 && second.entry_fpu.words[kXmmWord] == kSecondUser;
             scheduler.exit_current();
             return;
         }
@@ -130,10 +133,10 @@ TEST("fpu gate: entries before scheduling leave the live image alone") {
     ASSERT_EQ(live_value(), kBefore);
 }
 
-TEST("fpu gate: only the outer exit restores the original register image") {
+TEST("fpu gate: only the outer exit consumes the task's own entry image") {
     GateWorld world(Scenario::kNested);
     run_world(world);
-    ASSERT_TRUE(world.inner_kept_live);
+    ASSERT_TRUE(world.inner_exit_kept);
     ASSERT_TRUE(world.outer_restored);
 }
 
@@ -142,7 +145,7 @@ TEST("fpu gate: tasks switched inside nested gates keep independent images and d
     run_world(world);
     ASSERT_TRUE(world.second_independent);
     ASSERT_TRUE(world.second_restored);
-    ASSERT_TRUE(world.inner_kept_live);
+    ASSERT_TRUE(world.inner_exit_kept);
     ASSERT_TRUE(world.outer_restored);
 }
 

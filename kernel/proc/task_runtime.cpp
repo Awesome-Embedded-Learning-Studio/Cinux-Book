@@ -90,6 +90,16 @@ TaskBuilder& TaskBuilder::set_parent(Task& parent) {
     return *this;
 }
 
+TaskBuilder& TaskBuilder::set_priority(unsigned char priority) {
+    priority_ = priority;
+    return *this;
+}
+
+TaskBuilder& TaskBuilder::set_class(SchedulingClass& cls) {
+    class_ = &cls;
+    return *this;
+}
+
 Task* TaskBuilder::build() {
     if (entry_ == nullptr) {
         return nullptr;
@@ -113,10 +123,12 @@ Task* TaskBuilder::build() {
         .stack_top    = kStackVirt + kStackBytes,
     };
     PrepareTaskContext(kBorn->ctx, kPlan);
-    kBorn->state      = TaskState::kReady;
-    kBorn->name       = name_;
-    kBorn->stack_base = kStackVirt;
-    kBorn->parent     = parent_;
+    kBorn->state       = TaskState::kReady;
+    kBorn->name        = name_;
+    kBorn->stack_base  = kStackVirt;
+    kBorn->parent      = parent_;
+    kBorn->priority    = priority_;
+    kBorn->sched_class = class_;
     return k_task.release();
 }
 

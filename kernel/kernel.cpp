@@ -10,11 +10,13 @@
 #include "kernel/boot/boot_info.hpp"
 #include "kernel/boot/print.hpp"
 #include "kernel/console/screen.hpp"
+#include "kernel/debug/kallsyms.hpp"
 #include "kernel/driver/rtc/rtc.hpp"
 #include "kernel/init/init_sequence.hpp"
 #include "kernel/init/init_thread.hpp"
 #include "kernel/mm/layout.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/proc/sched_class.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/time/tick_config.hpp"
@@ -26,6 +28,7 @@ using cinux::print::Println;
 
 // NOLINTNEXTLINE(misc-use-internal-linkage)
 void Main(const cinux::boot::BootInfo& boot_info) {
+    cinux::debug::KallsymsInstallBuiltIn();
     auto const* const kInfo  = cinux::init::RunInitSequence(&boot_info);
     cinux::mm::Pmm&   ledger = cinux::mm::Pmm::self();
     Println("[kern] 64-bit C++ world alive");
@@ -56,6 +59,8 @@ void Main(const cinux::boot::BootInfo& boot_info) {
     Println("[kern] rtc wall clock %llu", cinux::driver::Rtc::self().now_seconds());
     Println("[kern] keyboard on, type to echo");
     Println("[kern] boot task (pid 0) parks here, kernel_init (pid 1) takes over");
+    cinux::proc::Scheduler::self().install_class(cinux::proc::DefaultFifoClass());
+    cinux::proc::Scheduler::self().install_class(cinux::proc::PriorityClass());
     cinux::proc::InstallKernelSwitchSink();
     cinux::proc::Scheduler::self().set_preemption(true);
     cinux::init::StartInitThread();

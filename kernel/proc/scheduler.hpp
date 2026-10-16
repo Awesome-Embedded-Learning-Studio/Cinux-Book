@@ -1,22 +1,25 @@
 /**
  * @file    scheduler.hpp
- * @brief   The cooperative scheduler: decide who runs, delegate how.
+ * @brief   The cooperative scheduler: book the classes, delegate the rest.
  *
  * Meyers-singleton shape after Pmm and Tick, and split the same way the
- * walk theme split TableWorld: this class is the semantics — ready
- * queue, task states, current-task bookkeeping, pick logic, reclaim
- * timing — while every action that touches machine reality (register
- * switching, page and memory return) goes through an injected
- * SwitchSink. The kernel installs the assembly-backed sink; a host
- * test installs a recording sink and asserts the decision stream,
- * which is the part worth asserting, straight from the same object
- * code. Time slices, preemption flags and blocking grow on this seam:
- * an interrupt that only sets a flag is just one more voice asking
- * the scheduler to decide.
+ * walk theme split TableWorld: this class is the semantics — the class
+ * registry, task states, current-task bookkeeping, pick order, reclaim
+ * timing — while two decisions live elsewhere. The machine reality
+ * (register switching, page and memory return) goes through an
+ * injected SwitchSink, and the who-runs-next policy goes through the
+ * registered SchedulingClasses, consulted in registration order; a
+ * task without an explicit class rides the first-registered one. The
+ * kernel installs the assembly-backed sink; a host test installs a
+ * recording sink and asserts the decision stream, which is the part
+ * worth asserting, straight from the same object code. Time slices,
+ * preemption flags and blocking grow on this seam: an interrupt that
+ * only sets a flag is just one more voice asking the scheduler to
+ * decide.
  *
  * @author  Charliechen114514
- * @date    2026-10-07
- * @version 0.2
+ * @date    2026-10-16
+ * @version 0.6
  * @since   0.1.0
  * @ingroup kernel_proc
  * @copyright Copyright (c) 2026
@@ -26,8 +29,8 @@
 
 #include <concepts>
 
-#include "cinux/container/ring_queue.hpp"
 #include "cinux/container/self_list.hpp"
+#include "cinux/container/static_stack.hpp"
 #include "cinux/scoped_guard.hpp"
 #include "cinux/singleton.hpp"
 #include "kernel/proc/proc_config.hpp"
@@ -36,6 +39,7 @@
 namespace cinux::proc {
 
 class Scheduler;
+class SchedulingClass;
 
 /**
  * @brief         What a reaped child hands its waiting parent.
@@ -111,11 +115,46 @@ public:
      *                task, install a recording sink, and the decision
      *                stream is observable without any machine. The
      *                kernel side pairs this with TaskBuilder, which
-     *                owns the building half.
+     *                owns the building half. The task queues on its
+     *                own sched_class; a class-less task is assigned
+     *                the first-registered one here, once.
      * @since         0.2.0
      * @ingroup       kernel_proc
      */
     void seat(Task& task);
+
+    /**
+     * @brief         Register a scheduling class; pick order follows
+     *                registration order.
+     * @param[in]     cls   The class to consult; kept by address.
+     * @return        None.
+     * @note          Registering the same class twice is a no-op, so
+     *                bring-up paths can stay unguarded. Overflow past
+     *                kMaxSchedulingClasses is a loud Check.
+     * @since         0.6.0
+     * @ingroup       kernel_proc
+     */
+    void install_class(SchedulingClass& cls);
+
+    /**
+     * @brief         How many classes stand registered.
+     * @return        The registration count.
+     * @since         0.6.0
+     * @ingroup       kernel_proc
+     */
+    [[nodiscard]] unsigned int class_count() const;
+
+    /**
+     * @brief         One registered class, by registration order.
+     * @param[in]     index   Position in registration order.
+     * @return        The class, nullptr past the end.
+     * @note          The registry read-back: registration order is the
+     *                pick order, and this names the roster without
+     *                reaching into private storage.
+     * @since         0.6.0
+     * @ingroup       kernel_proc
+     */
+    [[nodiscard]] SchedulingClass* class_at(unsigned int index) const;
 
     /**
      * @brief         Let another task run; the caller comes back later.
@@ -291,12 +330,13 @@ private:
     Scheduler() = default;
 
 
-    [[nodiscard]] bool sink_ready() const;
-    void               reap_pending();
-    void               rotate_from_interrupt();
-    void               park_current();
-    Task*              take_zombie_child(Task& watcher, long long wanted, bool& has_any_child);
-    void               detach_offspring(Task& dying);
+    [[nodiscard]] bool  sink_ready() const;
+    void                reap_pending();
+    void                rotate_from_interrupt();
+    void                park_current();
+    [[nodiscard]] Task* pick_next();
+    Task*               take_zombie_child(Task& watcher, long long wanted, bool& has_any_child);
+    void                detach_offspring(Task& dying);
 
     void (*switch_tasks_)(void*, Task&, Task&) = nullptr;
     void (*enter_from_main_)(void*, Task&)     = nullptr;
@@ -304,16 +344,16 @@ private:
     void (*reclaim_)(void*, Task&)             = nullptr;
     void* sink_                                = nullptr;
 
-    cinux::base::container::RingQueue<Task*, kReadyQueueCapacity> ready_;
-    cinux::base::container::SelfList<Task, &Task::child_link>     offspring_;
-    cinux::base::container::SelfList<Task>                        waiters_;
-    Task*                                                         current_               = nullptr;
-    Task*                                                         pending_reap_          = nullptr;
-    unsigned long long                                            next_pid_              = 1;
-    unsigned int                                                  slice_ticks_           = 0;
-    bool                                                          rotate_due_            = false;
-    bool                                                          preemption_            = false;
-    unsigned int                                                  preempt_disable_depth_ = 0;
+    cinux::base::container::SelfList<Task, &Task::child_link>                    offspring_;
+    cinux::base::container::SelfList<Task>                                       waiters_;
+    cinux::base::container::StaticStack<SchedulingClass*, kMaxSchedulingClasses> classes_ = {};
+    Task*                                                                        current_ = nullptr;
+    Task*              pending_reap_                                                      = nullptr;
+    unsigned long long next_pid_                                                          = 1;
+    unsigned int       slice_ticks_                                                       = 0;
+    bool               rotate_due_                                                        = false;
+    bool               preemption_                                                        = false;
+    unsigned int       preempt_disable_depth_                                             = 0;
 };
 
 /**

@@ -3,6 +3,7 @@
 #include "kernel/boot/boot_info.hpp"
 #include "kernel/boot/print.hpp"
 #include "kernel/console/console.hpp"
+#include "kernel/debug/kallsyms.hpp"
 #include "kernel/mm/vmm.hpp"
 
 #if defined(KTEST_STAGE_IRQ) || defined(KTEST_STAGE_KEYBOARD) || defined(KTEST_STAGE_PROC) ||      \
@@ -22,6 +23,8 @@
 #    include "kernel/mm/pmm.hpp"
 #endif
 #if defined(KTEST_STAGE_PROC) || defined(KTEST_STAGE_BLOCK)
+#    include "kernel/proc/sched_class.hpp"
+#    include "kernel/proc/scheduler.hpp"
 #    include "kernel/proc/task.hpp"
 #endif
 #ifdef KTEST_STAGE_BLOCK
@@ -33,6 +36,7 @@ namespace kernel {
 
 // NOLINTNEXTLINE(misc-use-internal-linkage)
 void Main(const cinux::boot::BootInfo& info) {
+    cinux::debug::KallsymsInstallBuiltIn();
 #if defined(KTEST_STAGE_MM) || defined(KTEST_STAGE_PROC) || defined(KTEST_STAGE_BLOCK)
     cinux::driver::SerialInit();
     if (!cinux::mm::Pmm::self().init(info)) {
@@ -55,6 +59,8 @@ void Main(const cinux::boot::BootInfo& info) {
 #endif
     cinux::print::Println("[ktest] kernel test world alive, %u e820 entries", info.e820_count);
 #if defined(KTEST_STAGE_PROC) || defined(KTEST_STAGE_BLOCK)
+    cinux::proc::Scheduler::self().install_class(cinux::proc::DefaultFifoClass());
+    cinux::proc::Scheduler::self().install_class(cinux::proc::PriorityClass());
     cinux::proc::InstallKernelSwitchSink();
 #endif
 #if defined(KTEST_STAGE_IRQ) || defined(KTEST_STAGE_KEYBOARD)

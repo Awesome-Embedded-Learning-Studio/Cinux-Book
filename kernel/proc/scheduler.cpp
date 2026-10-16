@@ -3,7 +3,7 @@
 #include "cinux/assert.hpp"
 #include "cinux/container/self_list.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
-#include "kernel/proc/proc_config.hpp"
+#include "kernel/proc/sched_class.hpp"
 #include "kernel/proc/sync.hpp"
 #include "kernel/proc/task.hpp"
 
@@ -13,15 +13,58 @@ bool Scheduler::sink_ready() const {
     return sink_ != nullptr;
 }
 
+void Scheduler::install_class(SchedulingClass& cls) {
+    const cinux::arch::IrqGuard kGuard;
+    for (const SchedulingClass* resident : classes_.view()) {
+        if (resident == &cls) {
+            return;
+        }
+    }
+    cinux::base::safety::Check(classes_.push(&cls), "scheduling class registry full");
+}
+
+unsigned int Scheduler::class_count() const {
+    return classes_.size();
+}
+
+SchedulingClass* Scheduler::class_at(unsigned int index) const {
+    if (index >= classes_.size()) {
+        return nullptr;
+    }
+    return classes_.view()[index];
+}
+
 void Scheduler::seat(Task& task) {
     const cinux::arch::IrqGuard kGuard;
     cinux::base::safety::Check(sink_ready(), "scheduler has no sink installed");
+    cinux::base::safety::Check(!classes_.empty(), "no scheduling class installed");
+    if (task.sched_class == nullptr) {
+        task.sched_class = classes_.view()[0];
+    }
+    bool registered = false;
+    for (const SchedulingClass* resident : classes_.view()) {
+        if (resident == task.sched_class) {
+            registered = true;
+            break;
+        }
+    }
+    cinux::base::safety::Check(registered, "task points at an unregistered class");
     task.pid   = next_pid_++;
     task.state = TaskState::kReady;
     if (task.parent != nullptr) {
         offspring_.push_back(task);
     }
-    cinux::base::safety::Check(ready_.push(&task), "ready queue full at seat");
+    cinux::base::safety::Check(task.sched_class->enqueue(task), "ready queue full at seat");
+}
+
+Task* Scheduler::pick_next() {
+    for (SchedulingClass* cls : classes_.view()) {
+        Task* next = cls->pick();
+        if (next != nullptr) {
+            return next;
+        }
+    }
+    return nullptr;
 }
 
 Task* Scheduler::current() const {
@@ -37,20 +80,21 @@ void Scheduler::yield() {
     cinux::base::safety::Check(current_ != nullptr, "yield called outside any task");
     Task* const kPrev = current_;
     kPrev->state      = TaskState::kReady;
-    cinux::base::safety::Check(ready_.push(kPrev), "ready queue full at yield");
+    cinux::base::safety::Check(kPrev->sched_class->enqueue(*kPrev), "ready queue full at yield");
     rotate_from_interrupt();
 }
 
 void Scheduler::rotate_from_interrupt() {
     Task* const kPrev = current_;
-    Task*       next  = nullptr;
-    cinux::base::safety::Check(ready_.pop(next), "ready queue lost the outgoing task");
+    Task*       next  = pick_next();
+    cinux::base::safety::Check(next != nullptr, "ready classes lost the outgoing task");
     if (next == kPrev) {
         kPrev->state = TaskState::kRunning;
         return;
     }
-    current_    = next;
-    next->state = TaskState::kRunning;
+    current_     = next;
+    next->state  = TaskState::kRunning;
+    slice_ticks_ = 0;
     switch_tasks_(sink_, *kPrev, *next);
     reap_pending();
 }
@@ -60,7 +104,7 @@ void Scheduler::on_timer_tick() {
         return;
     }
     slice_ticks_++;
-    if (slice_ticks_ >= kTimeSliceTicks) {
+    if (current_->sched_class->wants_rotate(slice_ticks_)) {
         slice_ticks_ = 0;
         rotate_due_  = true;
     }
@@ -76,7 +120,8 @@ void Scheduler::maybe_preempt() {
     }
     rotate_due_     = false;
     current_->state = TaskState::kReady;
-    cinux::base::safety::Check(ready_.push(current_), "ready queue full at preemption");
+    cinux::base::safety::Check(current_->sched_class->enqueue(*current_),
+                               "ready queue full at preemption");
     rotate_from_interrupt();
 }
 
@@ -110,10 +155,11 @@ void Scheduler::exit_current(long long code) {
         reap_pending();
         pending_reap_ = kPrev;
     }
-    Task* next = nullptr;
-    if (ready_.pop(next)) {
-        current_    = next;
-        next->state = TaskState::kRunning;
+    Task* next = pick_next();
+    if (next != nullptr) {
+        current_     = next;
+        next->state  = TaskState::kRunning;
+        slice_ticks_ = 0;
         switch_tasks_(sink_, *kPrev, *next);
     } else {
         current_ = nullptr;
@@ -205,10 +251,11 @@ void Scheduler::block_current() {
 void Scheduler::park_current() {
     Task* const kPrev = current_;
     kPrev->state      = TaskState::kBlocked;
-    Task* next        = nullptr;
-    if (ready_.pop(next)) {
-        current_    = next;
-        next->state = TaskState::kRunning;
+    Task* next        = pick_next();
+    if (next != nullptr) {
+        current_     = next;
+        next->state  = TaskState::kRunning;
+        slice_ticks_ = 0;
         switch_tasks_(sink_, *kPrev, *next);
         reap_pending();
         return;
@@ -222,7 +269,7 @@ void Scheduler::unblock(Task& task) {
     cinux::base::safety::Check(task.state == TaskState::kBlocked,
                                "unblock of a task that is not parked");
     task.state = TaskState::kReady;
-    cinux::base::safety::Check(ready_.push(&task), "ready queue full at unblock");
+    cinux::base::safety::Check(task.sched_class->enqueue(task), "ready queue full at unblock");
 }
 
 void Scheduler::run_until_done() {
@@ -230,9 +277,10 @@ void Scheduler::run_until_done() {
     cinux::base::safety::Check(current_ == nullptr, "run_until_done called from a task");
     cinux::base::safety::Check(sink_ready(), "scheduler has no sink installed");
     Task* next = nullptr;
-    while (ready_.pop(next)) {
-        current_    = next;
-        next->state = TaskState::kRunning;
+    while ((next = pick_next()) != nullptr) {
+        current_     = next;
+        next->state  = TaskState::kRunning;
+        slice_ticks_ = 0;
         enter_from_main_(sink_, *next);
         reap_pending();
     }

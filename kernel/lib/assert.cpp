@@ -18,15 +18,17 @@
 #include <cinux/assert.hpp>
 #include <source_location>
 
-#include "kernel/arch/x86_64/halt.hpp"
 #include "kernel/boot/print.hpp"
+#include "kernel/debug/panic.hpp"
 
 namespace cinux::base::safety {
 
 void AssertionFailed(const char* k_message, std::source_location loc) {
     cinux::print::Println("[panic] %s:%u in %s: %s", loc.file_name(), loc.line(),
                           loc.function_name(), k_message);
-    cinux::arch::Halt();
+    unsigned long long frame = 0;  // NOLINT(misc-const-correctness) written by the asm output
+    __asm__ volatile("movq %%rbp, %0" : "=r"(frame));
+    cinux::debug::PanicDump(frame);
 }
 
 }  // namespace cinux::base::safety

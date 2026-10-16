@@ -1,5 +1,6 @@
 #include "../framework/framework.hpp"
 #include "kernel/proc/proc_config.hpp"
+#include "kernel/proc/sched_class.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
 #include "test_assert.hpp"
@@ -58,6 +59,7 @@ struct World {
         beta.name        = "host";
         beta.stack_base  = 0x1000ULL * (slot + 1);
         cinux::proc::Scheduler::self().init(sink);
+        cinux::proc::Scheduler::self().install_class(cinux::proc::DefaultFifoClass());
         cinux::proc::Scheduler::self().seat(alpha);
         cinux::proc::Scheduler::self().seat(beta);
     }

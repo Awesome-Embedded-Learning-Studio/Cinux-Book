@@ -36,6 +36,8 @@ set(CINUX_KERNEL_NO_SSE_ISLAND
     ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_stubs.cpp
     ${CMAKE_SOURCE_DIR}/kernel/interrupt/irq.cpp
     ${CMAKE_SOURCE_DIR}/kernel/debug/trace.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/debug/kallsyms.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/debug/panic.cpp
     ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_guard.cpp
     ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
     ${CMAKE_SOURCE_DIR}/kernel/proc/task_runtime.cpp
@@ -49,6 +51,43 @@ set(CINUX_KERNEL_NO_SSE_ISLAND
     ${CMAKE_SOURCE_DIR}/kernel/proc/fork.cpp)
 
 set_source_files_properties(${CINUX_KERNEL_NO_SSE_ISLAND} PROPERTIES COMPILE_OPTIONS "-mgeneral-regs-only")
+
+find_program(CINUX_PYTHON_EXECUTABLE python3)
+if(NOT CINUX_PYTHON_EXECUTABLE)
+    message(FATAL_ERROR "python3 is required to generate the kallsyms table")
+endif()
+
+function(cinux_kernel_compile_settings name)
+    target_link_libraries(${name} PRIVATE cinux_warnings cinux_kernel_flags)
+    target_compile_options(${name} PRIVATE -mcmodel=kernel)
+    target_include_directories(${name} PRIVATE
+        ${CMAKE_SOURCE_DIR}/base/include
+        ${CMAKE_SOURCE_DIR})
+endfunction()
+
+function(cinux_kernel_link_settings name)
+    target_link_options(${name} PRIVATE
+        -m64
+        -no-pie
+        -nostdlib
+        -Wl,-T,${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/kernel.ld
+        -Wl,--build-id=none
+        -Wl,--no-warn-rwx-segments
+        -Wl,--gc-sections
+        -Wl,-e,KernelEntry)
+    set_property(TARGET ${name} APPEND PROPERTY LINK_DEPENDS
+        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/kernel.ld)
+endfunction()
+
+function(cinux_kallsyms_bridge bare_target generated_source)
+    add_custom_command(
+        OUTPUT ${generated_source}
+        COMMAND ${CINUX_PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/gen_kallsyms.py
+                --nm ${CMAKE_NM} --output ${generated_source}
+                $<TARGET_FILE:${bare_target}>
+        DEPENDS ${bare_target} ${CMAKE_SOURCE_DIR}/scripts/gen_kallsyms.py
+        VERBATIM)
+endfunction()
 
 add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/font_blob.o
@@ -81,30 +120,35 @@ add_custom_command(
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 function(add_cinux_kernel name bin_stem)
-    add_executable(${name}
+    set(kallsyms_source ${CMAKE_CURRENT_BINARY_DIR}/${name}_kallsyms.cpp)
+    add_library(${name}_core OBJECT ${CINUX_KERNEL_CORE_SOURCES})
+    set_property(TARGET ${name}_core PROPERTY POSITION_INDEPENDENT_CODE OFF)
+    cinux_kernel_compile_settings(${name}_core)
+
+    add_executable(${name}_unsym
         ${CMAKE_SOURCE_DIR}/kernel/kernel.cpp
-        ${CINUX_KERNEL_CORE_SOURCES}
+        $<TARGET_OBJECTS:${name}_core>
         ${CMAKE_CURRENT_BINARY_DIR}/font_blob.o
         ${CMAKE_CURRENT_BINARY_DIR}/initrd_blob.o
         ${ARGN})
-    target_link_libraries(${name} PRIVATE cinux_warnings cinux_kernel_flags)
-    target_compile_options(${name} PRIVATE -mcmodel=kernel)
-    target_include_directories(${name} PRIVATE
-        ${CMAKE_SOURCE_DIR}/base/include
-        ${CMAKE_SOURCE_DIR})
+    cinux_kernel_compile_settings(${name}_unsym)
+    cinux_kernel_link_settings(${name}_unsym)
+    target_compile_definitions(${name}_unsym PRIVATE
+        ENTRY_SYMBOL=KernelEntry)
+
+    cinux_kallsyms_bridge(${name}_unsym ${kallsyms_source})
+
+    add_executable(${name}
+        ${CMAKE_SOURCE_DIR}/kernel/kernel.cpp
+        $<TARGET_OBJECTS:${name}_core>
+        ${CMAKE_CURRENT_BINARY_DIR}/font_blob.o
+        ${CMAKE_CURRENT_BINARY_DIR}/initrd_blob.o
+        ${ARGN}
+        ${kallsyms_source})
+    cinux_kernel_compile_settings(${name})
+    cinux_kernel_link_settings(${name})
     target_compile_definitions(${name} PRIVATE
         ENTRY_SYMBOL=KernelEntry)
-    target_link_options(${name} PRIVATE
-        -m64
-        -no-pie
-        -nostdlib
-        -Wl,-T,${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/kernel.ld
-        -Wl,--build-id=none
-        -Wl,--no-warn-rwx-segments
-        -Wl,--gc-sections
-        -Wl,-e,KernelEntry)
-    set_property(TARGET ${name} APPEND PROPERTY LINK_DEPENDS
-        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/kernel.ld)
 
     add_custom_command(
         OUTPUT ${CMAKE_BINARY_DIR}/kernel/${bin_stem}.bin
@@ -123,32 +167,41 @@ function(add_cinux_kernel name bin_stem)
 endfunction()
 
 function(add_cinux_ktest name stage)
-    add_executable(cinux_ktest_${name}
+    set(kallsyms_source ${CMAKE_CURRENT_BINARY_DIR}/cinux_ktest_${name}_kallsyms.cpp)
+    set(ktest_core cinux_ktest_${name}_core)
+    add_library(${ktest_core} OBJECT ${CINUX_KERNEL_CORE_SOURCES})
+    set_property(TARGET ${ktest_core} PROPERTY POSITION_INDEPENDENT_CODE OFF)
+    cinux_kernel_compile_settings(${ktest_core})
+
+    add_executable(cinux_ktest_${name}_unsym
         ${CMAKE_SOURCE_DIR}/test/kernel/test_main.cpp
-        ${CINUX_KERNEL_CORE_SOURCES}
+        $<TARGET_OBJECTS:${ktest_core}>
         ${CMAKE_CURRENT_BINARY_DIR}/font_blob.o
         ${CMAKE_SOURCE_DIR}/test/framework/framework_kernel.cpp
         ${ARGN})
-    target_link_libraries(cinux_ktest_${name} PRIVATE cinux_warnings cinux_kernel_flags)
-    target_compile_options(cinux_ktest_${name} PRIVATE -mcmodel=kernel)
-    target_include_directories(cinux_ktest_${name} PRIVATE
-        ${CMAKE_SOURCE_DIR}/base/include
-        ${CMAKE_SOURCE_DIR}
+    cinux_kernel_compile_settings(cinux_ktest_${name}_unsym)
+    cinux_kernel_link_settings(cinux_ktest_${name}_unsym)
+    target_include_directories(cinux_ktest_${name}_unsym PRIVATE
         ${CMAKE_SOURCE_DIR}/test/framework)
     string(TOUPPER ${stage} stage_upper)
+    target_compile_definitions(cinux_ktest_${name}_unsym PRIVATE
+        ENTRY_SYMBOL=KernelEntry KTEST_STAGE_${stage_upper})
+
+    cinux_kallsyms_bridge(cinux_ktest_${name}_unsym ${kallsyms_source})
+
+    add_executable(cinux_ktest_${name}
+        ${CMAKE_SOURCE_DIR}/test/kernel/test_main.cpp
+        $<TARGET_OBJECTS:${ktest_core}>
+        ${CMAKE_CURRENT_BINARY_DIR}/font_blob.o
+        ${CMAKE_SOURCE_DIR}/test/framework/framework_kernel.cpp
+        ${ARGN}
+        ${kallsyms_source})
+    cinux_kernel_compile_settings(cinux_ktest_${name})
+    cinux_kernel_link_settings(cinux_ktest_${name})
+    target_include_directories(cinux_ktest_${name} PRIVATE
+        ${CMAKE_SOURCE_DIR}/test/framework)
     target_compile_definitions(cinux_ktest_${name} PRIVATE
         ENTRY_SYMBOL=KernelEntry KTEST_STAGE_${stage_upper})
-    target_link_options(cinux_ktest_${name} PRIVATE
-        -m64
-        -no-pie
-        -nostdlib
-        -Wl,-T,${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/kernel.ld
-        -Wl,--build-id=none
-        -Wl,--no-warn-rwx-segments
-        -Wl,--gc-sections
-        -Wl,-e,KernelEntry)
-    set_property(TARGET cinux_ktest_${name} APPEND PROPERTY LINK_DEPENDS
-        ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/kernel.ld)
 
     add_custom_command(
         OUTPUT ${CMAKE_BINARY_DIR}/kernel/cinux_ktest_${name}.bin

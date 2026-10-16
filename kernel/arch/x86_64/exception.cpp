@@ -1,11 +1,10 @@
 #include "cinux/ptr.hpp"
 #include "kernel/arch/x86_64/context.hpp"
-#include "kernel/arch/x86_64/halt.hpp"
 #include "kernel/arch/x86_64/isr.hpp"
 #include "kernel/arch/x86_64/page_entry.hpp"
 #include "kernel/arch/x86_64/registers.hpp"
 #include "kernel/boot/print.hpp"
-#include "kernel/debug/trace.hpp"
+#include "kernel/debug/panic.hpp"
 #include "kernel/mm/layout.hpp"
 #include "kernel/mm/page_walk.hpp"
 #include "kernel/proc/fpu_gate.hpp"
@@ -157,8 +156,7 @@ void ReportFault(unsigned long long vector, InterruptFrame& frame, unsigned long
     if (vector == kPageFaultVector) {
         report_page_fault(ReadCr2(), error_code);
     }
-    cinux::debug::TraceFrom(faulting_frame_base());
-    cinux::arch::Halt();
+    cinux::debug::PanicDump(faulting_frame_base());
 }
 
 bool ArmRecoverableFault(unsigned long long vector, unsigned long long skip_bytes) {

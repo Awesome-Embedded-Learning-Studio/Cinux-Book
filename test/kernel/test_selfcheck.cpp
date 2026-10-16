@@ -2,6 +2,7 @@
 #include "kernel/arch/x86_64/gdt.hpp"
 #include "kernel/arch/x86_64/idt.hpp"
 #include "kernel/arch/x86_64/isr.hpp"
+#include "kernel/debug/kallsyms.hpp"
 #include "test_assert.hpp"
 #include "test_case.hpp"  // NOLINT(misc-include-cleaner) consumed by the TEST() macro body
 
@@ -39,6 +40,15 @@ TEST("exception: an armed ud2 hurts, heals, and runs on") {
     ASSERT_TRUE(cinux::arch::isr::ArmRecoverableFault(kVectorInvalidOpcode, kUd2Length));
     asm volatile("ud2");
     ASSERT_EQ(cinux::arch::isr::TakeRecoveredVector(), kVectorInvalidOpcode);
+}
+
+TEST("kallsyms: the running image answers for its own functions") {
+    const auto         kSite  = reinterpret_cast<unsigned long long>(&cinux::debug::KallsymsLookup);
+    unsigned long long offset = 12345;
+    const char* const  kName  = cinux::debug::KallsymsLookup(kSite, offset);
+    ASSERT_NOT_NULL(kName);
+    ASSERT_EQ(offset, 0ULL);
+    ASSERT_TRUE(kName[0] != '\0');
 }
 
 }  // namespace

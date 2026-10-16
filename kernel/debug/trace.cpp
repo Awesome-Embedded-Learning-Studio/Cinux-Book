@@ -2,6 +2,7 @@
 
 #include "cinux/ptr.hpp"
 #include "kernel/boot/print.hpp"
+#include "kernel/debug/kallsyms.hpp"
 #include "kernel/debug/trace_config.hpp"
 #include "kernel/mm/layout.hpp"
 
@@ -23,8 +24,15 @@ void TraceFrom(unsigned long long frame_base) {
         if (!link_plausible(frame)) {
             break;
         }
-        const auto* slot = cinux::base::PtrAt<const unsigned long long>(frame);
-        cinux::print::Println("[kern]   #%u 0x%X", depth, slot[1]);
+        const auto*              slot   = cinux::base::PtrAt<const unsigned long long>(frame);
+        const unsigned long long kRet   = slot[1];
+        unsigned long long       offset = 0;
+        const char* const        kName  = KallsymsLookup(kRet, offset);
+        if (kName != nullptr) {
+            cinux::print::Println("[kern]   #%u %s+0x%X (at 0x%X)", depth, kName, offset, kRet);
+        } else {
+            cinux::print::Println("[kern]   #%u 0x%X", depth, kRet);
+        }
         frame = slot[0];
     }
 }

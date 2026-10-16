@@ -12,7 +12,11 @@ SECTIONS
         *(.text.exc)
         *(.text*)
     }
-    .rodata : ALIGN(16) { KEEP(*(.rodata.font)) *(.rodata*) }
+    .rodata : ALIGN(16) {
+        KEEP(*(.rodata.font))
+        KEEP(*(.rodata.kallsyms))
+        *(.rodata*)
+    }
     .user ALIGN(4096) : { KEEP(*(usertext.user)) }
     .data : ALIGN(16) {
         *(.data*)
