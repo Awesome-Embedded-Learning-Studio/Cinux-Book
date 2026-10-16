@@ -20,26 +20,25 @@ long long console_from(unsigned long long buffer, unsigned long long count) {
 
 }  // namespace
 
-long long HandleWrite(unsigned long long descriptor, unsigned long long buffer,
-                      unsigned long long count) {
-    if (descriptor >= fs::kFileTableMax) {
+long long HandleWrite(const SyscallFrame& frame) {
+    if (frame.rdi >= fs::kFileTableMax) {
         return -kEbadf;
     }
-    if (buffer >= kUserAddressLimit) {
+    if (frame.rsi >= kUserAddressLimit) {
         return -kEfault;
     }
-    if (descriptor == 1 || descriptor == 2) {
-        return console_from(buffer, count);
+    if (frame.rdi == 1 || frame.rdi == 2) {
+        return console_from(frame.rsi, frame.rdx);
     }
-    const base::Result<fs::FileSlot*> kSlot = LiveSlot(descriptor);
+    const base::Result<fs::FileSlot*> kSlot = LiveSlot(frame.rdi);
     if (!kSlot.ok()) {
         return -kEbadf;
     }
     auto* const       kFile = kSlot.value();
     auto const* const kSource =
-        reinterpret_cast<const void*>(buffer);  // NOLINT(performance-no-int-to-ptr)
+        reinterpret_cast<const void*>(frame.rsi);  // NOLINT(performance-no-int-to-ptr)
     const base::Result<unsigned long> kPut =
-        kFile->ops->write(kFile->backend, kFile->node, kFile->offset, kSource, count);
+        kFile->ops->write(kFile->backend, kFile->node, kFile->offset, kSource, frame.rdx);
     if (!kPut.ok()) {
         return -ErrnoFrom(kPut.error());
     }

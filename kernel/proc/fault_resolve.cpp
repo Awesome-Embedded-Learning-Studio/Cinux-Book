@@ -17,6 +17,7 @@
 #include "kernel/mm/demand.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
+#include "kernel/syscall/signal.hpp"
 
 namespace cinux::proc {
 
@@ -30,7 +31,13 @@ bool resolve_current_fault(unsigned long long address, unsigned long long error_
     if (kSelf == nullptr || kSelf->space == nullptr || kSelf->vmas == nullptr) {
         return false;
     }
-    return mm::demand::FillPage(*kSelf->space, *kSelf->vmas, address, error_code);
+    if (!mm::demand::FillPage(*kSelf->space, *kSelf->vmas, address, error_code)) {
+        if ((error_code & 0x4ULL) != 0) {
+            Scheduler::self().exit_current(cinux::syscall::kSigSegv);
+        }
+        return false;
+    }
+    return true;
 }
 
 }  // namespace

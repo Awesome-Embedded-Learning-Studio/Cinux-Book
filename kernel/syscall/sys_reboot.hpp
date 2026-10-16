@@ -12,15 +12,13 @@
 
 #pragma once
 
-#include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/syscall.hpp"
 
 namespace cinux::syscall {
 
 /**
  * @brief         reboot(): cut the power.
- * @param[in]     first   Unused.
- * @param[in]     second  Unused.
- * @param[in]     third   Unused.
+ * @param[in]     frame   Unread; the one command needs no argument.
  * @return        Zero when the write went out; -kEnosys when the
  *                firmware publishes no ACPI tables to walk.
  * @note          The Linux number carries a four-argument magic
@@ -29,6 +27,6 @@ namespace cinux::syscall {
  * @since         0.1.0
  * @ingroup kernel_syscall
  */
-long long HandleReboot(Word first, Word second, Word third);
+long long HandleReboot(const SyscallFrame& frame);
 
 }  // namespace cinux::syscall

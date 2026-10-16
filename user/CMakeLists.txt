@@ -11,11 +11,14 @@ set(USER_COMPILE_FLAGS
     -Wextra
     -O2)
 
+set(USER_INCLUDE_DIRS
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/base/include)
+
 add_executable(user_shell programs/shell.cpp)
 target_compile_options(user_shell PRIVATE ${USER_COMPILE_FLAGS})
-target_include_directories(user_shell PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR})
+target_include_directories(user_shell PRIVATE ${USER_INCLUDE_DIRS})
 target_compile_definitions(user_shell PRIVATE __USER__)
 target_link_options(user_shell PRIVATE
     -nostdlib
@@ -30,9 +33,7 @@ set_target_properties(user_shell PROPERTIES OUTPUT_NAME "shell.elf")
 
 add_executable(user_hello programs/hello.cpp)
 target_compile_options(user_hello PRIVATE ${USER_COMPILE_FLAGS})
-target_include_directories(user_hello PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR})
+target_include_directories(user_hello PRIVATE ${USER_INCLUDE_DIRS})
 target_compile_definitions(user_hello PRIVATE __USER__)
 target_link_options(user_hello PRIVATE
     -nostdlib
@@ -46,9 +47,7 @@ set_target_properties(user_hello PROPERTIES
 
 add_executable(user_mapper programs/mapper.cpp)
 target_compile_options(user_mapper PRIVATE ${USER_COMPILE_FLAGS})
-target_include_directories(user_mapper PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR})
+target_include_directories(user_mapper PRIVATE ${USER_INCLUDE_DIRS})
 target_compile_definitions(user_mapper PRIVATE __USER__)
 target_link_options(user_mapper PRIVATE
     -nostdlib
@@ -59,3 +58,17 @@ target_link_options(user_mapper PRIVATE
 set_target_properties(user_mapper PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
     OUTPUT_NAME "mapper.elf")
+
+add_executable(user_sigdemo programs/sigdemo.cpp)
+target_compile_options(user_sigdemo PRIVATE ${USER_COMPILE_FLAGS})
+target_include_directories(user_sigdemo PRIVATE ${USER_INCLUDE_DIRS})
+target_compile_definitions(user_sigdemo PRIVATE __USER__)
+target_link_options(user_sigdemo PRIVATE
+    -nostdlib
+    -static
+    -no-pie
+    -Wl,-e,_start
+    -lgcc)
+set_target_properties(user_sigdemo PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
+    OUTPUT_NAME "sigdemo.elf")

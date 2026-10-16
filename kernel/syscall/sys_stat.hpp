@@ -12,19 +12,19 @@
 
 #pragma once
 
-#include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/syscall.hpp"
 
 namespace cinux::syscall {
 
 /**
  * @brief         stat(path, out).
- * @param[in]     path    User address of the path, relative or absolute.
- * @param[in]     out     User address receiving a SyscallStat.
- * @param[in]     third   Unused.
+ * @param[in]     frame   The trap frame; rdi carries the path address,
+ *                        relative or absolute, rsi the user address
+ *                        receiving a SyscallStat.
  * @return        Zero, or a negative errno.
  * @since         0.1.0
  * @ingroup       kernel_syscall
  */
-long long HandleStat(Word path, Word out, Word third);
+long long HandleStat(const SyscallFrame& frame);
 
 }  // namespace cinux::syscall

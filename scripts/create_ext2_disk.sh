@@ -21,3 +21,6 @@ fi
 if [ -f "${CINUX_MAPPER_ELF:-}" ]; then
     debugfs -w -R "write ${CINUX_MAPPER_ELF} /bin/mapper" "$image" >/dev/null 2>&1
 fi
+if [ -f "${CINUX_SIGDEMO_ELF:-}" ]; then
+    debugfs -w -R "write ${CINUX_SIGDEMO_ELF} /bin/sigdemo" "$image" >/dev/null 2>&1
+fi

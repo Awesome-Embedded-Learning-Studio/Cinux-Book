@@ -7,7 +7,6 @@
 #include "kernel/arch/x86_64/context.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/arch/x86_64/isr.hpp"
-#include "kernel/arch/x86_64/per_cpu.hpp"
 #include "kernel/arch/x86_64/registers.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/cow.hpp"
@@ -255,7 +254,7 @@ void await_nested_child(void (*entry)(), long long expected_code) {
     scheduler.seat(*kChild);
     const auto                kPid = kChild->pid;
     cinux::proc::ChildReceipt receipt{};
-    ASSERT_TRUE(scheduler.wait_child(static_cast<long long>(kPid), receipt));
+    ASSERT_TRUE(scheduler.wait_child(static_cast<long long>(kPid), false, receipt));
     ASSERT_EQ(receipt.pid, kPid);
     ASSERT_EQ(receipt.code, expected_code);
     g_nested_reaped++;
@@ -283,7 +282,7 @@ void waiting_parent_task() {
                                 .build();
     cinux::base::safety::Check(kChild != nullptr, "wait test child failed to build");
     scheduler.seat(*kChild);
-    g_wait_ok = scheduler.wait_child(-1, g_receipt);
+    g_wait_ok = scheduler.wait_child(-1, false, g_receipt);
 }
 
 void returning_child_task() {}
@@ -301,11 +300,11 @@ void late_waiter_parent_task() {
     for (unsigned int round = 0; round < 4; ++round) {
         scheduler.yield();
     }
-    g_wait_ok = scheduler.wait_child(static_cast<long long>(g_child_pid), g_receipt);
+    g_wait_ok = scheduler.wait_child(static_cast<long long>(g_child_pid), false, g_receipt);
 }
 
 void childless_waiter_task() {
-    g_wait_ok = cinux::proc::Scheduler::self().wait_child(-1, g_receipt);
+    g_wait_ok = cinux::proc::Scheduler::self().wait_child(-1, false, g_receipt);
 }
 
 void slow_orphan_child_task() {
@@ -350,7 +349,7 @@ void sibling_parent_task() {
     for (unsigned int round = 0; round < 6; ++round) {
         scheduler.yield();
     }
-    g_wait_ok = scheduler.wait_child(-1, g_receipt);
+    g_wait_ok = scheduler.wait_child(-1, false, g_receipt);
 }
 
 void grandmother_task() {
@@ -373,7 +372,7 @@ void grandmother_task() {
         scheduler.yield();
     }
     cinux::proc::ChildReceipt gone{};
-    while (scheduler.wait_child(-1, gone)) {
+    while (scheduler.wait_child(-1, false, gone)) {
         g_grand_reaped++;
     }
 }
@@ -649,13 +648,11 @@ cinux::mm::VmaStore          g_fork_ranges;
 cinux::syscall::SyscallFrame g_fork_frame{};
 bool                         g_fork_built = false;
 
-void bank_entry_values() {
-    auto& bank         = cinux::arch::per_cpu::PerCpu::self();
-    bank.user_r12      = kForkUserR12;
-    bank.user_r13      = kForkUserR13;
-    bank.user_r14      = kForkUserR14;
-    bank.user_r15      = kForkUserR15;
-    bank.syscall_frame = reinterpret_cast<unsigned long long>(&g_fork_frame);
+void stage_callee_saved() {
+    g_fork_frame.r12 = kForkUserR12;
+    g_fork_frame.r13 = kForkUserR13;
+    g_fork_frame.r14 = kForkUserR14;
+    g_fork_frame.r15 = kForkUserR15;
 }
 
 void retire_fork_child(cinux::proc::Task& child) {
@@ -727,7 +724,7 @@ void fork_wait_parent_task() {
     cinux::base::safety::Check(kChild != nullptr, "fork wait child failed");
     scheduler.seat(*kChild);
     g_receipt    = cinux::proc::ChildReceipt{};
-    g_wait_ok    = scheduler.wait_child(-1, g_receipt);
+    g_wait_ok    = scheduler.wait_child(-1, false, g_receipt);
     kSelf->space = nullptr;
     g_fork_world.teardown();
 }
@@ -747,7 +744,7 @@ void forking_parent_task() {
     cinux::base::safety::Check(kFirst.ok() && kSecond.ok(), "fork fixture fds failed");
     kSelf->files.get(kFirst.value()).value()->offset = 128;
     arm_fork_frame();
-    bank_entry_values();
+    stage_callee_saved();
     cinux::arch::SaveFpu(kSelf->entry_fpu);
     kSelf->entry_fpu.words[20] = kSentinelXmm0;
     cinux::proc::Task* const kChild =
@@ -802,6 +799,64 @@ TEST("wait: four generations preserve every parked ancestor") {
         cinux::proc::TaskBuilder{}.set_entry(nested_init_task).set_name("nested_init").build());
     scheduler.run_until_done();
     ASSERT_EQ(g_nested_reaped, 3U);
+    ASSERT_EQ(scheduler.offspring_count(), 0ULL);
+    ASSERT_EQ(ledger.free_page_count(), kBefore);
+}
+
+namespace {
+
+bool               g_halt_done   = false;
+unsigned int       g_halt_visits = 0;
+cinux::proc::Task* g_halted_task = nullptr;
+
+void self_stop_task() {
+    cinux::proc::Scheduler::self().stop_current();
+    g_halt_done = true;
+    cinux::proc::Scheduler::self().exit_current(3);
+}
+
+void halted_wake_task() {
+    cinux::proc::Scheduler::self().stop_current();
+    g_halt_visits++;
+    cinux::proc::Scheduler::self().exit_current(7);
+}
+
+void waker_task() {
+    cinux::proc::Scheduler::self().resume(*g_halted_task);
+    cinux::proc::Scheduler::self().exit_current();
+}
+
+}  // namespace
+
+TEST("stop: a task that halts itself leaves the queue with its stack held") {
+    auto&               scheduler = cinux::proc::Scheduler::self();
+    const auto&         ledger    = cinux::mm::Pmm::self();
+    const unsigned long kBefore   = ledger.free_page_count();
+    g_halt_done                   = false;
+    cinux::proc::Task* const kTask =
+        cinux::proc::TaskBuilder{}.set_entry(self_stop_task).set_name("halted").build();
+    seat_built(kTask);
+    scheduler.run_until_done();
+    ASSERT_TRUE(!g_halt_done);
+    ASSERT_TRUE(kTask->state == cinux::proc::TaskState::kStopped);
+    scheduler.resume(*kTask);
+    scheduler.run_until_done();
+    ASSERT_TRUE(g_halt_done);
+    ASSERT_EQ(scheduler.offspring_count(), 0ULL);
+    ASSERT_EQ(ledger.free_page_count(), kBefore);
+}
+
+TEST("stop: a sibling's resume lifts the halt mid-schedule") {
+    auto&               scheduler = cinux::proc::Scheduler::self();
+    const auto&         ledger    = cinux::mm::Pmm::self();
+    const unsigned long kBefore   = ledger.free_page_count();
+    g_halt_visits                 = 0;
+    g_halted_task =
+        cinux::proc::TaskBuilder{}.set_entry(halted_wake_task).set_name("halted").build();
+    seat_built(g_halted_task);
+    seat_built(cinux::proc::TaskBuilder{}.set_entry(waker_task).set_name("waker").build());
+    scheduler.run_until_done();
+    ASSERT_EQ(g_halt_visits, 1U);
     ASSERT_EQ(scheduler.offspring_count(), 0ULL);
     ASSERT_EQ(ledger.free_page_count(), kBefore);
 }

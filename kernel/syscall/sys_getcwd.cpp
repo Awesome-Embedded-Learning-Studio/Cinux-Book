@@ -8,12 +8,11 @@
 
 namespace cinux::syscall {
 
-long long HandleGetcwd(unsigned long long out, unsigned long long size,
-                       [[maybe_unused]] unsigned long long third) {
-    if (out >= kUserAddressLimit) {
+long long HandleGetcwd(const SyscallFrame& frame) {
+    if (frame.rdi >= kUserAddressLimit) {
         return -kEfault;
     }
-    const unsigned long kRoom = base::math::Min(size, fs::kFsPathMax);
+    const unsigned long kRoom = base::math::Min(frame.rsi, fs::kFsPathMax);
     const char* const   kCwd  = CurrentTask()->cwd;
     unsigned long       used  = 0;
     while (used + 1 < kRoom && kCwd[used] != '\0') {
@@ -22,7 +21,7 @@ long long HandleGetcwd(unsigned long long out, unsigned long long size,
     if (kCwd[used] != '\0') {
         return -kErange;
     }
-    auto* const kSink = reinterpret_cast<char*>(out);  // NOLINT(performance-no-int-to-ptr)
+    auto* const kSink = reinterpret_cast<char*>(frame.rsi);  // NOLINT(performance-no-int-to-ptr)
     base::CopyBytes(kSink, kCwd, used + 1UL);
     return static_cast<long long>(used);
 }

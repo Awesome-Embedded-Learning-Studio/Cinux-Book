@@ -37,41 +37,54 @@ namespace cinux::syscall {
  */
 // NOLINTNEXTLINE(performance-enum-size)
 enum class SyscallNr : std::uint16_t {
-    kRead     = 0,    ///< read(fd, buf, count)
-    kWrite    = 1,    ///< write(fd, buf, count)
-    kOpen     = 2,    ///< open(path, flags)
-    kClose    = 3,    ///< close(fd)
-    kStat     = 6,    ///< stat(path, out): one node's metadata
-    kMmap     = 9,    ///< mmap(hint, len, prot, flags, fd, offset)
-    kMunmap   = 10,   ///< munmap(addr, len)
-    kMprotect = 11,   ///< mprotect(addr, len, prot)
-    kBrk      = 12,   ///< brk(target): returns the break, not an errno
-    kYield    = 24,   ///< cooperative yield to the scheduler
-    kGetpid   = 39,   ///< getpid(): the caller's own identity
-    kFork     = 57,   ///< fork(): one call, two returns
-    kExecve   = 59,   ///< execve(path): replace this world with a program
-    kExit     = 60,   ///< exit(code), never returns
-    kWait4    = 61,   ///< wait4(pid, status): block for one child
-    kGetppid  = 110,  ///< getppid(): who the caller may be waited on by
-    kGetcwd   = 79,   ///< getcwd(buf, size): the caller's working directory
-    kChdir    = 80,   ///< chdir(path): move the caller's working directory
-    kReboot   = 169,  ///< reboot(): power the machine off through ACPI
-    kMkdir    = 83,   ///< mkdir(path)
-    kUnlink   = 87,   ///< unlink(path)
-    kGetdents = 217,  ///< getdents(fd, entry): one directory entry per call
+    kRead          = 0,    ///< read(fd, buf, count)
+    kWrite         = 1,    ///< write(fd, buf, count)
+    kOpen          = 2,    ///< open(path, flags)
+    kClose         = 3,    ///< close(fd)
+    kStat          = 6,    ///< stat(path, out): one node's metadata
+    kMmap          = 9,    ///< mmap(hint, len, prot, flags, fd, offset)
+    kMunmap        = 10,   ///< munmap(addr, len)
+    kMprotect      = 11,   ///< mprotect(addr, len, prot)
+    kBrk           = 12,   ///< brk(target): returns the break, not an errno
+    kRtSigaction   = 13,   ///< rt_sigaction(sig, act, oact, size): install a handler
+    kRtSigprocmask = 14,   ///< rt_sigprocmask(how, set, oldset, size): move the mask
+    kRtSigreturn   = 15,   ///< rt_sigreturn(): the trampoline's way home
+    kYield         = 24,   ///< cooperative yield to the scheduler
+    kGetpid        = 39,   ///< getpid(): the caller's own identity
+    kFork          = 57,   ///< fork(): one call, two returns
+    kExecve        = 59,   ///< execve(path): replace this world with a program
+    kExit          = 60,   ///< exit(code), never returns
+    kWait4         = 61,   ///< wait4(pid, status): block for one child
+    kKill          = 62,   ///< kill(pid, sig): deliver a signal to one task
+    kSetpgid       = 109,  ///< setpgid(pid, pgid): move a task into a group
+    kSetsid        = 112,  ///< setsid(): become a session of one's own
+    kGetpgid       = 121,  ///< getpgid(pid): read a task's group
+    kGetsid        = 124,  ///< getsid(pid): read a task's session
+    kGetppid       = 110,  ///< getppid(): who the caller may be waited on by
+    kGetcwd        = 79,   ///< getcwd(buf, size): the caller's working directory
+    kChdir         = 80,   ///< chdir(path): move the caller's working directory
+    kReboot        = 169,  ///< reboot(): power the machine off through ACPI
+    kMkdir         = 83,   ///< mkdir(path)
+    kUnlink        = 87,   ///< unlink(path)
+    kGetdents      = 217,  ///< getdents(fd, entry): one directory entry per call
 };
 
 /// Linux errno values the handlers can produce.
+inline constexpr int kEperm        = 1;   ///< The caller may not do this to the target.
 inline constexpr int kEnoent       = 2;   ///< No such file or directory.
+inline constexpr int kEsrch        = 3;   ///< No such task.
+inline constexpr int kEintr        = 4;   ///< The call was interrupted by a signal.
 inline constexpr int kEio          = 5;   ///< The volume read came back short.
 inline constexpr int kEbadf        = 9;   ///< Not a descriptor the kernel serves.
 inline constexpr int kEchild       = 10;  ///< The wait names no child of the caller.
+inline constexpr int kEagain       = 11;  ///< Try again; nothing is ready right now.
 inline constexpr int kEnomem       = 12;  ///< The kernel has no room for this.
 inline constexpr int kEfault       = 14;  ///< The buffer does not live in the user half.
 inline constexpr int kEexist       = 17;  ///< The name already exists.
 inline constexpr int kEnotdir      = 20;  ///< A path component is a file.
 inline constexpr int kEisdir       = 21;  ///< A file-only operation met a directory.
 inline constexpr int kEinval       = 22;  ///< Unusable argument.
+inline constexpr int kEpipe        = 32;  ///< The pipe's reader is gone.
 inline constexpr int kErange       = 34;  ///< The output buffer is too small.
 inline constexpr int kEnametoolong = 36;  ///< The folded path overflows its buffer.
 inline constexpr int kEnosys       = 38;  ///< No such syscall at this number.
@@ -137,6 +150,10 @@ struct SyscallStat {
  *          rides at the top so the exit path can rebuild RSP from the
  *          frame itself — gs:8 only stages it on the way in, because
  *          another ring-3 task's entry would overwrite it in between.
+ *          Every general register rides the frame since the signal
+ *          station: a handler delivery rewrites the whole image and
+ *          sends the task back to ring 3 from here, so the frame is
+ *          the task's user register file while it sits in the kernel.
  * @since   0.1.0
  * @ingroup kernel_syscall
  */
@@ -153,12 +170,17 @@ struct SyscallFrame {
     unsigned long long r9;        ///< +72,  sixth argument, unserved yet.
     unsigned long long rbx;       ///< +80,  callee-saved, restored on exit.
     unsigned long long rbp;       ///< +88,  callee-saved, restored on exit.
+    unsigned long long r12;       ///< +96,  callee-saved, restored on exit.
+    unsigned long long r13;       ///< +104, callee-saved, restored on exit.
+    unsigned long long r14;       ///< +112, callee-saved, restored on exit.
+    unsigned long long r15;       ///< +120, callee-saved, restored on exit.
 };
 
 static_assert(offsetof(SyscallFrame, rcx) == 8, "entry banks rcx at +8");
 static_assert(offsetof(SyscallFrame, rax) == 24, "the number sits at +24");
 static_assert(offsetof(SyscallFrame, rbx) == 80, "the rbx lesson stays pinned");
-static_assert(sizeof(SyscallFrame) == 96, "twelve quadwords of frame");
+static_assert(offsetof(SyscallFrame, r12) == 96, "r12 closes the sixteen-word frame");
+static_assert(sizeof(SyscallFrame) == 128, "sixteen quadwords of frame");
 
 }  // namespace cinux::syscall
 
@@ -173,20 +195,18 @@ void SyscallEntry();
 
 /**
  * @brief         Run one numbered syscall; the C side of the door.
- * @param[in]     number   Which syscall, from RAX at entry.
- * @param[in]     arg1     First word argument.
- * @param[in]     arg2     Second word argument.
- * @param[in]     arg3     Third word argument.
+ * @param[in,out] frame   The entry frame: number and every ABI word
+ *                        come off it, and its rax is the return slot.
  * @return        The value ring 3 receives in RAX: a count, or a
  *                negative errno on refusal.
- * @note          C linkage for the assembly caller. Handlers may
- *                switch tasks inside (yield, exit, blocking read);
- *                the frame on the task's kernel stack is what makes
- *                that survivable.
+ * @note          C linkage for the assembly caller, which hands the
+ *                frame over as one pointer. Handlers may switch tasks
+ *                inside (yield, exit, blocking read); the frame on
+ *                the task's kernel stack is what makes that
+ *                survivable.
  * @since         0.1.0
  * @ingroup       kernel_syscall
  */
-long long InvokeSyscall(unsigned long long number, unsigned long long arg1, unsigned long long arg2,
-                        unsigned long long arg3);
+long long InvokeSyscall(cinux::syscall::SyscallFrame& frame);
 
 }  // extern "C"

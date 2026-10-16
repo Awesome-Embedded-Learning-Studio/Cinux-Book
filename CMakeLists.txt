@@ -34,8 +34,9 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E env "CINUX_HELLO_ELF=$<TARGET_FILE:user_hello>"
             "CINUX_SHELL_ELF=$<TARGET_FILE:user_shell>"
             "CINUX_MAPPER_ELF=$<TARGET_FILE:user_mapper>"
+            "CINUX_SIGDEMO_ELF=$<TARGET_FILE:user_sigdemo>"
             bash ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh ${CINUX_EXT2_IMG}
-    DEPENDS user_hello user_shell user_mapper
+    DEPENDS user_hello user_shell user_mapper user_sigdemo
     COMMENT "teaching ext2 volume for the block and fs experiments")
 add_custom_target(ext2_img DEPENDS ${CINUX_EXT2_IMG})
 set(CINUX_EXT2_KTEST_IMG ${CMAKE_BINARY_DIR}/boot/ext2_ktest.img)

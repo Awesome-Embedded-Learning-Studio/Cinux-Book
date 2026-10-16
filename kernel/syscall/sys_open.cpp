@@ -11,10 +11,9 @@
 
 namespace cinux::syscall {
 
-long long HandleOpen(unsigned long long path, unsigned long long flags,
-                     [[maybe_unused]] unsigned long long third) {
+long long HandleOpen(const SyscallFrame& frame) {
     char storage[fs::kFsPathMax] = {};
-    if (const long long kBad = FoldUserPath(path, storage, fs::kFsPathMax); kBad < 0) {
+    if (const long long kBad = FoldUserPath(frame.rdi, storage, fs::kFsPathMax); kBad < 0) {
         return kBad;
     }
     const base::Result<fs::FsView> kView = fs::FileWorld::self().resolve(storage);
@@ -25,7 +24,8 @@ long long HandleOpen(unsigned long long path, unsigned long long flags,
 
     const arch::IrqGuard     kGuard;
     base::Result<fs::FsNode> node = kFlat.ops->lookup(kFlat.self, kFlat.rest);
-    if (!node.ok() && node.error() == base::KernelError::kNotFound && (flags & kOpenCreat) != 0) {
+    if (!node.ok() && node.error() == base::KernelError::kNotFound &&
+        (frame.rsi & kOpenCreat) != 0) {
         node = kFlat.ops->make_file(kFlat.self, kFlat.rest);
     }
     if (!node.ok()) {

@@ -12,7 +12,7 @@
 
 #pragma once
 
-#include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/syscall.hpp"
 
 namespace cinux::syscall {
 
@@ -25,6 +25,6 @@ namespace cinux::syscall {
  * @since         0.1.0
  * @ingroup       kernel_syscall
  */
-long long HandleFork(Word first, Word second, Word third);
+long long HandleFork(const SyscallFrame& frame);
 
 }  // namespace cinux::syscall

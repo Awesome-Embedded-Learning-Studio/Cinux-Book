@@ -1,10 +1,8 @@
 #include "kernel/syscall/sys_mmap.hpp"
 
 #include "cinux/math.hpp"
-#include "cinux/ptr.hpp"
 #include "cinux/result.hpp"
 #include "kernel/arch/x86_64/page.hpp"
-#include "kernel/arch/x86_64/per_cpu.hpp"
 #include "kernel/fs/file_table.hpp"
 #include "kernel/mm/layout.hpp"
 #include "kernel/mm/vma.hpp"
@@ -14,18 +12,16 @@
 
 namespace cinux::syscall {
 
-long long HandleMmap(Word /*first*/, Word /*second*/, Word /*third*/) {
+long long HandleMmap(const SyscallFrame& frame) {
     const proc::Task* const kSelf = CurrentTask();
     if (kSelf == nullptr || kSelf->vmas == nullptr) {
         return -kEnomem;
     }
-    const auto* const kFrame =
-        cinux::base::PtrAt<SyscallFrame>(arch::per_cpu::PerCpu::self().syscall_frame);
-    const unsigned long long kLength = kFrame->rsi;
-    const unsigned long long kProt   = kFrame->rdx;
-    const unsigned long long kFlags  = kFrame->r10;
-    const unsigned long long kFd     = kFrame->r8;
-    const unsigned long long kOffset = kFrame->r9;
+    const unsigned long long kLength = frame.rsi;
+    const unsigned long long kProt   = frame.rdx;
+    const unsigned long long kFlags  = frame.r10;
+    const unsigned long long kFd     = frame.r8;
+    const unsigned long long kOffset = frame.r9;
     if (kLength == 0 || (kFlags & kMapFixed) != 0) {
         return -kEinval;
     }

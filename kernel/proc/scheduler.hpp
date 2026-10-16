@@ -33,6 +33,7 @@
 #include "cinux/container/static_stack.hpp"
 #include "cinux/scoped_guard.hpp"
 #include "cinux/singleton.hpp"
+#include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/task.hpp"
 
@@ -252,20 +253,54 @@ public:
 
     /**
      * @brief         Wait for one child to exit and retire it.
-     * @param[in]     wanted    Child pid, or -1 for any child.
+     * @param[in]     wanted    Child pid, -1 for any child, 0 for any
+     *                          child in the caller's own group, below
+     *                          -1 for any child in group -wanted.
+     * @param[in]     no_hang   Return instead of parking when matching
+     *                          children exist but none has exited yet.
      * @param[out]    receipt   The reaped child's pid and exit word.
      * @return        True when a child was reaped; false when the
-     *                caller has no child left to wait for.
+     *                caller has no child left that matches the
+     *                request — which is what a group-targeted wait
+     *                answers when the only children live in other
+     *                groups.
      * @note          Parks the caller until a matching zombie exists,
      *                the same park the lock family uses. A child's
      *                exit is the only wakeup, and it lands on the
      *                parent alone — the child knows exactly whose wait
      *                it finishes. Waking with no match simply parks
-     *                again, so spurious wakeups cost nothing.
+     *                again, so spurious wakeups cost nothing. Under
+     *                no_hang the call never parks: matching children
+     *                alive but none exited hands back a zero-pid
+     *                receipt, which is the caller's cue to answer 0,
+     *                not an error.
      * @since         0.2.0
      * @ingroup       kernel_proc
      */
-    bool wait_child(long long wanted, ChildReceipt& receipt);
+    bool wait_child(long long wanted, bool no_hang, ChildReceipt& receipt);
+
+    /**
+     * @brief         Walk every task on the roll, caller's visit in hand.
+     * @tparam        Visit   Callable taking Task&.
+     * @param[in]     visit   What to do with each task.
+     * @return        None.
+     * @note          The kill-a-group face: an interrupt-guarded sweep
+     *                of the one task roll the scheduler keeps, safe
+     *                because a single core serializes reclaims behind
+     *                the same guard. Visitors only read identity fields
+     *                and hand out signals — anything that reclaims
+     *                would mutate the roll mid-walk and is on nobody's
+     *                agenda.
+     * @since         0.5.0
+     * @ingroup       kernel_proc
+     */
+    template <typename Visit>
+    void for_each_task(Visit&& visit) {
+        const cinux::arch::IrqGuard kGuard;
+        for (Task* scan = offspring_.head(); scan != nullptr; scan = offspring_.after(*scan)) {
+            visit(*scan);
+        }
+    }
 
     /**
      * @brief         Park the current task off the ready queue and
@@ -292,6 +327,49 @@ public:
      * @ingroup       kernel_proc
      */
     void unblock(Task& task);
+
+    /**
+     * @brief         Halt the current task off every queue until a
+     *                continue names it.
+     * @return        None.
+     * @note          The SIGSTOP landing: the task keeps its kernel
+     *                stack exactly as a parked one does, but no wait
+     *                queue links it — nothing wakes it but another
+     *                task's resume. Returns only after a continue put
+     *                it back and the clock picked it again.
+     * @since         0.7.0
+     * @ingroup       kernel_proc
+     */
+    void stop_current();
+
+    /**
+     * @brief         Put one stopped task back into the ready queue.
+     * @param[in,out] task   A task in TaskState::kStopped.
+     * @return        None.
+     * @note          The SIGCONT landing, and the SIGKILL one — a
+     *                stopped task is never scheduled, so it could
+     *                never deliver its own death; the sender's send
+     *                is the only hand that can lift the halt.
+     * @since         0.7.0
+     * @ingroup       kernel_proc
+     */
+    void resume(Task& task);
+
+    /**
+     * @brief         Take a ready task out of its class queue, halted.
+     * @param[in,out] task   A queued task the stop signal names.
+     * @return        True when it was queued and now stands stopped;
+     *                false when it was not queued to begin with — a
+     *                running or parked task is left for the delivery
+     *                path or the next wake.
+     * @note          The send-time half of SIGSTOP: a task sitting in
+     *                a ready queue must not wait for a delivery that
+     *                only happens on the way back to ring 3, because
+     *                nothing guarantees it ever gets there.
+     * @since         0.7.0
+     * @ingroup       kernel_proc
+     */
+    bool withdraw(Task& task);
 
     /**
      * @brief         Hand the CPU to the ready queue until it drains.
@@ -326,6 +404,23 @@ public:
      */
     [[nodiscard]] unsigned long long offspring_count() const;
 
+    /**
+     * @brief         The task carrying one pid, live or zombie.
+     * @param[in]     pid   The identity to look up.
+     * @return        The task, nullptr when nothing in the roll
+     *                carries it.
+     * @note          The kill door's lookup half. The roll is every
+     *                parented task on the machine, so a task built
+     *                without a parent is unfindable here — the pid-1
+     *                bring-up thread answers null, which is the
+     *                refusal ring 3 reads. A zombie still answers:
+     *                what the signal then does is the sender's
+     *                business, and send drops it quietly.
+     * @since         0.6.0
+     * @ingroup       kernel_proc
+     */
+    [[nodiscard]] Task* find_by_pid(unsigned long long pid);
+
 private:
     Scheduler() = default;
 
@@ -335,7 +430,7 @@ private:
     void                rotate_from_interrupt();
     void                park_current();
     [[nodiscard]] Task* pick_next();
-    Task*               take_zombie_child(Task& watcher, long long wanted, bool& has_any_child);
+    Task*               take_zombie_child(Task& watcher, long long wanted, bool& has_eligible);
     void                detach_offspring(Task& dying);
 
     void (*switch_tasks_)(void*, Task&, Task&) = nullptr;

@@ -4,10 +4,8 @@
 
 #include "cinux/math.hpp"
 #include "cinux/own.hpp"
-#include "cinux/ptr.hpp"
 #include "cinux/result.hpp"
 #include "kernel/arch/x86_64/page.hpp"
-#include "kernel/arch/x86_64/per_cpu.hpp"
 #include "kernel/fs/file_world.hpp"
 #include "kernel/fs/fs_config.hpp"
 #include "kernel/fs/vfs.hpp"
@@ -17,6 +15,7 @@
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vma.hpp"
 #include "kernel/proc/proc_config.hpp"
+#include "kernel/proc/signals.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
@@ -29,9 +28,10 @@ constexpr unsigned long long kUserFlags = 0x202;
 
 }  // namespace
 
-long long HandleExecve(Word path_word, Word /*second*/, Word /*third*/) {
+long long HandleExecve(const SyscallFrame& frame) {
+    auto&           mutable_frame        = const_cast<SyscallFrame&>(frame);
     char            path[fs::kFsPathMax] = {};
-    const long long kFolded              = FoldUserPath(path_word, path, sizeof(path));
+    const long long kFolded              = FoldUserPath(frame.rdi, path, sizeof(path));
     if (kFolded < 0) {
         return kFolded;
     }
@@ -86,17 +86,19 @@ long long HandleExecve(Word path_word, Word /*second*/, Word /*third*/) {
         mm::Pmm::self().free_page(kStackFrame);
         return -kEnomem;
     }
+    if (!proc::MapSignalTrampoline(*fresh, *ranges)) {
+        return -kEnomem;
+    }
+    kSelf->signals   = proc::SignalState{};
     kSelf->space     = fresh.release();
     kSelf->vmas      = ranges.release();
     kSelf->user_root = kSelf->space->root();
     kSelf->space->activate();
     delete kOldWorld;
-    auto* const kFrame =
-        cinux::base::PtrAt<SyscallFrame>(arch::per_cpu::PerCpu::self().syscall_frame);
-    kFrame->user_rsp = proc::kUserProgramStackTop - 8;
-    kFrame->rcx      = entry;
-    kFrame->r11      = kUserFlags;
-    kFrame->rax      = 0;
+    mutable_frame.user_rsp = proc::kUserProgramStackTop - 8;
+    mutable_frame.rcx      = entry;
+    mutable_frame.r11      = kUserFlags;
+    mutable_frame.rax      = 0;
     return 0;
 }
 

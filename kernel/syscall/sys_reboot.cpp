@@ -6,9 +6,7 @@
 
 namespace cinux::syscall {
 
-long long HandleReboot([[maybe_unused]] unsigned long long first,
-                       [[maybe_unused]] unsigned long long second,
-                       [[maybe_unused]] unsigned long long third) {
+long long HandleReboot(const SyscallFrame& /*frame*/) {
     const auto* const kFadt = driver::acpi::FindFadt(driver::acpi::FindRootPointer());
     if (kFadt == nullptr) {
         return -kEnosys;

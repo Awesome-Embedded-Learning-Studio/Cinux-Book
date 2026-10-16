@@ -7,15 +7,14 @@
 
 namespace cinux::syscall {
 
-long long HandleClose(unsigned long long descriptor, [[maybe_unused]] unsigned long long second,
-                      [[maybe_unused]] unsigned long long third) {
-    if (descriptor < 3) {
+long long HandleClose(const SyscallFrame& frame) {
+    if (frame.rdi < 3) {
         return 0;
     }
-    if (descriptor >= fs::kFileTableMax) {
+    if (frame.rdi >= fs::kFileTableMax) {
         return -kEbadf;
     }
-    const base::Result<void> kFreed = CurrentTask()->files.free(descriptor);
+    const base::Result<void> kFreed = CurrentTask()->files.free(frame.rdi);
     return kFreed.ok() ? 0 : -kEbadf;
 }
 

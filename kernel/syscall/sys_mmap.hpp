@@ -11,18 +11,18 @@
 
 #pragma once
 
-#include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/syscall.hpp"
 
 namespace cinux::syscall {
 
 /**
  * @brief         Serves mmap(hint, len, prot, flags, fd, offset).
  *
- * @param[in]     first   Unused; the address hint is ignored, the spot
- *                        comes from the register's own hunt.
- * @param[in]     second  Unused; the arguments ride the frame (six of
- *                        them, more than the three-word door carries).
- * @param[in]     third   Unused.
+ * @param[in]     frame   The trap frame; rsi carries the length, rdx
+ *                        the protection, r10 the flags, r8 the
+ *                        descriptor, r9 the file offset. The address
+ *                        hint in rdi is ignored, the spot comes from
+ *                        the register's own hunt.
  * @return        The first byte of the promised range, or a negative
  *                errno.
  * @note          Laziness is the point: the call registers the promise
@@ -37,6 +37,6 @@ namespace cinux::syscall {
  * @since         0.2.0
  * @ingroup       kernel_syscall
  */
-long long HandleMmap(Word first, Word second, Word third);
+long long HandleMmap(const SyscallFrame& frame);
 
 }  // namespace cinux::syscall

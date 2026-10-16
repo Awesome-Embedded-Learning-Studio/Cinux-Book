@@ -253,10 +253,16 @@ void run_help() {
 }
 
 void report_child(long long pid, int code) {
+    const auto kStatus = static_cast<unsigned long long>(code);
     put_text("[");
     put_decimal(static_cast<unsigned long long>(pid));
-    put_text("] exited with ");
-    put_decimal(static_cast<unsigned long long>(code));
+    if ((kStatus & 0xFFULL) != 0ULL) {
+        put_text("] killed by signal ");
+        put_decimal(kStatus & 0xFFULL);
+    } else {
+        put_text("] exited with ");
+        put_decimal((kStatus >> 8ULL) & 0xFFULL);
+    }
     put_text("\n");
 }
 

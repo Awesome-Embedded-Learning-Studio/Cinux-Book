@@ -12,19 +12,19 @@
 
 #pragma once
 
-#include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/syscall.hpp"
 
 namespace cinux::syscall {
 
 /**
  * @brief         getcwd(buf, size).
- * @param[in]     out    User address receiving the NUL-terminated path.
- * @param[in]     size   Bytes writable at out, NUL included.
- * @param[in]     third  Unused.
+ * @param[in]     frame   The trap frame; rdi carries the user address
+ *                        receiving the NUL-terminated path, rsi the
+ *                        byte budget there, NUL included.
  * @return        Bytes written without the NUL, or a negative errno.
  * @since         0.1.0
  * @ingroup       kernel_syscall
  */
-long long HandleGetcwd(Word out, Word size, Word third);
+long long HandleGetcwd(const SyscallFrame& frame);
 
 }  // namespace cinux::syscall

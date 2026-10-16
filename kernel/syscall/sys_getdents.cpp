@@ -10,15 +10,14 @@
 
 namespace cinux::syscall {
 
-long long HandleGetdents(unsigned long long descriptor, unsigned long long buffer,
-                         [[maybe_unused]] unsigned long long third) {
-    if (descriptor < 3) {
+long long HandleGetdents(const SyscallFrame& frame) {
+    if (frame.rdi < 3) {
         return -kEbadf;
     }
-    if (buffer >= kUserAddressLimit) {
+    if (frame.rsi >= kUserAddressLimit) {
         return -kEfault;
     }
-    const base::Result<fs::FileSlot*> kSlot = LiveSlot(descriptor);
+    const base::Result<fs::FileSlot*> kSlot = LiveSlot(frame.rdi);
     if (!kSlot.ok()) {
         return -kEbadf;
     }
@@ -37,7 +36,7 @@ long long HandleGetdents(unsigned long long descriptor, unsigned long long buffe
 
     using syscall::SyscallDirent;
     auto* const kOut =
-        reinterpret_cast<SyscallDirent*>(buffer);  // NOLINT(performance-no-int-to-ptr)
+        reinterpret_cast<SyscallDirent*>(frame.rsi);  // NOLINT(performance-no-int-to-ptr)
     base::CopyBytes(kOut->name, entry.name, fs::kFsNameMax);
     kOut->type = entry.type == fs::InodeType::kDirectory ? kDirentDirectory : kDirentFile;
     return 1;

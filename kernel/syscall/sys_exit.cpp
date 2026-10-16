@@ -2,13 +2,12 @@
 
 #include "kernel/arch/x86_64/halt.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/syscall/syscall.hpp"
 
 namespace cinux::syscall {
 
-[[noreturn]] long long HandleExit(unsigned long long                  first,
-                                  [[maybe_unused]] unsigned long long second,
-                                  [[maybe_unused]] unsigned long long third) {
-    proc::Scheduler::self().exit_current(static_cast<long long>(first));
+[[noreturn]] long long HandleExit(const SyscallFrame& frame) {
+    proc::Scheduler::self().exit_current(static_cast<long long>((frame.rdi & 0xFFULL) << 8ULL));
     arch::Halt();
 }
 

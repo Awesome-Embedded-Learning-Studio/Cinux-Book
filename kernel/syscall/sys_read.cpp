@@ -27,25 +27,24 @@ long long keyboard_into(unsigned long long buffer, unsigned long long count) {
 
 }  // namespace
 
-long long HandleRead(unsigned long long descriptor, unsigned long long buffer,
-                     unsigned long long count) {
-    if (descriptor >= fs::kFileTableMax) {
+long long HandleRead(const SyscallFrame& frame) {
+    if (frame.rdi >= fs::kFileTableMax) {
         return -kEbadf;
     }
-    if (buffer >= kUserAddressLimit) {
+    if (frame.rsi >= kUserAddressLimit) {
         return -kEfault;
     }
-    if (descriptor == 0) {
-        return keyboard_into(buffer, count);
+    if (frame.rdi == 0) {
+        return keyboard_into(frame.rsi, frame.rdx);
     }
-    const base::Result<fs::FileSlot*> kSlot = LiveSlot(descriptor);
+    const base::Result<fs::FileSlot*> kSlot = LiveSlot(frame.rdi);
     if (!kSlot.ok()) {
         return -kEbadf;
     }
     auto* const kFile = kSlot.value();
-    auto* const kSink = reinterpret_cast<void*>(buffer);  // NOLINT(performance-no-int-to-ptr)
+    auto* const kSink = reinterpret_cast<void*>(frame.rsi);  // NOLINT(performance-no-int-to-ptr)
     const base::Result<unsigned long> kGot =
-        kFile->ops->read(kFile->backend, kFile->node, kFile->offset, kSink, count);
+        kFile->ops->read(kFile->backend, kFile->node, kFile->offset, kSink, frame.rdx);
     if (!kGot.ok()) {
         return -ErrnoFrom(kGot.error());
     }

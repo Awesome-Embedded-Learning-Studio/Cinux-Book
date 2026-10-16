@@ -23,14 +23,20 @@
 #include "cinux/result.hpp"
 #include "kernel/fs/file_table.hpp"
 #include "kernel/proc/task.hpp"
+#include "kernel/syscall/syscall.hpp"
 
 namespace cinux::syscall {
 
 /// One argument as the trampoline hands it over: a raw word.
 using Word = unsigned long long;
 
-/// What one numbered syscall looks like to the dispatch table.
-using Handler = long long (*)(Word, Word, Word);
+/// What one numbered syscall looks like to the dispatch table: the
+/// entry frame itself, carrying the number, all six ABI words and
+/// the whole user register image. The face is const — nearly every
+/// handler only reads it — and the two that legitimately rewrite the
+/// image (exec, sigreturn) take back writability inside their own
+/// bodies, so the dispatch table can promise read-only for the rest.
+using Handler = long long (*)(const SyscallFrame& frame);
 
 /**
  * @brief         Translates a KernelError into its Linux errno value.
@@ -77,6 +83,33 @@ long long FoldUserPath(Word source, char* out, unsigned long cap);
  * @ingroup       kernel_syscall
  */
 proc::Task* CurrentTask();
+
+/**
+ * @brief         Whether a user stretch may be read through.
+ * @param[in]     start   First byte of the stretch, as ring 3 offered it.
+ * @param[in]     bytes   How many bytes the access touches.
+ * @return        true when the stretch is non-empty and lies wholly
+ *                inside the user half.
+ * @note          The minimal check the station 21 shape can afford:
+ *                bounds, not translations. A pointer into a hole still
+ *                reaches the fault path; the pair only keeps a handler
+ *                from touching kernel words or wrapping the counter.
+ * @since         0.5.0
+ * @ingroup       kernel_syscall
+ */
+[[nodiscard]] bool UserRangeReadable(Word start, Word bytes);
+
+/**
+ * @brief         Whether a user stretch may be written through.
+ * @param[in]     start   First byte of the stretch, as ring 3 offered it.
+ * @param[in]     bytes   How many bytes the access touches.
+ * @return        true under the same terms as the readable pair.
+ * @note          Same bounds, no more: the write-per-page terms arrive
+ *                with the fault path's own promotion, not here.
+ * @since         0.5.0
+ * @ingroup       kernel_syscall
+ */
+[[nodiscard]] bool UserRangeWritable(Word start, Word bytes);
 
 /**
  * @brief         Range-checks a descriptor and hands back its live slot.

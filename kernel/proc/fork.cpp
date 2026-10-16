@@ -7,7 +7,6 @@
 #include "cinux/ptr.hpp"
 #include "cinux/result.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
-#include "kernel/arch/x86_64/per_cpu.hpp"
 #include "kernel/fs/file_table.hpp"
 #include "kernel/fs/fs_config.hpp"
 #include "kernel/mm/address_space.hpp"
@@ -18,6 +17,7 @@
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
+#include "kernel/syscall/signal.hpp"
 #include "kernel/syscall/syscall.hpp"
 
 extern "C" {
@@ -38,12 +38,12 @@ void ForkChildEntry();
 namespace cinux::proc {
 
 Task* BuildForkChild(unsigned long long frame_address) {
-    const arch::IrqGuard     kEntryGuard;
-    const auto&              bank      = arch::per_cpu::PerCpu::self();
-    const unsigned long long kUserR12  = bank.user_r12;
-    const unsigned long long kUserR13  = bank.user_r13;
-    const unsigned long long kUserR14  = bank.user_r14;
-    const unsigned long long kUserR15  = bank.user_r15;
+    const arch::IrqGuard kEntryGuard;
+    const auto& parent_frame = *cinux::base::PtrAt<const syscall::SyscallFrame>(frame_address);
+    const unsigned long long kUserR12  = parent_frame.r12;
+    const unsigned long long kUserR13  = parent_frame.r13;
+    const unsigned long long kUserR14  = parent_frame.r14;
+    const unsigned long long kUserR15  = parent_frame.r15;
     const auto&              scheduler = Scheduler::self();
     Task* const              kParent   = scheduler.current();
     cinux::base::safety::Check(kParent != nullptr && kParent->space != nullptr,
@@ -86,6 +86,12 @@ Task* BuildForkChild(unsigned long long frame_address) {
     kBorn->space      = space.release();
     kBorn->vmas       = vmas.release();
     kBorn->parent     = kParent;
+    for (unsigned long slot = 0; slot < syscall::kSignalCount; ++slot) {
+        kBorn->signals.actions[slot] = kParent->signals.actions[slot];
+    }
+    kBorn->signals.blocked = kParent->signals.blocked;
+    kBorn->pgid            = kParent->pgid;
+    kBorn->sid             = kParent->sid;
     cinux::base::CopyBytes(kBorn->cwd, kParent->cwd, fs::kFsPathMax);
     for (unsigned long descriptor = fs::kFirstDescriptor; descriptor < fs::kFileTableMax;
          ++descriptor) {

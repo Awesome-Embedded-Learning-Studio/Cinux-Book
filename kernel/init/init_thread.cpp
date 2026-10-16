@@ -32,6 +32,7 @@
 #include "kernel/mm/vma.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/signals.hpp"
 #include "kernel/proc/task.hpp"
 
 namespace cinux::init {
@@ -109,6 +110,9 @@ ShellWorld build_shell_world(std::uint64_t& entry) {
         mm::Pmm::self().free_page(kStackFrame);
         return {};
     }
+    if (!proc::MapSignalTrampoline(*space, *vmas)) {
+        return {};
+    }
     return ShellWorld{.space = std::move(space), .vmas = std::move(vmas)};
 }
 
@@ -141,6 +145,8 @@ bool seat_shell_task(proc::Task& parent) {
     kShell->space = world.space.release();
     kShell->vmas  = world.vmas.release();
     proc::Scheduler::self().seat(*kShell);
+    kShell->pgid = kShell->pid;
+    kShell->sid  = kShell->pid;
     return true;
 }
 
@@ -157,13 +163,15 @@ void StartInitThread() {
                 return;
             }
             proc::ChildReceipt receipt{};
-            proc::Scheduler::self().wait_child(-1, receipt);
+            proc::Scheduler::self().wait_child(-1, false, receipt);
             print::Println("[kern] kernel_init: shell exited with %lld, respawning", receipt.code);
         }
     };
     auto* const kInit = proc::TaskBuilder{}.set_entry(kernel_init).set_name("kernel_init").build();
     base::safety::Check(kInit != nullptr, "kernel_init task failed to build");
     proc::Scheduler::self().seat(*kInit);
+    kInit->pgid = kInit->pid;
+    kInit->sid  = kInit->pid;
 }
 
 }  // namespace cinux::init

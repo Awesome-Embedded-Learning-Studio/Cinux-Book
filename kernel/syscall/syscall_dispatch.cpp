@@ -13,6 +13,7 @@
 #include <array>
 #include <utility>
 
+#include "kernel/proc/signals.hpp"
 #include "kernel/syscall/sys_brk.hpp"
 #include "kernel/syscall/sys_chdir.hpp"
 #include "kernel/syscall/sys_close.hpp"
@@ -23,13 +24,16 @@
 #include "kernel/syscall/sys_getdents.hpp"
 #include "kernel/syscall/sys_getpid.hpp"
 #include "kernel/syscall/sys_getppid.hpp"
+#include "kernel/syscall/sys_kill.hpp"
 #include "kernel/syscall/sys_mkdir.hpp"
 #include "kernel/syscall/sys_mmap.hpp"
 #include "kernel/syscall/sys_mprotect.hpp"
 #include "kernel/syscall/sys_munmap.hpp"
 #include "kernel/syscall/sys_open.hpp"
+#include "kernel/syscall/sys_pgrp.hpp"
 #include "kernel/syscall/sys_read.hpp"
 #include "kernel/syscall/sys_reboot.hpp"
+#include "kernel/syscall/sys_signal.hpp"
 #include "kernel/syscall/sys_stat.hpp"
 #include "kernel/syscall/sys_unlink.hpp"
 #include "kernel/syscall/sys_wait.hpp"
@@ -55,12 +59,29 @@ constexpr Row kRows[] = {
     {.number = cinux::syscall::SyscallNr::kMunmap, .handler = cinux::syscall::HandleMunmap},
     {.number = cinux::syscall::SyscallNr::kMprotect, .handler = cinux::syscall::HandleMprotect},
     {.number = cinux::syscall::SyscallNr::kBrk, .handler = cinux::syscall::HandleBrk},
+    {
+        .number  = cinux::syscall::SyscallNr::kRtSigaction,
+        .handler = cinux::syscall::HandleRtSigaction,
+    },
+    {
+        .number  = cinux::syscall::SyscallNr::kRtSigprocmask,
+        .handler = cinux::syscall::HandleRtSigprocmask,
+    },
+    {
+        .number  = cinux::syscall::SyscallNr::kRtSigreturn,
+        .handler = cinux::syscall::HandleRtSigreturn,
+    },
     {.number = cinux::syscall::SyscallNr::kYield, .handler = cinux::syscall::HandleYield},
     {.number = cinux::syscall::SyscallNr::kGetpid, .handler = cinux::syscall::HandleGetpid},
     {.number = cinux::syscall::SyscallNr::kFork, .handler = cinux::syscall::HandleFork},
     {.number = cinux::syscall::SyscallNr::kExecve, .handler = cinux::syscall::HandleExecve},
     {.number = cinux::syscall::SyscallNr::kExit, .handler = cinux::syscall::HandleExit},
     {.number = cinux::syscall::SyscallNr::kWait4, .handler = cinux::syscall::HandleWait4},
+    {.number = cinux::syscall::SyscallNr::kKill, .handler = cinux::syscall::HandleKill},
+    {.number = cinux::syscall::SyscallNr::kSetpgid, .handler = cinux::syscall::HandleSetpgid},
+    {.number = cinux::syscall::SyscallNr::kSetsid, .handler = cinux::syscall::HandleSetsid},
+    {.number = cinux::syscall::SyscallNr::kGetpgid, .handler = cinux::syscall::HandleGetpgid},
+    {.number = cinux::syscall::SyscallNr::kGetsid, .handler = cinux::syscall::HandleGetsid},
     {.number = cinux::syscall::SyscallNr::kGetppid, .handler = cinux::syscall::HandleGetppid},
     {.number = cinux::syscall::SyscallNr::kGetcwd, .handler = cinux::syscall::HandleGetcwd},
     {.number = cinux::syscall::SyscallNr::kChdir, .handler = cinux::syscall::HandleChdir},
@@ -80,10 +101,15 @@ constexpr auto kHandlers = [] {
 
 }  // namespace
 
-long long InvokeSyscall(unsigned long long number, unsigned long long arg1, unsigned long long arg2,
-                        unsigned long long arg3) {
-    if (number >= cinux::syscall::kSyscallCount || kHandlers[number] == nullptr) {
+extern "C" long long InvokeSyscall(cinux::syscall::SyscallFrame& frame) {
+    const unsigned long long kNumber = frame.rax;
+    if (kNumber >= cinux::syscall::kSyscallCount || kHandlers[kNumber] == nullptr) {
         return -cinux::syscall::kEnosys;
     }
-    return kHandlers[number](arg1, arg2, arg3);
+    const long long kResult = kHandlers[kNumber](frame);
+    frame.rax               = static_cast<unsigned long long>(kResult);
+    if (cinux::proc::DeliverPendingSignals(frame)) {
+        return static_cast<long long>(frame.rax);
+    }
+    return kResult;
 }

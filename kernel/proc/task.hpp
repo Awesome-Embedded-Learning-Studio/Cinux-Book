@@ -25,6 +25,7 @@
 #include "kernel/arch/x86_64/context.hpp"
 #include "kernel/fs/file_table.hpp"
 #include "kernel/fs/fs_config.hpp"
+#include "kernel/proc/signals.hpp"
 
 namespace cinux::mm {
 class AddressSpace;
@@ -46,6 +47,8 @@ enum class TaskState : unsigned char {
     kReady,    ///< Queued, waiting for a CPU.
     kRunning,  ///< On the CPU right now.
     kBlocked,  ///< Parked on a wait queue, not schedulable until woken.
+    kStopped,  ///< Halted by a stop signal; only SIGCONT or SIGKILL
+               ///< from another task puts it back on the queue.
     kZombie,   ///< Exited with a parent alive; the body stays until reaped.
     kDead,     ///< Entry returned and exited; memory pending reclaim.
 };
@@ -77,6 +80,12 @@ struct Task : cinux::base::container::SelfNode<Task> {
     unsigned long long                     fpu_gate_depth{};
     TaskState                              state{};  ///< Where this task is in its life.
     unsigned long long                     pid{};    ///< Identity, handed out by the scheduler.
+    /// Process group this task belongs to; kill(-pgid) and wanted == 0
+    /// waits walk it. fork copies it, setsid mints a fresh one.
+    unsigned long long                     pgid{};
+    /// Session this task belongs to; a group may only be re-rooted
+    /// inside it. Zero until the first seat or setsid names it.
+    unsigned long long                     sid{};
     Task*              parent{};      ///< Who may wait for this task; null when nobody can.
     long long          exit_code{};   ///< What a zombie has to hand its parent.
     const char*        name{};        ///< Label for dumps, caller-owned storage.
@@ -94,6 +103,10 @@ struct Task : cinux::base::container::SelfNode<Task> {
     /// The class this task queues on; null rides the first-registered
     /// class, decided once at seat time.
     SchedulingClass* sched_class{};
+    /// The task's action table, blocked set and pending set; zeroed is
+    /// the valid fresh-task state, fork copies the first two and exec
+    /// resets all three.
+    SignalState      signals{};
 
     /**
      * @brief         The parent's pid, zero when nobody waits above.

@@ -11,17 +11,15 @@
 
 #pragma once
 
-#include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/syscall.hpp"
 
 namespace cinux::syscall {
 
 /**
  * @brief         Serves munmap(addr, len).
  *
- * @param[in]     addr_word   The stretch's first byte; rounded down to
- *                            its page.
- * @param[in]     len_word    How many bytes; rounded up to whole pages.
- * @param[in]     third       Unused.
+ * @param[in]     frame   The trap frame; rdi carries the stretch's
+ *                        first byte, rsi the byte count.
  * @return        Zero, or a negative errno.
  * @note          The register decides first: a stretch that would split
  *                a recorded span is refused untouched, Linux ENOMEM and
@@ -34,6 +32,6 @@ namespace cinux::syscall {
  * @since         0.2.0
  * @ingroup       kernel_syscall
  */
-long long HandleMunmap(Word addr_word, Word len_word, Word third);
+long long HandleMunmap(const SyscallFrame& frame);
 
 }  // namespace cinux::syscall

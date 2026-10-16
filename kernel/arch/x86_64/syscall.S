@@ -6,6 +6,10 @@ SyscallEntry:
     swapgs
     movq %rsp, %gs:8
     movq %gs:0, %rsp
+    pushq %r15
+    pushq %r14
+    pushq %r13
+    pushq %r12
     pushq %rbp
     pushq %rbx
     pushq %r9
@@ -19,18 +23,12 @@ SyscallEntry:
     pushq %rcx
     pushq %gs:8
     movq %rsp, %gs:24
-    movq %r12, %gs:32
-    movq %r13, %gs:40
-    movq %r14, %gs:48
-    movq %r15, %gs:56
     call EnterFpuGate
     sti
-    movq 24(%rsp), %rdi
-    movq 32(%rsp), %rsi
-    movq 40(%rsp), %rdx
-    movq 48(%rsp), %rcx
+    movq %rsp, %rdi
     call InvokeSyscall
     cli
+    movq %rax, 24(%rsp)
     pushq %rax
     subq $8, %rsp
     call ExitFpuGate
@@ -46,6 +44,10 @@ SyscallEntry:
     movq 16(%rsp), %r11
     movq 80(%rsp), %rbx
     movq 88(%rsp), %rbp
+    movq 96(%rsp), %r12
+    movq 104(%rsp), %r13
+    movq 112(%rsp), %r14
+    movq 120(%rsp), %r15
     movq (%rsp), %rsp
     swapgs
     sysretq
@@ -64,6 +66,10 @@ ForkChildEntry:
     movq 16(%rsp), %r11
     movq 80(%rsp), %rbx
     movq 88(%rsp), %rbp
+    movq 96(%rsp), %r12
+    movq 104(%rsp), %r13
+    movq 112(%rsp), %r14
+    movq 120(%rsp), %r15
     movq (%rsp), %rsp
     xorq %rax, %rax
     swapgs

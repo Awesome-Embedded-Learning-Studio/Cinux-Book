@@ -16,14 +16,14 @@
 
 namespace cinux::syscall {
 
-long long HandleMunmap(Word addr_word, Word len_word, Word /*third*/) {
+long long HandleMunmap(const SyscallFrame& frame) {
     const proc::Task* const kSelf = CurrentTask();
     if (kSelf == nullptr || kSelf->vmas == nullptr || kSelf->space == nullptr) {
         return -kEnomem;
     }
-    const unsigned long kStart = cinux::base::math::AlignDown(addr_word, cinux::arch::page::kSize);
+    const unsigned long kStart = cinux::base::math::AlignDown(frame.rdi, cinux::arch::page::kSize);
     const unsigned long kEnd =
-        cinux::base::math::AlignUp(addr_word + len_word, cinux::arch::page::kSize);
+        cinux::base::math::AlignUp(frame.rdi + frame.rsi, cinux::arch::page::kSize);
     if (kStart >= kEnd) {
         return -kEinval;
     }

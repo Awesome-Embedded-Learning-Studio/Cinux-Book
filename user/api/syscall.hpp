@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "kernel/syscall/signal.hpp"
 #include "kernel/syscall/syscall.hpp"
 
 namespace user {
@@ -244,6 +245,146 @@ inline long long Wait4(long long pid, int* where) {
     return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kWait4),
                     static_cast<unsigned long long>(pid),
                     reinterpret_cast<unsigned long long>(where), 0);
+}
+
+/**
+ * @brief         Issue one syscall with four arguments.
+ * @param[in]     number   Syscall number, lands in RAX.
+ * @param[in]     arg1     Lands in RDI.
+ * @param[in]     arg2     Lands in RSI.
+ * @param[in]     arg3     Lands in RDX.
+ * @param[in]     arg4     Lands in R10.
+ * @return        Whatever the kernel hands back in RAX.
+ * @since         0.5.0
+ */
+// NOLINTNEXTLINE(readability-function-size) the syscall's own shape
+inline long long Syscall4(unsigned long long number, unsigned long long arg1,
+                          unsigned long long arg2, unsigned long long arg3,
+                          unsigned long long arg4) {
+    // NOLINTNEXTLINE(misc-const-correctness)
+    long long                         ret                    = 0;
+    register const unsigned long long kFourth __asm__("r10") = arg4;
+    __asm__ volatile("syscall"
+                     : "=a"(ret)
+                     : "a"(number), "D"(arg1), "S"(arg2), "d"(arg3), "r"(kFourth)
+                     : "rcx", "r11", "memory");
+    return ret;
+}
+
+/**
+ * @brief         wait4 with WNOHANG: reap a child only if one is ready.
+ * @param[in]     pid    As with Wait4; -1 names every child, a group
+ *                       number below -1 names that group's children.
+ * @param[out]    where  Receives the exit status, or null.
+ * @return        The reaped child's pid; zero when the wanted children
+ *                all live on (nothing changed state), or a negative
+ *                errno. The status word is only meaningful above zero.
+ * @since         0.7.0
+ */
+inline long long Wait4NoHang(
+    long long pid,
+    int*      where  // NOLINT(misc-const-correctness) the kernel writes it via the syscall
+) {
+    return Syscall4(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kWait4),
+                    static_cast<unsigned long long>(pid),
+                    reinterpret_cast<unsigned long long>(where), 1, 0);
+}
+
+/**
+ * @brief         kill(pid, sig): deliver a signal to a task or a group.
+ * @param[in]     pid     Above zero names one task; zero names every
+ *                        task in the caller's own group; -1 names
+ *                        every other task; below -1 names the group
+ *                        at -pid.
+ * @param[in]     number  The signal, or zero to only probe existence.
+ * @return        Zero when accepted, or a negative errno.
+ * @since         0.5.0
+ */
+inline long long Kill(unsigned long long pid, int number) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kKill), pid,
+                    static_cast<unsigned long long>(number), 0);
+}
+
+/**
+ * @brief         setpgid(pid, pgid): move a task into a group.
+ * @param[in]     pid    The target; zero means the caller, and a
+ *                       caller may only move itself or its own child.
+ * @param[in]     pgid   The group to join; zero means the target's
+ *                       own pid, and any other value must already
+ *                       name a group in the target's session.
+ * @return        Zero, or a negative errno naming why the move was
+ *                refused.
+ * @since         0.5.0
+ */
+inline long long Setpgid(unsigned long long pid, unsigned long long pgid) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kSetpgid), pid, pgid,
+                    0);
+}
+
+/**
+ * @brief         setsid(): become a session of one's own.
+ * @return        The new session id (the caller's pid), or a negative
+ *                errno when the caller already leads a group.
+ * @since         0.5.0
+ */
+inline long long Setsid() {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kSetsid), 0, 0, 0);
+}
+
+/**
+ * @brief         getpgid(pid): read a task's group.
+ * @param[in]     pid    The target; zero means the caller.
+ * @return        The group id, or a negative errno.
+ * @since         0.5.0
+ */
+inline long long Getpgid(unsigned long long pid) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kGetpgid), pid, 0,
+                    0);
+}
+
+/**
+ * @brief         getsid(pid): read a task's session.
+ * @param[in]     pid    The target; zero means the caller.
+ * @return        The session id, or a negative errno.
+ * @since         0.5.0
+ */
+inline long long Getsid(unsigned long long pid) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kGetsid), pid, 0, 0);
+}
+
+/**
+ * @brief         rt_sigaction(sig, act, oact, size): install a handler.
+ * @param[in]     number   The signal to arm.
+ * @param[in]     action   The new disposition, or null to only ask.
+ * @param[out]    old      Receives the previous disposition, or null.
+ * @return        Zero, or a negative errno.
+ * @since         0.5.0
+ */
+inline long long Sigaction(int number, const cinux::syscall::SigAction* action,
+                           cinux::syscall::SigAction* old  // NOLINT(misc-const-correctness) the
+                                                           // kernel writes it via the syscall
+) {
+    return Syscall4(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kRtSigaction),
+                    static_cast<unsigned long long>(number),
+                    reinterpret_cast<unsigned long long>(action),
+                    reinterpret_cast<unsigned long long>(old), sizeof(cinux::syscall::SigSet));
+}
+
+/**
+ * @brief         rt_sigprocmask(how, set, old, size): move the mask.
+ * @param[in]     how   0 blocks the set, 1 unblocks it, 2 replaces the mask.
+ * @param[in]     set   The set to apply, or null to only ask.
+ * @param[out]    old   Receives the previous mask, or null.
+ * @return        Zero, or a negative errno.
+ * @since         0.5.0
+ */
+inline long long Sigprocmask(int how, const cinux::syscall::SigSet* set,
+                             cinux::syscall::SigSet* old  // NOLINT(misc-const-correctness) the
+                                                          // kernel writes it via the syscall
+) {
+    return Syscall4(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kRtSigprocmask),
+                    static_cast<unsigned long long>(how), reinterpret_cast<unsigned long long>(set),
+                    reinterpret_cast<unsigned long long>(old), sizeof(cinux::syscall::SigSet));
 }
 
 /**

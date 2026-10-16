@@ -11,10 +11,9 @@
 
 namespace cinux::syscall {
 
-long long HandleChdir(unsigned long long path, [[maybe_unused]] unsigned long long second,
-                      [[maybe_unused]] unsigned long long third) {
+long long HandleChdir(const SyscallFrame& frame) {
     char            storage[fs::kFsPathMax] = {};
-    const long long kLength                 = FoldUserPath(path, storage, fs::kFsPathMax);
+    const long long kLength                 = FoldUserPath(frame.rdi, storage, fs::kFsPathMax);
     if (kLength < 0) {
         return kLength;
     }

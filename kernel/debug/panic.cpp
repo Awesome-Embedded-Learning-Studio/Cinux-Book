@@ -21,6 +21,8 @@ const char* state_name(cinux::proc::TaskState state) {
         return "running";
     case cinux::proc::TaskState::kBlocked:
         return "blocked";
+    case cinux::proc::TaskState::kStopped:
+        return "stopped";
     case cinux::proc::TaskState::kZombie:
         return "zombie";
     case cinux::proc::TaskState::kDead:

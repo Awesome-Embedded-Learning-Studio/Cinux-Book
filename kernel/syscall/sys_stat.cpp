@@ -10,13 +10,12 @@
 
 namespace cinux::syscall {
 
-long long HandleStat(unsigned long long path, unsigned long long out,
-                     [[maybe_unused]] unsigned long long third) {
-    if (out >= kUserAddressLimit) {
+long long HandleStat(const SyscallFrame& frame) {
+    if (frame.rsi >= kUserAddressLimit) {
         return -kEfault;
     }
     char storage[fs::kFsPathMax] = {};
-    if (const long long kBad = FoldUserPath(path, storage, fs::kFsPathMax); kBad < 0) {
+    if (const long long kBad = FoldUserPath(frame.rdi, storage, fs::kFsPathMax); kBad < 0) {
         return kBad;
     }
     const base::Result<fs::FsView> kView = fs::FileWorld::self().resolve(storage);
@@ -35,12 +34,13 @@ long long HandleStat(unsigned long long path, unsigned long long out,
     if (!kProbed.ok()) {
         return -ErrnoFrom(kProbed.error());
     }
-    auto* const kSink = reinterpret_cast<SyscallStat*>(out);  // NOLINT(performance-no-int-to-ptr)
-    kSink->ino        = probed.ino;
-    kSink->mode       = probed.mode;
-    kSink->links      = probed.links;
-    kSink->size       = probed.size;
-    kSink->mtime      = probed.mtime;
+    auto* const kSink =
+        reinterpret_cast<SyscallStat*>(frame.rsi);  // NOLINT(performance-no-int-to-ptr)
+    kSink->ino   = probed.ino;
+    kSink->mode  = probed.mode;
+    kSink->links = probed.links;
+    kSink->size  = probed.size;
+    kSink->mtime = probed.mtime;
     return 0;
 }
 

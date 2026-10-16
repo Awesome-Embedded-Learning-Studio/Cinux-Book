@@ -29,6 +29,16 @@ public:
 
     Task* take_front() { return count_ == 0 ? nullptr : take_at(0); }
 
+    bool remove(Task& task) {
+        for (unsigned long long i = 0; i < count_; ++i) {
+            if (slots_[i] == &task) {
+                take_at(i);
+                return true;
+            }
+        }
+        return false;
+    }
+
     Task* take_best_priority() {
         unsigned long long best = 0;
         for (unsigned long long i = 1; i < count_; ++i) {
@@ -52,6 +62,8 @@ public:
 
     [[nodiscard]] Task* pick() override { return row_.take_front(); }
 
+    bool remove(Task& task) override { return row_.remove(task); }
+
     [[nodiscard]] bool wants_rotate(unsigned int slice_ticks) const override {
         return slice_ticks >= kTimeSliceTicks;
     }
@@ -67,6 +79,8 @@ public:
     bool enqueue(Task& task) override { return row_.push(task); }
 
     [[nodiscard]] Task* pick() override { return row_.take_best_priority(); }
+
+    bool remove(Task& task) override { return row_.remove(task); }
 
     [[nodiscard]] bool wants_rotate(unsigned int slice_ticks) const override {
         return slice_ticks >= kTimeSliceTicks;

@@ -72,6 +72,16 @@ proc::Task* CurrentTask() {
     return proc::Scheduler::self().current();
 }
 
+bool UserRangeReadable(unsigned long long start, unsigned long long bytes) {
+    return bytes != 0 && start != 0 && start < kUserAddressLimit &&
+           bytes <= kUserAddressLimit - start;
+}
+
+bool UserRangeWritable(unsigned long long start, unsigned long long bytes) {
+    return bytes != 0 && start != 0 && start < kUserAddressLimit &&
+           bytes <= kUserAddressLimit - start;
+}
+
 base::Result<fs::FileSlot*> LiveSlot(unsigned long long descriptor) {
     if (descriptor >= fs::kFileTableMax) {
         return base::KernelError::kInvalidArgument;

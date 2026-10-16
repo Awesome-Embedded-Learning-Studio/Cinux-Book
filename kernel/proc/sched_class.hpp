@@ -67,6 +67,21 @@ public:
     [[nodiscard]] virtual Task* pick() = 0;
 
     /**
+     * @brief         Take a queued task back off this class's queue.
+     * @param[in,out] task   A task previously seated here.
+     * @return        True when it was found and removed; false when
+     *                this class does not currently hold it.
+     * @note          The stop-signal door: SIGSTOP withdraws a task
+     *                from the runnable world, and only the class that
+     *                queued it knows where it sits. Classes own their
+     *                queues, so withdrawal is theirs to answer, the
+     *                same ownership that makes pick() theirs.
+     * @since         0.1.0
+     * @ingroup       kernel_proc
+     */
+    virtual bool remove(Task& task) = 0;
+
+    /**
      * @brief         Whether the running task has spent its slice here.
      * @param[in]     slice_ticks   Ticks the current task has run, as
      *                                counted by the scheduler.

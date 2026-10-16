@@ -4,8 +4,10 @@
 #include "cinux/container/self_list.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/proc/sched_class.hpp"
+#include "kernel/proc/signals.hpp"
 #include "kernel/proc/sync.hpp"
 #include "kernel/proc/task.hpp"
+#include "kernel/syscall/signal.hpp"
 
 namespace cinux::proc {
 
@@ -73,6 +75,16 @@ Task* Scheduler::current() const {
 
 unsigned long long Scheduler::offspring_count() const {
     return offspring_.size();
+}
+
+Task* Scheduler::find_by_pid(unsigned long long pid) {
+    const cinux::arch::IrqGuard kGuard;
+    for (Task* scan = offspring_.head(); scan != nullptr; scan = offspring_.after(*scan)) {
+        if (scan->pid == pid) {
+            return scan;
+        }
+    }
+    return nullptr;
 }
 
 void Scheduler::yield() {
@@ -147,6 +159,7 @@ void Scheduler::exit_current(long long code) {
     detach_offspring(*kPrev);
     if (kPrev->parent != nullptr) {
         kPrev->state = TaskState::kZombie;
+        SendSignal(*kPrev->parent, cinux::syscall::kSigChld);
         if (waiters_.remove(*kPrev->parent)) {
             unblock(*kPrev->parent);
         }
@@ -167,22 +180,28 @@ void Scheduler::exit_current(long long code) {
     }
 }
 
-Task* Scheduler::take_zombie_child(Task& watcher, long long wanted, bool& has_any_child) {
+Task* Scheduler::take_zombie_child(Task& watcher, long long wanted, bool& has_eligible) {
     Task*                match = nullptr;
     decltype(offspring_) keep{};
-    Task*                scan          = nullptr;
-    has_any_child                      = false;
-    const bool               kAnyChild = wanted < 0;
+    Task*                scan            = nullptr;
+    has_eligible                         = false;
+    const bool               kAnyChild   = wanted == -1;
+    const bool               kOwnGroup   = wanted == 0;
+    const bool               kNamedGroup = wanted < -1;
     const unsigned long long kWantedPid =
-        kAnyChild ? 0ULL : static_cast<unsigned long long>(wanted);
+        kAnyChild || kOwnGroup || kNamedGroup ? 0ULL : static_cast<unsigned long long>(wanted);
+    const unsigned long long kGroup =
+        kNamedGroup ? static_cast<unsigned long long>(-wanted) : watcher.pgid;
     while ((scan = offspring_.pop_head()) != nullptr) {
         if (scan->parent != &watcher) {
             keep.push_back(*scan);
             continue;
         }
-        has_any_child = true;
-        const bool kHit =
-            scan->state == TaskState::kZombie && (kAnyChild || scan->pid == kWantedPid);
+        const bool kNamed    = kAnyChild || scan->pid == kWantedPid;
+        const bool kGrouped  = (kOwnGroup || kNamedGroup) && scan->pgid == kGroup;
+        const bool kEligible = kNamed || kGrouped;
+        has_eligible         = has_eligible || kEligible;
+        const bool kHit      = kEligible && scan->state == TaskState::kZombie;
         if (kHit && match == nullptr) {
             match = scan;
         } else {
@@ -217,7 +236,7 @@ void Scheduler::detach_offspring(Task& dying) {
     }
 }
 
-bool Scheduler::wait_child(long long wanted, ChildReceipt& receipt) {
+bool Scheduler::wait_child(long long wanted, bool no_hang, ChildReceipt& receipt) {
     for (;;) {
         const cinux::arch::IrqGuard kGuard;
         Task* const                 kSelf = current_;
@@ -232,6 +251,10 @@ bool Scheduler::wait_child(long long wanted, ChildReceipt& receipt) {
         }
         if (!has_any_child) {
             return false;
+        }
+        if (no_hang) {
+            receipt.pid = 0;
+            return true;
         }
         cinux::base::safety::Check(DefaultSpinLedger().depth() == 0,
                                    "task parked while holding a spinlock");
@@ -270,6 +293,45 @@ void Scheduler::unblock(Task& task) {
                                "unblock of a task that is not parked");
     task.state = TaskState::kReady;
     cinux::base::safety::Check(task.sched_class->enqueue(task), "ready queue full at unblock");
+}
+
+void Scheduler::stop_current() {
+    const cinux::arch::IrqGuard kGuard;
+    Task* const                 kSelf = current_;
+    cinux::base::safety::Check(kSelf != nullptr, "stop called outside any task");
+    cinux::base::safety::Check(DefaultSpinLedger().depth() == 0,
+                               "task stopped while holding a spinlock");
+    kSelf->state = TaskState::kStopped;
+    Task* next   = pick_next();
+    if (next != nullptr) {
+        current_     = next;
+        next->state  = TaskState::kRunning;
+        slice_ticks_ = 0;
+        switch_tasks_(sink_, *kSelf, *next);
+        reap_pending();
+        return;
+    }
+    current_ = nullptr;
+    return_to_main_(sink_, *kSelf);
+}
+
+void Scheduler::resume(Task& task) {
+    const cinux::arch::IrqGuard kGuard;
+    cinux::base::safety::Check(task.state == TaskState::kStopped,
+                               "resume of a task that is not stopped");
+    task.state = TaskState::kReady;
+    cinux::base::safety::Check(task.sched_class->enqueue(task), "ready queue full at resume");
+}
+
+bool Scheduler::withdraw(Task& task) {
+    const cinux::arch::IrqGuard kGuard;
+    if (task.state != TaskState::kReady) {
+        return false;
+    }
+    const bool kQueued = task.sched_class->remove(task);
+    cinux::base::safety::Check(kQueued, "ready queue lost a task the stop signal named");
+    task.state = TaskState::kStopped;
+    return true;
 }
 
 void Scheduler::run_until_done() {

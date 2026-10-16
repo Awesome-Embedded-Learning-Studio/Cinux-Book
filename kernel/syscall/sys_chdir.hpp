@@ -12,20 +12,18 @@
 
 #pragma once
 
-#include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/syscall.hpp"
 
 namespace cinux::syscall {
 
 /**
  * @brief         chdir(path).
- * @param[in]     path    User address of the directory path, relative
- *                        or absolute.
- * @param[in]     second  Unused.
- * @param[in]     third   Unused.
+ * @param[in]     frame   The trap frame; the path address, relative or
+ *                        absolute, rides rdi.
  * @return        Zero, or a negative errno.
  * @since         0.1.0
  * @ingroup       kernel_syscall
  */
-long long HandleChdir(Word path, Word second, Word third);
+long long HandleChdir(const SyscallFrame& frame);
 
 }  // namespace cinux::syscall

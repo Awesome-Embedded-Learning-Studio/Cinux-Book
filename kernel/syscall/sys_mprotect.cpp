@@ -15,21 +15,21 @@
 
 namespace cinux::syscall {
 
-long long HandleMprotect(Word addr_word, Word len_word, Word prot_word) {
+long long HandleMprotect(const SyscallFrame& frame) {
     const proc::Task* const kSelf = CurrentTask();
     if (kSelf == nullptr || kSelf->vmas == nullptr || kSelf->space == nullptr) {
         return -kEnomem;
     }
-    const unsigned long kStart = cinux::base::math::AlignDown(addr_word, cinux::arch::page::kSize);
+    const unsigned long kStart = cinux::base::math::AlignDown(frame.rdi, cinux::arch::page::kSize);
     const unsigned long kEnd =
-        cinux::base::math::AlignUp(addr_word + len_word, cinux::arch::page::kSize);
+        cinux::base::math::AlignUp(frame.rdi + frame.rsi, cinux::arch::page::kSize);
     if (kStart >= kEnd) {
         return -kEinval;
     }
     const mm::VmaProtection kTerms{
-        .readable   = (prot_word & kProtRead) != 0,
-        .writable   = (prot_word & kProtWrite) != 0,
-        .executable = (prot_word & kProtExec) != 0,
+        .readable   = (frame.rdx & kProtRead) != 0,
+        .writable   = (frame.rdx & kProtWrite) != 0,
+        .executable = (frame.rdx & kProtExec) != 0,
     };
     const base::Result<void> kRewritten = kSelf->vmas->protect(kStart, kEnd, kTerms);
     if (!kRewritten.ok()) {
