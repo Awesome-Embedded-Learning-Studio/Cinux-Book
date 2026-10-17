@@ -18,7 +18,7 @@ namespace cinux::syscall {
 
 long long HandleMunmap(const SyscallFrame& frame) {
     const proc::Task* const kSelf = CurrentTask();
-    if (kSelf == nullptr || kSelf->vmas == nullptr || kSelf->space == nullptr) {
+    if (kSelf == nullptr || !kSelf->vmas.holds() || !kSelf->space.holds()) {
         return -kEnomem;
     }
     const unsigned long kStart = cinux::base::math::AlignDown(frame.rdi, cinux::arch::page::kSize);

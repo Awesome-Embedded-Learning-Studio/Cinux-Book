@@ -4,10 +4,8 @@
 #include "kernel/arch/x86_64/per_cpu.hpp"
 #include "kernel/arch/x86_64/registers.hpp"
 #include "kernel/arch/x86_64/tss.hpp"
-#include "kernel/mm/address_space.hpp"  // NOLINT(misc-include-cleaner) delete needs the complete type
 #include "kernel/mm/layout.hpp"
 #include "kernel/mm/pmm.hpp"
-#include "kernel/mm/vma.hpp"  // NOLINT(misc-include-cleaner) delete needs the complete type
 #include "kernel/mm/vmm.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/scheduler.hpp"
@@ -36,15 +34,26 @@ void arm_task_entry(const Task& task) {
     }
 }
 
+void swap_address_regs(Task* outgoing, const Task* incoming) {
+    if (outgoing != nullptr) {
+        cinux::arch::per_cpu::StoreTaskAddressRegs(outgoing->ctx.fs_base, outgoing->ctx.gs_base);
+    }
+    if (incoming != nullptr) {
+        cinux::arch::per_cpu::LoadTaskAddressRegs(incoming->ctx.fs_base, incoming->ctx.gs_base);
+    }
+}
+
 class KernelSwitchSink {
 public:
     void switch_tasks(Task& outgoing, Task& incoming) {
         arm_task_entry(incoming);
+        swap_address_regs(&outgoing, &incoming);
         ContextSwitch(&outgoing.ctx, &incoming.ctx);
     }
 
     void enter_from_main(Task& incoming) {
         arm_task_entry(incoming);
+        swap_address_regs(nullptr, &incoming);
         ContextSwitch(&main_ctx_, &incoming.ctx);
     }
 
@@ -52,12 +61,11 @@ public:
         if (cinux::arch::ReadCr3() != cinux::mm::KernelPageRoot()) {
             cinux::arch::LoadCr3(cinux::mm::KernelPageRoot());
         }
+        swap_address_regs(&outgoing, nullptr);
         ContextSwitch(&outgoing.ctx, &main_ctx_);
     }
 
     void reclaim(Task& dead) {
-        delete dead.vmas;
-        delete dead.space;
         const auto kStackPhys = cinux::mm::DirectMapPhys(dead.stack_base);
         cinux::mm::Pmm::self().free_pages(cinux::base::PhysAddr{kStackPhys}, kStackOrder);
         delete &dead;

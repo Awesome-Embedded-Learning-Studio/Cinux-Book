@@ -29,8 +29,26 @@ cinux::proc::StartPlan plan_for(FakeStack& stack) {
 TEST("context: layout matches the assembly contract") {
     using cinux::arch::CpuContext;
     static_assert(offsetof(CpuContext, fpu) == 64);
-    static_assert(sizeof(CpuContext) == 576);
+    static_assert(offsetof(CpuContext, fs_base) == 576);
+    static_assert(offsetof(CpuContext, gs_base) == 584);
+    static_assert(sizeof(CpuContext) == 592);
     ASSERT_TRUE(alignof(CpuContext) >= 16);
+}
+
+TEST("context: canonical check accepts the two legal halves") {
+    using cinux::arch::IsCanonicalAddress;
+    ASSERT_TRUE(IsCanonicalAddress(0ULL));
+    ASSERT_TRUE(IsCanonicalAddress(cinux::arch::kCanonicalUserTop));
+    ASSERT_TRUE(IsCanonicalAddress(cinux::arch::kCanonicalKernelBottom));
+    ASSERT_TRUE(IsCanonicalAddress(~0ULL));
+}
+
+TEST("context: canonical check refuses the non-canonical hole") {
+    using cinux::arch::IsCanonicalAddress;
+    ASSERT_TRUE(!IsCanonicalAddress(cinux::arch::kCanonicalUserTop + 1));
+    ASSERT_TRUE(!IsCanonicalAddress(cinux::arch::kCanonicalKernelBottom - 1));
+    ASSERT_TRUE(!IsCanonicalAddress(0x0000800000000000ULL));
+    ASSERT_TRUE(!IsCanonicalAddress(0x1234567890abcdefULL));
 }
 
 TEST("context: arming a fresh image points at the trampoline pair") {

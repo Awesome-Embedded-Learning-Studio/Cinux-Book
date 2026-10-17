@@ -24,3 +24,9 @@ fi
 if [ -f "${CINUX_SIGDEMO_ELF:-}" ]; then
     debugfs -w -R "write ${CINUX_SIGDEMO_ELF} /bin/sigdemo" "$image" >/dev/null 2>&1
 fi
+if [ -f "${CINUX_TLSDEMO_ELF:-}" ]; then
+    debugfs -w -R "write ${CINUX_TLSDEMO_ELF} /bin/tlsdemo" "$image" >/dev/null 2>&1
+fi
+if [ -f "${CINUX_THREADDEMO_ELF:-}" ]; then
+    debugfs -w -R "write ${CINUX_THREADDEMO_ELF} /bin/threaddemo" "$image" >/dev/null 2>&1
+fi

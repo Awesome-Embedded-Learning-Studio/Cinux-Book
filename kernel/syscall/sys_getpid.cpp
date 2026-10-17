@@ -6,7 +6,7 @@
 namespace cinux::syscall {
 
 long long HandleGetpid(const SyscallFrame& /*frame*/) {
-    return static_cast<long long>(CurrentTask()->pid);
+    return static_cast<long long>(CurrentTask()->tgid);
 }
 
 }  // namespace cinux::syscall

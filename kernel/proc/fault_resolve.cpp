@@ -28,7 +28,7 @@ bool resolve_current_fault(unsigned long long address, unsigned long long error_
         return true;
     }
     const Task* const kSelf = Scheduler::self().current();
-    if (kSelf == nullptr || kSelf->space == nullptr || kSelf->vmas == nullptr) {
+    if (kSelf == nullptr || !kSelf->space.holds() || !kSelf->vmas.holds()) {
         return false;
     }
     if (!mm::demand::FillPage(*kSelf->space, *kSelf->vmas, address, error_code)) {

@@ -3,6 +3,7 @@
 #include "cinux/result.hpp"
 #include "kernel/driver/keyboard/keyboard.hpp"
 #include "kernel/fs/file_table.hpp"
+#include "kernel/fs/open_file.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
 
@@ -37,7 +38,7 @@ long long HandleRead(const SyscallFrame& frame) {
     if (frame.rdi == 0) {
         return keyboard_into(frame.rsi, frame.rdx);
     }
-    const base::Result<fs::FileSlot*> kSlot = LiveSlot(frame.rdi);
+    const base::Result<fs::OpenFile*> kSlot = LiveSlot(frame.rdi);
     if (!kSlot.ok()) {
         return -kEbadf;
     }

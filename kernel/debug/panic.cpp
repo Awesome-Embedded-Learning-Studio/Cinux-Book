@@ -40,7 +40,7 @@ void print_current_task() {
     cinux::print::Println("[kern]  task pid=%u name=%s state=%s", current->pid,
                           current->name != nullptr ? current->name : "unnamed",
                           state_name(current->state));
-    if (current->vmas != nullptr) {
+    if (current->vmas.holds()) {
         cinux::print::Println("[kern]  vma regions=%u", current->vmas->region_count());
         return;
     }

@@ -60,17 +60,73 @@ static_assert(offsetof(PerCpu, syscall_frame) == 24, "assembly banks the frame a
 /**
  * @brief         Point both GS bases at the per-CPU block.
  * @return        None.
- * @note          IA32_GS_BASE (the one live in ring 0) and
- *                IA32_KERNEL_GSBASE (the one swapgs exchanges it for)
- *                both receive the block's address. Until user programs
- *                ask for a TLS of their own the two are allowed to
- *                agree — swapgs then swaps equals, and every %gs
- *                reference in the kernel lands on this block whichever
- *                way the exchange went.
+ * @note          Bring-up only. IA32_GS_BASE is the one live MSR in
+ *                every ring from here on — the block never leaves it,
+ *                and the entry assembly addresses the block with no
+ *                exchange at all. IA32_KERNEL_GSBASE starts on the
+ *                block too, then becomes the staging slot the task
+ *                switch moves each task's own GS base through.
  * @since         0.1.0
  * @ingroup       kernel_arch
  */
 void InstallKernelGs();
+
+/**
+ * @brief         Save the outgoing task's address-space bases.
+ * @param[out]    fs_base    Receives the live FS base (MSR 0xC0000100).
+ * @param[out]    gs_base    Receives the task's own GS base, read from
+ *                           IA32_KERNEL_GSBASE where the switch staged
+ *                           it.
+ * @return        None.
+ * @note          Call only while the outgoing task still holds the
+ *                CPU, and only from kernel context — IA32_GS_BASE
+ *                never changes rings, so the staging MSR is the sole
+ *                home of a task's own GS value.
+ * @since         0.8.0
+ * @ingroup       kernel_arch
+ */
+void StoreTaskAddressRegs(unsigned long long& fs_base, unsigned long long& gs_base);
+
+/**
+ * @brief         Load the incoming task's address-space bases.
+ * @param[in]     fs_base    The FS base to make live.
+ * @param[in]     gs_base    The task's own GS base, staged into
+ *                           IA32_KERNEL_GSBASE for the next save and
+ *                           the entry path's benefit.
+ * @return        None.
+ * @note          The FS write takes effect for the running code at
+ *                once; kernel code keeps off FS-relative addressing,
+ *                so the outgoing task is unaffected until the switch.
+ * @since         0.8.0
+ * @ingroup       kernel_arch
+ */
+void LoadTaskAddressRegs(unsigned long long fs_base, unsigned long long gs_base);
+
+/**
+ * @brief         Make a value the live FS base.
+ * @param[in]     base   The canonical address FS-relative addressing
+ *                       resolves through from now on.
+ * @return        None.
+ * @note          The arch_prctl path's immediate write: the calling
+ *                task is the one holding the CPU, so its context word
+ *                and this MSR move together.
+ * @since         0.8.0
+ * @ingroup       kernel_arch
+ */
+void WriteFsBase(unsigned long long base);
+
+/**
+ * @brief         Stage a value as the task's own GS base.
+ * @param[in]     base   The canonical address to track for this task.
+ * @return        None.
+ * @note          Lands in IA32_KERNEL_GSBASE, the staging MSR — the
+ *                live IA32_GS_BASE stays on the per-CPU block in
+ *                every ring, so the next switch saves exactly what
+ *                this wrote.
+ * @since         0.8.0
+ * @ingroup       kernel_arch
+ */
+void WriteKernelGsBase(unsigned long long base);
 
 /**
  * @brief         Read back the address GS currently resolves to.

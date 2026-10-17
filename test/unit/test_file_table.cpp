@@ -113,6 +113,40 @@ TEST("file table: close_all is harmless after a previous close_all") {
     ASSERT_EQ(refs.released, 1UL);
 }
 
+TEST("file table: an adopted open is shared, its cursor moves for both") {
+    cinux::test::FileRefs refs;
+    cinux::fs::FileTable  parent;
+    cinux::fs::FileTable  child;
+    const auto            kFd   = parent.alloc(&cinux::test::FileRefs::kOps, &refs, sample_node(1));
+    const auto            kHeld = parent.shared(kFd.value());
+    const auto            kChild = child.adopt(kHeld.value());
+    ASSERT_TRUE(kChild.ok());
+    parent.get(kFd.value()).value()->offset = 40;
+    ASSERT_EQ(child.get(kChild.value()).value()->offset, 40UL);
+    ASSERT_EQ(refs.retained, 1UL);
+}
+
+TEST("file table: a table's free leaves the adopted owner alive") {
+    cinux::test::FileRefs refs;
+    cinux::fs::FileTable  parent;
+    cinux::fs::FileTable  child;
+    unsigned long         parent_fd = 0;
+    unsigned long         child_fd  = 0;
+    {
+        const auto kFd    = parent.alloc(&cinux::test::FileRefs::kOps, &refs, sample_node(1));
+        const auto kHeld  = parent.shared(kFd.value());
+        const auto kChild = child.adopt(kHeld.value());
+        ASSERT_TRUE(kChild.ok());
+        parent_fd = kFd.value();
+        child_fd  = kChild.value();
+    }
+    ASSERT_TRUE(parent.free(parent_fd).ok());
+    ASSERT_EQ(refs.released, 0UL);
+    ASSERT_TRUE(child.get(child_fd).ok());
+    ASSERT_TRUE(child.free(child_fd).ok());
+    ASSERT_EQ(refs.released, 1UL);
+}
+
 int main() {
     return cinux::test::RunAll();
 }

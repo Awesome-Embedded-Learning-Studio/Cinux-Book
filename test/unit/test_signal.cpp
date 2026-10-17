@@ -46,9 +46,11 @@ constexpr SigSet bit_for(int number) {
 /// A delivery writes its context under the interrupted rsp, so the host
 /// test plants real memory at a fake rsp inside the kernel's own stack
 /// window: the engine's address arithmetic runs against the constants
-/// the kernel actually uses.
-constexpr unsigned long kWindowStart = cinux::mm::kUserStackTop - (2UL * cinux::arch::page::kSize);
-constexpr unsigned long kFakeRsp     = cinux::mm::kUserStackTop - 0x400UL;
+/// the kernel actually uses. The window is planted at run time: the
+/// host process keeps its own live stack up by the window's top end
+/// (pinned there under sanitizers), so mapping starts mid-span and
+/// steps upward over occupied ground instead of replacing those frames.
+unsigned long long      g_fake_rsp   = 0;
 constexpr unsigned long kHandlerWord = 0x0000000000401000UL;
 
 struct World;
@@ -297,7 +299,7 @@ TEST("signal delivery: a custom handler rewrites the frame onto its stack") {
         SigAction& action   = site.alpha.signals.actions[kSigInt - 1];
         action.handler      = kHandlerWord;
         action.mask         = bit_for(kSigUsr1);
-        site.frame.user_rsp = kFakeRsp;
+        site.frame.user_rsp = g_fake_rsp;
         site.frame.rax      = 7;
         site.frame.rcx      = 0xDEADULL;
         site.frame.rdi      = 99;
@@ -307,7 +309,7 @@ TEST("signal delivery: a custom handler rewrites the frame onto its stack") {
     };
     world.run();
     ASSERT_TRUE(world.rewrote);
-    ASSERT_TRUE(frame_says(world.frame, kFakeRsp));
+    ASSERT_TRUE(frame_says(world.frame, g_fake_rsp));
     ASSERT_TRUE(world.alpha.signals.pending.raw == 0);
     ASSERT_TRUE(world.alpha.signals.blocked.has(bit_for(kSigUsr1)));
     ASSERT_TRUE(!world.alpha.signals.blocked.has(bit_for(kSigInt)));
@@ -319,7 +321,7 @@ TEST("signal delivery: resethand reverts the action once it has run") {
         SigAction& action   = site.alpha.signals.actions[kSigInt - 1];
         action.handler      = kHandlerWord;
         action.flags        = kSaResethand;
-        site.frame.user_rsp = kFakeRsp;
+        site.frame.user_rsp = g_fake_rsp;
         SendSignal(site.alpha, kSigInt);
         site.rewrote = DeliverPendingSignals(site.frame);
         cinux::proc::Scheduler::self().exit_current();
@@ -482,10 +484,17 @@ TEST("stop delivery: the halting stop consumes itself and halts mid-delivery") {
 }  // namespace
 
 int main() {
-    void* const kWindow = cinux::base::PtrAt<void>(kWindowStart);
-    if (mmap(kWindow, 2UL * cinux::arch::page::kSize, PROT_READ | PROT_WRITE,
-             MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0) != kWindow) {
-        return 2;
+    constexpr unsigned long kWindowBytes = 2UL * cinux::arch::page::kSize;
+    constexpr unsigned long kStep        = 64UL * 1024UL;
+    constexpr unsigned long kKeepClear   = 64UL * 1024UL;
+    for (unsigned long top = cinux::mm::kUserStackBottom + kStep;
+         top <= cinux::mm::kUserStackTop - kKeepClear; top += kStep) {
+        void* const kWindow = cinux::base::PtrAt<void>(top - kWindowBytes);
+        if (mmap(kWindow, kWindowBytes, PROT_READ | PROT_WRITE,
+                 MAP_FIXED_NOREPLACE | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0) == kWindow) {
+            g_fake_rsp = static_cast<unsigned long long>(top - 0x400UL);
+            return cinux::test::RunAll();
+        }
     }
-    return cinux::test::RunAll();
+    return 3;
 }

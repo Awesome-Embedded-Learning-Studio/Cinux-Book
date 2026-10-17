@@ -19,6 +19,7 @@
 #include "cinux/math.hpp"
 #include "cinux/own.hpp"
 #include "cinux/result.hpp"
+#include "cinux/shared.hpp"
 #include "kernel/arch/x86_64/page.hpp"
 #include "kernel/arch/x86_64/registers.hpp"
 #include "kernel/arch/x86_64/usermode.hpp"
@@ -58,8 +59,8 @@ bool read_volume_file(const char* path, base::Own<unsigned char[]>& out, unsigne
 
 /// One built shell world: the space and its range register, seat-ready.
 struct ShellWorld {
-    base::Own<mm::AddressSpace> space;
-    base::Own<mm::VmaStore>     vmas;
+    base::Shared<mm::AddressSpace> space;
+    base::Shared<mm::VmaStore>     vmas;
 };
 
 /// Loads the volume's shell ELF into a fresh world with a stack page and a
@@ -72,8 +73,8 @@ ShellWorld build_shell_world(std::uint64_t& entry) {
         print::Println("[kern] kernel_init: /bin/sh unreadable on the volume");
         return {};
     }
-    base::Own<mm::AddressSpace> space(new mm::AddressSpace{});
-    base::Own<mm::VmaStore>     vmas(new mm::VmaStore{});
+    base::Shared<mm::AddressSpace> space(new mm::AddressSpace{});
+    base::Shared<mm::VmaStore>     vmas(new mm::VmaStore{});
     if (!space.holds() || !vmas.holds() || !space->init()) {
         return {};
     }
@@ -142,8 +143,8 @@ bool seat_shell_task(proc::Task& parent) {
     if (kShell == nullptr) {
         return false;
     }
-    kShell->space = world.space.release();
-    kShell->vmas  = world.vmas.release();
+    kShell->space = std::move(world.space);
+    kShell->vmas  = std::move(world.vmas);
     proc::Scheduler::self().seat(*kShell);
     kShell->pgid = kShell->pid;
     kShell->sid  = kShell->pid;

@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include "cinux/ref_count.hpp"
 #include "kernel/arch/x86_64/page_entry.hpp"
 
 namespace cinux::mm {
@@ -28,12 +29,14 @@ namespace cinux::mm {
 /**
  * @brief   A page-table world of its own.
  * @note    Not a singleton: one instance per world, the process being
- *          the future owner. Place instances in static storage; the
- *          kernel has no stacks deep enough to waste on one.
+ *          the future owner. Lives on the heap under shared ownership:
+ *          a fork copies the world, a clone with CLONE_VM points its
+ *          whole thread group at one, and the last task holding it
+ *          tears the user half down.
  * @since   0.1.0
  * @ingroup kernel_mm
  */
-class AddressSpace {
+class AddressSpace : public cinux::base::RefCount<> {
 public:
     /**
      * @brief         Builds the root table: one ledger page, zeroed,

@@ -1,10 +1,12 @@
 #include "kernel/syscall/sys_exec.hpp"
 
 #include <cstdint>
+#include <utility>
 
 #include "cinux/math.hpp"
 #include "cinux/own.hpp"
 #include "cinux/result.hpp"
+#include "cinux/shared.hpp"
 #include "kernel/arch/x86_64/page.hpp"
 #include "kernel/fs/file_world.hpp"
 #include "kernel/fs/fs_config.hpp"
@@ -29,7 +31,6 @@ constexpr unsigned long long kUserFlags = 0x202;
 }  // namespace
 
 long long HandleExecve(const SyscallFrame& frame) {
-    auto&           mutable_frame        = const_cast<SyscallFrame&>(frame);
     char            path[fs::kFsPathMax] = {};
     const long long kFolded              = FoldUserPath(frame.rdi, path, sizeof(path));
     if (kFolded < 0) {
@@ -44,16 +45,15 @@ long long HandleExecve(const SyscallFrame& frame) {
     if (!fs::ReadWholeFile(kView.value(), program, program_size)) {
         return -kEio;
     }
-    proc::Task* const              kSelf     = CurrentTask();
-    mm::AddressSpace* const        kOldWorld = kSelf->space;  // NOLINT(misc-const-correctness)
+    proc::Task* const              kSelf = CurrentTask();
     const base::Result<fs::FsNode> kNode =
         kView.value().ops->lookup(kView.value().self, kView.value().rest);
     if (!kNode.ok()) {
         return -kEnoent;
     }
-    base::Own<mm::AddressSpace> fresh(new mm::AddressSpace{});
-    base::Own<mm::VmaStore>     ranges(new mm::VmaStore{});
-    std::uint64_t               entry = 0;
+    base::Shared<mm::AddressSpace> fresh(new mm::AddressSpace{});
+    base::Shared<mm::VmaStore>     ranges(new mm::VmaStore{});
+    std::uint64_t                  entry = 0;
     if (!fresh.holds() || !ranges.holds() || !fresh->init()) {
         return -kEnomem;
     }
@@ -89,12 +89,19 @@ long long HandleExecve(const SyscallFrame& frame) {
     if (!proc::MapSignalTrampoline(*fresh, *ranges)) {
         return -kEnomem;
     }
-    kSelf->signals   = proc::SignalState{};
-    kSelf->space     = fresh.release();
-    kSelf->vmas      = ranges.release();
-    kSelf->user_root = kSelf->space->root();
+    kSelf->signals                            = proc::SignalState{};
+    kSelf->clear_child_tid                    = 0;
+    // The dying worlds must not come apart while CR3 still walks them:
+    // park the old holds aside, switch, and let them go at scope end.
+    // NOLINTNEXTLINE(misc-const-correctness) the dying worlds go at scope end
+    base::Shared<mm::AddressSpace> old_space  = std::move(kSelf->space);
+    // NOLINTNEXTLINE(misc-const-correctness) the dying worlds go at scope end
+    base::Shared<mm::VmaStore>     old_ranges = std::move(kSelf->vmas);
+    kSelf->space                              = std::move(fresh);
+    kSelf->vmas                               = std::move(ranges);
+    kSelf->user_root                          = kSelf->space->root();
     kSelf->space->activate();
-    delete kOldWorld;
+    auto& mutable_frame    = const_cast<SyscallFrame&>(frame);
     mutable_frame.user_rsp = proc::kUserProgramStackTop - 8;
     mutable_frame.rcx      = entry;
     mutable_frame.r11      = kUserFlags;

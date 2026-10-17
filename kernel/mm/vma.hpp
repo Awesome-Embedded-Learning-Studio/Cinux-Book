@@ -24,6 +24,7 @@
 #pragma once
 
 #include "cinux/container/self_list.hpp"
+#include "cinux/ref_count.hpp"
 #include "cinux/result.hpp"
 #include "kernel/fs/vfs.hpp"
 
@@ -91,7 +92,7 @@ struct VmaProtection {
  * @since   0.1.0
  * @ingroup kernel_mm
  */
-class VmaStore {
+class VmaStore : public cinux::base::RefCount<> {
 public:
     VmaStore() = default;
 

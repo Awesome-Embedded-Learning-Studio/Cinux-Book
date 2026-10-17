@@ -72,3 +72,31 @@ target_link_options(user_sigdemo PRIVATE
 set_target_properties(user_sigdemo PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
     OUTPUT_NAME "sigdemo.elf")
+
+add_executable(user_tlsdemo programs/tlsdemo.cpp)
+target_compile_options(user_tlsdemo PRIVATE ${USER_COMPILE_FLAGS})
+target_include_directories(user_tlsdemo PRIVATE ${USER_INCLUDE_DIRS})
+target_compile_definitions(user_tlsdemo PRIVATE __USER__)
+target_link_options(user_tlsdemo PRIVATE
+    -nostdlib
+    -static
+    -no-pie
+    -Wl,-e,_start
+    -lgcc)
+set_target_properties(user_tlsdemo PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
+    OUTPUT_NAME "tlsdemo.elf")
+
+add_executable(user_threaddemo programs/threaddemo.cpp)
+target_compile_options(user_threaddemo PRIVATE ${USER_COMPILE_FLAGS})
+target_include_directories(user_threaddemo PRIVATE ${USER_INCLUDE_DIRS})
+target_compile_definitions(user_threaddemo PRIVATE __USER__)
+target_link_options(user_threaddemo PRIVATE
+    -nostdlib
+    -static
+    -no-pie
+    -Wl,-e,_start
+    -lgcc)
+set_target_properties(user_threaddemo PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
+    OUTPUT_NAME "threaddemo.elf")

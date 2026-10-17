@@ -14,16 +14,20 @@
 #include <utility>
 
 #include "kernel/proc/signals.hpp"
+#include "kernel/syscall/sys_arch_prctl.hpp"
 #include "kernel/syscall/sys_brk.hpp"
 #include "kernel/syscall/sys_chdir.hpp"
+#include "kernel/syscall/sys_clone.hpp"
 #include "kernel/syscall/sys_close.hpp"
 #include "kernel/syscall/sys_exec.hpp"
 #include "kernel/syscall/sys_exit.hpp"
 #include "kernel/syscall/sys_fork.hpp"
+#include "kernel/syscall/sys_futex.hpp"
 #include "kernel/syscall/sys_getcwd.hpp"
 #include "kernel/syscall/sys_getdents.hpp"
 #include "kernel/syscall/sys_getpid.hpp"
 #include "kernel/syscall/sys_getppid.hpp"
+#include "kernel/syscall/sys_gettid.hpp"
 #include "kernel/syscall/sys_kill.hpp"
 #include "kernel/syscall/sys_mkdir.hpp"
 #include "kernel/syscall/sys_mmap.hpp"
@@ -33,6 +37,7 @@
 #include "kernel/syscall/sys_pgrp.hpp"
 #include "kernel/syscall/sys_read.hpp"
 #include "kernel/syscall/sys_reboot.hpp"
+#include "kernel/syscall/sys_set_tid_address.hpp"
 #include "kernel/syscall/sys_signal.hpp"
 #include "kernel/syscall/sys_stat.hpp"
 #include "kernel/syscall/sys_unlink.hpp"
@@ -73,6 +78,7 @@ constexpr Row kRows[] = {
     },
     {.number = cinux::syscall::SyscallNr::kYield, .handler = cinux::syscall::HandleYield},
     {.number = cinux::syscall::SyscallNr::kGetpid, .handler = cinux::syscall::HandleGetpid},
+    {.number = cinux::syscall::SyscallNr::kClone, .handler = cinux::syscall::HandleClone},
     {.number = cinux::syscall::SyscallNr::kFork, .handler = cinux::syscall::HandleFork},
     {.number = cinux::syscall::SyscallNr::kExecve, .handler = cinux::syscall::HandleExecve},
     {.number = cinux::syscall::SyscallNr::kExit, .handler = cinux::syscall::HandleExit},
@@ -89,6 +95,16 @@ constexpr Row kRows[] = {
     {.number = cinux::syscall::SyscallNr::kMkdir, .handler = cinux::syscall::HandleMkdir},
     {.number = cinux::syscall::SyscallNr::kUnlink, .handler = cinux::syscall::HandleUnlink},
     {.number = cinux::syscall::SyscallNr::kGetdents, .handler = cinux::syscall::HandleGetdents},
+    {
+        .number  = cinux::syscall::SyscallNr::kArchPrctl,
+        .handler = cinux::syscall::HandleArchPrctl,
+    },
+    {.number = cinux::syscall::SyscallNr::kGettid, .handler = cinux::syscall::HandleGettid},
+    {.number = cinux::syscall::SyscallNr::kFutex, .handler = cinux::syscall::HandleFutex},
+    {
+        .number  = cinux::syscall::SyscallNr::kSetTidAddress,
+        .handler = cinux::syscall::HandleSetTidAddress,
+    },
 };
 
 constexpr auto kHandlers = [] {

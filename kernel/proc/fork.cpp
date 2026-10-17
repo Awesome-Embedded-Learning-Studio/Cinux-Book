@@ -1,14 +1,18 @@
 #include "kernel/proc/fork.hpp"
 
+#include <utility>
+
 #include "cinux/addr.hpp"
 #include "cinux/assert.hpp"
 #include "cinux/memory.hpp"
 #include "cinux/own.hpp"
 #include "cinux/ptr.hpp"
 #include "cinux/result.hpp"
+#include "cinux/shared.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/fs/file_table.hpp"
 #include "kernel/fs/fs_config.hpp"
+#include "kernel/fs/open_file.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/cow.hpp"
 #include "kernel/mm/layout.hpp"
@@ -37,6 +41,22 @@ void ForkChildEntry();
 
 namespace cinux::proc {
 
+namespace {
+
+/// A spawn refused before it starts beats one that dies halfway down
+/// the kernel stack: the spawner's own call chain must sit well inside
+/// the stack it is about to hand away, or the frames it touches while
+/// assembling the child can run off the end.
+void guard_spawn_depth(const Task& spawner) {
+    unsigned long long rsp = 0;  // NOLINT(misc-const-correctness) written by the asm output
+    asm volatile("movq %%rsp, %0" : "=r"(rsp));
+    const unsigned long long kUsed = spawner.stack_base + kStackBytes - rsp;
+    cinux::base::safety::Check(kUsed < (kStackBytes / 4) * 3,
+                               "spawn refused: the caller's kernel stack is nearly spent");
+}
+
+}  // namespace
+
 Task* BuildForkChild(unsigned long long frame_address) {
     const arch::IrqGuard kEntryGuard;
     const auto& parent_frame = *cinux::base::PtrAt<const syscall::SyscallFrame>(frame_address);
@@ -46,14 +66,15 @@ Task* BuildForkChild(unsigned long long frame_address) {
     const unsigned long long kUserR15  = parent_frame.r15;
     const auto&              scheduler = Scheduler::self();
     Task* const              kParent   = scheduler.current();
-    cinux::base::safety::Check(kParent != nullptr && kParent->space != nullptr,
-                               "fork of a task without a world");
-    base::Own<mm::AddressSpace> space(mm::cow::CloneSharedSpace(*kParent->space));
+    cinux::base::safety::Check(kParent != nullptr, "fork outside any task");
+    guard_spawn_depth(*kParent);
+    cinux::base::safety::Check(kParent->space.holds(), "fork of a task without a world");
+    base::Shared<mm::AddressSpace> space(mm::cow::CloneSharedSpace(*kParent->space));
     if (!space.holds()) {
         return nullptr;
     }
-    cinux::base::safety::Check(kParent->vmas != nullptr, "fork parent lost its range register");
-    base::Own<mm::VmaStore> vmas(kParent->vmas->clone());
+    cinux::base::safety::Check(kParent->vmas.holds(), "fork parent lost its range register");
+    base::Shared<mm::VmaStore> vmas(kParent->vmas->clone());
     if (!vmas.holds()) {
         return nullptr;
     }
@@ -83,8 +104,8 @@ Task* BuildForkChild(unsigned long long frame_address) {
     kBorn->name       = kParent->name;
     kBorn->stack_base = kStackVirt;
     kBorn->user_root  = space->root();
-    kBorn->space      = space.release();
-    kBorn->vmas       = vmas.release();
+    kBorn->space      = std::move(space);
+    kBorn->vmas       = std::move(vmas);
     kBorn->parent     = kParent;
     for (unsigned long slot = 0; slot < syscall::kSignalCount; ++slot) {
         kBorn->signals.actions[slot] = kParent->signals.actions[slot];
@@ -95,18 +116,12 @@ Task* BuildForkChild(unsigned long long frame_address) {
     cinux::base::CopyBytes(kBorn->cwd, kParent->cwd, fs::kFsPathMax);
     for (unsigned long descriptor = fs::kFirstDescriptor; descriptor < fs::kFileTableMax;
          ++descriptor) {
-        const base::Result<fs::FileSlot*> kSlot = kParent->files.get(descriptor);
-        if (!kSlot.ok()) {
+        const base::Result<base::Shared<fs::OpenFile>> kOpen = kParent->files->shared(descriptor);
+        if (!kOpen.ok()) {
             continue;
         }
-        const fs::FileSlot&               source = *kSlot.value();
-        const base::Result<unsigned long> kOpened =
-            kBorn->files.alloc(source.ops, source.backend, source.node);
-        if (kOpened.ok()) {
-            const base::Result<fs::FileSlot*> kFresh = kBorn->files.get(kOpened.value());
-            cinux::base::safety::Check(kFresh.ok(), "fork lost the descriptor it just opened");
-            kFresh.value()->offset = source.offset;
-        }
+        const base::Result<unsigned long> kSeated = kBorn->files->adopt(kOpen.value());
+        cinux::base::safety::Check(kSeated.ok(), "fork lost a descriptor it meant to inherit");
     }
     return child.release();
 }

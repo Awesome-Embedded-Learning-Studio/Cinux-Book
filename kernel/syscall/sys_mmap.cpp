@@ -3,7 +3,7 @@
 #include "cinux/math.hpp"
 #include "cinux/result.hpp"
 #include "kernel/arch/x86_64/page.hpp"
-#include "kernel/fs/file_table.hpp"
+#include "kernel/fs/open_file.hpp"
 #include "kernel/mm/layout.hpp"
 #include "kernel/mm/vma.hpp"
 #include "kernel/proc/task.hpp"
@@ -14,7 +14,7 @@ namespace cinux::syscall {
 
 long long HandleMmap(const SyscallFrame& frame) {
     const proc::Task* const kSelf = CurrentTask();
-    if (kSelf == nullptr || kSelf->vmas == nullptr) {
+    if (kSelf == nullptr || !kSelf->vmas.holds()) {
         return -kEnomem;
     }
     const unsigned long long kLength = frame.rsi;
@@ -39,7 +39,7 @@ long long HandleMmap(const SyscallFrame& frame) {
     if ((kFlags & kMapAnonymous) != 0) {
         region.kind = mm::VmaKind::kAnonymous;
     } else {
-        const base::Result<fs::FileSlot*> kSlot = LiveSlot(kFd);
+        const base::Result<fs::OpenFile*> kSlot = LiveSlot(kFd);
         if (!kSlot.ok()) {
             return -ErrnoFrom(kSlot.error());
         }

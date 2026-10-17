@@ -3,7 +3,6 @@
 .global SyscallEntry
 .type SyscallEntry, @function
 SyscallEntry:
-    swapgs
     movq %rsp, %gs:8
     movq %gs:0, %rsp
     pushq %r15
@@ -49,7 +48,6 @@ SyscallEntry:
     movq 112(%rsp), %r14
     movq 120(%rsp), %r15
     movq (%rsp), %rsp
-    swapgs
     sysretq
 .size SyscallEntry, . - SyscallEntry
 
@@ -72,6 +70,5 @@ ForkChildEntry:
     movq 120(%rsp), %r15
     movq (%rsp), %rsp
     xorq %rax, %rax
-    swapgs
     sysretq
 .size ForkChildEntry, . - ForkChildEntry

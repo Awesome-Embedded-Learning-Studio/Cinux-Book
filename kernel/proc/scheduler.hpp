@@ -243,9 +243,17 @@ public:
      *                the task's own offspring are settled first —
      *                zombie grandchildren reaped, live ones released
      *                to a parentless life — so no pointer outlives its
-     *                target. Returning at all is only observable under
-     *                a sink whose switches return — the recording sink
-     *                of a host test; the kernel sink never does.
+     *                target. Two words belong to the dying task alone:
+     *                its join word is zeroed and woken while its own
+     *                world is still mapped, and a thread-group member
+     *                (pid other than tgid) never turns zombie at all —
+     *                it leaves its maker's roll at once and goes
+     *                straight to reclaim, so its group answers through
+     *                the join word, and a wait for it answers none.
+     *                Returning at all is only
+     *                observable under a sink whose switches return —
+     *                the recording sink of a host test; the kernel
+     *                sink never does.
      * @since         0.2.0
      * @ingroup       kernel_proc
      */
@@ -430,6 +438,10 @@ private:
     void                rotate_from_interrupt();
     void                park_current();
     [[nodiscard]] Task* pick_next();
+    /// Scans the offspring roll for the one zombie the request names.
+    /// Thread-group members (pid other than tgid) are never eligible:
+    /// they exit straight to reclaim, and a joiner watches the tid
+    /// word instead of waiting.
     Task*               take_zombie_child(Task& watcher, long long wanted, bool& has_eligible);
     void                detach_offspring(Task& dying);
 

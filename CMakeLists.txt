@@ -35,8 +35,10 @@ add_custom_command(
             "CINUX_SHELL_ELF=$<TARGET_FILE:user_shell>"
             "CINUX_MAPPER_ELF=$<TARGET_FILE:user_mapper>"
             "CINUX_SIGDEMO_ELF=$<TARGET_FILE:user_sigdemo>"
+            "CINUX_TLSDEMO_ELF=$<TARGET_FILE:user_tlsdemo>"
+            "CINUX_THREADDEMO_ELF=$<TARGET_FILE:user_threaddemo>"
             bash ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh ${CINUX_EXT2_IMG}
-    DEPENDS user_hello user_shell user_mapper user_sigdemo
+    DEPENDS user_hello user_shell user_mapper user_sigdemo user_tlsdemo user_threaddemo
     COMMENT "teaching ext2 volume for the block and fs experiments")
 add_custom_target(ext2_img DEPENDS ${CINUX_EXT2_IMG})
 set(CINUX_EXT2_KTEST_IMG ${CMAKE_BINARY_DIR}/boot/ext2_ktest.img)

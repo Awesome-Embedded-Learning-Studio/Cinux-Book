@@ -3,6 +3,7 @@
 #include "cinux/assert.hpp"
 #include "cinux/container/self_list.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
+#include "kernel/proc/futex.hpp"
 #include "kernel/proc/sched_class.hpp"
 #include "kernel/proc/signals.hpp"
 #include "kernel/proc/sync.hpp"
@@ -52,6 +53,7 @@ void Scheduler::seat(Task& task) {
     }
     cinux::base::safety::Check(registered, "task points at an unregistered class");
     task.pid   = next_pid_++;
+    task.tgid  = task.pid;
     task.state = TaskState::kReady;
     if (task.parent != nullptr) {
         offspring_.push_back(task);
@@ -155,15 +157,20 @@ void Scheduler::exit_current(long long code) {
     const cinux::arch::IrqGuard kGuard;
     Task* const                 kPrev = current_;
     cinux::base::safety::Check(kPrev != nullptr, "exit called outside any task");
+    futex::ClearTidWord(*kPrev);
     kPrev->exit_code = code;
     detach_offspring(*kPrev);
-    if (kPrev->parent != nullptr) {
+    const bool kThreadMember = kPrev->pid != kPrev->tgid;
+    if (kPrev->parent != nullptr && !kThreadMember) {
         kPrev->state = TaskState::kZombie;
         SendSignal(*kPrev->parent, cinux::syscall::kSigChld);
         if (waiters_.remove(*kPrev->parent)) {
             unblock(*kPrev->parent);
         }
     } else {
+        if (kPrev->parent != nullptr) {
+            offspring_.remove(*kPrev);
+        }
         kPrev->state = TaskState::kDead;
         reap_pending();
         pending_reap_ = kPrev;
@@ -199,7 +206,8 @@ Task* Scheduler::take_zombie_child(Task& watcher, long long wanted, bool& has_el
         }
         const bool kNamed    = kAnyChild || scan->pid == kWantedPid;
         const bool kGrouped  = (kOwnGroup || kNamedGroup) && scan->pgid == kGroup;
-        const bool kEligible = kNamed || kGrouped;
+        const bool kWaitable = scan->pid == scan->tgid;
+        const bool kEligible = (kNamed || kGrouped) && kWaitable;
         has_eligible         = has_eligible || kEligible;
         const bool kHit      = kEligible && scan->state == TaskState::kZombie;
         if (kHit && match == nullptr) {

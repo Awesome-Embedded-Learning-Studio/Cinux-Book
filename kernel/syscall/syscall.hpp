@@ -51,6 +51,7 @@ enum class SyscallNr : std::uint16_t {
     kRtSigreturn   = 15,   ///< rt_sigreturn(): the trampoline's way home
     kYield         = 24,   ///< cooperative yield to the scheduler
     kGetpid        = 39,   ///< getpid(): the caller's own identity
+    kClone         = 56,   ///< clone(flags, stack, ...): fork with a say in what stays shared
     kFork          = 57,   ///< fork(): one call, two returns
     kExecve        = 59,   ///< execve(path): replace this world with a program
     kExit          = 60,   ///< exit(code), never returns
@@ -67,6 +68,10 @@ enum class SyscallNr : std::uint16_t {
     kMkdir         = 83,   ///< mkdir(path)
     kUnlink        = 87,   ///< unlink(path)
     kGetdents      = 217,  ///< getdents(fd, entry): one directory entry per call
+    kArchPrctl     = 158,  ///< arch_prctl(op, addr): move a thread-pointer base
+    kGettid        = 186,  ///< gettid(): the caller's own thread identity
+    kFutex         = 202,  ///< futex(uaddr, op, val): park or wake on a user word
+    kSetTidAddress = 218,  ///< set_tid_address(addr): name the word to clear at death
 };
 
 /// Linux errno values the handlers can produce.
@@ -93,6 +98,20 @@ inline constexpr int kEnotempty    = 39;  ///< The directory still holds entries
 /// open() flag the kernel serves: create the file when it is missing.
 inline constexpr unsigned long long kOpenCreat = 0x40;
 
+/// clone() flags, Linux-shaped. The served four overlay the fork
+/// child; the tid-word trio arms the join handshake the death side
+/// of futex answers.
+inline constexpr unsigned long long kCloneVm     = 0x100;    ///< Share the address space.
+inline constexpr unsigned long long kCloneFiles  = 0x400;    ///< Share the descriptor table.
+inline constexpr unsigned long long kCloneThread = 0x10000;  ///< Join the maker's thread group.
+inline constexpr unsigned long long kCloneSetTls = 0x80000;  ///< Arm the child's thread pointer.
+inline constexpr unsigned long long kCloneParentSetTid =
+    0x100000;  ///< Write the child tid for the maker.
+inline constexpr unsigned long long kCloneChildClearTid =
+    0x200000;  ///< Clear a word at child death.
+inline constexpr unsigned long long kCloneChildSetTid =
+    0x1000000;  ///< Write the child tid for the child.
+
 /// mmap protection bits, Linux-shaped.
 inline constexpr unsigned long long kProtRead  = 0x1;  ///< Loads through the range promised.
 inline constexpr unsigned long long kProtWrite = 0x2;  ///< Stores through the range promised.
@@ -104,7 +123,7 @@ inline constexpr unsigned long long kMapFixed     = 0x10;
 inline constexpr unsigned long long kMapAnonymous = 0x20;
 
 /// One past the highest served number; the dispatch table spans it.
-constexpr unsigned long long kSyscallCount = 218;
+constexpr unsigned long long kSyscallCount = 219;
 
 /// The lowest address that is none of ring 3's business.
 constexpr unsigned long long kUserAddressLimit = 0x0000800000000000ULL;

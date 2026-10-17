@@ -2,8 +2,8 @@
 
 #include "cinux/memory.hpp"
 #include "cinux/result.hpp"
-#include "kernel/fs/file_table.hpp"
 #include "kernel/fs/fs_config.hpp"
+#include "kernel/fs/open_file.hpp"
 #include "kernel/fs/vfs.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
@@ -17,7 +17,7 @@ long long HandleGetdents(const SyscallFrame& frame) {
     if (frame.rsi >= kUserAddressLimit) {
         return -kEfault;
     }
-    const base::Result<fs::FileSlot*> kSlot = LiveSlot(frame.rdi);
+    const base::Result<fs::OpenFile*> kSlot = LiveSlot(frame.rdi);
     if (!kSlot.ok()) {
         return -kEbadf;
     }

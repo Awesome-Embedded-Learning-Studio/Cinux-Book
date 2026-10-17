@@ -14,7 +14,7 @@ long long HandleClose(const SyscallFrame& frame) {
     if (frame.rdi >= fs::kFileTableMax) {
         return -kEbadf;
     }
-    const base::Result<void> kFreed = CurrentTask()->files.free(frame.rdi);
+    const base::Result<void> kFreed = CurrentTask()->files->free(frame.rdi);
     return kFreed.ok() ? 0 : -kEbadf;
 }
 

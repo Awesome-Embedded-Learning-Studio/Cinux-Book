@@ -81,6 +81,14 @@ struct alignas(16) CpuContext {
     unsigned long long rsp;  ///< Slot 6, offset 48.
     unsigned long long rip;  ///< Slot 7, offset 56.
     FpuImage           fpu;
+    /// FS base (MSR 0xC0000100), the thread pointer; moved by the C++
+    /// side around the switch, not by the assembly.
+    unsigned long long fs_base;
+    /// GS base as the task owns it. While any ring runs, the live
+    /// IA32_GS_BASE stays pointed at the per-CPU block; this value
+    /// travels through IA32_KERNEL_GSBASE and is re-staged on every
+    /// switch.
+    unsigned long long gs_base;
 };
 
 static_assert(offsetof(CpuContext, r15) == 0, "assembly reads r15 at 0");
@@ -92,8 +100,29 @@ static_assert(offsetof(CpuContext, rbx) == 40, "assembly reads rbx at 40");
 static_assert(offsetof(CpuContext, rsp) == 48, "assembly reads rsp at 48");
 static_assert(offsetof(CpuContext, rip) == 56, "assembly reads rip at 56");
 static_assert(offsetof(CpuContext, fpu) == 64, "fxsave64 image lives at 64");
-static_assert(sizeof(CpuContext) == 576, "8 slots plus one 512-byte image");
+static_assert(offsetof(CpuContext, fs_base) == 576, "fs_base rides behind the image");
+static_assert(offsetof(CpuContext, gs_base) == 584, "gs_base closes the context");
+static_assert(sizeof(CpuContext) == 592, "8 slots, one 512-byte image, two base words");
 static_assert(alignof(CpuContext) >= 16, "FXSAVE64 demands 16-byte alignment");
+
+/// Highest canonical address a ring-3 world may occupy.
+inline constexpr unsigned long long kCanonicalUserTop = 0x00007FFFFFFFFFFFULL;
+
+/// Lowest canonical address in the kernel half.
+inline constexpr unsigned long long kCanonicalKernelBottom = 0xFFFF800000000000ULL;
+
+/**
+ * @brief         Whether an address is canonical on x86-64.
+ * @param[in]     value   The address to judge.
+ * @return        true when bits 63..47 all agree, the shape every
+ *                base MSR demands — a non-canonical value handed to
+ *                wrmsr raises #GP instead of returning an error.
+ * @since         0.8.0
+ * @ingroup       kernel_arch
+ */
+[[nodiscard]] constexpr bool IsCanonicalAddress(unsigned long long value) {
+    return value <= kCanonicalUserTop || value >= kCanonicalKernelBottom;
+}
 
 }  // namespace cinux::arch
 

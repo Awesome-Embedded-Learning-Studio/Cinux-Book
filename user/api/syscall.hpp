@@ -194,12 +194,75 @@ inline long long Reboot() {
 }
 
 /**
- * @brief         getpid(): the caller's own identity.
- * @return        The pid the scheduler handed this task.
+ * @brief         getpid(): the caller's own process identity.
+ * @return        The thread group leader's pid; every thread of one
+ *                process reads the same number here.
  * @since         0.3.0
  */
 inline long long Getpid() {
     return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kGetpid), 0, 0, 0);
+}
+
+/**
+ * @brief         gettid(): the caller's own thread identity.
+ * @return        The tid; unique per thread, so inside a thread group
+ *                it tells the members apart.
+ * @since         0.8.0
+ */
+inline long long Gettid() {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kGettid), 0, 0, 0);
+}
+
+/**
+ * @brief         arch_prctl(op, addr): move a thread-pointer base.
+ * @param[in]     op     One of the ARCH_SET_FS/ARCH_GET_FS/ARCH_SET_GS/
+ *                       ARCH_GET_GS operations.
+ * @param[in]     addr   The new base, or the quadword that receives
+ *                       the old one.
+ * @return        Zero on success, or a negative errno.
+ * @since         0.8.0
+ */
+inline long long ArchPrctl(unsigned long long operation, unsigned long long addr) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kArchPrctl),
+                    operation, addr, 0);
+}
+
+/**
+ * @brief         set_tid_address(addr): name the word the kernel
+ *                clears when this task dies.
+ * @param[in]     addr   The user quadword reserved for the joiner.
+ * @return        The caller's tid.
+ * @since         0.8.0
+ */
+inline long long SetTidAddress(unsigned long long addr) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kSetTidAddress),
+                    addr, 0, 0);
+}
+
+/**
+ * @brief         futex(uaddr, FUTEX_WAIT, expected): park while the
+ *                word still holds expected.
+ * @param[in]     uaddr      The four-byte word to wait on.
+ * @param[in]     expected   The value the caller saw before parking.
+ * @return        Zero once woken, -11 (EAGAIN) when the word had
+ *                already moved on.
+ * @since         0.8.0
+ */
+inline long long FutexWait(unsigned long long uaddr, unsigned int expected) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kFutex), uaddr, 0,
+                    expected);
+}
+
+/**
+ * @brief         futex(uaddr, FUTEX_WAKE, count): wake parked waiters.
+ * @param[in]     uaddr    The four-byte word the waiters parked on.
+ * @param[in]     count    At most this many waiters are woken.
+ * @return        How many were actually woken.
+ * @since         0.8.0
+ */
+inline long long FutexWake(unsigned long long uaddr, unsigned long long count) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kFutex), uaddr, 1,
+                    count);
 }
 
 /**
@@ -213,15 +276,78 @@ inline long long Fork() {
 }
 
 /**
+ * @brief         clone(flags, stack, tls, entry, arg, tid words): a
+ *                new thread of this process, or a new process shaped
+ *                to order.
+ * @param[in]     flags       The share-or-copy bits (kCloneVm and
+ *                            friends, kernel header); what stays the
+ *                            maker's instead of being copied.
+ * @param[in]     child_stack First stack pointer the child grows down
+ *                            from; its bottom word must be free.
+ * @param[in]     tls         Thread pointer for kCloneSetTls.
+ * @param[in]     entry       First function the child runs.
+ * @param[in]     arg         Lands in rdi for entry.
+ * @param[in]     parent_tid  Word the child's tid is written to for the
+ *                            maker, under kCloneParentSetTid; pass 0
+ *                            otherwise.
+ * @param[in]     child_tid   Word the child's tid is written to for
+ *                            the child (kCloneChildSetTid) and zeroed
+ *                            with one wake at its death
+ *                            (kCloneChildClearTid); pass 0 otherwise.
+ * @return        The child's tid to the maker, or a negative errno;
+ *                the child never reads a return from here.
+ * @note          The child lands on the empty given stack at the same
+ *                instruction, where a C epilogue would pop garbage —
+ *                so this one asm owns both sides: the maker falls
+ *                through the label and returns, the child re-points
+ *                rdi and calls entry, which ends in Exit and never
+ *                comes back. rdx and r10 carry the tid words in the
+ *                Linux slots; r9 and r15 carry entry and arg through
+ *                the kernel, which banks every register but rax.
+ * @since         0.8.0
+ */
+// NOLINTNEXTLINE(readability-function-size) the child path lives here by necessity
+inline long long Clone(unsigned long long flags, const void* child_stack, unsigned long long tls,
+                       void (*entry)(void*), const void* arg, unsigned long long parent_tid,
+                       unsigned long long child_tid) {
+    // NOLINTBEGIN(misc-const-correctness) the syscall writes ret in the maker
+    long long                         ret      = 0;
+    const auto                        kEntryAt = reinterpret_cast<unsigned long long>(entry);
+    const auto                        kArgAt   = reinterpret_cast<unsigned long long>(arg);
+    register const unsigned long long kChildTid __asm__("r10") = child_tid;
+    register const unsigned long long kTls __asm__("r8")       = tls;
+    register const unsigned long long kEntry __asm__("r9")     = kEntryAt;
+    register const unsigned long long kArg __asm__("r15")      = kArgAt;
+    // NOLINTEND(misc-const-correctness)
+    __asm__ volatile(
+        "syscall\n\t"
+        "testl %%eax, %%eax\n\t"
+        "jnz 1f\n\t"
+        "xorl %%ebp, %%ebp\n\t"
+        "movq %%r9, %%rax\n\t"
+        "movq %%r15, %%rdi\n\t"
+        "andq $-16, %%rsp\n\t"
+        "call *%%rax\n\t"
+        "ud2\n"
+        "1:\n"
+        : "=a"(ret)
+        : "a"(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kClone)), "D"(flags),
+          "S"(child_stack), "d"(parent_tid), "r"(kChildTid), "r"(kTls), "r"(kEntry), "r"(kArg)
+        : "rcx", "r11", "memory");
+    return ret;
+}
+
+/**
  * @brief         execve(path): replace this world with a program.
  * @param[in]     path   The program's absolute path on the volume.
- * @return        Never on success, or a negative errno.
+ * @return        Never comes back when the program takes over; a
+ *                refused exec hands back a negative errno and the old
+ *                world keeps running.
  * @since         0.3.0
  */
-[[noreturn]] inline void Execve(const char* path) {
-    static_cast<void>(Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kExecve),
-                               reinterpret_cast<unsigned long long>(path), 0, 0));
-    __builtin_unreachable();
+inline long long Execve(const char* path) {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kExecve),
+                    reinterpret_cast<unsigned long long>(path), 0, 0);
 }
 
 /**

@@ -14,6 +14,7 @@
 #include "cinux/result.hpp"
 #include "kernel/fs/file_table.hpp"
 #include "kernel/fs/fs_config.hpp"
+#include "kernel/fs/open_file.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
@@ -35,6 +36,8 @@ int ErrnoFrom(base::KernelError error) {
         return kEisdir;
     case base::KernelError::kDirectoryNotEmpty:
         return kEnotempty;
+    case base::KernelError::kWouldBlock:
+        return kEagain;
     default:
         return kEinval;
     }
@@ -82,11 +85,11 @@ bool UserRangeWritable(unsigned long long start, unsigned long long bytes) {
            bytes <= kUserAddressLimit - start;
 }
 
-base::Result<fs::FileSlot*> LiveSlot(unsigned long long descriptor) {
+base::Result<fs::OpenFile*> LiveSlot(unsigned long long descriptor) {
     if (descriptor >= fs::kFileTableMax) {
         return base::KernelError::kInvalidArgument;
     }
-    return CurrentTask()->files.get(descriptor);
+    return CurrentTask()->files->get(descriptor);
 }
 
 

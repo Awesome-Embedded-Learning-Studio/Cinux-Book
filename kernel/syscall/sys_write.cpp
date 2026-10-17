@@ -3,6 +3,7 @@
 #include "cinux/result.hpp"
 #include "kernel/console/console.hpp"
 #include "kernel/fs/file_table.hpp"
+#include "kernel/fs/open_file.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
 
@@ -30,7 +31,7 @@ long long HandleWrite(const SyscallFrame& frame) {
     if (frame.rdi == 1 || frame.rdi == 2) {
         return console_from(frame.rsi, frame.rdx);
     }
-    const base::Result<fs::FileSlot*> kSlot = LiveSlot(frame.rdi);
+    const base::Result<fs::OpenFile*> kSlot = LiveSlot(frame.rdi);
     if (!kSlot.ok()) {
         return -kEbadf;
     }

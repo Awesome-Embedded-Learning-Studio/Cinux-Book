@@ -22,6 +22,7 @@
 #pragma once
 
 #include "cinux/container/self_list.hpp"
+#include "cinux/shared.hpp"
 #include "kernel/arch/x86_64/context.hpp"
 #include "kernel/fs/file_table.hpp"
 #include "kernel/fs/fs_config.hpp"
@@ -75,11 +76,19 @@ struct Task : cinux::base::container::SelfNode<Task> {
     /// kept apart from the base node so parking for a lock while a
     /// parent waits above cannot ride one link into both lists.
     cinux::base::container::SelfNode<Task> sync_wait_link;
+    /// Seat on one futex bucket's wait list, kept apart so parking on
+    /// a user word can never share a link with the sync family.
+    cinux::base::container::SelfNode<Task> futex_wait_link;
     cinux::arch::CpuContext                ctx{};  ///< Register image the switcher moves.
     cinux::arch::FpuImage                  entry_fpu{};
     unsigned long long                     fpu_gate_depth{};
     TaskState                              state{};  ///< Where this task is in its life.
     unsigned long long                     pid{};    ///< Identity, handed out by the scheduler.
+    /// The thread group this task belongs to: getpid answers it, so all
+    /// members of one process report one identity. Seating makes every
+    /// task the leader of its own group; a CLONE_THREAD clone is
+    /// re-pointed at its maker's group after the seat.
+    unsigned long long                     tgid{};
     /// Process group this task belongs to; kill(-pgid) and wanted == 0
     /// waits walk it. fork copies it, setsid mints a fresh one.
     unsigned long long                     pgid{};
@@ -91,22 +100,38 @@ struct Task : cinux::base::container::SelfNode<Task> {
     const char*        name{};        ///< Label for dumps, caller-owned storage.
     unsigned long long stack_base{};  ///< Direct-map base of the owned stack.
     unsigned long long user_root{};   ///< PML4 of the user world, 0 while kernel-only.
-    cinux::mm::AddressSpace*
-        space{};  ///< The world this task retires with; null while kernel-only or borrowed.
-    cinux::mm::VmaStore*
-        vmas{};  ///< The registered ranges of its user world; lives exactly with space.
-    cinux::fs::FileTable files;               ///< This task's open files, keyed by descriptor.
+    /// The world this task retires with, held against a whole thread
+    /// group: a CLONE_VM clone adds one owner instead of copying, and
+    /// the last owner out tears the user half down. Empty while
+    /// kernel-only.
+    cinux::base::Shared<cinux::mm::AddressSpace> space;
+    /// The registered ranges of its user world; shares the same
+    /// group-wide hold as space, one object per world.
+    cinux::base::Shared<cinux::mm::VmaStore>     vmas;
+    /// This task's open files, keyed by descriptor. Every task is born
+    /// with a table of its own; a CLONE_FILES clone keeps pointing at
+    /// the maker's instead.
+    cinux::base::Shared<cinux::fs::FileTable>    files =
+        cinux::base::MakeShared<cinux::fs::FileTable>();
     char cwd[cinux::fs::kFsPathMax] = {'/'};  ///< Working directory, absolute, NUL-terminated.
     /// Scheduling weight inside its class; smaller runs earlier. Only
     /// the priority class reads it, everyone else ignores it.
-    unsigned char    priority{};
+    unsigned char      priority{};
     /// The class this task queues on; null rides the first-registered
     /// class, decided once at seat time.
-    SchedulingClass* sched_class{};
+    SchedulingClass*   sched_class{};
     /// The task's action table, blocked set and pending set; zeroed is
     /// the valid fresh-task state, fork copies the first two and exec
     /// resets all three.
-    SignalState      signals{};
+    SignalState        signals{};
+    /// User address the task asked the kernel to zero when it dies
+    /// (set_tid_address), then futex-wake so a joiner's wait returns.
+    /// Zero means the task asked for nothing; clone's CLEARTID flag
+    /// re-arms it per thread.
+    unsigned long long clear_child_tid{};
+    /// The exact word this task parks on in the futex table; the
+    /// bucket only narrows the search, this key decides the match.
+    unsigned long long futex_uaddr{};
 
     /**
      * @brief         The parent's pid, zero when nobody waits above.

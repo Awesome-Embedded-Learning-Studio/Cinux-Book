@@ -12,11 +12,11 @@ namespace {
 
 void diagnose_current_fault(unsigned long long address, unsigned long long error_code) {
     const Task* const kSelf = Scheduler::self().current();
-    if (kSelf == nullptr || kSelf->vmas == nullptr) {
+    if (kSelf == nullptr || !kSelf->vmas.holds()) {
         print::Println("[kern]  vma: addr=%X outside any task world", address);
         return;
     }
-    mm::PrintFaultVerdict(kSelf->vmas, address, error_code);
+    mm::PrintFaultVerdict(kSelf->vmas.get(), address, error_code);
 }
 
 }  // namespace

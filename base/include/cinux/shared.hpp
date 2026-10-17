@@ -64,10 +64,15 @@ private:
 
 /**
  * @brief         One shared hold over a RefCount-carrying object.
- * @tparam        Stuff   The shared type; supplies retain/release.
+ * @tparam        Stuff   The shared type; derives RefCount.
  * @note          Copying retains, destructing releases, the last release
  *                deletes. A default Shared holds nothing. Conversion to
- *                Weak is always a borrow.
+ *                Weak is always a borrow. Counting runs through the
+ *                RefCount base and deletion runs through the deleter
+ *                captured at adoption, so a holder that only moves or
+ *                destroys needs nothing but the forward declaration —
+ *                the creating translation unit is the one that must
+ *                see the whole type.
  * @since         0.1.0
  * @ingroup       base_ptr
  */
@@ -78,34 +83,45 @@ public:
     Shared() = default;
 
     /// Adopts one live object whose count already includes this hold.
-    explicit Shared(Stuff* held) : held_(held) {}
+    explicit Shared(Stuff* held) : held_(held), base_(held), destroy_(&Shared::destroy_as) {}
 
     /// Retains one more owner.
-    Shared(const Shared& other) : held_(other.held_) {
-        if (held_ != nullptr) {
-            held_->retain();
+    Shared(const Shared& other) : held_(other.held_), base_(other.base_), destroy_(other.destroy_) {
+        if (base_ != nullptr) {
+            base_->retain();
         }
     }
 
     Shared& operator=(const Shared& other) {
         if (this != &other) {
             release_hold();
-            held_ = other.held_;
-            if (held_ != nullptr) {
-                held_->retain();
+            held_    = other.held_;
+            base_    = other.base_;
+            destroy_ = other.destroy_;
+            if (base_ != nullptr) {
+                base_->retain();
             }
         }
         return *this;
     }
 
     /// Takes the hold; the source lets go without releasing.
-    Shared(Shared&& other) noexcept : held_(other.held_) { other.held_ = nullptr; }
+    Shared(Shared&& other) noexcept
+        : held_(other.held_), base_(other.base_), destroy_(other.destroy_) {
+        other.held_    = nullptr;
+        other.base_    = nullptr;
+        other.destroy_ = nullptr;
+    }
 
     Shared& operator=(Shared&& other) noexcept {
         if (this != &other) {
             release_hold();
-            held_       = other.held_;
-            other.held_ = nullptr;
+            held_          = other.held_;
+            base_          = other.base_;
+            destroy_       = other.destroy_;
+            other.held_    = nullptr;
+            other.base_    = nullptr;
+            other.destroy_ = nullptr;
         }
         return *this;
     }
@@ -137,14 +153,24 @@ private:
     template <typename Watcher>
     friend class Weak;
 
+    /// Deletes through the adopting translation unit's whole type.
+    static void destroy_as(RefCount<>* victim) { delete static_cast<Stuff*>(victim); }
+
     void release_hold() {
-        if (held_ != nullptr && held_->release()) {
-            delete held_;
+        if (base_ != nullptr && base_->release()) {
+            destroy_(base_);
         }
-        held_ = nullptr;
+        held_    = nullptr;
+        base_    = nullptr;
+        destroy_ = nullptr;
     }
 
-    Stuff* held_ = nullptr;
+    /// The object face, usable while the type is incomplete.
+    Stuff*      held_                    = nullptr;
+    /// The counting face; retain and release run through it.
+    RefCount<>* base_                    = nullptr;
+    /// Deletes through the adopting translation unit's whole type.
+    void (*destroy_)(RefCount<>* victim) = nullptr;
 };
 
 /**

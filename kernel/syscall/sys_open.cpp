@@ -33,7 +33,7 @@ long long HandleOpen(const SyscallFrame& frame) {
     }
 
     const base::Result<unsigned long> kFd =
-        CurrentTask()->files.alloc(kFlat.ops, kFlat.self, node.value());
+        CurrentTask()->files->alloc(kFlat.ops, kFlat.self, node.value());
     if (!kFd.ok()) {
         return -ErrnoFrom(kFd.error());
     }

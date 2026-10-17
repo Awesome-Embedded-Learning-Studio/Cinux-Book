@@ -10,7 +10,7 @@ namespace cinux::syscall {
 
 long long HandleBrk(const SyscallFrame& frame) {
     const proc::Task* const kSelf = CurrentTask();
-    if (kSelf == nullptr || kSelf->vmas == nullptr) {
+    if (kSelf == nullptr || !kSelf->vmas.holds()) {
         return 0;
     }
     const base::Result<unsigned long> kMoved = kSelf->vmas->move_heap_end(frame.rdi);

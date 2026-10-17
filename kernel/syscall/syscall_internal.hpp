@@ -21,7 +21,7 @@
 #pragma once
 
 #include "cinux/result.hpp"
-#include "kernel/fs/file_table.hpp"
+#include "kernel/fs/open_file.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
 
@@ -112,13 +112,13 @@ proc::Task* CurrentTask();
 [[nodiscard]] bool UserRangeWritable(Word start, Word bytes);
 
 /**
- * @brief         Range-checks a descriptor and hands back its live slot.
+ * @brief         Range-checks a descriptor and hands back its live open.
  * @param[in]     descriptor   The number ring 3 offered.
- * @return        The slot, or kInvalidArgument (out of range),
+ * @return        The open, or kInvalidArgument (out of range),
  *                kNotFound (no open file there).
  * @since         0.1.0
  * @ingroup       kernel_syscall
  */
-base::Result<fs::FileSlot*> LiveSlot(Word descriptor);
+base::Result<fs::OpenFile*> LiveSlot(Word descriptor);
 
 }  // namespace cinux::syscall

@@ -3,6 +3,8 @@
 #include "cinux/bit_ops/bitmask.hpp"
 #include "cinux/literal_types.hpp"
 #include "cinux/ptr.hpp"
+#include "cinux/result.hpp"
+#include "cinux/shared.hpp"
 #include "framework_kernel.hpp"
 #include "kernel/arch/x86_64/context.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
@@ -14,7 +16,9 @@
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vma.hpp"
 #include "kernel/mm/vmm.hpp"
+#include "kernel/proc/clone.hpp"
 #include "kernel/proc/fork.hpp"
+#include "kernel/proc/futex.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/sched_class.hpp"
 #include "kernel/proc/scheduler.hpp"
@@ -107,9 +111,9 @@ void instant_exit_task() {}
 cinux::test::FileRefs g_file_refs;
 
 void leave_files_open_task() {
-    auto& files = cinux::proc::Scheduler::self().current()->files;
-    ASSERT_TRUE(files.alloc(&cinux::test::FileRefs::kOps, &g_file_refs, {}).ok());
-    ASSERT_TRUE(files.alloc(&cinux::test::FileRefs::kOps, &g_file_refs, {}).ok());
+    const auto& files = cinux::proc::Scheduler::self().current()->files;
+    ASSERT_TRUE(files->alloc(&cinux::test::FileRefs::kOps, &g_file_refs, {}).ok());
+    ASSERT_TRUE(files->alloc(&cinux::test::FileRefs::kOps, &g_file_refs, {}).ok());
 }
 
 cinux::proc::Semaphore g_blocking_gate;
@@ -643,10 +647,10 @@ constexpr unsigned long long kForkUserR15 = 0xF015000000000004ULL;
 constexpr unsigned long long kForkUserRsp = 0x0000000000005000ULL;
 constexpr unsigned long long kForkUserRip = 0x0000000000400016ULL;
 
-cinux::mm::AddressSpace      g_fork_world;
-cinux::mm::VmaStore          g_fork_ranges;
-cinux::syscall::SyscallFrame g_fork_frame{};
-bool                         g_fork_built = false;
+cinux::base::Shared<cinux::mm::AddressSpace> g_fork_world;
+cinux::base::Shared<cinux::mm::VmaStore>     g_fork_ranges;
+cinux::syscall::SyscallFrame                 g_fork_frame{};
+bool                                         g_fork_built = false;
 
 void stage_callee_saved() {
     g_fork_frame.r12 = kForkUserR12;
@@ -656,8 +660,6 @@ void stage_callee_saved() {
 }
 
 void retire_fork_child(cinux::proc::Task& child) {
-    delete child.space;
-    delete child.vmas;
     const auto kStackPhys = cinux::mm::DirectMapPhys(child.stack_base);
     cinux::mm::Pmm::self().free_pages(cinux::base::PhysAddr{kStackPhys}, cinux::proc::kStackOrder);
     delete &child;
@@ -671,16 +673,22 @@ void arm_fork_frame() {
     g_fork_frame.rax      = 57;
 }
 
-void inspect_fork_family(cinux::proc::Task& child, cinux::proc::Task& parent,
+void inspect_shared_cursor(const cinux::proc::Task& child, const cinux::proc::Task& parent,
+                           unsigned long first_fd) {
+    ASSERT_TRUE(child.files->get(first_fd).ok());
+    ASSERT_EQ(parent.files->get(first_fd).value()->offset, 128UL);
+    ASSERT_EQ(child.files->get(first_fd).value()->offset, 128UL);
+    ASSERT_TRUE(child.files->get(first_fd).value() == parent.files->get(first_fd).value());
+}
+
+void inspect_fork_family(const cinux::proc::Task& child, const cinux::proc::Task& parent,
                          unsigned long first_fd) {
     ASSERT_TRUE(child.parent == &parent);
-    ASSERT_TRUE(child.user_root != g_fork_world.root());
+    ASSERT_TRUE(child.user_root != g_fork_world->root());
     ASSERT_EQ(child.user_root, child.space->root());
-    ASSERT_TRUE(child.space != nullptr);
-    ASSERT_TRUE(child.space != &g_fork_world);
-    ASSERT_TRUE(child.files.get(first_fd).ok());
-    ASSERT_EQ(parent.files.get(first_fd).value()->offset, 128UL);
-    ASSERT_EQ(child.files.get(first_fd).value()->offset, 128UL);
+    ASSERT_TRUE(child.space.holds());
+    ASSERT_TRUE(child.space.get() != g_fork_world.get());
+    inspect_shared_cursor(child, parent, first_fd);
 }
 
 void inspect_fork_fpu(const cinux::proc::Task& child, const cinux::proc::Task& parent) {
@@ -690,7 +698,7 @@ void inspect_fork_fpu(const cinux::proc::Task& child, const cinux::proc::Task& p
     ASSERT_EQ(child.fpu_gate_depth, 0ULL);
 }
 
-void inspect_fork_child(cinux::proc::Task& child, cinux::proc::Task& parent,
+void inspect_fork_child(const cinux::proc::Task& child, const cinux::proc::Task& parent,
                         unsigned long first_fd) {
     ASSERT_EQ(child.ctx.rip, reinterpret_cast<unsigned long long>(&ForkChildEntry));
     ASSERT_EQ(child.ctx.rsp + sizeof(cinux::syscall::SyscallFrame),
@@ -714,8 +722,10 @@ void fork_exit_child() {
 void fork_wait_parent_task() {
     auto&       scheduler = cinux::proc::Scheduler::self();
     auto* const kSelf     = scheduler.current();
-    kSelf->space          = &g_fork_world;
-    cinux::base::safety::Check(g_fork_world.init(), "fork wait world failed");
+    g_fork_world          = cinux::base::MakeShared<cinux::mm::AddressSpace>();
+    cinux::base::safety::Check(g_fork_world.holds(), "fork wait world failed");
+    kSelf->space = g_fork_world;
+    cinux::base::safety::Check(g_fork_world->init(), "fork wait world failed");
     auto* const kChild = cinux::proc::TaskBuilder{}
                              .set_entry(fork_exit_child)
                              .set_name("fork_calf")
@@ -723,26 +733,31 @@ void fork_wait_parent_task() {
                              .build();
     cinux::base::safety::Check(kChild != nullptr, "fork wait child failed");
     scheduler.seat(*kChild);
+    ASSERT_TRUE(kChild->tgid == kChild->pid);
     g_receipt    = cinux::proc::ChildReceipt{};
     g_wait_ok    = scheduler.wait_child(-1, false, g_receipt);
-    kSelf->space = nullptr;
-    g_fork_world.teardown();
+    kSelf->space = {};
+    g_fork_world = {};
 }
 
 void forking_parent_task() {
     const auto& scheduler = cinux::proc::Scheduler::self();
     auto* const kSelf     = scheduler.current();
-    cinux::base::safety::Check(g_fork_world.init(), "fork fixture world failed");
+    g_fork_world          = cinux::base::MakeShared<cinux::mm::AddressSpace>();
+    g_fork_ranges         = cinux::base::MakeShared<cinux::mm::VmaStore>();
+    cinux::base::safety::Check(g_fork_world.holds() && g_fork_ranges.holds(),
+                               "fork fixture world failed");
+    cinux::base::safety::Check(g_fork_world->init(), "fork fixture world failed");
     const cinux::base::PhysAddr kPage = cinux::mm::Pmm::self().allocate_page();
     cinux::base::safety::Check(kPage != cinux::base::PhysAddr{}, "fork fixture frame failed");
-    cinux::base::safety::Check(g_fork_world.map_user(cinux::mm::kUserNullTop + 80_KiB, kPage.raw),
+    cinux::base::safety::Check(g_fork_world->map_user(cinux::mm::kUserNullTop + 80_KiB, kPage.raw),
                                "fork fixture map failed");
-    kSelf->space       = &g_fork_world;
-    kSelf->vmas        = &g_fork_ranges;
-    const auto kFirst  = kSelf->files.alloc(&cinux::test::FileRefs::kOps, &g_file_refs, {});
-    const auto kSecond = kSelf->files.alloc(&cinux::test::FileRefs::kOps, &g_file_refs, {});
+    kSelf->space       = g_fork_world;
+    kSelf->vmas        = g_fork_ranges;
+    const auto kFirst  = kSelf->files->alloc(&cinux::test::FileRefs::kOps, &g_file_refs, {});
+    const auto kSecond = kSelf->files->alloc(&cinux::test::FileRefs::kOps, &g_file_refs, {});
     cinux::base::safety::Check(kFirst.ok() && kSecond.ok(), "fork fixture fds failed");
-    kSelf->files.get(kFirst.value()).value()->offset = 128;
+    kSelf->files->get(kFirst.value()).value()->offset = 128;
     arm_fork_frame();
     stage_callee_saved();
     cinux::arch::SaveFpu(kSelf->entry_fpu);
@@ -755,9 +770,95 @@ void forking_parent_task() {
     }
     inspect_fork_child(*kChild, *kSelf, kFirst.value());
     retire_fork_child(*kChild);
-    kSelf->space = nullptr;
-    kSelf->vmas  = nullptr;
-    g_fork_world.teardown();
+    kSelf->space  = {};
+    kSelf->vmas   = {};
+    g_fork_world  = {};
+    g_fork_ranges = {};
+}
+
+constexpr unsigned long long kCloneChildRsp = kForkUserRsp + 0x2000;
+constexpr unsigned long long kCloneTls      = 0x0000000000700000ULL;
+
+unsigned long long g_clone_flags = 0;
+unsigned long long g_clone_tls   = 0;
+bool               g_clone_built = false;
+
+void inspect_clone_worlds(const cinux::proc::Task& child, const cinux::proc::Task& parent) {
+    if ((g_clone_flags & cinux::syscall::kCloneVm) != 0) {
+        ASSERT_TRUE(child.space.get() == parent.space.get());
+        ASSERT_TRUE(child.vmas.get() == parent.vmas.get());
+        ASSERT_EQ(child.user_root, parent.user_root);
+        return;
+    }
+    ASSERT_TRUE(child.space.get() != parent.space.get());
+    ASSERT_TRUE(child.vmas.get() != parent.vmas.get());
+    ASSERT_EQ(child.user_root, child.space->root());
+}
+
+void inspect_clone_files(const cinux::proc::Task& child, const cinux::proc::Task& parent,
+                         unsigned long only_fd) {
+    if ((g_clone_flags & cinux::syscall::kCloneFiles) == 0) {
+        ASSERT_TRUE(child.files.get() != parent.files.get());
+        ASSERT_TRUE(child.files->get(only_fd).ok());
+        return;
+    }
+    ASSERT_TRUE(child.files.get() == parent.files.get());
+}
+
+void inspect_clone_tls(const cinux::proc::Task& child) {
+    if ((g_clone_flags & cinux::syscall::kCloneSetTls) == 0) {
+        return;
+    }
+    ASSERT_EQ(child.ctx.fs_base, g_clone_tls);
+}
+
+void inspect_clone_child(const cinux::proc::Task& child, const cinux::proc::Task& parent,
+                         unsigned long only_fd) {
+    ASSERT_EQ(child.ctx.rip, reinterpret_cast<unsigned long long>(&ForkChildEntry));
+    const auto* const kCopied =
+        cinux::base::PtrAt<const cinux::syscall::SyscallFrame>(child.ctx.rsp);
+    ASSERT_EQ(kCopied->user_rsp, kCloneChildRsp);
+    ASSERT_EQ(kCopied->rcx, kForkUserRip);
+    inspect_fork_fpu(child, parent);
+    inspect_clone_files(child, parent, only_fd);
+    inspect_clone_tls(child);
+    inspect_clone_worlds(child, parent);
+}
+
+void cloning_parent_task() {
+    const auto& scheduler = cinux::proc::Scheduler::self();
+    auto* const kSelf     = scheduler.current();
+    g_fork_world          = cinux::base::MakeShared<cinux::mm::AddressSpace>();
+    g_fork_ranges         = cinux::base::MakeShared<cinux::mm::VmaStore>();
+    cinux::base::safety::Check(g_fork_world.holds() && g_fork_ranges.holds(),
+                               "clone fixture world failed");
+    cinux::base::safety::Check(g_fork_world->init(), "clone fixture world failed");
+    kSelf->space     = g_fork_world;
+    kSelf->vmas      = g_fork_ranges;
+    const auto kOnly = kSelf->files->alloc(&cinux::test::FileRefs::kOps, &g_file_refs, {});
+    cinux::base::safety::Check(kOnly.ok(), "clone fixture fd failed");
+    kSelf->files->get(kOnly.value()).value()->offset = 64;
+    arm_fork_frame();
+    stage_callee_saved();
+    cinux::arch::SaveFpu(kSelf->entry_fpu);
+    kSelf->entry_fpu.words[20] = kSentinelXmm0;
+    const cinux::proc::ClonePlan kPlan{
+        .flags      = g_clone_flags,
+        .user_stack = kCloneChildRsp,
+        .tls        = g_clone_tls,
+    };
+    cinux::proc::Task* const kChild =
+        cinux::proc::BuildCloneChild(reinterpret_cast<unsigned long long>(&g_fork_frame), kPlan);
+    g_clone_built = kChild != nullptr;
+    if (kChild == nullptr) {
+        return;
+    }
+    inspect_clone_child(*kChild, *kSelf, kOnly.value());
+    retire_fork_child(*kChild);
+    kSelf->space  = {};
+    kSelf->vmas   = {};
+    g_fork_world  = {};
+    g_fork_ranges = {};
 }
 
 }  // namespace
@@ -787,6 +888,35 @@ TEST("fork: a built child carries the frame, the files, and the family") {
         cinux::proc::TaskBuilder{}.set_entry(forking_parent_task).set_name("fparent").build());
     scheduler.run_until_done();
     ASSERT_TRUE(g_fork_built);
+    ASSERT_EQ(ledger.free_page_count(), kBefore);
+}
+
+TEST("clone: the shared limbs are the parent's own, the frame moves house") {
+    auto&               scheduler = cinux::proc::Scheduler::self();
+    const auto&         ledger    = cinux::mm::Pmm::self();
+    const unsigned long kBefore   = ledger.free_page_count();
+    g_clone_built                 = false;
+    g_clone_flags =
+        cinux::syscall::kCloneVm | cinux::syscall::kCloneFiles | cinux::syscall::kCloneSetTls;
+    g_clone_tls = kCloneTls;
+    seat_built(
+        cinux::proc::TaskBuilder{}.set_entry(cloning_parent_task).set_name("cparent").build());
+    scheduler.run_until_done();
+    ASSERT_TRUE(g_clone_built);
+    ASSERT_EQ(ledger.free_page_count(), kBefore);
+}
+
+TEST("clone: without the flags it is fork with a moved stack") {
+    auto&               scheduler = cinux::proc::Scheduler::self();
+    const auto&         ledger    = cinux::mm::Pmm::self();
+    const unsigned long kBefore   = ledger.free_page_count();
+    g_clone_built                 = false;
+    g_clone_flags                 = 0;
+    g_clone_tls                   = 0;
+    seat_built(
+        cinux::proc::TaskBuilder{}.set_entry(cloning_parent_task).set_name("cparent").build());
+    scheduler.run_until_done();
+    ASSERT_TRUE(g_clone_built);
     ASSERT_EQ(ledger.free_page_count(), kBefore);
 }
 
@@ -826,6 +956,52 @@ void waker_task() {
     cinux::proc::Scheduler::self().exit_current();
 }
 
+unsigned int             g_futex_word_a   = 1;
+unsigned int             g_futex_word_b   = 1;
+bool                     g_futex_a_awake  = false;
+bool                     g_futex_b_awake  = false;
+long long                g_futex_wake_a   = 0;
+long long                g_futex_wake_b   = 0;
+cinux::base::KernelError g_futex_mismatch = cinux::base::KernelError::kOk;
+
+void futex_mismatch_task() {
+    g_futex_mismatch = cinux::proc::futex::WaitOnUserWord(
+        reinterpret_cast<unsigned long long>(&g_futex_word_a), 999);
+    cinux::proc::Scheduler::self().exit_current();
+}
+
+void futex_waiter_a_task() {
+    cinux::base::safety::Check(
+        cinux::proc::futex::WaitOnUserWord(reinterpret_cast<unsigned long long>(&g_futex_word_a),
+                                           1) == cinux::base::KernelError::kOk,
+        "waiter a did not return ok");
+    g_futex_a_awake = true;
+    cinux::proc::Scheduler::self().exit_current();
+}
+
+void futex_waiter_b_task() {
+    cinux::base::safety::Check(
+        cinux::proc::futex::WaitOnUserWord(reinterpret_cast<unsigned long long>(&g_futex_word_b),
+                                           1) == cinux::base::KernelError::kOk,
+        "waiter b did not return ok");
+    g_futex_b_awake = true;
+    cinux::proc::Scheduler::self().exit_current();
+}
+
+void futex_waker_task() {
+    while (!g_futex_a_awake) {
+        g_futex_wake_a += cinux::proc::futex::WakeUserWord(
+            reinterpret_cast<unsigned long long>(&g_futex_word_a), 8);
+        cinux::proc::Scheduler::self().yield();
+    }
+    while (!g_futex_b_awake) {
+        g_futex_wake_b += cinux::proc::futex::WakeUserWord(
+            reinterpret_cast<unsigned long long>(&g_futex_word_b), 8);
+        cinux::proc::Scheduler::self().yield();
+    }
+    cinux::proc::Scheduler::self().exit_current();
+}
+
 }  // namespace
 
 TEST("stop: a task that halts itself leaves the queue with its stack held") {
@@ -859,4 +1035,106 @@ TEST("stop: a sibling's resume lifts the halt mid-schedule") {
     ASSERT_EQ(g_halt_visits, 1U);
     ASSERT_EQ(scheduler.offspring_count(), 0ULL);
     ASSERT_EQ(ledger.free_page_count(), kBefore);
+}
+
+TEST("sched: a futex wait on a moved word refuses to park") {
+    auto& scheduler  = cinux::proc::Scheduler::self();
+    g_futex_word_a   = 1;
+    g_futex_mismatch = cinux::base::KernelError::kOk;
+    seat_built(
+        cinux::proc::TaskBuilder{}.set_entry(futex_mismatch_task).set_name("f-miss").build());
+    scheduler.run_until_done();
+    ASSERT_TRUE(g_futex_mismatch == cinux::base::KernelError::kWouldBlock);
+}
+
+TEST("sched: waking an untouched futex word wakes nobody") {
+    ASSERT_TRUE(cinux::proc::futex::WakeUserWord(
+                    reinterpret_cast<unsigned long long>(&g_futex_word_a), 8) == 0);
+}
+
+TEST("sched: futex waiters wake only on their own word") {
+    auto& scheduler = cinux::proc::Scheduler::self();
+    g_futex_word_a  = 1;
+    g_futex_word_b  = 1;
+    g_futex_a_awake = false;
+    g_futex_b_awake = false;
+    g_futex_wake_a  = 0;
+    g_futex_wake_b  = 0;
+    seat_built(
+        cinux::proc::TaskBuilder{}.set_entry(futex_waiter_a_task).set_name("f-wait-a").build());
+    seat_built(
+        cinux::proc::TaskBuilder{}.set_entry(futex_waiter_b_task).set_name("f-wait-b").build());
+    seat_built(cinux::proc::TaskBuilder{}.set_entry(futex_waker_task).set_name("f-waker").build());
+    scheduler.set_preemption(true);
+    scheduler.run_until_done();
+    scheduler.set_preemption(false);
+    ASSERT_TRUE(g_futex_wake_a == 1);
+    ASSERT_TRUE(g_futex_wake_b == 1);
+    ASSERT_TRUE(g_futex_a_awake);
+    ASSERT_TRUE(g_futex_b_awake);
+    ASSERT_EQ(scheduler.offspring_count(), 0ULL);
+}
+
+namespace {
+
+unsigned long long g_thr_process_pid    = 0;
+bool               g_thr_thread_reaped  = false;
+bool               g_thr_process_reaped = false;
+unsigned long long g_thr_receipt_pid    = 0;
+long long          g_thr_receipt_code   = 0;
+
+void silent_exit_task() {
+    cinux::proc::Scheduler::self().exit_current(9);
+}
+
+void thread_join_probe_task() {
+    auto&       scheduler = cinux::proc::Scheduler::self();
+    auto* const kThread   = cinux::proc::TaskBuilder{}
+                                .set_entry(silent_exit_task)
+                                .set_name("thread_member")
+                                .set_parent(*scheduler.current())
+                                .build();
+    cinux::base::safety::Check(kThread != nullptr, "thread member failed to build");
+    scheduler.seat(*kThread);
+    kThread->tgid = scheduler.current()->pid;
+
+    auto* const kProcess = cinux::proc::TaskBuilder{}
+                               .set_entry(silent_exit_task)
+                               .set_name("proper_child")
+                               .set_parent(*scheduler.current())
+                               .build();
+    cinux::base::safety::Check(kProcess != nullptr, "proper child failed to build");
+    kProcess->clear_child_tid = 0x0080000000000000ULL;
+    scheduler.seat(*kProcess);
+
+    cinux::proc::ChildReceipt receipt{};
+    g_thr_process_pid = kProcess->pid;
+    g_thr_process_reaped =
+        scheduler.wait_child(static_cast<long long>(kProcess->pid), false, receipt);
+    g_thr_receipt_pid  = receipt.pid;
+    g_thr_receipt_code = receipt.code;
+    g_thr_thread_reaped =
+        scheduler.wait_child(static_cast<long long>(kThread->pid), false, receipt);
+    scheduler.exit_current();
+}
+
+}  // namespace
+
+TEST("thread: a group member exits to reclaim and answers no wait") {
+    auto& scheduler      = cinux::proc::Scheduler::self();
+    g_thr_process_pid    = 0;
+    g_thr_thread_reaped  = false;
+    g_thr_process_reaped = false;
+    g_thr_receipt_pid    = 0;
+    g_thr_receipt_code   = 0;
+    seat_built(cinux::proc::TaskBuilder{}
+                   .set_entry(thread_join_probe_task)
+                   .set_name("join_probe")
+                   .build());
+    scheduler.run_until_done();
+    ASSERT_TRUE(g_thr_process_reaped);
+    ASSERT_EQ(g_thr_receipt_pid, g_thr_process_pid);
+    ASSERT_EQ(g_thr_receipt_code, 9LL);
+    ASSERT_TRUE(!g_thr_thread_reaped);
+    ASSERT_EQ(scheduler.offspring_count(), 0ULL);
 }
