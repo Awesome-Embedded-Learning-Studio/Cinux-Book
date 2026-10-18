@@ -19,12 +19,14 @@ constexpr uint8_t kRegLsr  = 0x5;
 
 constexpr uint8_t kLsrThre = 0x20;
 constexpr uint8_t kLsrTemt = 0x40;
+constexpr uint8_t kLsrDr   = 0x01;
 
 constexpr PortWrite kInitSequence[] = {
     {.port = kCom1Base + kRegIer, .value = 0x00},  {.port = kCom1Base + kRegLcr, .value = 0x80},
     {.port = kCom1Base + kRegData, .value = 0x01}, {.port = kCom1Base + kRegIer, .value = 0x00},
     {.port = kCom1Base + kRegLcr, .value = 0x03},  {.port = kCom1Base + kRegFcr, .value = 0xC7},
-    {.port = kCom1Base + kRegMcr, .value = 0x0B}};
+    {.port = kCom1Base + kRegMcr, .value = 0x0B},
+};
 
 }  // namespace
 
@@ -39,6 +41,18 @@ void SerialPutChar(char character) {
 
 void SerialDrain() {
     WaitBitsSet(kCom1Base + kRegLsr, kLsrTemt);
+}
+
+bool SerialTryGetChar(char* out) {
+    if ((InB(kCom1Base + kRegLsr) & kLsrDr) == 0) {
+        return false;
+    }
+    *out = static_cast<char>(InB(kCom1Base + kRegData));
+    return true;
+}
+
+bool SerialHasKey() {
+    return (InB(kCom1Base + kRegLsr) & kLsrDr) != 0;
 }
 
 }  // namespace cinux::driver

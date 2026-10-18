@@ -57,13 +57,13 @@ FutexTable& shared_table() {
 }  // namespace
 
 base::KernelError WaitOnUserWord(unsigned long long uaddr, unsigned int expected) {
-    Task* const kSelf = Scheduler::self().current();
-    FutexTable& table = shared_table();
+    const cinux::arch::IrqGuard kQuiet;
+    Task* const                 kSelf = Scheduler::self().current();
+    FutexTable&                 table = shared_table();
     {
-        const cinux::arch::IrqGuard kQuiet;
-        const SpinGuard             kGuard(table.gate);
+        const SpinGuard   kGuard(table.gate);
         // NOLINTNEXTLINE(performance-no-int-to-ptr)
-        auto const* const           kWord = reinterpret_cast<volatile const unsigned int*>(uaddr);
+        auto const* const kWord = reinterpret_cast<volatile const unsigned int*>(uaddr);
         if (*kWord != expected) {
             return base::KernelError::kWouldBlock;
         }

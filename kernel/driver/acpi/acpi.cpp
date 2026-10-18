@@ -91,7 +91,7 @@ const Rsdp* FindRootPointer() {
             mm::DirectMapVirt(kEbdaBasePhysPort));
     const unsigned long kEbdaSegment = base::ReadWord16(kSegmentBytes, 0);
     if (kEbdaSegment != 0) {
-        const unsigned long kEbdaPhys = kEbdaSegment << 4;
+        const unsigned long kEbdaPhys = kEbdaSegment << 4U;
         if (const Rsdp* const kFound = scan_for_root(mm::DirectMapVirt(kEbdaPhys), kEbdaBytes);
             kFound != nullptr) {
             return kFound;
@@ -100,7 +100,7 @@ const Rsdp* FindRootPointer() {
     return scan_for_root(mm::DirectMapVirt(kLowWindowPhys), kLowWindowBytes);
 }
 
-const Fadt* FindFadt(const Rsdp* root) {
+const TableHeader* FindTable(const Rsdp* root, const char* signature) {
     if (root == nullptr) {
         return nullptr;
     }
@@ -130,12 +130,16 @@ const Fadt* FindFadt(const Rsdp* root) {
         const auto* const kTable =
             reinterpret_cast<const TableHeader*>(  // NOLINT(performance-no-int-to-ptr)
                 mm::DirectMapVirt(entry_phys));
-        if (!bytes_match(kTable, "FACP", 4) || !TableSumsToZero(kTable, kTable->length)) {
+        if (!bytes_match(kTable, signature, 4) || !TableSumsToZero(kTable, kTable->length)) {
             continue;
         }
-        return reinterpret_cast<const Fadt*>(kTable);
+        return kTable;
     }
     return nullptr;
+}
+
+const Fadt* FindFadt(const Rsdp* root) {
+    return reinterpret_cast<const Fadt*>(FindTable(root, "FACP"));
 }
 
 void PowerOff(const Fadt* fadt) {

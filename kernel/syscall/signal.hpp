@@ -5,7 +5,7 @@
  *
  * Numbers follow Linux x86_64 (1..22, the trimmed v1 range): a static
  * program raising or masking a signal issues these values verbatim.
- * The set is one word, the action record is three words, and handler
+ * The set is one word, the action record is four words, and handler
  * addresses use two reserved values (0 default, 1 ignore) the way
  * Linux's SIG_DFL and SIG_IGN do. Everything here is layout the two
  * worlds share, so the file stays free of kernel types.
@@ -19,6 +19,8 @@
  */
 
 #pragma once
+
+#include <cstddef>
 
 #include "cinux/bit_ops/bitmask.hpp"
 
@@ -70,18 +72,23 @@ using SigSet = cinux::base::bit::BitMask<unsigned long long>;
 
 /**
  * @brief   One signal's disposition, as rt_sigaction installs it.
- * @note    The user-visible record: three words, no reserved tail.
+ * @note    Linux x86_64 rt_sigaction order: handler, flags, restorer,
+ *          then the eight-byte kernel signal mask.
  *          The mask rides along so the kernel can hold it while the
  *          handler runs, restoring it at sigreturn.
  * @since   0.1.0
  * @ingroup kernel_syscall
  */
 struct SigAction {
-    unsigned long long handler{};  ///< Handler address, kSignalDefault or kSignalIgnore.
-    SigSet             mask;       ///< Extra signals held while the handler runs.
-    unsigned long long flags{};    ///< kSaRestart, kSaResethand, or zero.
+    unsigned long long handler{};   ///< Handler address, kSignalDefault or kSignalIgnore.
+    unsigned long long flags{};     ///< kSaRestart, kSaResethand, or zero.
+    unsigned long long restorer{};  ///< User restorer address; delivery uses the kernel trampoline.
+    SigSet             mask;        ///< Extra signals held while the handler runs.
 };
 
-static_assert(sizeof(SigAction) == 24, "the action record stays three words");
+static_assert(sizeof(SigAction) == 32, "Linux x86_64 kernel sigaction is four words");
+static_assert(offsetof(SigAction, flags) == 8);
+static_assert(offsetof(SigAction, restorer) == 16);
+static_assert(offsetof(SigAction, mask) == 24);
 
 }  // namespace cinux::syscall

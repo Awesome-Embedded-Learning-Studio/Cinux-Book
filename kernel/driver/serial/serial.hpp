@@ -60,4 +60,34 @@ void SerialPutChar(char character);
  */
 void SerialDrain();
 
+/**
+ * @brief         Takes one received byte when the line holds one.
+ *
+ * @param[out]    out   Receives the byte, untouched when none waits.
+ * @return        True when a byte was taken.
+ * @note          The receiver's half of the line, polled: the
+ *                data-ready bit says whether the hold register holds a
+ *                byte, and reading the register consumes it. No
+ *                interrupt arms the arrival — callers poll between
+ *                other work.
+ * @warning       None
+ * @throws        None
+ * @since         0.3.0
+ * @ingroup kernel_driver
+ */
+bool SerialTryGetChar(char* out);
+
+/**
+ * @brief         Reports whether the line holds a received byte.
+ *
+ * @return        True when the data-ready bit is set.
+ * @note          The peek face for readiness: nothing is consumed, the
+ *                byte stays for the next SerialTryGetChar.
+ * @warning       None
+ * @throws        None
+ * @since         0.3.0
+ * @ingroup       kernel_driver
+ */
+bool SerialHasKey();
+
 }  // namespace cinux::driver

@@ -37,17 +37,8 @@ unsigned long read_line(char* line) {
             continue;
         }
         if (glyph == '\n') {
-            put_text("\n");
             break;
         }
-        if (glyph == '\b' || glyph == 0x7F) {
-            if (pos > 0) {
-                --pos;
-                put_text("\b \b");
-            }
-            continue;
-        }
-        user::Write(1, &glyph, 1);
         line[pos] = glyph;
         ++pos;
     }
@@ -150,18 +141,33 @@ void run_ls(const char* arg) {
         report_errno("open", kDir);
         return;
     }
-    cinux::syscall::SyscallDirent entry{};
+    unsigned char packed[512];
     for (;;) {
-        const long long kOne = user::Getdents(kDir, &entry);
-        if (kOne == 0) {
+        const long long kGot = user::Getdents(kDir, packed, sizeof(packed));
+        if (kGot == 0) {
             break;
         }
-        if (kOne < 0) {
-            report_errno("getdents", kOne);
+        if (kGot < 0) {
+            report_errno("getdents", kGot);
             break;
         }
-        put_text(entry.name);
-        put_text(entry.type == cinux::syscall::kDirentDirectory ? "/\n" : "\n");
+        unsigned long walked = 0;
+        while (walked + cinux::syscall::kDirent64NameAt <= static_cast<unsigned long>(kGot)) {
+            // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.Assign)
+            const unsigned int kLow  = packed[walked + cinux::syscall::kDirent64LenAt];
+            // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.Assign)
+            const unsigned int kHigh = packed[walked + cinux::syscall::kDirent64LenAt + 1];
+            const auto         kLen  = static_cast<unsigned short>(kLow | (kHigh << 8U));
+            if (walked + kLen > static_cast<unsigned long>(kGot)) {
+                break;
+            }
+            const char* const kName =
+                reinterpret_cast<const char*>(packed + walked + cinux::syscall::kDirent64NameAt);
+            put_text(kName);
+            const unsigned char kType = packed[walked + cinux::syscall::kDirent64TypeAt];
+            put_text(kType == cinux::syscall::kDirentTypeDirectory ? "/\n" : "\n");
+            walked += kLen;
+        }
     }
     user::Close(kDir);
 }

@@ -40,6 +40,36 @@ using cinux::fs::ext2::IsRegularMode;
 using cinux::fs::ext2::MapFileBlock;
 using cinux::fs::ext2::Superblock;
 
+namespace {
+
+void expect_sector_pattern(const std::uint8_t* bytes, unsigned long count) {
+    for (unsigned long index = 0; index < count; ++index) {
+        ASSERT_EQ(bytes[index], static_cast<std::uint8_t>(1 + (index / 512)));
+    }
+}
+
+}  // namespace
+
+TEST("block cache: copying reads reject crossings and survive eviction and failed fills") {
+    constexpr unsigned long   kPage = 4096;
+    std::vector<std::uint8_t> image(2 * kPage);
+    for (unsigned long index = 0; index < image.size(); ++index) {
+        image[index] = static_cast<std::uint8_t>(index / 512);
+    }
+    cinux::test::ImageDisk    disk(std::move(image));
+    cinux::driver::BlockQueue queue(disk);
+    cinux::driver::BlockCache cache(queue, 1);
+    std::uint8_t              first[1024]{};
+    std::uint8_t              other[1024]{};
+    ASSERT_TRUE(cache.read(cinux::driver::Lba{.value = 1}, first, sizeof(first)));
+    ASSERT_TRUE(cache.read(cinux::driver::Lba{.value = 8}, other, sizeof(other)));
+    expect_sector_pattern(first, sizeof(first));
+    ASSERT_FALSE(cache.read(cinux::driver::Lba{.value = 7}, first, sizeof(first)));
+    ASSERT_FALSE(cache.read(cinux::driver::Lba{.value = 16}, first, sizeof(first)));
+    expect_sector_pattern(first, sizeof(first));
+    ASSERT_TRUE(cache.read(cinux::driver::Lba{.value = 1}, first, sizeof(first)));
+}
+
 TEST("ext2: on-disk structure sizes") {
     ASSERT_TRUE(sizeof(Superblock) == 1024);
     ASSERT_TRUE(sizeof(GroupDescriptor) == 32);

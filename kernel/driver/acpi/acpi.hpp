@@ -100,12 +100,24 @@ struct Fadt {
 [[nodiscard]] const Rsdp* FindRootPointer();
 
 /**
- * @brief         Walks the directory for the FADT.
- * @param[in]     root   A pointer FindRootPointer handed back.
- * @return        The FACP table, or nullptr when the tree has none.
+ * @brief         Walks the directory for one table by signature.
+ * @param[in]     root        A pointer FindRootPointer handed back.
+ * @param[in]     signature   The four bytes the table's header starts
+ *                            with, "FACP" or "HPET" among them.
+ * @return        The table's header, or nullptr when the tree has none.
  * @note          Revision 0 roots point at an RSDT of 32-bit entries;
  *                later roots at an XSDT of 64-bit ones. Every entry is
  *                checksum-verified before it is trusted.
+ * @since         0.3.0
+ * @ingroup       kernel_driver
+ */
+[[nodiscard]] const TableHeader* FindTable(const Rsdp* root, const char* signature);
+
+/**
+ * @brief         Walks the directory for the FADT.
+ * @param[in]     root   A pointer FindRootPointer handed back.
+ * @return        The FACP table, or nullptr when the tree has none.
+ * @note          The FACP-flavored FindTable.
  * @since         0.1.0
  * @ingroup       kernel_driver
  */

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Bakes the teaching ext2 volume: 4 MiB, 1 KiB blocks, no features,
-# 128 inodes, two seed files from scripts/ext2_seed/.
+# Bakes the teaching ext2 volume: 16 MiB, 1 KiB blocks, no features,
+# 512 inodes, seed files from scripts/ext2_seed/.
 set -euo pipefail
 
 image=$1
 seed_dir="$(cd "$(dirname "$0")" && pwd)/ext2_seed"
 
-truncate -s 4M "$image"
-mkfs.ext2 -q -F -b 1024 -O none -N 128 "$image"
+truncate -s 16M "$image"
+mkfs.ext2 -q -F -b 1024 -O none -N 512 "$image"
 debugfs -w -R 'mkdir /etc' "$image" >/dev/null 2>&1
 debugfs -w -R 'mkdir /bin' "$image" >/dev/null 2>&1
 debugfs -w -R "write ${seed_dir}/motd.txt /etc/motd" "$image" >/dev/null 2>&1

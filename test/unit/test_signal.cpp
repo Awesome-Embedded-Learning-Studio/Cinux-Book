@@ -1,6 +1,7 @@
 #include <sys/mman.h>
 
 #include "../framework/framework.hpp"
+#include "cinux/memory.hpp"
 #include "cinux/ptr.hpp"
 #include "kernel/arch/x86_64/page.hpp"
 #include "kernel/mm/layout.hpp"
@@ -9,6 +10,7 @@
 #include "kernel/proc/signals.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/signal.hpp"
+#include "kernel/syscall/sys_signal.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "test_assert.hpp"
 
@@ -182,21 +184,17 @@ void ExitSink::reclaim(cinux::proc::Task& dead) {
 
 bool frame_says(const SyscallFrame& frame, unsigned long long original_rsp) {
     const unsigned long long kContext =
-        (original_rsp - sizeof(cinux::proc::SigReturnContext)) & ~0xFULL;
-    const unsigned long long kReturnSlot  = kContext - 8;
-    const unsigned long long kContextSlot = kContext - 16;
-    const auto* const        kImage       = cinux::base::PtrAt<const cinux::proc::SigReturnContext>(
+        (original_rsp - 128 - sizeof(cinux::proc::SigReturnContext)) & ~0xFULL;
+    const unsigned long long kReturnSlot = kContext - 8;
+    const auto* const        kImage      = cinux::base::PtrAt<const cinux::proc::SigReturnContext>(
         static_cast<unsigned long>(kContext));
     const unsigned long long kSavedRsp =
         kImage->user_rsp;  // NOLINT(clang-analyzer-optin.*) the window is mapped in main
     const bool kRegisters = frame.user_rsp == kReturnSlot && frame.rcx == kHandlerWord &&
                             frame.rdi == static_cast<unsigned long long>(kSigInt) && frame.rax == 0;
-    const bool kStack =
-        kSavedRsp == original_rsp && kImage->old_blocked.raw == 0 &&
-        *cinux::base::PtrAt<const unsigned long long>(static_cast<unsigned long>(kReturnSlot)) ==
-            SignalTrampolineAddress() &&
-        *cinux::base::PtrAt<const unsigned long long>(static_cast<unsigned long>(kContextSlot)) ==
-            kContext;
+    const bool kStack = kSavedRsp == original_rsp && kImage->old_blocked.raw == 0 &&
+                        *cinux::base::PtrAt<const unsigned long long>(
+                            static_cast<unsigned long>(kReturnSlot)) == SignalTrampolineAddress();
     return kRegisters && kStack;
 }
 
@@ -313,6 +311,72 @@ TEST("signal delivery: a custom handler rewrites the frame onto its stack") {
     ASSERT_TRUE(world.alpha.signals.pending.raw == 0);
     ASSERT_TRUE(world.alpha.signals.blocked.has(bit_for(kSigUsr1)));
     ASSERT_TRUE(!world.alpha.signals.blocked.has(bit_for(kSigInt)));
+}
+
+TEST("signal delivery: handler return restores registers, mask and the interrupted red zone") {
+    World world(1050);
+    world.body = [](World& site) {
+        site.alpha.signals.actions[kSigChld - 1].handler = kHandlerWord;
+        site.frame.user_rsp                              = g_fake_rsp - 8;
+        site.frame.rax                                   = 7;
+        site.frame.rcx                                   = 0x401234;
+        site.frame.r11                                   = 0x202;
+        site.frame.rbx                                   = 0x12345678;
+        site.alpha.signals.blocked                       = bit_for(kSigUsr1);
+        const SyscallFrame kBefore                       = site.frame;
+        auto* const        kRedZone = cinux::base::PtrAt<unsigned char>(site.frame.user_rsp - 128);
+        cinux::base::SetBytes(kRedZone, 0xA5, 128);
+        SendSignal(site.alpha, kSigChld);
+        site.rewrote  = DeliverPendingSignals(site.frame);
+        site.first_ok = true;
+        for (unsigned int index = 0; index < 128; ++index) {
+            site.first_ok = site.first_ok && kRedZone[index] == 0xA5;
+        }
+        // A normal handler may push below its return address. RET then
+        // leaves rsp at the saved context, without a pointer indirection.
+        *cinux::base::PtrAt<unsigned long long>(site.frame.user_rsp - 8) = 0xBAD;
+        site.frame.user_rsp += 8;
+        site.frame.rax            = 15;
+        const long long kRestored = cinux::syscall::HandleRtSigreturn(site.frame);
+        site.second_ok = kRestored == 7 &&
+                         cinux::base::EqualBytes(&site.frame, &kBefore, sizeof(kBefore)) &&
+                         site.alpha.signals.blocked.raw == bit_for(kSigUsr1).raw;
+        site.finish();
+    };
+    world.run();
+    ASSERT_TRUE(world.rewrote);
+    ASSERT_TRUE(world.first_ok);
+    ASSERT_TRUE(world.second_ok);
+    ASSERT_EQ(world.alpha.exit_code, 0);
+}
+
+TEST("signal syscall: musl's four-word action preserves flags, restorer and mask") {
+    World world(1075);
+    world.body = [](World& site) {
+        unsigned long long record[4] = {
+            kHandlerWord,
+            cinux::syscall::kSaRestart,
+            0x402000,
+            bit_for(kSigUsr1).raw,
+        };
+        unsigned long long old[4] = {};
+        SyscallFrame       call{};
+        call.rdi                = kSigChld;
+        call.rsi                = reinterpret_cast<unsigned long long>(record);
+        call.rdx                = reinterpret_cast<unsigned long long>(old);
+        call.r10                = sizeof(SigSet);
+        const long long  kSet   = cinux::syscall::HandleRtSigaction(call);
+        const SigAction& action = site.alpha.signals.actions[kSigChld - 1];
+        site.first_ok = kSet == 0 && action.handler == record[0] && action.flags == record[1] &&
+                        action.restorer == record[2] && action.mask.raw == record[3];
+        call.rsi      = 0;
+        const long long kGet = cinux::syscall::HandleRtSigaction(call);
+        site.second_ok       = kGet == 0 && cinux::base::EqualBytes(record, old, sizeof(record));
+        site.finish();
+    };
+    world.run();
+    ASSERT_TRUE(world.first_ok);
+    ASSERT_TRUE(world.second_ok);
 }
 
 TEST("signal delivery: resethand reverts the action once it has run") {

@@ -69,7 +69,8 @@ bool handler_word_ok(Word handler) {
  * @ingroup       kernel_syscall
  */
 bool in_stack_window(Word start, Word bytes) {
-    return start >= mm::kUserStackBottom && bytes <= mm::kUserStackTop - start;
+    return start >= mm::kUserStackBottom && start <= mm::kUserStackTop &&
+           bytes <= mm::kUserStackTop - start;
 }
 
 }  // namespace
@@ -149,12 +150,7 @@ long long HandleRtSigprocmask(const SyscallFrame& frame) {
 }
 
 long long HandleRtSigreturn(const SyscallFrame& frame) {
-    const Word kSlot = frame.user_rsp;
-    if (!in_stack_window(kSlot, kSetBytes) || (kSlot & 0xFULL) != 0) {
-        proc::Scheduler::self().exit_current(kSigSegv);
-        return 0;
-    }
-    const Word kContext = *cinux::base::PtrAt<Word>(static_cast<unsigned long>(kSlot));
+    const Word kContext = frame.user_rsp;
     if (!in_stack_window(kContext, sizeof(proc::SigReturnContext)) || (kContext & 0xFULL) != 0) {
         proc::Scheduler::self().exit_current(kSigSegv);
         return 0;

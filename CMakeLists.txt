@@ -62,7 +62,7 @@ set(CINUX_QEMU_DEVICE_ARGS
 # names the init-ladder level the test main walks before running cases.
 set(CINUX_KTEST_STAGES exceptions irq keyboard mm proc block)
 set(CINUX_KTESTS selfcheck:exceptions tick:irq keyboard:keyboard vmm:mm heap:mm aspace:mm cow:mm
-    vma:mm demand:mm loader:mm sched:proc block:block ext2:block)
+    vma:mm demand:mm loader:mm sched:proc block:block ext2:block pipe:proc tty:keyboard)
 set(CINUX_KTESTS_INTEGRATION "")
 
 message("Configuring Boot")

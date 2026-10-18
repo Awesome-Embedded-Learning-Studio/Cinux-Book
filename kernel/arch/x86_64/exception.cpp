@@ -75,7 +75,7 @@ void report_page_fault(unsigned long long address, unsigned long long error_code
     using cinux::mm::walk::WalkLevel;
     const unsigned long kRoot = cinux::arch::ReadCr3();
     print::Println("[kern]  root=%X (cr3 at fault time)", kRoot);
-    unsigned long     table          = kRoot;
+    unsigned long     table          = cinux::mm::DirectMapVirt(kRoot);
     const char* const kLevelNames[4] = {"pml4e", "pdpte", "pde", "pte"};
     for (unsigned int depth = 0; depth < 4; ++depth) {
         const auto         kLevel   = static_cast<WalkLevel>(depth);

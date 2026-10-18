@@ -21,7 +21,7 @@ long long HandleGetcwd(const SyscallFrame& frame) {
     if (kCwd[used] != '\0') {
         return -kErange;
     }
-    auto* const kSink = reinterpret_cast<char*>(frame.rsi);  // NOLINT(performance-no-int-to-ptr)
+    auto* const kSink = reinterpret_cast<char*>(frame.rdi);  // NOLINT(performance-no-int-to-ptr)
     base::CopyBytes(kSink, kCwd, used + 1UL);
     return static_cast<long long>(used);
 }

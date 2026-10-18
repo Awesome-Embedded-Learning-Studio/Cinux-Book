@@ -24,15 +24,18 @@ struct TestImage {
     std::uint8_t bytes[kImageBytes] = {};
 };
 
-constexpr void put_word(TestImage& image, std::size_t where, std::uint16_t value) {
+template <typename Image>
+constexpr void put_word(Image& image, std::size_t where, std::uint16_t value) {
     cinux::base::WriteWord16(image.bytes, static_cast<std::uint32_t>(where), value);
 }
 
-constexpr void put_dword(TestImage& image, std::size_t where, std::uint32_t value) {
+template <typename Image>
+constexpr void put_dword(Image& image, std::size_t where, std::uint32_t value) {
     cinux::base::WriteWord32(image.bytes, static_cast<std::uint32_t>(where), value);
 }
 
-constexpr void put_qword(TestImage& image, std::size_t where, std::uint64_t value) {
+template <typename Image>
+constexpr void put_qword(Image& image, std::size_t where, std::uint64_t value) {
     put_dword(image, where, static_cast<std::uint32_t>(value & 0xFFFFFFFF));
     put_dword(image, where + 4, static_cast<std::uint32_t>(value >> 32U));
 }
@@ -71,6 +74,48 @@ constexpr TestImage build_image() {
 
 constexpr TestImage kGoodImage = build_image();
 
+constexpr std::size_t kMidOffsetBytes = 56;
+constexpr std::size_t kMidImageBytes  = kEhdrBytes + (2 * kPhdrBytes) + kMidOffsetBytes;
+
+struct MidImage {
+    std::uint8_t bytes[kMidImageBytes] = {};
+};
+
+constexpr MidImage build_mid_image() {
+    MidImage image{};
+    image.bytes[0] = 0x7F;
+    image.bytes[1] = 'E';
+    image.bytes[2] = 'L';
+    image.bytes[3] = 'F';
+    image.bytes[4] = 2;
+    image.bytes[5] = 1;
+    image.bytes[6] = 1;
+    put_word(image, 16, 2);
+    put_word(image, 18, 0x3E);
+    put_dword(image, 20, 1);
+    put_qword(image, 24, 0x401BF0);
+    put_qword(image, 32, 64);
+    put_qword(image, 40, 0);
+    put_word(image, 52, 64);
+    put_word(image, 54, 56);
+    put_word(image, 56, 1);
+    const std::size_t kFirst = kEhdrBytes;
+    put_dword(image, kFirst, 1);
+    put_dword(image, kFirst + 4, 6);
+    put_qword(image, kFirst + 8, kEhdrBytes + kPhdrBytes);
+    put_qword(image, kFirst + 16, 0x401BF0);
+    put_qword(image, kFirst + 24, 0x401BF0);
+    put_qword(image, kFirst + 32, 24);
+    put_qword(image, kFirst + 40, 0x120);
+    put_qword(image, kFirst + 48, 0x1000);
+    for (std::size_t index = 0; index < kMidOffsetBytes; ++index) {
+        image.bytes[kEhdrBytes + kPhdrBytes + index] = static_cast<std::uint8_t>(0x30 + index);
+    }
+    return image;
+}
+
+constexpr MidImage kMidSegImage = build_mid_image();
+
 void check_payload_word() {
     // NOLINTBEGIN(clang-analyzer-optin.core.FixedAddressDereference)
     ASSERT_EQ(*cinux::base::PtrAt<std::uint32_t>(0x401000), 0x13121110U);
@@ -105,6 +150,42 @@ TEST("loader: segments land page-aligned and bss arrives zero") {
     space.activate();
     check_payload_word();
     check_bss_zero();
+    cinux::arch::LoadCr3(cinux::mm::KernelPageRoot());
+    space.teardown();
+    ASSERT_EQ(ledger.free_page_count(), kBefore);
+}
+
+void check_mid_head_data() {
+    // NOLINTBEGIN(clang-analyzer-optin.core.FixedAddressDereference)
+    ASSERT_EQ(*cinux::base::PtrAt<std::uint32_t>(0x401BF0), 0x33323130U);
+    ASSERT_EQ(*cinux::base::PtrAt<std::uint32_t>(0x401C00), 0x43424140U);
+    // NOLINTEND(clang-analyzer-optin.core.FixedAddressDereference)
+}
+
+void check_mid_around_zero() {
+    // NOLINTBEGIN(clang-analyzer-optin.core.FixedAddressDereference)
+    ASSERT_EQ(*cinux::base::PtrAt<std::uint64_t>(0x401000), 0ULL);
+    ASSERT_EQ(*cinux::base::PtrAt<std::uint64_t>(0x401BE8), 0ULL);
+    ASSERT_EQ(*cinux::base::PtrAt<std::uint64_t>(0x401C08), 0ULL);
+    ASSERT_EQ(*cinux::base::PtrAt<std::uint64_t>(0x401D08), 0ULL);
+    // NOLINTEND(clang-analyzer-optin.core.FixedAddressDereference)
+}
+
+TEST("loader: a segment mid-page keeps its head page's file bytes") {
+    const auto* const kWarm = new cinux::mm::AddressSpace{};
+    delete kWarm;
+    const auto&             ledger  = cinux::mm::Pmm::self();
+    const unsigned long     kBefore = ledger.free_page_count();
+    cinux::mm::AddressSpace space;
+    ASSERT_TRUE(space.init());
+    cinux::mm::VmaStore      vmas;
+    std::uint64_t            entry = 0;
+    cinux::loader::LoadWorld world{.space = space, .vmas = vmas, .file = {}};
+    ASSERT_TRUE(cinux::loader::LoadElfIntoSpace(kMidSegImage.bytes, kMidImageBytes, world, entry));
+    ASSERT_EQ(entry, 0x401BF0ULL);
+    space.activate();
+    check_mid_head_data();
+    check_mid_around_zero();
     cinux::arch::LoadCr3(cinux::mm::KernelPageRoot());
     space.teardown();
     ASSERT_EQ(ledger.free_page_count(), kBefore);

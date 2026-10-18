@@ -13,36 +13,50 @@
 #include <array>
 #include <utility>
 
+#include "kernel/boot/print.hpp"
 #include "kernel/proc/signals.hpp"
+#include "kernel/syscall/sys_access.hpp"
 #include "kernel/syscall/sys_arch_prctl.hpp"
 #include "kernel/syscall/sys_brk.hpp"
 #include "kernel/syscall/sys_chdir.hpp"
+#include "kernel/syscall/sys_clock.hpp"
 #include "kernel/syscall/sys_clone.hpp"
 #include "kernel/syscall/sys_close.hpp"
 #include "kernel/syscall/sys_exec.hpp"
 #include "kernel/syscall/sys_exit.hpp"
+#include "kernel/syscall/sys_fcntl.hpp"
 #include "kernel/syscall/sys_fork.hpp"
+#include "kernel/syscall/sys_fstat.hpp"
 #include "kernel/syscall/sys_futex.hpp"
 #include "kernel/syscall/sys_getcwd.hpp"
 #include "kernel/syscall/sys_getdents.hpp"
 #include "kernel/syscall/sys_getpid.hpp"
 #include "kernel/syscall/sys_getppid.hpp"
+#include "kernel/syscall/sys_getrandom.hpp"
 #include "kernel/syscall/sys_gettid.hpp"
+#include "kernel/syscall/sys_id.hpp"
+#include "kernel/syscall/sys_ioctl.hpp"
 #include "kernel/syscall/sys_kill.hpp"
 #include "kernel/syscall/sys_mkdir.hpp"
 #include "kernel/syscall/sys_mmap.hpp"
 #include "kernel/syscall/sys_mprotect.hpp"
 #include "kernel/syscall/sys_munmap.hpp"
 #include "kernel/syscall/sys_open.hpp"
+#include "kernel/syscall/sys_openat.hpp"
 #include "kernel/syscall/sys_pgrp.hpp"
+#include "kernel/syscall/sys_pipe.hpp"
+#include "kernel/syscall/sys_ppoll.hpp"
+#include "kernel/syscall/sys_prlimit.hpp"
 #include "kernel/syscall/sys_read.hpp"
 #include "kernel/syscall/sys_reboot.hpp"
 #include "kernel/syscall/sys_set_tid_address.hpp"
 #include "kernel/syscall/sys_signal.hpp"
 #include "kernel/syscall/sys_stat.hpp"
+#include "kernel/syscall/sys_uname.hpp"
 #include "kernel/syscall/sys_unlink.hpp"
 #include "kernel/syscall/sys_wait.hpp"
 #include "kernel/syscall/sys_write.hpp"
+#include "kernel/syscall/sys_writev.hpp"
 #include "kernel/syscall/sys_yield.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
@@ -60,6 +74,7 @@ constexpr Row kRows[] = {
     {.number = cinux::syscall::SyscallNr::kOpen, .handler = cinux::syscall::HandleOpen},
     {.number = cinux::syscall::SyscallNr::kClose, .handler = cinux::syscall::HandleClose},
     {.number = cinux::syscall::SyscallNr::kStat, .handler = cinux::syscall::HandleStat},
+    {.number = cinux::syscall::SyscallNr::kLstat, .handler = cinux::syscall::HandleStat},
     {.number = cinux::syscall::SyscallNr::kMmap, .handler = cinux::syscall::HandleMmap},
     {.number = cinux::syscall::SyscallNr::kMunmap, .handler = cinux::syscall::HandleMunmap},
     {.number = cinux::syscall::SyscallNr::kMprotect, .handler = cinux::syscall::HandleMprotect},
@@ -80,8 +95,10 @@ constexpr Row kRows[] = {
     {.number = cinux::syscall::SyscallNr::kGetpid, .handler = cinux::syscall::HandleGetpid},
     {.number = cinux::syscall::SyscallNr::kClone, .handler = cinux::syscall::HandleClone},
     {.number = cinux::syscall::SyscallNr::kFork, .handler = cinux::syscall::HandleFork},
+    {.number = cinux::syscall::SyscallNr::kVfork, .handler = cinux::syscall::HandleFork},
     {.number = cinux::syscall::SyscallNr::kExecve, .handler = cinux::syscall::HandleExecve},
     {.number = cinux::syscall::SyscallNr::kExit, .handler = cinux::syscall::HandleExit},
+    {.number = cinux::syscall::SyscallNr::kExitGroup, .handler = cinux::syscall::HandleExit},
     {.number = cinux::syscall::SyscallNr::kWait4, .handler = cinux::syscall::HandleWait4},
     {.number = cinux::syscall::SyscallNr::kKill, .handler = cinux::syscall::HandleKill},
     {.number = cinux::syscall::SyscallNr::kSetpgid, .handler = cinux::syscall::HandleSetpgid},
@@ -105,6 +122,40 @@ constexpr Row kRows[] = {
         .number  = cinux::syscall::SyscallNr::kSetTidAddress,
         .handler = cinux::syscall::HandleSetTidAddress,
     },
+    {.number = cinux::syscall::SyscallNr::kFstat, .handler = cinux::syscall::HandleFstat},
+    {.number = cinux::syscall::SyscallNr::kIoctl, .handler = cinux::syscall::HandleIoctl},
+    {.number = cinux::syscall::SyscallNr::kWritev, .handler = cinux::syscall::HandleWritev},
+    {.number = cinux::syscall::SyscallNr::kAccess, .handler = cinux::syscall::HandleAccess},
+    {.number = cinux::syscall::SyscallNr::kPipe, .handler = cinux::syscall::HandlePipe},
+    {.number = cinux::syscall::SyscallNr::kDup, .handler = cinux::syscall::HandleDup},
+    {.number = cinux::syscall::SyscallNr::kDup2, .handler = cinux::syscall::HandleDup2},
+    {.number = cinux::syscall::SyscallNr::kPipe2, .handler = cinux::syscall::HandlePipe2},
+    {.number = cinux::syscall::SyscallNr::kUname, .handler = cinux::syscall::HandleUname},
+    {.number = cinux::syscall::SyscallNr::kFcntl, .handler = cinux::syscall::HandleFcntl},
+    {
+        .number  = cinux::syscall::SyscallNr::kGettimeofday,
+        .handler = cinux::syscall::HandleGettimeofday,
+    },
+    {.number = cinux::syscall::SyscallNr::kGetuid, .handler = cinux::syscall::HandleGetuid},
+    {.number = cinux::syscall::SyscallNr::kGetgid, .handler = cinux::syscall::HandleGetgid},
+    {.number = cinux::syscall::SyscallNr::kSetuid, .handler = cinux::syscall::HandleSetuid},
+    {.number = cinux::syscall::SyscallNr::kSetgid, .handler = cinux::syscall::HandleSetgid},
+    {.number = cinux::syscall::SyscallNr::kGeteuid, .handler = cinux::syscall::HandleGeteuid},
+    {.number = cinux::syscall::SyscallNr::kGetegid, .handler = cinux::syscall::HandleGetegid},
+    {.number = cinux::syscall::SyscallNr::kPrctl, .handler = cinux::syscall::HandlePrctl},
+    {.number = cinux::syscall::SyscallNr::kTime, .handler = cinux::syscall::HandleTime},
+    {
+        .number  = cinux::syscall::SyscallNr::kClockGettime,
+        .handler = cinux::syscall::HandleClockGettime,
+    },
+    {.number = cinux::syscall::SyscallNr::kPrlimit64, .handler = cinux::syscall::HandlePrlimit64},
+    {.number = cinux::syscall::SyscallNr::kGetrandom, .handler = cinux::syscall::HandleGetrandom},
+    {.number = cinux::syscall::SyscallNr::kOpenat, .handler = cinux::syscall::HandleOpenat},
+    {
+        .number  = cinux::syscall::SyscallNr::kNewfstatat,
+        .handler = cinux::syscall::HandleNewfstatat,
+    },
+    {.number = cinux::syscall::SyscallNr::kPpoll, .handler = cinux::syscall::HandlePpoll},
 };
 
 constexpr auto kHandlers = [] {
@@ -120,6 +171,7 @@ constexpr auto kHandlers = [] {
 extern "C" long long InvokeSyscall(cinux::syscall::SyscallFrame& frame) {
     const unsigned long long kNumber = frame.rax;
     if (kNumber >= cinux::syscall::kSyscallCount || kHandlers[kNumber] == nullptr) {
+        cinux::print::Println("[kern] syscall %llu unserved", kNumber);
         return -cinux::syscall::kEnosys;
     }
     const long long kResult = kHandlers[kNumber](frame);

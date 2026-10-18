@@ -128,16 +128,17 @@ inline long long Unlink(const char* path) {
 }
 
 /**
- * @brief         getdents(fd, entry): read one directory entry.
+ * @brief         getdents(fd, buf, count): read packed directory records.
  * @param[in]     descriptor   An open directory.
- * @param[out]    entry        Filled with the next name and its type.
- * @return        One when filled, zero at the end, or a negative errno.
- * @since         0.1.0
+ * @param[out]    buf          Receives whole dirent64 records, abutting.
+ * @param[in]     count        How many bytes buf holds.
+ * @return        The bytes filled, zero at the end, or a negative errno.
+ * @since         0.3.0
  */
-inline long long Getdents(unsigned long long                   descriptor,
-                          const cinux::syscall::SyscallDirent* entry) {
+// NOLINTNEXTLINE(misc-const-correctness) the kernel fills buf; this body only forwards it
+inline long long Getdents(unsigned long long descriptor, void* buf, unsigned long long count) {
     return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kGetdents),
-                    descriptor, reinterpret_cast<unsigned long long>(entry), 0);
+                    descriptor, reinterpret_cast<unsigned long long>(buf), count);
 }
 
 /**
@@ -147,7 +148,8 @@ inline long long Getdents(unsigned long long                   descriptor,
  * @return        Zero, or a negative errno.
  * @since         0.2.0
  */
-inline long long Stat(const char* path, const cinux::syscall::SyscallStat* out) {
+// NOLINTNEXTLINE(misc-const-correctness) the kernel fills out; this body only forwards it
+inline long long Stat(const char* path, cinux::syscall::SyscallStat* out) {
     return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kStat),
                     reinterpret_cast<unsigned long long>(path),
                     reinterpret_cast<unsigned long long>(out), 0);

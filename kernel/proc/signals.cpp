@@ -24,9 +24,10 @@ constexpr SigSet bit_for(int number) {
     return SigSet{1ULL << static_cast<unsigned>(number - 1)};
 }
 
-/// Bytes the delivery lays below the interrupted stack pointer: the
-/// context, the context-pointer slot and the return slot.
-constexpr unsigned long long kDeliveryBytes = sizeof(SigReturnContext) + 16;
+/// Preserve the interrupted function's red zone as well as alignment
+/// slack, the saved context and the handler's return address.
+constexpr unsigned long long kRedZoneBytes  = 128;
+constexpr unsigned long long kDeliveryBytes = kRedZoneBytes + 15 + sizeof(SigReturnContext) + 8;
 
 /**
  * @brief         Whether the delivery may write its context under rsp.
@@ -90,17 +91,15 @@ void die_by_signal(int number) {
  * @param[in]     act      The installed action.
  * @param[in]     blocked_before   The mask as it stood before delivery.
  * @return        true when the frame was rewritten.
- * @note          The layout under the interrupted rsp, low to high: the
- *                slot holding the context's address, the slot holding
- *                the trampoline's, then the context itself. The frame
+ * @note          The layout under the interrupted red zone, low to high:
+ *                the return address, then the context itself. The frame
  *                then reads like a call just happened: the stack
  *                pointer rests on the trampoline slot (eight mod
  *                sixteen, as the ABI demands after a call), rcx
  *                carries the handler, rdi the signal number. The
  *                handler's ret lands on the trampoline with the
- *                context slot as rsp, and the trampoline's syscall
- *                arrives with exactly that view — [rsp] names the
- *                context, which is the only thing sigreturn needs.
+ *                context itself as rsp. Nothing saved below the return
+ *                address may survive an ordinary handler's pushes.
  * @since         0.1.0
  * @ingroup       kernel_proc
  */
@@ -109,9 +108,9 @@ bool frame_handler_entry(SyscallFrame& frame, int number, const SigAction& act,
     if (!stack_holds_delivery(frame.user_rsp)) {
         return false;
     }
-    const unsigned long long kContext     = (frame.user_rsp - sizeof(SigReturnContext)) & ~0xFULL;
-    const unsigned long long kReturnSlot  = kContext - 8;
-    const unsigned long long kContextSlot = kContext - 16;
+    const unsigned long long kContext =
+        (frame.user_rsp - kRedZoneBytes - sizeof(SigReturnContext)) & ~0xFULL;
+    const unsigned long long kReturnSlot = kContext - 8;
     auto& image       = *cinux::base::PtrAt<SigReturnContext>(static_cast<unsigned long>(kContext));
     image.user_rsp    = frame.user_rsp;
     image.rcx         = frame.rcx;
@@ -133,11 +132,10 @@ bool frame_handler_entry(SyscallFrame& frame, int number, const SigAction& act,
     image.reserved    = 0;
     *cinux::base::PtrAt<unsigned long long>(static_cast<unsigned long>(kReturnSlot)) =
         SignalTrampolineAddress();
-    *cinux::base::PtrAt<unsigned long long>(static_cast<unsigned long>(kContextSlot)) = kContext;
-    frame.user_rsp                                                                    = kReturnSlot;
-    frame.rcx                                                                         = act.handler;
-    frame.rdi = static_cast<unsigned long long>(number);
-    frame.rax = 0;
+    frame.user_rsp = kReturnSlot;
+    frame.rcx      = act.handler;
+    frame.rdi      = static_cast<unsigned long long>(number);
+    frame.rax      = 0;
     return true;
 }
 

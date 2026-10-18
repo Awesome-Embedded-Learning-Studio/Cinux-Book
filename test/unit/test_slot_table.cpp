@@ -23,7 +23,7 @@ TEST("slot table: erase preserves other indices and pointers and reuses the lowe
     SlotTable<unsigned int, 3> table;
     ASSERT_EQ(table.insert(10), 0UL);
     ASSERT_EQ(table.insert(20), 1UL);
-    auto* const kResident = table.get(1);
+    const unsigned int* const kResident = table.get(1);
     ASSERT_TRUE(table.erase(0));
     ASSERT_EQ(table.insert(30), 0UL);
     ASSERT_TRUE(table.get(1) == kResident);

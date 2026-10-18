@@ -1,5 +1,7 @@
 #include "kernel/syscall/sys_stat.hpp"
 
+#include <cstdint>
+
 #include "cinux/result.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/fs/file_world.hpp"
@@ -11,7 +13,7 @@
 namespace cinux::syscall {
 
 long long HandleStat(const SyscallFrame& frame) {
-    if (frame.rsi >= kUserAddressLimit) {
+    if (!UserRangeWritable(frame.rsi, sizeof(SyscallStat))) {
         return -kEfault;
     }
     char storage[fs::kFsPathMax] = {};
@@ -36,10 +38,11 @@ long long HandleStat(const SyscallFrame& frame) {
     }
     auto* const kSink =
         reinterpret_cast<SyscallStat*>(frame.rsi);  // NOLINT(performance-no-int-to-ptr)
+    *kSink       = {};
     kSink->ino   = probed.ino;
     kSink->mode  = probed.mode;
     kSink->links = probed.links;
-    kSink->size  = probed.size;
+    kSink->size  = static_cast<std::int64_t>(probed.size);
     kSink->mtime = probed.mtime;
     return 0;
 }

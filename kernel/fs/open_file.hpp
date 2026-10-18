@@ -48,7 +48,10 @@ struct OpenFile : base::RefCount<> {
     const FsOps*  ops     = nullptr;  ///< The backend's erased face.
     void*         backend = nullptr;  ///< The backend instance.
     FsNode        node{};             ///< Which node of that backend.
-    unsigned long offset = 0;         ///< Bytes read so far, or the directory entry ordinal.
+    unsigned long offset       = 0;   ///< Bytes read so far, or the directory entry ordinal.
+    /// The open's own status bits (the O_RDWR/O_APPEND/O_NONBLOCK half
+    /// of the open flags): what F_GETFL answers and F_SETFL re-arms.
+    unsigned long status_flags = 0;
 
     /// Drops the node reference this open has carried since birth.
     ~OpenFile() {

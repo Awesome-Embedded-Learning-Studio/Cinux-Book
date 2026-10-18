@@ -26,4 +26,21 @@ namespace cinux::syscall {
  */
 long long HandleWrite(const SyscallFrame& frame);
 
+/**
+ * @brief         Writes one run of bytes through one descriptor.
+ *
+ * @param[in]     descriptor   The fd the bytes belong to; 1 and 2 are
+ *                             the console, the rest are opens.
+ * @param[in]     source       Where the bytes come from, user memory.
+ * @param[in]     count        How many bytes to put.
+ * @return        The count written, or a negative errno.
+ * @note          The single-run body write and writev share; the scatter
+ *                caller adds the segments, the plain caller is one
+ *                segment.
+ * @since         0.3.0
+ * @ingroup       kernel_syscall
+ */
+long long WriteRun(unsigned long long descriptor, unsigned long long source,
+                   unsigned long long count);
+
 }  // namespace cinux::syscall

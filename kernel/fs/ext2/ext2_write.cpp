@@ -117,24 +117,26 @@ base::Result<FsNode> Ext2::make_file(std::string_view path) {
     }
 
     const std::uint32_t kStamp = now_stamp();
-    const Inode         kFresh{.i_mode        = static_cast<std::uint16_t>(kFsFileMode),
-                               .i_uid         = 0,
-                               .i_size        = 0,
-                               .i_atime       = kStamp,
-                               .i_ctime       = kStamp,
-                               .i_mtime       = kStamp,
-                               .i_dtime       = 0,
-                               .i_gid         = 0,
-                               .i_links_count = 1,
-                               .i_blocks      = 0,
-                               .i_flags       = 0,
-                               .i_osd1        = 0,
-                               .i_block       = {},
-                               .i_generation  = 0,
-                               .i_file_acl    = 0,
-                               .i_dir_acl     = 0,
-                               .i_faddr       = 0,
-                               .i_osd2        = {}};
+    const Inode         kFresh{
+        .i_mode        = static_cast<std::uint16_t>(kFsFileMode),
+        .i_uid         = 0,
+        .i_size        = 0,
+        .i_atime       = kStamp,
+        .i_ctime       = kStamp,
+        .i_mtime       = kStamp,
+        .i_dtime       = 0,
+        .i_gid         = 0,
+        .i_links_count = 1,
+        .i_blocks      = 0,
+        .i_flags       = 0,
+        .i_osd1        = 0,
+        .i_block       = {},
+        .i_generation  = 0,
+        .i_file_acl    = 0,
+        .i_dir_acl     = 0,
+        .i_faddr       = 0,
+        .i_osd2        = {},
+    };
     if (!write_inode(kIno.value(), kFresh)) {
         free_inode(kIno.value());
         return base::KernelError::kIOError;
@@ -364,13 +366,8 @@ base::Result<unsigned long> Ext2::write(FsNode node, unsigned long offset, const
 
 bool Ext2::bitmap_words(unsigned long bitmap_block, base::bit::WordMask* words,
                         unsigned long capacity) {
-    const std::uint8_t* view = nullptr;
-    if (!cache_.view(driver::Lba{.value = bitmap_block * kBlockSectors}, &view)) {
-        return false;
-    }
-    base::CopyBytes(words, view,
-                    base::bit::Bitmap::words_for(capacity) * sizeof(base::bit::WordMask));
-    return true;
+    return cache_.read(driver::Lba{.value = bitmap_block * kBlockSectors}, words,
+                       base::bit::Bitmap::words_for(capacity) * sizeof(base::bit::WordMask));
 }
 
 bool Ext2::patch_group_field(unsigned long group, unsigned long offset, std::uint16_t value) {
@@ -759,11 +756,13 @@ bool Ext2::add_dir_entry(const Inode& parent_dir, unsigned long child_ino, std::
             }
             const unsigned long kEntryMin = DirEntryLength(entry.name_len);
             const unsigned long kRoom     = entry.rec_len - kEntryMin;
-            const DirInsert     kHere{.disk_block = kDisk.value(),
-                                      .cursor     = cursor,
-                                      .entry      = &entry,
-                                      .child      = child_ino,
-                                      .name       = name};
+            const DirInsert     kHere{
+                .disk_block = kDisk.value(),
+                .cursor     = cursor,
+                .entry      = &entry,
+                .child      = child_ino,
+                .name       = name,
+            };
             if (entry.inode == 0 && entry.rec_len >= kNeed) {
                 return fill_dead_slot(kHere);
             }

@@ -59,11 +59,9 @@ base::Result<void> Ext2::mount() {
         return base::KernelError::kInvalidArgument;
     }
 
-    const std::uint8_t* open_view = nullptr;
-    if (!cache_.view(driver::Lba{.value = kSuperblockSector}, &open_view)) {
+    if (!cache_.read(driver::Lba{.value = kSuperblockSector}, &sb_, sizeof(Superblock))) {
         return base::KernelError::kIOError;
     }
-    base::CopyBytes(&sb_, open_view, sizeof(Superblock));
     if (sb_.s_magic != kMagic) {
         return base::KernelError::kIOError;
     }
@@ -130,10 +128,12 @@ base::Result<FsNode> Ext2::lookup(std::string_view path) {
 
     const Inode& node = current.value();
     const bool   kDir = IsDirectoryMode(node.i_mode);
-    return FsNode{.opaque = nullptr,
-                  .type   = kDir ? InodeType::kDirectory : InodeType::kFile,
-                  .ino    = current_ino,
-                  .size   = kDir ? 0 : node.i_size};
+    return FsNode{
+        .opaque = nullptr,
+        .type   = kDir ? InodeType::kDirectory : InodeType::kFile,
+        .ino    = current_ino,
+        .size   = kDir ? 0 : node.i_size,
+    };
 }
 
 base::Result<unsigned long> Ext2::read(FsNode node, unsigned long offset, void* sink,
@@ -219,6 +219,7 @@ base::Result<bool> Ext2::read_dir(FsNode node, unsigned long index, FsDirent& en
         return kChild.error();
     }
     entry.type = IsDirectoryMode(kChild.value().i_mode) ? InodeType::kDirectory : InodeType::kFile;
+    entry.ino  = found_ino;
     return true;
 }
 
@@ -252,12 +253,7 @@ std::uint32_t Ext2::now_stamp() {
 }
 
 bool Ext2::read_block(unsigned long block, void* sink) {
-    const std::uint8_t* view = nullptr;
-    if (!cache_.view(driver::Lba{.value = block * kBlockSectors}, &view)) {
-        return false;
-    }
-    base::CopyBytes(sink, view, kVolumeBlockBytes);
-    return true;
+    return cache_.read(driver::Lba{.value = block * kBlockSectors}, sink, kVolumeBlockBytes);
 }
 
 base::Result<Inode> Ext2::read_inode(unsigned long ino) {

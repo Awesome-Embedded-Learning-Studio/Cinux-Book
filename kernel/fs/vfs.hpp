@@ -69,8 +69,9 @@ struct FsNode {
  * @ingroup kernel_fs
  */
 struct FsDirent {
-    char      name[kFsNameMax];  ///< NUL-terminated entry name.
-    InodeType type;              ///< File or directory.
+    char          name[kFsNameMax] = {};                ///< NUL-terminated entry name.
+    InodeType     type             = InodeType::kFile;  ///< File or directory.
+    unsigned long ino              = 0;  ///< The entry's inode number, when the backend names one.
 };
 
 /**
@@ -206,9 +207,10 @@ struct FsView {
 /**
  * @brief         Reads one whole file into an owned heap buffer.
  * @param[in]     view        The resolved backend face for the file.
- * @param[out]    out         Receives the buffer; empty on refusal.
+ * @param[out]    out         Receives the buffer on success; unchanged on refusal.
  * @param[out]    out_bytes   The file's byte count.
- * @return        true when every byte landed.
+ * @return        Success when every byte landed; otherwise the backend
+ *                error, or kIOError for a successful but short read.
  * @note          exec and init share this ladder: lookup, stat, one
  *                allocation, one read, a size match. Short reads are
  *                refusals — a program image that arrives incomplete
@@ -216,8 +218,8 @@ struct FsView {
  * @since         0.4.0
  * @ingroup kernel_fs
  */
-[[nodiscard]] bool ReadWholeFile(const FsView& view, base::Own<unsigned char[]>& out,
-                                 unsigned long& out_bytes);
+[[nodiscard]] base::Result<void> ReadWholeFile(const FsView& view, base::Own<unsigned char[]>& out,
+                                               unsigned long& out_bytes);
 
 /**
  * @brief   The mount table: path prefixes to backends, nothing more.

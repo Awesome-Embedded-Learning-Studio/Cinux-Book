@@ -17,7 +17,9 @@
 
 #include "cinux/assert.hpp"
 #include "cinux/math.hpp"
+#include "cinux/memory.hpp"
 #include "cinux/own.hpp"
+#include "cinux/ptr.hpp"
 #include "cinux/result.hpp"
 #include "cinux/shared.hpp"
 #include "kernel/arch/x86_64/page.hpp"
@@ -54,7 +56,7 @@ bool read_volume_file(const char* path, base::Own<unsigned char[]>& out, unsigne
         return false;
     }
     view = kView.value();
-    return fs::ReadWholeFile(view, out, out_bytes);
+    return fs::ReadWholeFile(view, out, out_bytes).ok();
 }
 
 /// One built shell world: the space and its range register, seat-ready.
@@ -107,6 +109,12 @@ ShellWorld build_shell_world(std::uint64_t& entry) {
     if (kStackFrame == mm::Pmm::PhysAddr{}) {
         return {};
     }
+    cinux::base::SetBytes(cinux::base::PtrAt<unsigned char>(mm::DirectMapVirt(kStackFrame.raw)), 0,
+                          cinux::arch::page::kSize);
+    const char* const kShellArgv[2] = {"/bin/sh", nullptr};
+    loader::WriteEntryPicture(cinux::base::PtrAt<unsigned char>(mm::DirectMapVirt(kStackFrame.raw)),
+                              proc::kUserProgramStackTop - proc::kUserEntryStackOffset, kShellArgv,
+                              nullptr);
     if (!space->map_user(proc::kUserProgramStackTop - cinux::arch::page::kSize, kStackFrame.raw)) {
         mm::Pmm::self().free_page(kStackFrame);
         return {};
@@ -133,7 +141,7 @@ bool seat_shell_task(proc::Task& parent) {
         kSelf->user_root        = g_shell_root;
         asm volatile("cli" : : : "memory");
         cinux::arch::LoadCr3(g_shell_root);
-        JumpToRing3(g_shell_entry, proc::kUserProgramStackTop);
+        JumpToRing3(g_shell_entry, proc::kUserProgramStackTop - proc::kUserEntryStackOffset);
     };
     auto* const kShell = proc::TaskBuilder{}
                              .set_entry(enter_ring3)

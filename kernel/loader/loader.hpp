@@ -75,4 +75,33 @@ struct LoadWorld {
 [[nodiscard]] bool LoadElfIntoSpace(const std::uint8_t* data, std::size_t bytes, LoadWorld& world,
                                     std::uint64_t& entry);
 
+/**
+ * @brief         Writes the hosted entry picture onto one zeroed stack
+ *                page and hands back the entry stack pointer.
+ *
+ * @param[in,out] stack_page    The page's bytes through the direct map;
+ *                              its low end receives the argument and
+ *                              environment strings, NUL included.
+ * @param[in]     entry_rsp     Where the first instruction finds the
+ *                              stack pointer; the pointer words start
+ *                              here and climb.
+ * @param[in]     argv          The argument runs, NUL-terminated, ended
+ *                              by a null entry.
+ * @param[in]     envp          The environment runs, ended by a null
+ *                              entry; may be null itself for none.
+ * @return        The entry stack pointer, the same value handed in.
+ * @note          The picture is the hosted shape: argc, argv with its
+ *              null end, envp with its null end, then a bare AT_NULL
+ *              auxiliary vector — the layout musl's first instructions
+ *              already know how to walk. Strings land at the page's
+ *              low end and climb toward the pointers; the caller owns
+ *              keeping both halves inside the one page.
+ * @warning       None
+ * @throws        None
+ * @since         0.3.0
+ * @ingroup       kernel_loader
+ */
+unsigned long WriteEntryPicture(unsigned char* stack_page, unsigned long entry_rsp,
+                                const char* const* argv, const char* const* envp);
+
 }  // namespace cinux::loader

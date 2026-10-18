@@ -37,9 +37,26 @@ add_cinux_test(bitmap)
 add_cinux_test(time)
 add_cinux_test(path)
 add_cinux_test(rtc)
+add_cinux_test(hpet)
 add_cinux_test(font)
 add_cinux_test(framebuffer)
 add_cinux_test(console)
+add_cinux_test(syscall_face ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_uname.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_prlimit.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_fcntl.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_getrandom.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_openat.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/proc/sched_class.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/proc/futex.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/proc/signals.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/fs/file_table.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/mm/vma.cpp
+                           framework/syscall_host.cpp)
+
 add_cinux_test(keyboard ${CMAKE_SOURCE_DIR}/kernel/driver/keyboard/scancode.cpp)
 add_cinux_test(pmm ${CMAKE_SOURCE_DIR}/kernel/mm/pmm.cpp)
 add_cinux_test(heap ${CMAKE_SOURCE_DIR}/kernel/mm/heap.cpp)
@@ -133,6 +150,7 @@ add_cinux_test(block ${CMAKE_SOURCE_DIR}/kernel/driver/block/block_queue.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
 add_cinux_test(vma ${CMAKE_SOURCE_DIR}/kernel/mm/vma.cpp)
 add_cinux_test(signal ${CMAKE_SOURCE_DIR}/kernel/proc/signals.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_signal.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/fs/file_table.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
@@ -140,7 +158,8 @@ add_cinux_test(signal ${CMAKE_SOURCE_DIR}/kernel/proc/signals.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/mm/vma.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/sched_class.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
-                       ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
+                       ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp
+                       framework/syscall_host.cpp)
 add_cinux_test(thread_exit ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                              ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
                              ${CMAKE_SOURCE_DIR}/kernel/proc/futex.cpp

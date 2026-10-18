@@ -7,7 +7,9 @@
 #include "kernel/boot/boot_info.hpp"
 #include "kernel/boot/print.hpp"
 #include "kernel/console/screen.hpp"
+#include "kernel/driver/acpi/acpi.hpp"
 #include "kernel/driver/ahci/ahci.hpp"
+#include "kernel/driver/hpet/hpet.hpp"
 #include "kernel/driver/keyboard/keyboard.hpp"
 #include "kernel/driver/pci/pci.hpp"
 #include "kernel/driver/pit/pit.hpp"
@@ -137,6 +139,15 @@ constexpr InitStep kInitSteps[] = {
         .name = "ahci",
         .run  = +[](const BootInfo* info) -> const BootInfo* {
             driver::Ahci::self().init();
+            return info;
+        },
+    },
+    {
+        .name = "hpet",
+        .run  = +[](const BootInfo* info) -> const BootInfo* {
+            if (!driver::Hpet::self().init(driver::acpi::FindRootPointer())) {
+                print::Println("[kern] hpet absent, clocks stay tick-grained");
+            }
             return info;
         },
     },

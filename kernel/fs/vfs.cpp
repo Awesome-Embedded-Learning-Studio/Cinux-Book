@@ -53,28 +53,32 @@ base::Result<FsView> Vfs::resolve(std::string_view path) const {
 }
 
 
-bool ReadWholeFile(const FsView& view, base::Own<unsigned char[]>& out, unsigned long& out_bytes) {
+base::Result<void> ReadWholeFile(const FsView& view, base::Own<unsigned char[]>& out,
+                                 unsigned long& out_bytes) {
     const base::Result<FsNode> kNode = view.ops->lookup(view.self, view.rest);
     if (!kNode.ok()) {
-        return false;
+        return kNode.error();
     }
     FsStat                   probe{};
     const base::Result<void> kProbed = view.ops->stat(view.self, kNode.value(), probe);
     if (!kProbed.ok()) {
-        return false;
+        return kProbed.error();
     }
     base::Own<unsigned char[]> buffer(new unsigned char[probe.size]);
     if (!buffer.holds()) {
-        return false;
+        return base::KernelError::kOutOfMemory;
     }
     const base::Result<unsigned long> kGot =
         view.ops->read(view.self, kNode.value(), 0, buffer.get(), probe.size);
-    if (!kGot.ok() || kGot.value() != probe.size) {
-        return false;
+    if (!kGot.ok()) {
+        return kGot.error();
+    }
+    if (kGot.value() != probe.size) {
+        return base::KernelError::kIOError;
     }
     out       = static_cast<base::Own<unsigned char[]>&&>(buffer);
     out_bytes = probe.size;
-    return true;
+    return {};
 }
 
 }  // namespace cinux::fs

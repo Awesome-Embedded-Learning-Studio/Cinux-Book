@@ -20,10 +20,13 @@
 
 #pragma once
 
+#include "cinux/literal_types.hpp"
 #include "kernel/arch/x86_64/page.hpp"
 #include "kernel/mm/layout.hpp"
 
 namespace cinux::proc {
+
+using cinux::base::operator""_MiB;
 
 /// Pages of physical memory behind one kernel-thread stack.
 inline constexpr unsigned int kStackPages = 4;
@@ -56,5 +59,50 @@ static_assert((1UL << static_cast<unsigned long>(kStackOrder)) == kStackPages,
 /// Where user programs park their stack: the address-space layout's own
 /// stack top, restated here so the proc theme names one fact once.
 inline constexpr unsigned long kUserProgramStackTop = mm::kUserStackTop;
+
+/// How far below the stack top a fresh user world's first stack pointer
+/// lands: the mapped page's tail then holds the argc, argv, envp and
+/// auxv words a hosted runtime reads on entry, all zero for now.
+inline constexpr unsigned long kUserEntryStackOffset = 0x100;
+
+/// Resource rows prlimit64 can name; the uapi source stops at row 15
+/// (RLIMIT_RTTIME) and one past it closes the table.
+inline constexpr unsigned int kResourceLimitCount = 16;
+
+/// The ceiling word that answers "no ceiling": RLIM_INFINITY in the
+/// same uapi table.
+inline constexpr unsigned long long kResourceLimitInfinity = ~0ULL;
+
+/// Soft stack ceiling a fresh task is seated with; the uapi source
+/// spells it _STK_LIM.
+inline constexpr unsigned long long kDefaultStackCeiling = 8_MiB;
+
+/// Open-file rows a fresh task is seated with: what one task may hold,
+/// and where the hard ceiling sits; the uapi source spells them
+/// INR_OPEN_CUR and INR_OPEN_MAX.
+inline constexpr unsigned long long kDefaultOpenFiles = 1024;
+inline constexpr unsigned long long kMaxOpenFiles     = 4096;
+
+/// The ceilings a fresh task is seated with, one {soft, hard} row per
+/// resource: stack 8 MiB soft (the uapi _STK_LIM), no core dumps, and
+/// 1024/4096 open files; everything else answers unlimited.
+inline constexpr unsigned long long kDefaultResourceLimits[kResourceLimitCount][2] = {
+    {kResourceLimitInfinity, kResourceLimitInfinity},  // CPU
+    {kResourceLimitInfinity, kResourceLimitInfinity},  // FSIZE
+    {kResourceLimitInfinity, kResourceLimitInfinity},  // DATA
+    {kDefaultStackCeiling, kResourceLimitInfinity},    // STACK
+    {0, kResourceLimitInfinity},                       // CORE
+    {kResourceLimitInfinity, kResourceLimitInfinity},  // RSS
+    {kResourceLimitInfinity, kResourceLimitInfinity},  // NPROC
+    {kDefaultOpenFiles, kMaxOpenFiles},                // NOFILE
+    {kResourceLimitInfinity, kResourceLimitInfinity},  // MEMLOCK
+    {kResourceLimitInfinity, kResourceLimitInfinity},  // AS
+    {kResourceLimitInfinity, kResourceLimitInfinity},  // LOCKS
+    {kResourceLimitInfinity, kResourceLimitInfinity},  // SIGPENDING
+    {kResourceLimitInfinity, kResourceLimitInfinity},  // MSGQUEUE
+    {kResourceLimitInfinity, kResourceLimitInfinity},  // NICE
+    {kResourceLimitInfinity, kResourceLimitInfinity},  // RTPRIO
+    {kResourceLimitInfinity, kResourceLimitInfinity},  // RTTIME
+};
 
 }  // namespace cinux::proc

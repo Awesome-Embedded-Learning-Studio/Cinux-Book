@@ -51,8 +51,7 @@ using arch::page::Entry;
 
 bool FillPage(const AddressSpace& space, const VmaStore& ranges, unsigned long long address,
               unsigned long long error_code) {
-    if ((error_code & cinux::arch::isr::kFaultFromUser) == 0 ||
-        (error_code & cinux::arch::isr::kFaultProtection) != 0 || address >= kUserTop) {
+    if ((error_code & cinux::arch::isr::kFaultProtection) != 0 || address >= kUserTop) {
         return false;
     }
     const VmaRegion* const kRegion = ranges.find(address);

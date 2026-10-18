@@ -21,30 +21,35 @@ long long console_from(unsigned long long buffer, unsigned long long count) {
 
 }  // namespace
 
-long long HandleWrite(const SyscallFrame& frame) {
-    if (frame.rdi >= fs::kFileTableMax) {
+long long WriteRun(unsigned long long descriptor, unsigned long long source,
+                   unsigned long long count) {
+    if (descriptor >= fs::kFileTableMax) {
         return -kEbadf;
     }
-    if (frame.rsi >= kUserAddressLimit) {
+    if (source >= kUserAddressLimit) {
         return -kEfault;
     }
-    if (frame.rdi == 1 || frame.rdi == 2) {
-        return console_from(frame.rsi, frame.rdx);
+    if (descriptor == 1 || descriptor == 2) {
+        return console_from(source, count);
     }
-    const base::Result<fs::OpenFile*> kSlot = LiveSlot(frame.rdi);
+    const base::Result<fs::OpenFile*> kSlot = LiveSlot(descriptor);
     if (!kSlot.ok()) {
         return -kEbadf;
     }
     auto* const       kFile = kSlot.value();
     auto const* const kSource =
-        reinterpret_cast<const void*>(frame.rsi);  // NOLINT(performance-no-int-to-ptr)
+        reinterpret_cast<const void*>(source);  // NOLINT(performance-no-int-to-ptr)
     const base::Result<unsigned long> kPut =
-        kFile->ops->write(kFile->backend, kFile->node, kFile->offset, kSource, frame.rdx);
+        kFile->ops->write(kFile->backend, kFile->node, kFile->offset, kSource, count);
     if (!kPut.ok()) {
         return -ErrnoFrom(kPut.error());
     }
     kFile->offset += kPut.value();
     return static_cast<long long>(kPut.value());
+}
+
+long long HandleWrite(const SyscallFrame& frame) {
+    return WriteRun(frame.rdi, frame.rsi, frame.rdx);
 }
 
 }  // namespace cinux::syscall

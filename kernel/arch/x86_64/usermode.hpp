@@ -44,19 +44,18 @@ extern "C" {
 /**
  * @brief         Leave ring 0 through sysretq and never come back.
  * @param[in]     entry     First user instruction, in the user half.
- * @param[in]     stack_top Highest byte of the user stack, page top.
+ * @param[in]     entry_rsp The exact RSP the first instruction finds;
+ *                          the caller owns the entry stack's alignment
+ *                          and whatever picture (argc, argv, envp) sits
+ *                          on top of it.
  * @return        None, ever.
  * @note          The CPU lands with CS 0x33, SS 0x2B, RFLAGS from the
  *                constant in usermode.S (interrupts enabled), and RSP
- *                eight below the page top: the SysV ABI wants a fresh
- *                entry at 8 mod 16 so compiler-generated spill slots
- *                keep their 16-byte alignment. Handing the page top
- *                and lowering in the trampoline keeps that rule in one
- *                place. C linkage, like the context switch below it —
- *                assembly spells one name.
+ *                verbatim from entry_rsp. C linkage, like the context
+ *                switch below it — assembly spells one name.
  * @since         0.1.0
  * @ingroup       kernel_arch
  */
-[[noreturn]] void JumpToRing3(unsigned long long entry, unsigned long long stack_top);
+[[noreturn]] void JumpToRing3(unsigned long long entry, unsigned long long entry_rsp);
 
 }  // extern "C"

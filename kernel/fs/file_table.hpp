@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "cinux/bit_ops/bitmap.hpp"
 #include "cinux/container/slot_table.hpp"
 #include "cinux/ref_count.hpp"
 #include "cinux/result.hpp"
@@ -69,7 +70,7 @@ struct FileTable : cinux::base::RefCount<> {
      * @since   0.1.0
      * @ingroup kernel_fs
      */
-    FileTable() = default;
+    FileTable();
 
     /**
      * @brief   Releases every open this table still owns.
@@ -119,6 +120,41 @@ struct FileTable : cinux::base::RefCount<> {
     [[nodiscard]] base::Result<unsigned long> adopt(const base::Shared<OpenFile>& file);
 
     /**
+     * @brief         Seats one open at the descriptor number the caller
+     *                names; the slot must be free or empty-handed.
+     *
+     * @param[in]     file        The shared open to seat.
+     * @param[in]     descriptor  The exact number it must answer to.
+     * @return        The descriptor, or kInvalidArgument for a free-less
+     *                number, kAlreadyExists when one stands there.
+     * @note          The seat starts clean: any close-on-exec bit under
+     *                the number clears, which is what a dup-shaped
+     *                re-seat means.
+     * @since         0.9.0
+     * @ingroup       kernel_fs
+     */
+    [[nodiscard]] base::Result<unsigned long> adopt_at(const base::Shared<OpenFile>& file,
+                                                       unsigned long                 descriptor);
+
+    /**
+     * @brief         Seats one open at the lowest free descriptor at or
+     *                above the floor the caller names.
+     *
+     * @param[in]     file   The shared open to seat.
+     * @param[in]     floor  The lowest number the new seat may take.
+     * @return        The descriptor number, or kInvalidArgument when
+     *                nothing is held, kOutOfMemory when no seat at or
+     *                above the floor is free.
+     * @note          Floors below the first handed-out number clamp up
+     *                to it, so the reserved stream numbers never take a
+     *                seat. A dup lands here.
+     * @since         0.9.0
+     * @ingroup       kernel_fs
+     */
+    [[nodiscard]] base::Result<unsigned long> adopt_from(const base::Shared<OpenFile>& file,
+                                                         unsigned long                 floor);
+
+    /**
      * @brief         Hands out one open for reading and advancing.
      *
      * @param[in]     descriptor   The descriptor number.
@@ -160,8 +196,41 @@ struct FileTable : cinux::base::RefCount<> {
      */
     void close_all();
 
+    /**
+     * @brief         Arms or disarms one descriptor's close-on-exec bit.
+     * @param[in]     descriptor   The descriptor number.
+     * @param[in]     armed        True arms the bit, false clears it.
+     * @return        Success, or kInvalidArgument when the number is
+     *                out of the table's range.
+     * @since         0.9.0
+     * @ingroup       kernel_fs
+     */
+    [[nodiscard]] base::Result<void> set_cloexec(unsigned long descriptor, bool armed);
+
+    /**
+     * @brief         Reports one descriptor's close-on-exec bit.
+     * @param[in]     descriptor   The descriptor number.
+     * @return        True when armed; a number out of range answers false.
+     * @since         0.9.0
+     * @ingroup       kernel_fs
+     */
+    [[nodiscard]] bool cloexec(unsigned long descriptor) const;
+
+    /**
+     * @brief   Strips every armed close-on-exec bit after a successful exec.
+     * @note    The exec tail walks the whole table; each armed bit also
+     *          releases the open under it, which is the whole point.
+     * @since   0.9.0
+     * @ingroup kernel_fs
+     */
+    void close_on_exec();
+
 private:
     base::container::SlotTable<base::Shared<OpenFile>, kFileTableMax> slots_;
+    /// One bit per descriptor number: set means close at exec. The
+    /// bitmap owns the words; the array is just the storage it binds.
+    base::bit::WordMask cloexec_words_[base::bit::Bitmap::words_for(kFileTableMax)] = {};
+    base::bit::Bitmap   cloexec_map_{};
 };
 
 }  // namespace cinux::fs

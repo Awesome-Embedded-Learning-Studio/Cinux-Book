@@ -21,6 +21,10 @@
 
 namespace cinux::fs {
 
+FileTable::FileTable() {
+    cloexec_map_.init(cloexec_words_, kFileTableMax);
+}
+
 FileTable::~FileTable() {
     close_all();
 }
@@ -47,6 +51,33 @@ base::Result<unsigned long> FileTable::adopt(const base::Shared<OpenFile>& file)
         return base::KernelError::kInvalidArgument;
     }
     const unsigned long kFd = slots_.insert(file, kFirstDescriptor);
+    if (kFd == kFileTableMax) {
+        return base::KernelError::kOutOfMemory;
+    }
+    return kFd;
+}
+
+base::Result<unsigned long> FileTable::adopt_at(const base::Shared<OpenFile>& file,
+                                                unsigned long                 descriptor) {
+    const arch::IrqGuard kGuard;
+    if (!file.holds() || descriptor < kFirstDescriptor || descriptor >= kFileTableMax) {
+        return base::KernelError::kInvalidArgument;
+    }
+    if (!slots_.place(descriptor, file)) {
+        return base::KernelError::kAlreadyExists;
+    }
+    cloexec_map_.clear(descriptor);
+    return descriptor;
+}
+
+base::Result<unsigned long> FileTable::adopt_from(const base::Shared<OpenFile>& file,
+                                                  unsigned long                 floor) {
+    const arch::IrqGuard kGuard;
+    if (!file.holds()) {
+        return base::KernelError::kInvalidArgument;
+    }
+    const unsigned long kFloor = floor < kFirstDescriptor ? kFirstDescriptor : floor;
+    const unsigned long kFd    = slots_.insert(file, kFloor);
     if (kFd == kFileTableMax) {
         return base::KernelError::kOutOfMemory;
     }
@@ -90,6 +121,38 @@ void FileTable::close_all() {
     slots_.for_each([this](unsigned long descriptor, [[maybe_unused]] base::Shared<OpenFile>&) {
         base::safety::Check(free(descriptor).ok(), "live file descriptor refused close");
     });
+}
+
+base::Result<void> FileTable::set_cloexec(unsigned long descriptor, bool armed) {
+    if (descriptor >= kFileTableMax) {
+        return base::KernelError::kInvalidArgument;
+    }
+    if (armed) {
+        cloexec_map_.set(descriptor);
+    } else {
+        cloexec_map_.clear(descriptor);
+    }
+    return {};
+}
+
+bool FileTable::cloexec(unsigned long descriptor) const {
+    if (descriptor >= kFileTableMax) {
+        return false;
+    }
+    return cloexec_map_.test(descriptor);
+}
+
+void FileTable::close_on_exec() {
+    const arch::IrqGuard kGuard;
+    for (unsigned long descriptor = 0; descriptor < kFileTableMax; ++descriptor) {
+        if (!cloexec_map_.test(descriptor)) {
+            continue;
+        }
+        if (shared(descriptor).ok()) {
+            base::safety::Check(free(descriptor).ok(), "cloexec descriptor refused close");
+        }
+        cloexec_map_.clear(descriptor);
+    }
 }
 
 }  // namespace cinux::fs

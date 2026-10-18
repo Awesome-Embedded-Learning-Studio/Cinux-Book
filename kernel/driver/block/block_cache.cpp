@@ -63,6 +63,20 @@ bool BlockCache::view(Lba first, const uint8_t** view_out) {
     return true;
 }
 
+bool BlockCache::read(Lba first, void* sink, unsigned long bytes) {
+    const unsigned long kOffset = offset_of(first);
+    if (bytes > slot_bytes_ - kOffset) {
+        return false;
+    }
+    const proc::MutexGuard kGate(gate_);
+    const Slot* const      kSlot = claim_slot(page_of(first));
+    if (kSlot == nullptr) {
+        return false;
+    }
+    base::CopyBytes(sink, kSlot->bytes + kOffset, bytes);
+    return true;
+}
+
 bool BlockCache::patch(Lba first, unsigned long offset, unsigned long bytes, const void* source) {
     const unsigned long kInPage = offset_of(first);
     if (kInPage + offset + bytes > slot_bytes_) {

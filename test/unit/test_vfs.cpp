@@ -2,6 +2,7 @@
 #include <string_view>
 
 #include "../framework/framework.hpp"
+#include "cinux/own.hpp"
 #include "cinux/result.hpp"
 #include "kernel/fs/fs_config.hpp"
 #include "kernel/fs/vfs.hpp"
@@ -10,26 +11,52 @@
 namespace {
 
 struct FakeFs {
+    cinux::base::KernelError               lookup_error = cinux::base::KernelError::kOk;
+    cinux::base::KernelError               stat_error   = cinux::base::KernelError::kOk;
+    cinux::base::KernelError               read_error   = cinux::base::KernelError::kOk;
+    unsigned long                          file_bytes   = 0;
+    unsigned long                          read_bytes   = 0;
     void                                   retain([[maybe_unused]] cinux::fs::FsNode node) {}
     void                                   release([[maybe_unused]] cinux::fs::FsNode node) {}
-    cinux::base::Result<cinux::fs::FsNode> lookup([[maybe_unused]] std::string_view path) {
+    cinux::base::Result<cinux::fs::FsNode> lookup([[maybe_unused]] std::string_view path) const {
+        if (lookup_error != cinux::base::KernelError::kOk) {
+            return lookup_error;
+        }
         return cinux::fs::FsNode{
-            .opaque = nullptr, .type = cinux::fs::InodeType::kFile, .ino = 7, .size = 0};
+            .opaque = nullptr,
+            .type   = cinux::fs::InodeType::kFile,
+            .ino    = 7,
+            .size   = 0,
+        };
     }
     cinux::base::Result<cinux::fs::FsNode> make_file([[maybe_unused]] std::string_view path) {
         return cinux::fs::FsNode{
-            .opaque = nullptr, .type = cinux::fs::InodeType::kFile, .ino = 7, .size = 0};
+            .opaque = nullptr,
+            .type   = cinux::fs::InodeType::kFile,
+            .ino    = 7,
+            .size   = 0,
+        };
     }
     cinux::base::Result<cinux::fs::FsNode> make_dir([[maybe_unused]] std::string_view path) {
         return cinux::fs::FsNode{
-            .opaque = nullptr, .type = cinux::fs::InodeType::kDirectory, .ino = 7, .size = 0};
+            .opaque = nullptr,
+            .type   = cinux::fs::InodeType::kDirectory,
+            .ino    = 7,
+            .size   = 0,
+        };
     }
     cinux::base::Result<void>          unlink([[maybe_unused]] std::string_view path) { return {}; }
     cinux::base::Result<unsigned long> read([[maybe_unused]] cinux::fs::FsNode node,
                                             [[maybe_unused]] unsigned long     offset,
                                             [[maybe_unused]] void*             sink,
-                                            [[maybe_unused]] unsigned long     count) {
-        return 0UL;
+                                            [[maybe_unused]] unsigned long     count) const {
+        if (read_error != cinux::base::KernelError::kOk) {
+            return read_error;
+        }
+        for (unsigned long index = 0; index < read_bytes; ++index) {
+            static_cast<unsigned char*>(sink)[index] = static_cast<unsigned char>(index);
+        }
+        return read_bytes;
     }
     cinux::base::Result<unsigned long> write([[maybe_unused]] cinux::fs::FsNode node,
                                              [[maybe_unused]] unsigned long     offset,
@@ -43,13 +70,60 @@ struct FakeFs {
         return false;
     }
     cinux::base::Result<void> stat([[maybe_unused]] cinux::fs::FsNode  node,
-                                   [[maybe_unused]] cinux::fs::FsStat& probed) {
+                                   [[maybe_unused]] cinux::fs::FsStat& probed) const {
         probed = cinux::fs::FsStat{};
+        if (stat_error != cinux::base::KernelError::kOk) {
+            return stat_error;
+        }
+        probed.size = file_bytes;
         return {};
     }
 };
 
 }  // namespace
+
+TEST("vfs: whole-file reads preserve lookup, stat and read errors") {
+    FakeFs                            backend;
+    const cinux::fs::FsOps            kOps = cinux::fs::EraseFs<FakeFs>();
+    const cinux::fs::FsView           kView{.ops = &kOps, .self = &backend, .rest = "missing"};
+    cinux::base::Own<unsigned char[]> bytes;
+    unsigned long                     count = 99;
+    backend.lookup_error                    = cinux::base::KernelError::kNotFound;
+    auto result                             = cinux::fs::ReadWholeFile(kView, bytes, count);
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.error(), cinux::base::KernelError::kNotFound);
+    backend.lookup_error = cinux::base::KernelError::kOk;
+    backend.stat_error   = cinux::base::KernelError::kNotADirectory;
+    result               = cinux::fs::ReadWholeFile(kView, bytes, count);
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.error(), cinux::base::KernelError::kNotADirectory);
+    backend.stat_error = cinux::base::KernelError::kOk;
+    backend.read_error = cinux::base::KernelError::kIOError;
+    result             = cinux::fs::ReadWholeFile(kView, bytes, count);
+    ASSERT_FALSE(result.ok());
+    ASSERT_EQ(result.error(), cinux::base::KernelError::kIOError);
+    ASSERT_FALSE(bytes.holds());
+    ASSERT_EQ(count, 99UL);
+}
+
+TEST("vfs: whole-file reads reject short images and publish complete buffers") {
+    FakeFs                            backend;
+    const cinux::fs::FsOps            kOps = cinux::fs::EraseFs<FakeFs>();
+    const cinux::fs::FsView           kView{.ops = &kOps, .self = &backend, .rest = "program"};
+    cinux::base::Own<unsigned char[]> bytes;
+    unsigned long                     count = 99;
+    backend.file_bytes                      = 32;
+    backend.read_bytes                      = 16;
+    const auto kResult                      = cinux::fs::ReadWholeFile(kView, bytes, count);
+    ASSERT_FALSE(kResult.ok());
+    ASSERT_EQ(kResult.error(), cinux::base::KernelError::kIOError);
+    ASSERT_FALSE(bytes.holds());
+    ASSERT_EQ(count, 99UL);
+    backend.read_bytes = backend.file_bytes;
+    ASSERT_TRUE(cinux::fs::ReadWholeFile(kView, bytes, count).ok());
+    ASSERT_EQ(count, 32UL);
+    ASSERT_EQ(bytes[31], 31U);
+}
 
 TEST("vfs: prefixes without a leading slash are refused") {
     cinux::fs::Vfs vfs;

@@ -114,6 +114,15 @@ struct Task : cinux::base::container::SelfNode<Task> {
     cinux::base::Shared<cinux::fs::FileTable>    files =
         cinux::base::MakeShared<cinux::fs::FileTable>();
     char cwd[cinux::fs::kFsPathMax] = {'/'};  ///< Working directory, absolute, NUL-terminated.
+    /// The 16-byte name the ABI surface calls comm: what prctl's set
+    /// and get carry, fork copies from the parent, exec refills from
+    /// the program path's last segment. Always NUL-terminated.
+    char comm[16]{};
+    /// The resource ceilings prlimit64 reports and re-arms: one
+    /// {soft, hard} row per resource number, seeded at seat time,
+    /// copied across fork, untouched by exec. The row order and the
+    /// count are the uapi resource table's.
+    unsigned long long limits[16][2]{};
     /// Scheduling weight inside its class; smaller runs earlier. Only
     /// the priority class reads it, everyone else ignores it.
     unsigned char      priority{};

@@ -1,7 +1,7 @@
 #include "kernel/syscall/sys_read.hpp"
 
 #include "cinux/result.hpp"
-#include "kernel/driver/keyboard/keyboard.hpp"
+#include "kernel/driver/tty/tty.hpp"
 #include "kernel/fs/file_table.hpp"
 #include "kernel/fs/open_file.hpp"
 #include "kernel/syscall/syscall.hpp"
@@ -12,18 +12,9 @@ namespace cinux::syscall {
 namespace {
 
 long long keyboard_into(unsigned long long buffer, unsigned long long count) {
-    auto* out = reinterpret_cast<char*>(buffer);  // NOLINT(performance-no-int-to-ptr)
-    for (unsigned long long got = 0; got < count; ++got) {
-        char glyph = driver::Keyboard::self().take(true);
-        if (glyph == '\r') {
-            glyph = '\n';
-        }
-        out[got] = glyph;
-        if (glyph == '\n') {
-            return static_cast<long long>(got + 1);
-        }
-    }
-    return static_cast<long long>(count);
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
+    auto* const kOut = reinterpret_cast<unsigned char*>(buffer);
+    return static_cast<long long>(driver::Tty::self().read_line(kOut, count));
 }
 
 }  // namespace

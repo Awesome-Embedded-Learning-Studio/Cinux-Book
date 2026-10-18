@@ -92,10 +92,24 @@ public:
      * @return        True with view filled; false when the device
      *                refused the fill.
      * @note          Task contexts only: a miss sleeps on the queue.
+     *                Concurrent callers must use read() to keep the
+     *                copy inside the lock; this borrowed view is not pinned.
      * @since         0.1.0
      * @ingroup       kernel_driver
      */
     [[nodiscard]] bool view(Lba first, const uint8_t** view);
+
+    /**
+     * @brief         Copies cached bytes while the slot remains locked.
+     * @param[in]     first   First sector of the requested bytes.
+     * @param[out]    sink    Caller-owned destination.
+     * @param[in]     bytes   Byte count, contained in one cache page.
+     * @return        False on a crossing request or a failed fill.
+     * @note          Task contexts only; safe across concurrent readers.
+     * @since         0.5.0
+     * @ingroup       kernel_driver
+     */
+    [[nodiscard]] bool read(Lba first, void* sink, unsigned long bytes);
 
     /**
      * @brief         Writes bytes into a slot and marks it dirty.

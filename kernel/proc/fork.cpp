@@ -114,6 +114,8 @@ Task* BuildForkChild(unsigned long long frame_address) {
     kBorn->pgid            = kParent->pgid;
     kBorn->sid             = kParent->sid;
     cinux::base::CopyBytes(kBorn->cwd, kParent->cwd, fs::kFsPathMax);
+    cinux::base::CopyBytes(kBorn->comm, kParent->comm, sizeof(kBorn->comm));
+    cinux::base::CopyBytes(kBorn->limits, kParent->limits, sizeof(kBorn->limits));
     for (unsigned long descriptor = fs::kFirstDescriptor; descriptor < fs::kFileTableMax;
          ++descriptor) {
         const base::Result<base::Shared<fs::OpenFile>> kOpen = kParent->files->shared(descriptor);

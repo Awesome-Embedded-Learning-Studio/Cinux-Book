@@ -28,6 +28,8 @@ int ErrnoFrom(base::KernelError error) {
         return kEnoent;
     case base::KernelError::kOutOfMemory:
         return kEnomem;
+    case base::KernelError::kIOError:
+        return kEio;
     case base::KernelError::kAlreadyExists:
         return kEexist;
     case base::KernelError::kNotADirectory:

@@ -127,7 +127,10 @@ SpinGuard Spinlock::guard() {
 }
 
 void Mutex::lock() {
-    Task* const kSelf = Scheduler::self().current();
+    // Release the spinlock before switching, but keep IRQs masked until
+    // park_current() has committed the task's blocked state.
+    const cinux::arch::IrqGuard kParkGuard;
+    Task* const                 kSelf = Scheduler::self().current();
     {
         const SpinGuard kGuard(spin_);
         if (owner_ == nullptr) {
@@ -167,7 +170,8 @@ MutexGuard Mutex::guard() {
 Semaphore::Semaphore(long long initial) : count_(initial) {}
 
 void Semaphore::wait() {
-    Task* const kSelf = Scheduler::self().current();
+    const cinux::arch::IrqGuard kParkGuard;
+    Task* const                 kSelf = Scheduler::self().current();
     {
         const SpinGuard kGuard(spin_);
         if (count_ > 0) {
@@ -203,7 +207,8 @@ bool Completion::finish(bool success) {
 }
 
 bool Completion::wait() {
-    Task* const kSelf = Scheduler::self().current();
+    const cinux::arch::IrqGuard kParkGuard;
+    Task* const                 kSelf = Scheduler::self().current();
     {
         const SpinGuard kGuard(spin_);
         if (state_ != State::kPending) {

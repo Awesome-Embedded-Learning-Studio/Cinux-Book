@@ -27,6 +27,8 @@ constexpr unsigned long long kUserRead = cinux::arch::isr::kFaultFromUser;
 constexpr unsigned long long kUserWrite =
     cinux::arch::isr::kFaultFromUser | cinux::arch::isr::kFaultWasWrite;
 
+constexpr unsigned long long kKernelWrite = cinux::arch::isr::kFaultWasWrite;
+
 /// One anonymous promise the tests register and fill.
 struct RegionPlan {
     unsigned long           start    = 0;
@@ -70,6 +72,28 @@ TEST("demand: an anonymous write fault earns one zeroed page") {
     ASSERT_EQ(*cinux::base::PtrAt<unsigned long long>(cinux::mm::DirectMapVirt(kFrame)), 0ULL);
     space.teardown();
     ASSERT_EQ(ledger.free_page_count(), kBefore);
+}
+
+TEST("demand: a kernel-origin write on a promised page fills anyway") {
+    cinux::mm::AddressSpace space;
+    ASSERT_TRUE(space.init());
+    cinux::mm::VmaStore store;
+    const unsigned long kSpot = cinux::mm::kUserNullTop + 64_KiB;
+    ASSERT_TRUE(
+        store.register_range(make_region({kSpot, 16_KiB, true, cinux::mm::VmaKind::kAnonymous}))
+            .ok());
+    ASSERT_TRUE(cinux::mm::demand::FillPage(space, store, kSpot, kKernelWrite));
+    ASSERT_TRUE(space.translate(kSpot) != 0);
+    space.teardown();
+}
+
+TEST("demand: a kernel-origin write with no promise still declines") {
+    cinux::mm::AddressSpace space;
+    ASSERT_TRUE(space.init());
+    const cinux::mm::VmaStore kStore;
+    const unsigned long       kSpot = cinux::mm::kUserNullTop + 64_KiB;
+    ASSERT_TRUE(!cinux::mm::demand::FillPage(space, kStore, kSpot, kKernelWrite));
+    space.teardown();
 }
 
 TEST("demand: a present page and a foreign promise decline") {

@@ -1,3 +1,4 @@
+#include "cinux/memory.hpp"
 #include "cinux/own.hpp"
 #include "kernel/arch/x86_64/context.hpp"
 #include "kernel/arch/x86_64/halt.hpp"
@@ -137,6 +138,7 @@ Task* TaskBuilder::build() {
     kBorn->parent      = parent_;
     kBorn->priority    = priority_;
     kBorn->sched_class = class_;
+    cinux::base::CopyBytes(kBorn->limits, kDefaultResourceLimits, sizeof(kDefaultResourceLimits));
     return k_task.release();
 }
 

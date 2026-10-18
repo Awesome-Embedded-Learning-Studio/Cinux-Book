@@ -59,6 +59,18 @@ public:
         return kIndex;
     }
 
+    /// @brief Store at index exactly; false when the index is taken or out of range.
+    /// @note The numbering-face sibling of insert: a caller that owns its descriptor
+    ///       numbers (dup2's target) lands a value at the number it named instead of
+    ///       the lowest free one.
+    [[nodiscard]] constexpr bool place(unsigned long index, Element value) {
+        if (index >= Capacity || slots_[index].has_value()) {
+            return false;
+        }
+        slots_[index].emplace(std::move(value));
+        return true;
+    }
+
     /// @brief Stored object at index, or nullptr for an empty or invalid slot.
     [[nodiscard]] constexpr Element* get(unsigned long index) {
         if (index >= Capacity) {
