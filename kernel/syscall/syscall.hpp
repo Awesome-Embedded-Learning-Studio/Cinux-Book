@@ -98,6 +98,11 @@ enum class SyscallNr : std::uint16_t {
     kOpenat        = 257,  ///< openat(dirfd, path, flags): open, relative to a descriptor
     kNewfstatat    = 262,  ///< newfstatat(dirfd, path, out): stat, relative to a descriptor
     kPpoll         = 271,  ///< ppoll(ufds, nfds, tmo, mask): answered no-events
+    kPoll          = 7,    ///< poll(ufds, nfds, timeout_ms): ppoll's older spelling.
+    kReadlink      = 89,   ///< readlink(path, buf, size): what the one link stands for.
+    kSysinfo       = 99,   ///< sysinfo(info): the machine's signs in one record.
+    kNanosleep     = 35,   ///< nanosleep(asked, remain): park until the clock says.
+    kTgkill        = 200,  ///< tgkill(tgid, tid, sig): raise's own spelling.
 };
 
 /// Linux errno values the handlers can produce.
@@ -207,6 +212,9 @@ inline constexpr unsigned char kDirentTypeFile = 8;
 
 /// getdents' type word for a directory, the hosted DT_DIR.
 inline constexpr unsigned char kDirentTypeDirectory = 4;
+
+/// getdents' type word for a character device, the hosted DT_CHR.
+inline constexpr unsigned char kDirentTypeChar = 2;
 
 /**
  * @brief   One node's metadata, as stat hands it to ring 3.

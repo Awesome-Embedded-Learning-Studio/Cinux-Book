@@ -3,6 +3,7 @@
 #include "kernel/proc/sched_class.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
+#include "kernel/proc/task_snapshot.hpp"
 #include "test_assert.hpp"
 
 namespace {
@@ -178,6 +179,23 @@ TEST("scheduler: the exit hook rotates a task the clock flagged") {
     ASSERT_TRUE(world.sink.log[1].to_pid == world.beta.pid);
     ASSERT_TRUE(world.alpha_visits == 2);
     ASSERT_TRUE(world.sink.reclaimed_count == 2);
+}
+
+TEST("scheduler: parentless tasks stay visible until they are reclaimed") {
+    World world(500);
+    auto& scheduler = cinux::proc::Scheduler::self();
+    ASSERT_TRUE(scheduler.find_by_pid(world.alpha.pid) == &world.alpha);
+    cinux::proc::TaskSnapshot shot{};
+    ASSERT_TRUE(scheduler.snapshot_by_pid(world.alpha.pid, shot));
+    ASSERT_EQ(shot.parent_pid, 0L);
+    unsigned long long pid = 0;
+    ASSERT_TRUE(scheduler.nth_group_leader(0, pid));
+    ASSERT_EQ(pid, world.alpha.pid);
+    g_world = &world;
+    scheduler.run_until_done();
+    ASSERT_TRUE(scheduler.find_by_pid(world.alpha.pid) == nullptr);
+    ASSERT_FALSE(scheduler.snapshot_by_pid(world.beta.pid, shot));
+    ASSERT_FALSE(scheduler.nth_group_leader(0, pid));
 }
 
 }  // namespace

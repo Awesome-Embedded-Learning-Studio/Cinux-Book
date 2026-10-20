@@ -18,11 +18,11 @@ cinux::fs::FsNode sample_node(unsigned long ino) {
 
 }  // namespace
 
-TEST("file table: allocation starts at the first descriptor past the streams") {
+TEST("file table: a born-empty table's first open takes seat zero") {
     cinux::fs::FileTable table;
     const auto           kFirst = table.alloc(nullptr, nullptr, sample_node(1));
     ASSERT_TRUE(kFirst.ok());
-    ASSERT_EQ(kFirst.value(), cinux::fs::kFirstDescriptor);
+    ASSERT_EQ(kFirst.value(), 0UL);
 }
 
 TEST("file table: consecutive allocations climb, freed numbers are reused lowest-first") {
@@ -37,7 +37,7 @@ TEST("file table: consecutive allocations climb, freed numbers are reused lowest
 
 TEST("file table: a full table reports it has no room") {
     cinux::fs::FileTable table;
-    for (unsigned long fd = cinux::fs::kFirstDescriptor; fd < cinux::fs::kFileTableMax; ++fd) {
+    for (unsigned long fd = 0; fd < cinux::fs::kFileTableMax; ++fd) {
         ASSERT_TRUE(table.alloc(nullptr, nullptr, sample_node(fd)).ok());
     }
     const auto kOverflow = table.alloc(nullptr, nullptr, sample_node(99));
@@ -59,15 +59,15 @@ TEST("file table: out-of-range and free slots are refused") {
 TEST("file table: a slot carries its node and its advancing offset") {
     cinux::fs::FileTable table;
     ASSERT_TRUE(table.alloc(nullptr, nullptr, sample_node(7)).ok());
-    const auto kSlot = table.get(cinux::fs::kFirstDescriptor);
+    const auto kSlot = table.get(0);
     ASSERT_TRUE(kSlot.ok());
     ASSERT_EQ(kSlot.value()->node.ino, 7UL);
     ASSERT_EQ(kSlot.value()->offset, 0UL);
     kSlot.value()->offset += 12;
-    const auto kReread = table.get(cinux::fs::kFirstDescriptor);
+    const auto kReread = table.get(0);
     ASSERT_EQ(kReread.value()->offset, 12UL);
-    ASSERT_TRUE(table.free(cinux::fs::kFirstDescriptor).ok());
-    const auto kAfter = table.get(cinux::fs::kFirstDescriptor);
+    ASSERT_TRUE(table.free(0).ok());
+    const auto kAfter = table.get(0);
     ASSERT_EQ(kAfter.error(), cinux::base::KernelError::kNotFound);
 }
 
@@ -85,7 +85,7 @@ TEST("file table: closing a descriptor releases its reference exactly once") {
 TEST("file table: allocation failure does not retain a node") {
     cinux::test::FileRefs refs;
     cinux::fs::FileTable  table;
-    for (unsigned long fd = cinux::fs::kFirstDescriptor; fd < cinux::fs::kFileTableMax; ++fd) {
+    for (unsigned long fd = 0; fd < cinux::fs::kFileTableMax; ++fd) {
         ASSERT_TRUE(table.alloc(&cinux::test::FileRefs::kOps, &refs, sample_node(fd)).ok());
     }
     const auto kBefore = refs.retained;
@@ -145,6 +145,20 @@ TEST("file table: a table's free leaves the adopted owner alive") {
     ASSERT_TRUE(child.get(child_fd).ok());
     ASSERT_TRUE(child.free(child_fd).ok());
     ASSERT_EQ(refs.released, 1UL);
+}
+
+TEST("file table: closing a cloexec seat clears its flag before ordinary dup reuses it") {
+    cinux::fs::FileTable table;
+    ASSERT_TRUE(table.alloc(nullptr, nullptr, sample_node(1)).ok());
+    const auto kHeld = table.shared(0);
+    ASSERT_TRUE(table.adopt_from(kHeld.value(), 10).ok());
+    ASSERT_TRUE(table.set_cloexec(10, true).ok());
+    ASSERT_TRUE(table.free(10).ok());
+    ASSERT_FALSE(table.cloexec(10));
+    const auto kReused = table.adopt_from(kHeld.value(), 10);
+    ASSERT_EQ(kReused.value(), 10UL);
+    table.close_on_exec();
+    ASSERT_TRUE(table.get(10).ok());
 }
 
 int main() {

@@ -52,6 +52,28 @@ TEST("keyboard: releases carry no event") {
     ASSERT_EQ(TranslateScancode(state, 0x82), 0);
 }
 
+TEST("keyboard: control produces terminal signal bytes and releases cleanly") {
+    TranslatorState state = fresh_state();
+    TranslateScancode(state, 0x1D);
+    ASSERT_EQ(TranslateScancode(state, 0x2E), 0x03);
+    ASSERT_EQ(TranslateScancode(state, 0x2B), 0x1C);
+    ASSERT_EQ(TranslateScancode(state, 0x2C), 0x1A);
+    TranslateScancode(state, 0x9D);
+    ASSERT_EQ(TranslateScancode(state, 0x2E), 'c');
+}
+
+TEST("keyboard: either control remains active when the other is released") {
+    TranslatorState state = fresh_state();
+    TranslateScancode(state, 0x1D);
+    TranslateScancode(state, 0xE0);
+    TranslateScancode(state, 0x1D);
+    TranslateScancode(state, 0x9D);
+    ASSERT_EQ(TranslateScancode(state, 0x2E), 0x03);
+    TranslateScancode(state, 0xE0);
+    TranslateScancode(state, 0x9D);
+    ASSERT_EQ(TranslateScancode(state, 0x2E), 'c');
+}
+
 TEST("keyboard: the extended group drops whole") {
     TranslatorState state = fresh_state();
     ASSERT_EQ(TranslateScancode(state, 0xE0), 0);

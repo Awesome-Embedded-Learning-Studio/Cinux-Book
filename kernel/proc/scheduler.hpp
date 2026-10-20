@@ -36,6 +36,7 @@
 #include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/task.hpp"
+#include "kernel/proc/task_snapshot.hpp"
 
 namespace cinux::proc {
 
@@ -305,7 +306,7 @@ public:
     template <typename Visit>
     void for_each_task(Visit&& visit) {
         const cinux::arch::IrqGuard kGuard;
-        for (Task* scan = offspring_.head(); scan != nullptr; scan = offspring_.after(*scan)) {
+        for (Task* scan = tasks_.head(); scan != nullptr; scan = tasks_.after(*scan)) {
             visit(*scan);
         }
     }
@@ -417,17 +418,52 @@ public:
      * @param[in]     pid   The identity to look up.
      * @return        The task, nullptr when nothing in the roll
      *                carries it.
-     * @note          The kill door's lookup half. The roll is every
-     *                parented task on the machine, so a task built
-     *                without a parent is unfindable here — the pid-1
-     *                bring-up thread answers null, which is the
-     *                refusal ring 3 reads. A zombie still answers:
+     * @note          The kill door's lookup half. The registry includes
+     *                every seated task, including parentless threads.
+     *                The separate offspring roll serves wait only.
+     *                A zombie remains registered until reaped:
      *                what the signal then does is the sender's
      *                business, and send drops it quietly.
      * @since         0.6.0
      * @ingroup       kernel_proc
      */
     [[nodiscard]] Task* find_by_pid(unsigned long long pid);
+
+    /**
+     * @brief         Copies one task's vital signs out under the lock.
+     *
+     * @param[in]     pid   Which task.
+     * @param[out]    into  The snapshot to fill.
+     * @return        True when a living task answered; false for no
+     *                such pid.
+     * @note          The pointer that walks the registry never leaves
+     *                this call: every field is copied while the guard
+     *                holds, and the caller carries values only. A
+     *                task that exits after this returns takes nothing
+     *                with it the snapshot still points at.
+     * @since         0.5.0
+     * @ingroup       kernel_proc
+     */
+    [[nodiscard]] bool snapshot_by_pid(unsigned long long pid, TaskSnapshot& into);
+
+    /**
+     * @brief         Names the ordinal-th living process group leader.
+     *
+     * @param[in]     ordinal   Which leader, zero-based, walk order.
+     * @param[out]    pid       The leader's pid.
+     * @return        True when that many leaders live; false past the
+     *                last.
+     * @note          Ordinals, not a snapshot: a whole-table copy would
+     *                need a buffer the kernel stack cannot spare, and
+     *                the hosted answer — recompute the walk each time —
+     *                is exactly what a directory listing does anyway.
+     *                The guard covers the walk; what lives between two
+     *                walks is the caller's tolerance, as it is on the
+     *                hosted proc.
+     * @since         0.5.0
+     * @ingroup       kernel_proc
+     */
+    [[nodiscard]] bool nth_group_leader(unsigned long ordinal, unsigned long long& pid);
 
 private:
     Scheduler() = default;
@@ -452,6 +488,7 @@ private:
     void* sink_                                = nullptr;
 
     cinux::base::container::SelfList<Task, &Task::child_link>                    offspring_;
+    cinux::base::container::SelfList<Task, &Task::registry_link>                 tasks_;
     cinux::base::container::SelfList<Task>                                       waiters_;
     cinux::base::container::StaticStack<SchedulingClass*, kMaxSchedulingClasses> classes_ = {};
     Task*                                                                        current_ = nullptr;

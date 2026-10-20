@@ -214,12 +214,12 @@ TEST("syscall face: prlimit reads, writes and refuses strangers") {
 void run_fcntl_seat_phase(cinux::syscall::SyscallFrame& frame, unsigned long long seat) {
     frame.rdi = seat;
     frame.rsi = 3;
-    ASSERT_EQ(cinux::syscall::HandleFcntl(frame), 0);
+    ASSERT_EQ(cinux::syscall::HandleFcntl(frame), 2);
     frame.rsi = 4;
     frame.rdx = 0x402;
     ASSERT_EQ(cinux::syscall::HandleFcntl(frame), 0);
     frame.rsi = 3;
-    ASSERT_EQ(cinux::syscall::HandleFcntl(frame), 0x400);
+    ASSERT_EQ(cinux::syscall::HandleFcntl(frame), 0x402);
     // The dup lands on the next seat and shares the one open.
     frame.rsi             = 0;
     frame.rdx             = 0;
@@ -233,11 +233,15 @@ void run_fcntl_seat_phase(cinux::syscall::SyscallFrame& frame, unsigned long lon
 }
 
 void run_fcntl_body() {
-    cinux::syscall::SyscallFrame frame = plain_frame();
-    // The streams: GETFL answers read-write, the seat bit arms and
-    // reads back through the table.
-    frame.rdi                          = 1;
-    frame.rsi                          = 3;
+    cinux::syscall::SyscallFrame             frame = plain_frame();
+    // A seated stream-shaped open: status starts read-write, the seat
+    // bit arms and reads back through the table.
+    const cinux::proc::Task* const           kSelf = cinux::proc::Scheduler::self().current();
+    const cinux::base::Result<unsigned long> kFd   = kSelf->files->alloc(nullptr, nullptr, {});
+    ASSERT_TRUE(kFd.ok());
+    kSelf->files->get(kFd.value()).value()->status_flags = 2;
+    frame.rdi                                            = kFd.value();
+    frame.rsi                                            = 3;
     ASSERT_EQ(cinux::syscall::HandleFcntl(frame), 2);
     frame.rsi = 1;
     ASSERT_EQ(cinux::syscall::HandleFcntl(frame), 0);
@@ -246,11 +250,11 @@ void run_fcntl_body() {
     ASSERT_EQ(cinux::syscall::HandleFcntl(frame), 0);
     frame.rsi = 1;
     ASSERT_EQ(cinux::syscall::HandleFcntl(frame), 1);
-    // A seated open: status starts empty, SETFL keeps only the
-    // re-armable half of what the caller offers.
-    const cinux::proc::Task* const           kSelf = cinux::proc::Scheduler::self().current();
-    const cinux::base::Result<unsigned long> kFd   = kSelf->files->alloc(nullptr, nullptr, {});
-    ASSERT_TRUE(kFd.ok());
+    // The stream seats are gone with the old privilege: an unseated
+    // number answers EBADF.
+    frame.rdi = 1;
+    frame.rsi = 3;
+    ASSERT_EQ(cinux::syscall::HandleFcntl(frame), -9);
     run_fcntl_seat_phase(frame, kFd.value());
     cinux::proc::Scheduler::self().exit_current();
 }

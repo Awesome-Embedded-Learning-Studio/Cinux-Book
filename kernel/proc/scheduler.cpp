@@ -2,15 +2,36 @@
 
 #include "cinux/assert.hpp"
 #include "cinux/container/self_list.hpp"
+#include "cinux/memory.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/proc/futex.hpp"
 #include "kernel/proc/sched_class.hpp"
 #include "kernel/proc/signals.hpp"
 #include "kernel/proc/sync.hpp"
 #include "kernel/proc/task.hpp"
+#include "kernel/proc/task_snapshot.hpp"
 #include "kernel/syscall/signal.hpp"
 
 namespace cinux::proc {
+
+namespace {
+
+/// The scheduler's one-letter state, ps-shaped.
+char state_letter(TaskState state) {
+    switch (state) {
+    case TaskState::kRunning:
+    case TaskState::kReady:
+        return 'R';
+    case TaskState::kBlocked:
+        return 'S';
+    case TaskState::kStopped:
+        return 'T';
+    default:
+        return 'Z';
+    }
+}
+
+}  // namespace
 
 bool Scheduler::sink_ready() const {
     return sink_ != nullptr;
@@ -55,6 +76,7 @@ void Scheduler::seat(Task& task) {
     task.pid   = next_pid_++;
     task.tgid  = task.pid;
     task.state = TaskState::kReady;
+    tasks_.push_back(task);
     if (task.parent != nullptr) {
         offspring_.push_back(task);
     }
@@ -81,12 +103,47 @@ unsigned long long Scheduler::offspring_count() const {
 
 Task* Scheduler::find_by_pid(unsigned long long pid) {
     const cinux::arch::IrqGuard kGuard;
-    for (Task* scan = offspring_.head(); scan != nullptr; scan = offspring_.after(*scan)) {
+    for (Task* scan = tasks_.head(); scan != nullptr; scan = tasks_.after(*scan)) {
         if (scan->pid == pid) {
             return scan;
         }
     }
     return nullptr;
+}
+
+bool Scheduler::nth_group_leader(unsigned long ordinal, unsigned long long& pid) {
+    const cinux::arch::IrqGuard kGuard;
+    unsigned long               seen = 0;
+    for (Task* scan = tasks_.head(); scan != nullptr; scan = tasks_.after(*scan)) {
+        if (scan->pid != scan->tgid) {
+            continue;
+        }
+        if (seen == ordinal) {
+            pid = scan->pid;
+            return true;
+        }
+        ++seen;
+    }
+    return false;
+}
+
+bool Scheduler::snapshot_by_pid(unsigned long long pid, TaskSnapshot& into) {
+    const cinux::arch::IrqGuard kGuard;
+    for (Task* scan = tasks_.head(); scan != nullptr; scan = tasks_.after(*scan)) {
+        if (scan->pid != pid) {
+            continue;
+        }
+        into            = TaskSnapshot{};
+        into.pid        = static_cast<long>(scan->pid);
+        into.parent_pid = static_cast<long>(scan->parent == nullptr ? 0 : scan->parent->pid);
+        into.pgid       = static_cast<long>(scan->pgid);
+        into.sid        = static_cast<long>(scan->sid);
+        into.state      = state_letter(scan->state);
+        cinux::base::CopyBytes(into.name, scan->comm, kTaskNameMax);
+        into.name[kTaskNameMax - 1] = '\0';
+        return true;
+    }
+    return false;
 }
 
 void Scheduler::yield() {
@@ -168,6 +225,7 @@ void Scheduler::exit_current(long long code) {
             unblock(*kPrev->parent);
         }
     } else {
+        tasks_.remove(*kPrev);
         if (kPrev->parent != nullptr) {
             offspring_.remove(*kPrev);
         }
@@ -212,6 +270,7 @@ Task* Scheduler::take_zombie_child(Task& watcher, long long wanted, bool& has_el
         const bool kHit      = kEligible && scan->state == TaskState::kZombie;
         if (kHit && match == nullptr) {
             match = scan;
+            tasks_.remove(*scan);
         } else {
             keep.push_back(*scan);
         }
@@ -232,6 +291,7 @@ void Scheduler::detach_offspring(Task& dying) {
         }
         scan->parent = nullptr;
         if (scan->state == TaskState::kZombie) {
+            tasks_.remove(*scan);
             reclaim_(sink_, *scan);
         }
         // Nobody can ever wait for a parentless task again, so it

@@ -11,13 +11,25 @@
 namespace {
 
 struct FakeFs {
-    cinux::base::KernelError               lookup_error = cinux::base::KernelError::kOk;
-    cinux::base::KernelError               stat_error   = cinux::base::KernelError::kOk;
-    cinux::base::KernelError               read_error   = cinux::base::KernelError::kOk;
-    unsigned long                          file_bytes   = 0;
-    unsigned long                          read_bytes   = 0;
-    void                                   retain([[maybe_unused]] cinux::fs::FsNode node) {}
-    void                                   release([[maybe_unused]] cinux::fs::FsNode node) {}
+    cinux::base::KernelError lookup_error = cinux::base::KernelError::kOk;
+    cinux::base::KernelError stat_error   = cinux::base::KernelError::kOk;
+    cinux::base::KernelError read_error   = cinux::base::KernelError::kOk;
+    unsigned long            file_bytes   = 0;
+    unsigned long            read_bytes   = 0;
+    void                     retain([[maybe_unused]] cinux::fs::FsNode node) {}
+    void                     release([[maybe_unused]] cinux::fs::FsNode node) {}
+    bool                     readable([[maybe_unused]] cinux::fs::FsNode node) { return true; }
+    long long                ioctl([[maybe_unused]] cinux::fs::FsNode node, unsigned long long word,
+                                   unsigned long long argument) {
+        static_cast<void>(word);
+        static_cast<void>(argument);
+        return -25;
+    }
+    cinux::base::Result<cinux::fs::FsNode> adopt_open(cinux::fs::FsNode node,
+                                                      std::string_view  path) {
+        static_cast<void>(path);
+        return node;
+    }
     cinux::base::Result<cinux::fs::FsNode> lookup([[maybe_unused]] std::string_view path) const {
         if (lookup_error != cinux::base::KernelError::kOk) {
             return lookup_error;

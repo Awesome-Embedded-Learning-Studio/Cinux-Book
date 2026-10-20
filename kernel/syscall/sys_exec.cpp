@@ -180,11 +180,18 @@ long long HandleExecve(const SyscallFrame& frame) {
     std::string_view comm_parent = {};
     std::string_view comm_leaf   = {};
     static_cast<void>(base::SplitLeaf(path, comm_parent, comm_leaf));
-    unsigned long long name_index = 0;
+    const std::string_view kExePath   = path;
+    unsigned long long     name_index = 0;
     base::SetBytes(kSelf->comm, 0, sizeof(kSelf->comm));
     while (name_index < comm_leaf.size() && name_index < sizeof(kSelf->comm) - 1) {
         kSelf->comm[name_index] = comm_leaf[name_index];
         ++name_index;
+    }
+    base::SetBytes(kSelf->exe, 0, sizeof(kSelf->exe));
+    unsigned long long exe_index = 0;
+    while (exe_index < kExePath.size() && exe_index < sizeof(kSelf->exe) - 1) {
+        kSelf->exe[exe_index] = kExePath[exe_index];
+        ++exe_index;
     }
     // The dying worlds must not come apart while CR3 still walks them:
     // park the old holds aside, switch, and let them go at scope end.

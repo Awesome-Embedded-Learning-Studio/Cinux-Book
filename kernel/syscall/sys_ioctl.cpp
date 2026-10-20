@@ -1,55 +1,76 @@
 #include "kernel/syscall/sys_ioctl.hpp"
 
-#include "cinux/memory.hpp"
+#include "cinux/result.hpp"
+#include "kernel/arch/x86_64/irq_guard.hpp"
+#include "kernel/driver/tty/tty_config.hpp"
+#include "kernel/fs/open_file.hpp"
 #include "kernel/syscall/syscall.hpp"
+#include "kernel/syscall/syscall_internal.hpp"
 
 namespace cinux::syscall {
 
 namespace {
 
-/// The hosted "read the terminal settings" ask.
-constexpr unsigned long long kTcgets = 0x5401;
-
-/// The hosted "how big is the terminal" ask: what isatty really probes.
-constexpr unsigned long long kTiocgwinsz = 0x5413;
-
-/// A termios record as the hosted world sizes it: four word-sized
-/// fields plus two control strings, all zero from a console that has
-/// never been configured.
-constexpr unsigned long kTermiosBytes = 36;
-
-/// The screen console's own shape, in rows then columns, as the winsize
-/// record spells it: two shorts of cells, two of pixels.
-struct WinSize {
-    unsigned short rows;
-    unsigned short columns;
-    unsigned short pixels_x;
-    unsigned short pixels_y;
+/// One pointer-carrying command's span: how many bytes, and whether
+/// the caller hands them over or takes them back. Zero bytes marks the
+/// wordless commands, whose argument is a flag, not an address.
+struct WordSpan {
+    unsigned long long word;
+    unsigned long      bytes;
+    bool               caller_gives;
 };
 
-/// The console the boot banner already names: 48 rows of 128 columns.
-constexpr WinSize kConsoleShape{.rows = 48, .columns = 128, .pixels_x = 0, .pixels_y = 0};
+const WordSpan kWordSpans[] = {
+    {.word = driver::kTtyTcgets, .bytes = driver::kTermiosBytes, .caller_gives = false},
+    {.word = driver::kTtyTcsets, .bytes = driver::kTermiosBytes, .caller_gives = true},
+    {.word = driver::kTtyTcsetsw, .bytes = driver::kTermiosBytes, .caller_gives = true},
+    {.word = driver::kTtyTcsetsf, .bytes = driver::kTermiosBytes, .caller_gives = true},
+    {.word = driver::kTtyTiocsctty, .bytes = 0, .caller_gives = true},
+    {.word = driver::kTtyTiocgpgrp, .bytes = 4, .caller_gives = false},
+    {.word = driver::kTtyTiocspgrp, .bytes = 4, .caller_gives = true},
+    {.word = driver::kTtyTiocgwinsz, .bytes = 8, .caller_gives = false},
+    {.word = driver::kTtyTiocsptlck, .bytes = 4, .caller_gives = true},
+    {.word = driver::kTtyTiocgptn, .bytes = 4, .caller_gives = false},
+};
+
+/// The span one command's argument carries, or nullptr when unknown.
+const WordSpan* span_of(unsigned long long word) {
+    for (const WordSpan& span : kWordSpans) {
+        if (span.word == word) {
+            return &span;
+        }
+    }
+    return nullptr;
+}
 
 }  // namespace
 
 long long HandleIoctl(const SyscallFrame& frame) {
-    if (frame.rdi > 2) {
+    const arch::IrqGuard              kGuard;
+    const base::Result<fs::OpenFile*> kSlot = LiveSlot(frame.rdi);
+    if (!kSlot.ok()) {
+        return -kEbadf;
+    }
+    const fs::OpenFile* const kFile = kSlot.value();
+    if (kFile->ops->ioctl == nullptr) {
         return -kEnotty;
+    }
+    const WordSpan* const kSpan = span_of(frame.rsi);
+    if (kSpan == nullptr) {
+        return -kEnotty;
+    }
+    if (kSpan->bytes == 0) {
+        return kFile->ops->ioctl(kFile->backend, kFile->node, frame.rsi, frame.rdx);
     }
     if (frame.rdx == 0 || frame.rdx >= kUserAddressLimit) {
         return -kEfault;
     }
-    // NOLINTNEXTLINE(performance-no-int-to-ptr)
-    auto* const kOut = reinterpret_cast<unsigned char*>(frame.rdx);
-    if (frame.rsi == kTcgets) {
-        base::SetBytes(kOut, 0, kTermiosBytes);
-        return 0;
+    const bool kReachable = kSpan->caller_gives ? UserRangeReadable(frame.rdx, kSpan->bytes)
+                                                : UserRangeWritable(frame.rdx, kSpan->bytes);
+    if (!kReachable) {
+        return -kEfault;
     }
-    if (frame.rsi == kTiocgwinsz) {
-        base::CopyBytes(kOut, &kConsoleShape, sizeof(kConsoleShape));
-        return 0;
-    }
-    return -kEnotty;
+    return kFile->ops->ioctl(kFile->backend, kFile->node, frame.rsi, frame.rdx);
 }
 
 }  // namespace cinux::syscall

@@ -28,14 +28,25 @@ unsigned long record_bytes(const fs::FsDirent& entry) {
     return cinux::base::math::AlignUp(kDirent64NameAt + name_run(entry), 8);
 }
 
+/// Translates one entry's shape into the wire's type word.
+unsigned char dirent_type_word(fs::InodeType type) {
+    switch (type) {
+    case fs::InodeType::kDirectory:
+        return kDirentTypeDirectory;
+    case fs::InodeType::kCharDevice:
+        return kDirentTypeChar;
+    default:
+        return kDirentTypeFile;
+    }
+}
+
 /// Places one entry into the caller's buffer at base, by the byte plan.
 void put_record(unsigned char* base, const fs::FsDirent& entry, unsigned long next_ordinal) {
     const unsigned long kLen = record_bytes(entry);
     base::CopyBytes(base + kDirent64InoAt, &entry.ino, sizeof(entry.ino));
     const auto kCookie  = static_cast<long long>(next_ordinal);
     const auto kLenWord = static_cast<unsigned short>(kLen);
-    const auto kType    = static_cast<unsigned char>(
-        entry.type == fs::InodeType::kDirectory ? kDirentTypeDirectory : kDirentTypeFile);
+    const auto kType    = dirent_type_word(entry.type);
     base::CopyBytes(base + kDirent64OffAt, &kCookie, sizeof(kCookie));
     base::CopyBytes(base + kDirent64LenAt, &kLenWord, sizeof(kLenWord));
     base::CopyBytes(base + kDirent64TypeAt, &kType, sizeof(kType));
@@ -45,9 +56,6 @@ void put_record(unsigned char* base, const fs::FsDirent& entry, unsigned long ne
 }  // namespace
 
 long long HandleGetdents(const SyscallFrame& frame) {
-    if (frame.rdi < 3) {
-        return -kEbadf;
-    }
     if (frame.rsi >= kUserAddressLimit || frame.rdx == 0) {
         return -kEfault;
     }

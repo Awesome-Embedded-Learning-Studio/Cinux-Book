@@ -100,3 +100,17 @@ target_link_options(user_threaddemo PRIVATE
 set_target_properties(user_threaddemo PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
     OUTPUT_NAME "threaddemo.elf")
+
+add_executable(user_ttydemo programs/ttydemo.cpp)
+target_compile_options(user_ttydemo PRIVATE ${USER_COMPILE_FLAGS})
+target_include_directories(user_ttydemo PRIVATE ${USER_INCLUDE_DIRS})
+target_compile_definitions(user_ttydemo PRIVATE __USER__)
+target_link_options(user_ttydemo PRIVATE
+    -nostdlib
+    -static
+    -no-pie
+    -Wl,-e,_start
+    -lgcc)
+set_target_properties(user_ttydemo PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
+    OUTPUT_NAME "ttydemo.elf")

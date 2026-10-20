@@ -41,6 +41,7 @@
 #include "kernel/syscall/sys_mmap.hpp"
 #include "kernel/syscall/sys_mprotect.hpp"
 #include "kernel/syscall/sys_munmap.hpp"
+#include "kernel/syscall/sys_nanosleep.hpp"
 #include "kernel/syscall/sys_open.hpp"
 #include "kernel/syscall/sys_openat.hpp"
 #include "kernel/syscall/sys_pgrp.hpp"
@@ -48,10 +49,13 @@
 #include "kernel/syscall/sys_ppoll.hpp"
 #include "kernel/syscall/sys_prlimit.hpp"
 #include "kernel/syscall/sys_read.hpp"
+#include "kernel/syscall/sys_readlink.hpp"
 #include "kernel/syscall/sys_reboot.hpp"
 #include "kernel/syscall/sys_set_tid_address.hpp"
 #include "kernel/syscall/sys_signal.hpp"
 #include "kernel/syscall/sys_stat.hpp"
+#include "kernel/syscall/sys_sysinfo.hpp"
+#include "kernel/syscall/sys_tgkill.hpp"
 #include "kernel/syscall/sys_uname.hpp"
 #include "kernel/syscall/sys_unlink.hpp"
 #include "kernel/syscall/sys_wait.hpp"
@@ -156,6 +160,11 @@ constexpr Row kRows[] = {
         .handler = cinux::syscall::HandleNewfstatat,
     },
     {.number = cinux::syscall::SyscallNr::kPpoll, .handler = cinux::syscall::HandlePpoll},
+    {.number = cinux::syscall::SyscallNr::kPoll, .handler = cinux::syscall::HandlePoll},
+    {.number = cinux::syscall::SyscallNr::kReadlink, .handler = cinux::syscall::HandleReadlink},
+    {.number = cinux::syscall::SyscallNr::kSysinfo, .handler = cinux::syscall::HandleSysinfo},
+    {.number = cinux::syscall::SyscallNr::kNanosleep, .handler = cinux::syscall::HandleNanosleep},
+    {.number = cinux::syscall::SyscallNr::kTgkill, .handler = cinux::syscall::HandleTgkill},
 };
 
 constexpr auto kHandlers = [] {

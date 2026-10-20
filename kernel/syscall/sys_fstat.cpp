@@ -15,13 +15,16 @@ long long HandleFstat(const SyscallFrame& frame) {
     if (!UserRangeWritable(frame.rsi, sizeof(SyscallStat))) {
         return -kEfault;
     }
-    if (frame.rdi <= 2) {
-        return -kEinval;
-    }
     const arch::IrqGuard              kGuard;
     const base::Result<fs::OpenFile*> kSlot = LiveSlot(frame.rdi);
     if (!kSlot.ok()) {
         return -kEbadf;
+    }
+    if (kSlot.value()->ops->stat == nullptr) {
+        // A backend with no stat face has nothing honest to say; the
+        // caller learns the table has no such shape rather than a
+        // made-up record.
+        return -kEnosys;
     }
     fs::FsStat               probed{};
     const base::Result<void> kProbed =
@@ -36,6 +39,7 @@ long long HandleFstat(const SyscallFrame& frame) {
     kSink->mode       = probed.mode;
     kSink->links      = probed.links;
     kSink->size       = static_cast<std::int64_t>(probed.size);
+    kSink->rdev       = probed.rdev;
     kSink->mtime      = probed.mtime;
     return 0;
 }

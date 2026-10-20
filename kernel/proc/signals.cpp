@@ -169,6 +169,14 @@ SignalDisposition DefaultDisposition(int number) {
     }
 }
 
+void SendToGroup(unsigned long long pgid, int number) {
+    Scheduler::self().for_each_task([&](Task& scan) {
+        if (scan.pgid == pgid) {
+            static_cast<void>(SendSignal(scan, number));
+        }
+    });
+}
+
 bool SendSignal(Task& target, int number) {
     if (number < 1 || number > kSignalCount) {
         return false;

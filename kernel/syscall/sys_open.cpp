@@ -34,6 +34,10 @@ long long HandleOpen(const SyscallFrame& frame) {
     if (!node.ok()) {
         return -ErrnoFrom(node.error());
     }
+    node = kFlat.ops->adopt_open(kFlat.self, node.value(), kFlat.rest);
+    if (!node.ok()) {
+        return -ErrnoFrom(node.error());
+    }
 
     const proc::Task* const           kSelf = CurrentTask();
     const base::Result<unsigned long> kFd =

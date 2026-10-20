@@ -87,8 +87,9 @@ long long HandleSetsid(const SyscallFrame& /*frame*/) {
     if (kSelf->pgid == kSelf->pid) {
         return -kEperm;
     }
-    kSelf->sid  = kSelf->pid;
-    kSelf->pgid = kSelf->pid;
+    kSelf->sid             = kSelf->pid;
+    kSelf->pgid            = kSelf->pid;
+    kSelf->controlling_tty = nullptr;
     return static_cast<long long>(kSelf->pid);
 }
 

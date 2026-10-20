@@ -43,6 +43,7 @@ enum class KernelError : std::uint8_t {
     kIsADirectory,       ///< A file-only operation met a directory.
     kDirectoryNotEmpty,  ///< Removal met a directory still holding entries.
     kNotSupported,       ///< The backend refuses this operation for now.
+    kInterrupted,        ///< A signal arrived before any progress.
 
     kCount,  ///< Sentinel: number of real entries. Never returned.
 };
@@ -65,7 +66,7 @@ constexpr const char* ErrorString(KernelError error) {
     constexpr const char* kNames[] = {
         "Ok",           "OutOfMemory",       "InvalidArgument", "NotFound",
         "IOError",      "WouldBlock",        "AlreadyExists",   "NotADirectory",
-        "IsADirectory", "DirectoryNotEmpty", "NotSupported",
+        "IsADirectory", "DirectoryNotEmpty", "NotSupported",    "Interrupted",
     };
     static_assert(sizeof(kNames) / sizeof(kNames[0]) == std::to_underlying(KernelError::kCount));
 

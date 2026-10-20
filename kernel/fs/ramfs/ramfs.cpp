@@ -35,6 +35,7 @@
 #include "kernel/fs/ramfs/ramfs_config.hpp"
 #include "kernel/fs/vfs.hpp"
 #include "kernel/proc/sync.hpp"
+#include "kernel/syscall/syscall.hpp"
 
 namespace cinux::fs {
 
@@ -193,6 +194,19 @@ void RamFs::release(FsNode node) {
     const proc::SpinGuard kGuard(lock_);
     auto* const           kNode = static_cast<RamNode*>(node.opaque);
     kNode->release_ref();
+}
+
+bool RamFs::readable(FsNode /*node*/) {
+    return true;
+}
+
+long long RamFs::ioctl(FsNode /*node*/, unsigned long long /*word*/,
+                       unsigned long long /*argument*/) {
+    return -syscall::kEnotty;
+}
+
+base::Result<FsNode> RamFs::adopt_open(FsNode node, std::string_view /*path*/) {
+    return node;
 }
 
 base::Result<void> RamFs::stat(FsNode node, FsStat& probed) {

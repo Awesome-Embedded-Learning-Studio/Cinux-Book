@@ -25,11 +25,16 @@ long long seat_pipe_pair(unsigned long long user_fds) {
         return -kEnomem;
     }
     kPipe->add_writer();
-    const fs::FsNode kReadMark{};
+    const fs::FsNode kReadMark{
+        .opaque = nullptr,
+        .type   = fs::InodeType::kFile,
+        .ino    = kPipe->identity(),
+        .size   = 0,
+    };
     const fs::FsNode kWriteMark{
         .opaque = reinterpret_cast<void*>(1),
         .type   = fs::InodeType::kFile,
-        .ino    = 0,
+        .ino    = kPipe->identity(),
         .size   = 0,
     };
     const proc::Task* const           kSelf = CurrentTask();

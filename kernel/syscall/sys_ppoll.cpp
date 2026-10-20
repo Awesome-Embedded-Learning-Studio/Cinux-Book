@@ -1,11 +1,11 @@
 #include "kernel/syscall/sys_ppoll.hpp"
 
 #include "cinux/result.hpp"
-#include "kernel/driver/tty/tty.hpp"
 #include "kernel/fs/open_file.hpp"
 #include "kernel/fs/pipe.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
+#include "kernel/syscall/signal.hpp"
 #include "kernel/syscall/sys_clock.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
@@ -29,23 +29,17 @@ constexpr unsigned long long kTimespecBytes   = 16;
 constexpr unsigned long long kNegativeSeconds = 0x8000000000000000ULL;
 
 unsigned short readiness(unsigned int number, unsigned int events) {
-    if (number < 3) {
-        unsigned int answer = 0;
-        if ((events & kPollIn) != 0U && driver::Tty::self().has_input()) {
-            answer |= kPollIn;
-        }
-        if ((events & kPollOut) != 0U) {
-            answer |= kPollOut;
-        }
-        return static_cast<unsigned short>(answer);
-    }
     const base::Result<fs::OpenFile*> kOpen = LiveSlot(number);
     if (!kOpen.ok()) {
         return static_cast<unsigned short>(kPollNval);
     }
     const fs::OpenFile* const kFile = kOpen.value();
     if (kFile->ops != fs::PipeOps()) {
-        return static_cast<unsigned short>(events & (kPollIn | kPollOut));
+        unsigned int answer = events & (kPollIn | kPollOut);
+        if ((answer & kPollIn) != 0U && !kFile->ops->readable(kFile->backend, kFile->node)) {
+            answer &= ~kPollIn;
+        }
+        return static_cast<unsigned short>(answer);
     }
     const auto* const kPipe = static_cast<fs::Pipe*>(kFile->backend);
     if (kFile->node.opaque == nullptr) {
@@ -122,6 +116,13 @@ long long deadline_from(unsigned long long timeout_user, unsigned long long& dea
     return 0;
 }
 
+/// Puts the caller's own blocked set back after a masked wait.
+void restore_blocked(proc::Task* self, const SigSet& restore, bool armed) {
+    if (armed) {
+        self->signals.blocked = restore;
+    }
+}
+
 }  // namespace
 
 long long HandlePpoll(const SyscallFrame& frame) {
@@ -142,6 +143,62 @@ long long HandlePpoll(const SyscallFrame& frame) {
     const long long    kParsed  = deadline_from(frame.rdx, deadline);
     if (kParsed != 0) {
         return kParsed;
+    }
+
+    proc::Task* const kSelf    = CurrentTask();
+    const SigSet      kRestore = kSelf->signals.blocked;
+    bool              armed    = false;
+    if (frame.r10 != 0 && frame.r10 < kUserAddressLimit &&
+        UserRangeReadable(frame.r10, sizeof(SigSet))) {
+        // NOLINTNEXTLINE(performance-no-int-to-ptr)
+        const auto* const kWords = reinterpret_cast<const unsigned long long*>(frame.r10);
+        kSelf->signals.blocked   = SigSet{*kWords};
+        armed                    = true;
+    }
+
+    for (;;) {
+        if (kCount != 0) {
+            const unsigned long long kReady = scan_answers(frame.rdi, kCount);
+            if (kReady != 0) {
+                restore_blocked(kSelf, kRestore, armed);
+                return static_cast<long long>(kReady);
+            }
+        }
+        if (kSelf->signals.pending.has(~kSelf->signals.blocked)) {
+            restore_blocked(kSelf, kRestore, armed);
+            return -kEintr;
+        }
+        if (MonotonicNanoseconds() >= deadline) {
+            restore_blocked(kSelf, kRestore, armed);
+            return 0;
+        }
+        proc::Scheduler::self().yield();
+    }
+}
+
+long long HandlePoll(const SyscallFrame& frame) {
+    if (frame.rsi > kPollRecordsLimit) {
+        return -kEinval;
+    }
+    const auto kCount = static_cast<unsigned long>(frame.rsi);
+    if (kCount != 0) {
+        const bool kUsable = frame.rdi != 0 && frame.rdi < kUserAddressLimit &&
+                             UserRangeReadable(frame.rdi, kCount * kPollRecordBytes) &&
+                             UserRangeWritable(frame.rdi, kCount * kPollRecordBytes);
+        if (!kUsable) {
+            return -kEfault;
+        }
+    }
+
+    unsigned long long deadline = ~0ULL;
+    const auto         kMillis  = static_cast<long long>(static_cast<long>(frame.rdx));
+    if (kMillis >= 0) {
+        const unsigned long long kNow   = MonotonicNanoseconds();
+        const unsigned long long kSlack = ~0ULL - kNow;
+        const unsigned long long kWant  = static_cast<unsigned long long>(kMillis) * 1000000ULL;
+        if (kWant <= kSlack) {
+            deadline = kNow + kWant;
+        }
     }
 
     for (;;) {

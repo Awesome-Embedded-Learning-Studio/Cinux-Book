@@ -40,6 +40,18 @@ public:
     Pipe();
 
     /**
+     * @brief     This pipe's distinguishing inode number.
+     *
+     * @return    A number no other pipe shares.
+     * @note      Both ends answer the same number, so a consumer
+     *            comparing (dev, ino) pairs sees one pipe, not two
+     *            nameless twins. Numbers rise from a boot-wide counter.
+     * @since     0.5.0
+     * @ingroup   kernel_fs
+     */
+    [[nodiscard]] unsigned long identity() const { return identity_; }
+
+    /**
      * @brief     Takes up to count bytes; blocks while empty and a
      *            writer lives.
      * @return    The bytes taken, zero at end-of-file, or an error.
@@ -77,7 +89,8 @@ private:
     base::container::RingQueue<unsigned char, kPipeBytes + 1> ring_;
     proc::Semaphore                                           readable_;
     proc::Semaphore                                           writable_;
-    unsigned long                                             writers_ = 0;
+    unsigned long                                             writers_  = 0;
+    unsigned long                                             identity_ = 0;
 };
 
 /**

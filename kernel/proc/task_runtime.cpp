@@ -132,8 +132,14 @@ Task* TaskBuilder::build() {
         .stack_top    = kStackVirt + kStackBytes,
     };
     PrepareTaskContext(kBorn->ctx, kPlan);
-    kBorn->state       = TaskState::kReady;
-    kBorn->name        = name_;
+    kBorn->state = TaskState::kReady;
+    kBorn->name  = name_;
+    if (name_ != nullptr) {
+        for (unsigned long index = 0; index + 1 < sizeof(kBorn->comm) && name_[index] != '\0';
+             ++index) {
+            kBorn->comm[index] = name_[index];
+        }
+    }
     kBorn->stack_base  = kStackVirt;
     kBorn->parent      = parent_;
     kBorn->priority    = priority_;

@@ -62,8 +62,14 @@ inline constexpr unsigned long kUserProgramStackTop = mm::kUserStackTop;
 
 /// How far below the stack top a fresh user world's first stack pointer
 /// lands: the mapped page's tail then holds the argc, argv, envp and
-/// auxv words a hosted runtime reads on entry, all zero for now.
-inline constexpr unsigned long kUserEntryStackOffset = 0x100;
+/// auxv words a hosted runtime reads on entry, all zero for now. The
+/// offset's low four bits keep the landing at eight modulo sixteen —
+/// the shape a compiler assumes of a function it believes was called —
+/// so an entry prologue's aligned SSE stores land aligned. A page-flat
+/// offset once broke exactly there (station 19's lesson, lost again in
+/// the station 23 rewrite and caught by the first demo whose entry
+/// picture compiled a movaps).
+inline constexpr unsigned long kUserEntryStackOffset = 0x108;
 
 /// Resource rows prlimit64 can name; the uapi source stops at row 15
 /// (RLIMIT_RTTIME) and one past it closes the table.

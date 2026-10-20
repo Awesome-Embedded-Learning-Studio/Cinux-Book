@@ -26,6 +26,8 @@
 #include "kernel/arch/x86_64/registers.hpp"
 #include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/boot/print.hpp"
+#include "kernel/driver/tty/console_tty.hpp"
+#include "kernel/fs/devfs/console_node.hpp"
 #include "kernel/fs/file_world.hpp"
 #include "kernel/fs/vfs.hpp"
 #include "kernel/loader/loader.hpp"
@@ -153,9 +155,15 @@ bool seat_shell_task(proc::Task& parent) {
     }
     kShell->space = std::move(world.space);
     kShell->vmas  = std::move(world.vmas);
+    if (!fs::FileWorld::self().seat_console_streams(*kShell->files).ok()) {
+        return false;
+    }
     proc::Scheduler::self().seat(*kShell);
-    kShell->pgid = kShell->pid;
-    kShell->sid  = kShell->pid;
+    kShell->pgid            = kShell->pid;
+    kShell->sid             = kShell->pid;
+    kShell->controlling_tty = &driver::ConsoleTty();
+    fs::AdoptConsoleForeground(kShell->pgid);
+    cinux::base::CopyBytes(kShell->exe, "/bin/sh", 8);
     return true;
 }
 

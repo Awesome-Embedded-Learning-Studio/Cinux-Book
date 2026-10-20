@@ -1,0 +1,112 @@
+#include "kernel/fs/procfs/procfs_init.hpp"
+
+#include "cinux/result.hpp"
+#include "kernel/fs/file_world.hpp"
+#include "kernel/fs/fs_config.hpp"
+#include "kernel/fs/procfs/procfs.hpp"
+#include "kernel/fs/vfs.hpp"
+#include "kernel/mm/pmm.hpp"
+#include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/task.hpp"
+#include "kernel/proc/task_snapshot.hpp"
+#include "kernel/syscall/syscall_internal.hpp"
+
+namespace cinux::fs {
+
+namespace {
+
+bool source_nth_tgid(void* /*context*/, unsigned long ordinal, unsigned long& tgid) {
+    unsigned long long pid = 0;
+    if (!proc::Scheduler::self().nth_group_leader(ordinal, pid)) {
+        return false;
+    }
+    tgid = static_cast<unsigned long>(pid);
+    return true;
+}
+
+bool source_snapshot(void* /*context*/, unsigned long tgid, proc::TaskSnapshot& into) {
+    return proc::Scheduler::self().snapshot_by_pid(tgid, into);
+}
+
+unsigned long source_exe_path(void* /*context*/, char* out, unsigned long cap) {
+    const proc::Task* const kSelf = cinux::syscall::CurrentTask();
+    unsigned long           used  = 0;
+    while (used + 1 < cap && kSelf->exe[used] != '\0') {
+        out[used] = kSelf->exe[used];
+        ++used;
+    }
+    out[used] = '\0';
+    return used;
+}
+
+/// Resolves the current task's program to its backend view and node;
+/// false when the file has gone.
+bool resolve_exe(FsView& view, FsNode& node) {
+    char path[fs::kFsPathMax] = {};
+    if (source_exe_path(nullptr, path, sizeof(path)) == 0) {
+        return false;
+    }
+    const base::Result<FsView> kView = FileWorld::self().resolve(path);
+    if (!kView.ok()) {
+        return false;
+    }
+    view                             = kView.value();
+    const base::Result<FsNode> kNode = view.ops->lookup(view.self, view.rest);
+    if (!kNode.ok()) {
+        return false;
+    }
+    node = kNode.value();
+    return true;
+}
+
+// NOLINTNEXTLINE(readability-function-size) the source seat names five
+bool source_exe_bytes(void* /*context*/, unsigned long offset, void* sink, unsigned long count,
+                      unsigned long& gave) {
+    FsView view{};
+    FsNode node{};
+    if (!resolve_exe(view, node)) {
+        return false;
+    }
+    const base::Result<unsigned long> kGot = view.ops->read(view.self, node, offset, sink, count);
+    if (!kGot.ok()) {
+        return false;
+    }
+    gave = kGot.value();
+    return true;
+}
+
+unsigned long source_exe_size(void* /*context*/) {
+    FsView view{};
+    FsNode node{};
+    if (!resolve_exe(view, node)) {
+        return 0;
+    }
+    FsStat                   probed{};
+    const base::Result<void> kProbed = view.ops->stat(view.self, node, probed);
+    if (!kProbed.ok()) {
+        return 0;
+    }
+    return probed.size;
+}
+
+void source_memory(void* /*context*/, unsigned long& free_pages, unsigned long& total_pages) {
+    free_pages  = mm::Pmm::self().free_page_count();
+    total_pages = mm::Pmm::self().managed_page_count();
+}
+
+}  // namespace
+
+void WireKernelProcSource(ProcFs& procfs) {
+    const ProcSource kSource{
+        .nth_tgid  = source_nth_tgid,
+        .snapshot  = source_snapshot,
+        .exe_path  = source_exe_path,
+        .exe_bytes = source_exe_bytes,
+        .exe_size  = source_exe_size,
+        .memory    = source_memory,
+        .context   = nullptr,
+    };
+    procfs.set_source(kSource);
+}
+
+}  // namespace cinux::fs

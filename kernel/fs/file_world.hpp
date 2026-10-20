@@ -27,6 +27,8 @@
 
 #include "cinux/result.hpp"
 #include "cinux/singleton.hpp"
+#include "kernel/fs/devfs/devfs.hpp"
+#include "kernel/fs/procfs/procfs.hpp"
 #include "kernel/fs/vfs.hpp"
 
 namespace cinux::driver {
@@ -36,7 +38,7 @@ class BlockQueue;
 
 namespace cinux::fs::ext2 {
 class Ext2;
-}
+}  // namespace cinux::fs::ext2
 
 namespace cinux::fs {
 
@@ -50,18 +52,23 @@ namespace cinux::fs {
  * @since   0.1.0
  * @ingroup kernel_fs
  */
+struct FileTable;
+
 class FileWorld : public cinux::base::Singleton<FileWorld> {
     friend class cinux::base::Singleton<FileWorld>;
 
 public:
     /**
-     * @brief   Plants the queue and volume, mounts ext2 at the root.
+     * @brief   Plants the queue and volume, mounts ext2 at the root and
+     *          the device table at /dev.
      *
      * @return  None
      * @note    Runs exactly once, from inside the kernel_init task:
      *          every block ask sleeps on the queue, so the caller must
      *          already be schedulable. A volume refusing to mount is
-     *          a build or wiring bug and dies loudly.
+     *          a build or wiring bug and dies loudly. DevFs carries no
+     *          I/O of its own, so it rides as a plain member and its
+     *          seat at /dev costs no queue.
      * @since   0.1.0
      * @ingroup kernel_fs
      */
@@ -78,10 +85,27 @@ public:
      */
     [[nodiscard]] base::Result<FsView> resolve(std::string_view path);
 
+    /**
+     * @brief         Seats a table's standard streams on the console.
+     *
+     * @param[in,out] table   The table receiving seats zero through two.
+     * @return        Success, or the resolve, lookup or seating errors.
+     * @note          One console open, shared by all three seats, read-
+     *                write from birth — the shape a shell expects to
+     *                inherit, and the shape that makes the descriptor
+     *                numbers' fixed meanings real: closing seat zero
+     *                really closes it, and the next open may take it.
+     * @since         0.5.0
+     * @ingroup       kernel_fs
+     */
+    [[nodiscard]] base::Result<void> seat_console_streams(FileTable& table);
+
 private:
     FileWorld() = default;
 
-    Vfs vfs_;
+    Vfs    vfs_;
+    DevFs  devfs_;
+    ProcFs procfs_;
 
     driver::BlockQueue* queue_  = nullptr;
     driver::BlockCache* cache_  = nullptr;

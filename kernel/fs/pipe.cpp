@@ -6,7 +6,26 @@
 
 namespace cinux::fs {
 
-Pipe::Pipe() : readable_(0), writable_(static_cast<long long>(kPipeBytes)) {}
+namespace {
+
+/// One boot-wide counter: every pipe born gets the next number.
+unsigned long g_pipe_identities = 0;
+
+/// The stat a pipe answers: a fifo, both ends one identity.
+base::Result<void> pipe_stat(void* /*self*/, FsNode node, FsStat& probed) {
+    probed       = FsStat{};
+    probed.ino   = node.ino;
+    probed.mode  = 0100600;
+    probed.links = 1;
+    return {};
+}
+
+}  // namespace
+
+Pipe::Pipe() : readable_(0), writable_(static_cast<long long>(kPipeBytes)) {
+    ++g_pipe_identities;
+    identity_ = g_pipe_identities;
+}
 
 namespace {
 
@@ -98,16 +117,19 @@ void pipe_release(void* self, FsNode node) {
 }
 
 const FsOps kOps{
-    .lookup    = nullptr,
-    .make_file = nullptr,
-    .make_dir  = nullptr,
-    .unlink    = nullptr,
-    .read      = pipe_read,
-    .write     = pipe_write,
-    .read_dir  = nullptr,
-    .stat      = nullptr,
-    .retain    = pipe_retain,
-    .release   = pipe_release,
+    .lookup     = nullptr,
+    .make_file  = nullptr,
+    .make_dir   = nullptr,
+    .unlink     = nullptr,
+    .read       = pipe_read,
+    .write      = pipe_write,
+    .read_dir   = nullptr,
+    .stat       = pipe_stat,
+    .retain     = pipe_retain,
+    .release    = pipe_release,
+    .readable   = nullptr,
+    .ioctl      = nullptr,
+    .adopt_open = nullptr,
 };
 
 }  // namespace

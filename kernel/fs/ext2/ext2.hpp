@@ -236,6 +236,39 @@ public:
      */
     void release(FsNode node);
 
+    /**
+     * @brief     Whether a reader would make progress on this node now.
+     *
+     * @param[in] node   Any handle.
+     * @return    True: the volume's bytes are always at hand.
+     * @since     0.5.0
+     * @ingroup   kernel_fs
+     */
+    [[nodiscard]] bool readable(FsNode node);
+
+    /**
+     * @brief     Answers one device question for this backend's nodes.
+     *
+     * @param[in] node       Any handle.
+     * @param[in] word       The question word.
+     * @param[in] argument   The question's argument word.
+     * @return    -ENOTTY: no node on a platter is a device.
+     * @since     0.5.0
+     * @ingroup   kernel_fs
+     */
+    long long ioctl(FsNode node, unsigned long long word, unsigned long long argument);
+
+    /**
+     * @brief     Replaces a node at open time for this backend.
+     *
+     * @param[in] node    The node lookup produced.
+     * @param[in] path    The mount-relative path being opened.
+     * @return    The same node: a platter has no cloning opens.
+     * @since     0.5.0
+     * @ingroup   kernel_fs
+     */
+    [[nodiscard]] base::Result<FsNode> adopt_open(FsNode node, std::string_view path);
+
 private:
     /// One directory-block spot an insert might land in: where the block
     /// lives, where the spot starts, the entry sitting there, and who is

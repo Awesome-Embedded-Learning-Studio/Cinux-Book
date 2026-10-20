@@ -34,20 +34,13 @@ namespace cinux::fs {
 
 /**
  * @brief   How many descriptors one task may hold at once.
- * @note    Three reserved standard streams plus five open files is a
- *          teaching kernel's honest budget.
+ * @note    Sixteen seats: a hosted shell's F_DUPFD_CLOEXEC asks from
+ *          seat ten up, and a teaching kernel that wants real job
+ *          control has to have those seats to give.
  * @since   0.1.0
  * @ingroup kernel_fs
  */
-inline constexpr unsigned long kFileTableMax = 8;
-
-/**
- * @brief   The first descriptor the table hands out.
- * @note    0, 1 and 2 keep their fixed meanings in the syscall layer.
- * @since   0.1.0
- * @ingroup kernel_fs
- */
-inline constexpr unsigned long kFirstDescriptor = 3;
+inline constexpr unsigned long kFileTableMax = 16;
 
 /**
  * @brief   One task's open files: shared opens keyed by descriptor number.
@@ -56,10 +49,14 @@ inline constexpr unsigned long kFirstDescriptor = 3;
  *          inherited open by adopt, and a CLONE_FILES thread group
  *          points at a single table so every member sees the same
  *          descriptors and the same cursors. alloc always returns the
- *          lowest free slot at or above kFirstDescriptor, so freed
- *          numbers are reused lowest-first. adopt seats an open another
- *          table already owns, which is how a forked child inherits
- *          its parent's cursor. SlotTable owns occupancy; every stored
+ *          lowest free slot, zero included: seats zero through two are
+ *          reserved not by the table but by the standard streams a task
+ *          inherits, so a born-empty table's first open takes seat zero
+ *          while a shell's table, seated with its console streams,
+ *          hands out three first — the shape every Unix program grew up
+ *          with, arrived at honestly. adopt seats an open another table
+ *          already owns, which is how a forked child inherits its
+ *          parent's cursor. SlotTable owns occupancy; every stored
  *          entry holds one owner count over its OpenFile.
  * @since   0.1.0
  * @ingroup kernel_fs

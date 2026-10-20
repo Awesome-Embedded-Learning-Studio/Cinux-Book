@@ -8,9 +8,6 @@
 namespace cinux::syscall {
 
 long long HandleClose(const SyscallFrame& frame) {
-    if (frame.rdi < 3) {
-        return 0;
-    }
     if (frame.rdi >= fs::kFileTableMax) {
         return -kEbadf;
     }

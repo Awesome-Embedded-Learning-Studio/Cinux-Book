@@ -112,14 +112,15 @@ const TableHeader* FindTable(const Rsdp* root, const char* signature) {
                          (static_cast<unsigned long>(base::ReadWord32(kRootBytes, 4)) << 32U);
         entry_bytes    = sizeof(uint64_t);
     }
-    const auto* const kDirectory =
-        reinterpret_cast<const TableHeader*>(  // NOLINT(performance-no-int-to-ptr)
+    const auto* const kDirectoryBytes =
+        reinterpret_cast<const unsigned char*>(  // NOLINT(performance-no-int-to-ptr)
             mm::DirectMapVirt(directory_phys));
-    if (!TableSumsToZero(kDirectory, kDirectory->length)) {
+    const unsigned long kDirectoryLength = base::ReadWord32(kDirectoryBytes, 4);
+    if (!TableSumsToZero(kDirectoryBytes, kDirectoryLength)) {
         return nullptr;
     }
-    const auto* const kEntries = reinterpret_cast<const unsigned char*>(kDirectory) + kHeaderBytes;
-    const unsigned long kCount = (kDirectory->length - kHeaderBytes) / entry_bytes;
+    const auto* const   kEntries = kDirectoryBytes + kHeaderBytes;
+    const unsigned long kCount   = (kDirectoryLength - kHeaderBytes) / entry_bytes;
     for (unsigned long index = 0; index < kCount; ++index) {
         const auto* const kEntryBytes = kEntries + (index * entry_bytes);
         unsigned long     entry_phys  = base::ReadWord32(kEntryBytes, 0);
@@ -127,13 +128,15 @@ const TableHeader* FindTable(const Rsdp* root, const char* signature) {
             entry_phys =
                 entry_phys | (static_cast<unsigned long>(base::ReadWord32(kEntryBytes, 4)) << 32U);
         }
-        const auto* const kTable =
-            reinterpret_cast<const TableHeader*>(  // NOLINT(performance-no-int-to-ptr)
+        const auto* const kTableBytes =
+            reinterpret_cast<const unsigned char*>(  // NOLINT(performance-no-int-to-ptr)
                 mm::DirectMapVirt(entry_phys));
-        if (!bytes_match(kTable, signature, 4) || !TableSumsToZero(kTable, kTable->length)) {
+        const unsigned long kTableLength = base::ReadWord32(kTableBytes, 4);
+        if (!bytes_match(kTableBytes, signature, 4) ||
+            !TableSumsToZero(kTableBytes, kTableLength)) {
             continue;
         }
-        return kTable;
+        return reinterpret_cast<const TableHeader*>(kTableBytes);
     }
     return nullptr;
 }
@@ -146,7 +149,10 @@ void PowerOff(const Fadt* fadt) {
     if (fadt == nullptr) {
         return;
     }
-    Out16(PortWrite16{.port = static_cast<uint16_t>(fadt->pm1a_control), .value = kS5Word});
+    const auto* const kFadtBytes =
+        reinterpret_cast<const unsigned char*>(fadt);  // NOLINT(performance-no-int-to-ptr)
+    const auto kControl = static_cast<uint16_t>(base::ReadWord32(kFadtBytes, 64));
+    Out16(PortWrite16{.port = kControl, .value = kS5Word});
 }
 
 }  // namespace cinux::driver::acpi

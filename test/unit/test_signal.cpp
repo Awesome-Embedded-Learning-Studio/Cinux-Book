@@ -150,7 +150,14 @@ struct World {
     /// exit detaches every child — zombies reclaimed, halts dropped —
     /// so no list node outlives this stack frame into the next test.
     ~World() {
-        g_world = this;
+        g_world                           = this;
+        body                              = nullptr;
+        cinux::proc::Task* const kTasks[] = {&alpha, &beta, &chief, &extra_a, &extra_b};
+        for (cinux::proc::Task* task : kTasks) {
+            if (task->state == TaskState::kStopped) {
+                cinux::proc::Scheduler::self().resume(*task);
+            }
+        }
         cinux::proc::Scheduler::self().seat(kin);
         cinux::proc::Scheduler::self().run_until_done();
         g_world = nullptr;

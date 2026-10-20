@@ -30,10 +30,14 @@ inline constexpr uint8_t kScancodeGlyphs = 64;
 /// Modifier state the scancode stream maintains.
 struct TranslatorState {
     /// Either shift is held; both seats fold into one bit.
-    bool shift_held;
+    bool shift_held = false;
 
     /// The previous byte was 0xE0; this byte ends the dropped group.
-    bool extended;
+    bool extended = false;
+
+    /// Left and right control modifiers, tracked independently.
+    bool control_left  = false;
+    bool control_right = false;
 };
 
 /// Glyph for each make code with no modifier held; zero codes no event.
@@ -60,6 +64,9 @@ inline constexpr uint8_t kScancodeShiftLeft = 0x2A;
 
 /// Make code of the right shift key.
 inline constexpr uint8_t kScancodeShiftRight = 0x36;
+
+/// Control make code; an E0 leader selects the right-hand key.
+inline constexpr uint8_t kScancodeControl = 0x1D;
 
 /// The bit that splits release from press in set 1.
 inline constexpr uint8_t kScancodeReleaseBit = 0x80;

@@ -40,6 +40,8 @@ int ErrnoFrom(base::KernelError error) {
         return kEnotempty;
     case base::KernelError::kWouldBlock:
         return kEagain;
+    case base::KernelError::kInterrupted:
+        return kEintr;
     default:
         return kEinval;
     }

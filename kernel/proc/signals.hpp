@@ -148,6 +148,20 @@ static_assert(sizeof(SigReturnContext) == 144, "the context is eighteen quadword
 bool SendSignal(Task& target, int number);
 
 /**
+ * @brief         Sends one signal to every task in a group.
+ *
+ * @param[in]     pgid     The group's id.
+ * @param[in]     number   The signal to deliver.
+ * @return        None
+ * @note          The walk covers the whole task roll; members gone
+ *                before their turn simply miss the news. Terminals
+ *                use this for what their foreground group is owed.
+ * @since         0.5.0
+ * @ingroup       kernel_proc
+ */
+void SendToGroup(unsigned long long pgid, int number);
+
+/**
  * @brief         Deliver what is pending, on the syscall return path.
  * @param[in,out] frame   The frame the task is about to return on.
  * @return        true when the frame was rewritten for a custom

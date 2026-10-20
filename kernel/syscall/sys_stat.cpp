@@ -43,6 +43,7 @@ long long HandleStat(const SyscallFrame& frame) {
     kSink->mode  = probed.mode;
     kSink->links = probed.links;
     kSink->size  = static_cast<std::int64_t>(probed.size);
+    kSink->rdev  = probed.rdev;
     kSink->mtime = probed.mtime;
     return 0;
 }

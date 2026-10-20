@@ -35,13 +35,14 @@ base::Result<unsigned long> FileTable::alloc(const FsOps* ops, void* backend, Fs
     if (!kFresh.holds()) {
         return base::KernelError::kOutOfMemory;
     }
-    const unsigned long kFd = slots_.insert(kFresh, kFirstDescriptor);
+    const unsigned long kFd = slots_.insert(kFresh, 0);
     if (kFd == kFileTableMax) {
         return base::KernelError::kOutOfMemory;
     }
     if (ops != nullptr) {
         ops->retain(backend, node);
     }
+    cloexec_map_.clear(kFd);
     return kFd;
 }
 
@@ -50,17 +51,18 @@ base::Result<unsigned long> FileTable::adopt(const base::Shared<OpenFile>& file)
     if (!file.holds()) {
         return base::KernelError::kInvalidArgument;
     }
-    const unsigned long kFd = slots_.insert(file, kFirstDescriptor);
+    const unsigned long kFd = slots_.insert(file, 0);
     if (kFd == kFileTableMax) {
         return base::KernelError::kOutOfMemory;
     }
+    cloexec_map_.clear(kFd);
     return kFd;
 }
 
 base::Result<unsigned long> FileTable::adopt_at(const base::Shared<OpenFile>& file,
                                                 unsigned long                 descriptor) {
     const arch::IrqGuard kGuard;
-    if (!file.holds() || descriptor < kFirstDescriptor || descriptor >= kFileTableMax) {
+    if (!file.holds() || descriptor >= kFileTableMax) {
         return base::KernelError::kInvalidArgument;
     }
     if (!slots_.place(descriptor, file)) {
@@ -76,11 +78,11 @@ base::Result<unsigned long> FileTable::adopt_from(const base::Shared<OpenFile>& 
     if (!file.holds()) {
         return base::KernelError::kInvalidArgument;
     }
-    const unsigned long kFloor = floor < kFirstDescriptor ? kFirstDescriptor : floor;
-    const unsigned long kFd    = slots_.insert(file, kFloor);
+    const unsigned long kFd = slots_.insert(file, floor);
     if (kFd == kFileTableMax) {
         return base::KernelError::kOutOfMemory;
     }
+    cloexec_map_.clear(kFd);
     return kFd;
 }
 
@@ -113,6 +115,7 @@ base::Result<void> FileTable::free(unsigned long descriptor) {
         return kHeld.error();
     }
     base::safety::Check(slots_.erase(descriptor), "live file descriptor lost its slot");
+    cloexec_map_.clear(descriptor);
     return {};
 }
 

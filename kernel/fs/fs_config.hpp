@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 
 namespace cinux::fs {
 
@@ -49,5 +49,13 @@ inline constexpr std::uint32_t kFsDirMode = 040755;
 
 /// The mode word stat reports and creation stamps for a regular file.
 inline constexpr std::uint32_t kFsFileMode = 0100644;
+
+/// The mode word stat reports for a kernel-registered device node.
+inline constexpr std::uint32_t kFsCharDevMode = 020666;
+
+/// The status word's access-mode value for a read-write open: the hosted
+/// O_RDWR, restated so the fs floor can stamp it without reaching into
+/// the syscall layer's vocabulary.
+inline constexpr unsigned long kFsReadWriteStatus = 2;
 
 }  // namespace cinux::fs

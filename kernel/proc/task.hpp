@@ -72,6 +72,8 @@ enum class TaskState : unsigned char {
  */
 struct Task : cinux::base::container::SelfNode<Task> {
     cinux::base::container::SelfNode<Task> child_link;  ///< Seat in the scheduler's offspring roll.
+    /// Seat in the complete task registry, including parentless tasks.
+    cinux::base::container::SelfNode<Task> registry_link;
     /// Seat on a sync-family wait list (Mutex, Semaphore, Completion),
     /// kept apart from the base node so parking for a lock while a
     /// parent waits above cannot ride one link into both lists.
@@ -113,11 +115,21 @@ struct Task : cinux::base::container::SelfNode<Task> {
     /// the maker's instead.
     cinux::base::Shared<cinux::fs::FileTable>    files =
         cinux::base::MakeShared<cinux::fs::FileTable>();
-    char cwd[cinux::fs::kFsPathMax] = {'/'};  ///< Working directory, absolute, NUL-terminated.
+    char  cwd[cinux::fs::kFsPathMax] = {'/'};  ///< Working directory, absolute, NUL-terminated.
+    /// The program path this task runs, absolute and NUL-terminated:
+    /// exec writes it, fork copies it, the boot shell is born with
+    /// its own. procfs reads it for self/exe — the one place a task
+    /// must be able to name the file it is.
+    char  exe[cinux::fs::kFsPathMax]{};
+    /// The terminal this session controls, nullptr when free: a
+    /// session leader claims one through TIOCSCTTY, fork copies the
+    /// claim, a new session drops it. The pointer names the Tty
+    /// instance, whoever owns its plumbing.
+    void* controlling_tty = nullptr;
     /// The 16-byte name the ABI surface calls comm: what prctl's set
     /// and get carry, fork copies from the parent, exec refills from
     /// the program path's last segment. Always NUL-terminated.
-    char comm[16]{};
+    char  comm[16]{};
     /// The resource ceilings prlimit64 reports and re-arms: one
     /// {soft, hard} row per resource number, seeded at seat time,
     /// copied across fork, untouched by exec. The row order and the

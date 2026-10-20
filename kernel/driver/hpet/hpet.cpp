@@ -2,6 +2,7 @@
 
 #include <cstdint>
 
+#include "cinux/byte_order.hpp"
 #include "kernel/driver/acpi/acpi.hpp"
 #include "kernel/driver/hpet/hpet_layout.hpp"
 #include "kernel/mm/layout.hpp"
@@ -30,8 +31,10 @@ bool Hpet::init(const acpi::Rsdp* root) {
     if (kHeader == nullptr) {
         return false;
     }
-    const uint64_t kBlock =
-        hpet::BlockAddress(reinterpret_cast<const unsigned char*>(kHeader), kHeader->length);
+    const auto* const kHeaderBytes =
+        reinterpret_cast<const unsigned char*>(kHeader);  // NOLINT(performance-no-int-to-ptr)
+    const auto     kLength = base::ReadWord32(kHeaderBytes, 4);
+    const uint64_t kBlock  = hpet::BlockAddress(kHeaderBytes, kLength);
     if (kBlock == 0 || kBlock > mm::kPml4EntrySpan - hpet::kBlockBytes ||
         !mm::MapDeviceWindow(kBlock, hpet::kBlockBytes)) {
         return false;

@@ -36,6 +36,7 @@
 #include "kernel/fs/ext2/ext2_layout.hpp"
 #include "kernel/fs/fs_config.hpp"
 #include "kernel/fs/vfs.hpp"
+#include "kernel/syscall/syscall.hpp"
 
 namespace cinux::fs::ext2 {
 
@@ -229,6 +230,19 @@ void Ext2::retain(FsNode node) {
 
 void Ext2::release(FsNode node) {
     static_cast<void>(node);
+}
+
+bool Ext2::readable(FsNode /*node*/) {
+    return true;
+}
+
+long long Ext2::ioctl(FsNode /*node*/, unsigned long long /*word*/,
+                      unsigned long long /*argument*/) {
+    return -syscall::kEnotty;
+}
+
+base::Result<FsNode> Ext2::adopt_open(FsNode node, std::string_view /*path*/) {
+    return node;
 }
 
 base::Result<void> Ext2::stat(FsNode node, FsStat& probed) {

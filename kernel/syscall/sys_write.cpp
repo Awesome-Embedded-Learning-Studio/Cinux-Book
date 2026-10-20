@@ -1,25 +1,12 @@
 #include "kernel/syscall/sys_write.hpp"
 
 #include "cinux/result.hpp"
-#include "kernel/console/console.hpp"
 #include "kernel/fs/file_table.hpp"
 #include "kernel/fs/open_file.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
 
 namespace cinux::syscall {
-
-namespace {
-
-long long console_from(unsigned long long buffer, unsigned long long count) {
-    auto const* text = reinterpret_cast<const char*>(buffer);  // NOLINT(performance-no-int-to-ptr)
-    for (unsigned long long i = 0; i < count; ++i) {
-        console::PutChar(text[i]);
-    }
-    return static_cast<long long>(count);
-}
-
-}  // namespace
 
 long long WriteRun(unsigned long long descriptor, unsigned long long source,
                    unsigned long long count) {
@@ -28,9 +15,6 @@ long long WriteRun(unsigned long long descriptor, unsigned long long source,
     }
     if (source >= kUserAddressLimit) {
         return -kEfault;
-    }
-    if (descriptor == 1 || descriptor == 2) {
-        return console_from(source, count);
     }
     const base::Result<fs::OpenFile*> kSlot = LiveSlot(descriptor);
     if (!kSlot.ok()) {

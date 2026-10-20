@@ -28,23 +28,15 @@ constexpr unsigned long long kFdCloexec = 1;
 /// which names the open's read/write shape and never moves.
 constexpr unsigned long long kSetFlMask = kOpenStatusMask & ~kOpenAccMode;
 
-/// The three reserved streams answer read-write without holding a seat.
-constexpr unsigned long long kStreamStatus = kOpenReadWrite;
-
 }  // namespace
 
 namespace {
 
 /// The GETFL/SETFL half: reads or re-arms the status face of the open
-/// behind the descriptor. The reserved streams answer read-write with
-/// no seat behind them; SETFL keeps only the re-armable half.
+/// behind the descriptor; SETFL keeps only the re-armable half.
 long long fcntl_status(const SyscallFrame& frame, const proc::Task* self,
                        unsigned long long descriptor) {
-    const bool kStream = descriptor < fs::kFirstDescriptor;
     if (frame.rsi == kCmdGetFl) {
-        if (kStream) {
-            return static_cast<long long>(kStreamStatus);
-        }
         const base::Result<fs::OpenFile*> kLive = self->files->get(descriptor);
         if (!kLive.ok()) {
             return -kEbadf;
@@ -52,9 +44,6 @@ long long fcntl_status(const SyscallFrame& frame, const proc::Task* self,
         return static_cast<long long>(kLive.value()->status_flags);
     }
     if (frame.rsi == kCmdSetFl) {
-        if (kStream) {
-            return 0;
-        }
         const base::Result<fs::OpenFile*> kLive = self->files->get(descriptor);
         if (!kLive.ok()) {
             return -kEbadf;

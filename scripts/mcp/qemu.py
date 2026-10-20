@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import re
 import socket
 import subprocess
 import time
@@ -59,17 +60,42 @@ class Session:
 
     def _monitor_send(self, command):
         sock = self._monitor_connect()
-        try:
-            sock.recv(65536)
-        except OSError:
-            pass
-        sock.send((command + "\n").encode())
-        time.sleep(0.15 if command else 0.0)
-        try:
-            sock.settimeout(0.5)
-            return sock.recv(65536).decode(errors="replace")
-        except socket.timeout:
-            return ""
+        sock.settimeout(0.05)
+        while True:
+            try:
+                if not sock.recv(65536):
+                    break
+            except OSError:
+                break
+        sock.sendall((command + "\n").encode())
+        chunks = []
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            try:
+                sock.settimeout(0.5)
+                piece = sock.recv(65536)
+            except socket.timeout:
+                break
+            if not piece:
+                break
+            chunks.append(piece.decode(errors="replace"))
+            if chunks[-1].endswith("(qemu) "):
+                break
+        return "".join(chunks)
+
+    @staticmethod
+    def _monitor_diagnostics(reply):
+        if "(qemu)" not in reply:
+            return ["incomplete monitor reply"]
+        text = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", reply)
+        lines = text.splitlines()
+        lines = lines[1:] if lines else lines
+        found = []
+        for line in lines:
+            line = line.replace("(qemu)", "").strip()
+            if line:
+                found.append(line)
+        return found
 
     def _serial_text(self):
         try:
@@ -82,10 +108,17 @@ class Session:
         return "\n".join(self._serial_text().splitlines()[-lines:])
 
     def sendkeys(self, keys):
-        for key in keys:
-            self._monitor_send(f"sendkey {key}")
+        accepted = 0
+        for index, key in enumerate(keys):
+            command = f"sendkey {key}"
+            diagnostics = self._monitor_diagnostics(self._monitor_send(command))
+            if diagnostics:
+                detail = "; ".join(diagnostics)
+                return (f"key {index} ({key!r}) rejected by monitor after "
+                        f"{accepted} accepted: {detail}")
+            accepted += 1
             time.sleep(0.2)
-        return f"sent {len(keys)} key(s)"
+        return f"sent {accepted} key(s)"
 
     def screendump(self, text_rows):
         self._monitor_send(f"screendump {DUMP_PATH}")

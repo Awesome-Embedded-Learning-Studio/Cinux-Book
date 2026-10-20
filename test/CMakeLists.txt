@@ -111,6 +111,13 @@ add_cinux_test(sched_class ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                             ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
                             ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
 add_cinux_test(vfs ${CMAKE_SOURCE_DIR}/kernel/fs/vfs.cpp)
+add_cinux_test(devfs ${CMAKE_SOURCE_DIR}/kernel/fs/devfs/devfs.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/fs/vfs.cpp)
+add_cinux_test(tty ${CMAKE_SOURCE_DIR}/kernel/driver/tty/tty.cpp)
+add_cinux_test(pty ${CMAKE_SOURCE_DIR}/kernel/driver/tty/pty.cpp
+                      ${CMAKE_SOURCE_DIR}/kernel/driver/tty/tty.cpp)
+add_cinux_test(procfs ${CMAKE_SOURCE_DIR}/kernel/fs/procfs/procfs.cpp
+                        ${CMAKE_SOURCE_DIR}/kernel/fs/vfs.cpp)
 add_cinux_test(file_table ${CMAKE_SOURCE_DIR}/kernel/fs/file_table.cpp)
 add_cinux_test(ramfs ${CMAKE_SOURCE_DIR}/kernel/fs/ramfs/ramfs.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/fs/vfs.cpp

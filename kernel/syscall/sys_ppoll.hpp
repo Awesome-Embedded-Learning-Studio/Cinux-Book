@@ -41,4 +41,19 @@ namespace cinux::syscall {
  */
 long long HandlePpoll(const SyscallFrame& frame);
 
+/**
+ * @brief         poll(2): the same faces, the older spelling.
+ *
+ * @param[in]     frame   rdi the records, rsi their count, rdx the
+ *                        timeout in milliseconds.
+ * @return        How many records answer non-zero, zero at timeout, or
+ *                a negative errno.
+ * @note          One record's shape and one readiness face with ppoll;
+ *                only the timeout differs — milliseconds here, whole
+ *                        and negative meaning forever.
+ * @since         0.5.0
+ * @ingroup       kernel_syscall
+ */
+long long HandlePoll(const SyscallFrame& frame);
+
 }  // namespace cinux::syscall

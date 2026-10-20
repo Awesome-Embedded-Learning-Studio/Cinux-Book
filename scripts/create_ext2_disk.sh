@@ -10,6 +10,8 @@ truncate -s 16M "$image"
 mkfs.ext2 -q -F -b 1024 -O none -N 512 "$image"
 debugfs -w -R 'mkdir /etc' "$image" >/dev/null 2>&1
 debugfs -w -R 'mkdir /bin' "$image" >/dev/null 2>&1
+debugfs -w -R 'mkdir /dev' "$image" >/dev/null 2>&1
+debugfs -w -R 'mkdir /proc' "$image" >/dev/null 2>&1
 debugfs -w -R "write ${seed_dir}/motd.txt /etc/motd" "$image" >/dev/null 2>&1
 debugfs -w -R "write ${seed_dir}/hello.txt /hello.txt" "$image" >/dev/null 2>&1
 if [ -f "${CINUX_SHELL_ELF:-}" ]; then
@@ -29,4 +31,7 @@ if [ -f "${CINUX_TLSDEMO_ELF:-}" ]; then
 fi
 if [ -f "${CINUX_THREADDEMO_ELF:-}" ]; then
     debugfs -w -R "write ${CINUX_THREADDEMO_ELF} /bin/threaddemo" "$image" >/dev/null 2>&1
+fi
+if [ -f "${CINUX_TTYDEMO_ELF:-}" ]; then
+    debugfs -w -R "write ${CINUX_TTYDEMO_ELF} /bin/ttydemo" "$image" >/dev/null 2>&1
 fi
