@@ -12,10 +12,12 @@
 #include "cinux/result.hpp"
 #include "cinux/shared.hpp"
 #include "kernel/arch/x86_64/page.hpp"
+#include "kernel/arch/x86_64/rdrand.hpp"
 #include "kernel/fs/file_table.hpp"
 #include "kernel/fs/file_world.hpp"
 #include "kernel/fs/fs_config.hpp"
 #include "kernel/fs/vfs.hpp"
+#include "kernel/loader/elf_layout.hpp"
 #include "kernel/loader/loader.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/layout.hpp"
@@ -32,6 +34,101 @@ namespace cinux::syscall {
 namespace {
 
 constexpr unsigned long long kUserFlags = 0x202;
+
+/// What finishing a dynamic program's world decided for the exec that
+/// asked: go or a negative errno, where the CPU should first run, and
+/// the interpreter's base when there is one.
+struct InterpVerdict {
+    long long          errno_word;
+    unsigned long long instruction;
+    unsigned long long base;
+};
+
+/// Records the program's short and full names on the task that becomes it.
+void note_program_identity(proc::Task& self, const char* path) {
+    std::string_view comm_parent = {};
+    std::string_view comm_leaf   = {};
+    static_cast<void>(base::SplitLeaf(path, comm_parent, comm_leaf));
+    const std::string_view kExePath   = path;
+    unsigned long long     name_index = 0;
+    base::SetBytes(self.comm, 0, sizeof(self.comm));
+    while (name_index < comm_leaf.size() && name_index < sizeof(self.comm) - 1) {
+        self.comm[name_index] = comm_leaf[name_index];
+        ++name_index;
+    }
+    base::SetBytes(self.exe, 0, sizeof(self.exe));
+    unsigned long long exe_index = 0;
+    while (exe_index < kExePath.size() && exe_index < sizeof(self.exe) - 1) {
+        self.exe[exe_index] = kExePath[exe_index];
+        ++exe_index;
+    }
+}
+
+/// Draws the sixteen bytes the entry picture offers as AT_RANDOM; a
+/// machine without a working draw reports none and the picture omits
+/// the entry.
+const std::uint8_t* draw_entry_random(unsigned char (&bytes)[16]) {
+    if (!arch::HasRdrand()) {
+        return nullptr;
+    }
+    unsigned long long word  = 0;
+    unsigned long      drawn = 0;
+    if (arch::TryRdrand(word)) {
+        cinux::base::CopyBytes(bytes, &word, sizeof(word));
+        ++drawn;
+    }
+    if (arch::TryRdrand(word)) {
+        cinux::base::CopyBytes(bytes + sizeof(word), &word, sizeof(word));
+        ++drawn;
+    }
+    return drawn > 0 ? bytes : nullptr;
+}
+
+/// Maps the interpreter a program's PT_INTERP names beside it, in the
+/// same fresh world, and answers where the CPU should first run. A
+/// null path names nobody: nothing changes and the instruction stays
+/// at zero for the caller to fill with the program's own entry.
+InterpVerdict finish_dynamic_world(const char* path, const mm::AddressSpace& space,
+                                   mm::VmaStore& ranges) {
+    InterpVerdict verdict{};
+    if (path == nullptr) {
+        return verdict;
+    }
+    const base::Result<fs::FsView> kView = fs::FileWorld::self().resolve(path);
+    if (!kView.ok()) {
+        verdict.errno_word = -kEnoent;
+        return verdict;
+    }
+    unsigned long              image_size = 0;
+    base::Own<unsigned char[]> image;
+    if (!fs::ReadWholeFile(kView.value(), image, image_size).ok()) {
+        verdict.errno_word = -kEnoent;
+        return verdict;
+    }
+    const base::Result<fs::FsNode> kNode =
+        kView.value().ops->lookup(kView.value().self, kView.value().rest);
+    if (!kNode.ok()) {
+        verdict.errno_word = -kEnoent;
+        return verdict;
+    }
+    const loader::LoadWorld kWorld{
+        .space     = space,
+        .vmas      = ranges,
+        .file      = kNode.value(),
+        .file_ops  = kView.value().ops,
+        .file_self = kView.value().self,
+        .role      = loader::ImageRole::kInterpreter,
+        .base      = mm::kUserInterpreterBase,
+    };
+    loader::EntryFacts interpreter_facts{};
+    if (!loader::LoadElfIntoSpace(image.get(), image_size, kWorld, interpreter_facts)) {
+        verdict.errno_word = -kEnoexec;
+        return verdict;
+    }
+    verdict.base        = mm::kUserInterpreterBase;
+    verdict.instruction = interpreter_facts.program_entry;
+    return verdict;
+}
 
 /// How many argument or environment runs one exec may carry, and how
 /// many bytes of their strings; the entry picture lives in one page and
@@ -120,7 +217,6 @@ long long HandleExecve(const SyscallFrame& frame) {
     }
     base::Shared<mm::AddressSpace> fresh(new mm::AddressSpace{});
     base::Shared<mm::VmaStore>     ranges(new mm::VmaStore{});
-    std::uint64_t                  entry = 0;
     if (!fresh.holds() || !ranges.holds() || !fresh->init()) {
         return -kEnomem;
     }
@@ -140,18 +236,36 @@ long long HandleExecve(const SyscallFrame& frame) {
     } else {
         envp_words[0] = g_default_path;
     }
-    loader::LoadWorld world{
+    const loader::LoadWorld kWorld{
         .space     = *fresh,
         .vmas      = *ranges,
         .file      = kNode.value(),
         .file_ops  = kView.value().ops,
         .file_self = kView.value().self,
     };
-    if (!loader::LoadElfIntoSpace(program.get(), program_size, world, entry)) {
+    loader::EntryFacts facts{};
+    if (!loader::LoadElfIntoSpace(program.get(), program_size, kWorld, facts)) {
         return -kEnomem;
     }
+    facts.page_bytes = cinux::arch::page::kSize;
     ranges->seed_heap(cinux::base::math::AlignUp(ranges->max_end(), cinux::arch::page::kSize),
                       mm::kUserBrkMmapSplit);
+    char        interpreter_path[fs::kFsPathMax] = {};
+    const char* interpreter                      = nullptr;
+    if (loader::ReadInterpreterPath(program.get(), program_size, interpreter_path,
+                                    sizeof(interpreter_path))) {
+        if (facts.program_headers == 0) {
+            return -kEnoexec;
+        }
+        interpreter = interpreter_path;
+    }
+    const InterpVerdict kDyn = finish_dynamic_world(interpreter, *fresh, *ranges);
+    if (kDyn.errno_word != 0) {
+        return kDyn.errno_word;
+    }
+    facts.interpreter_base = kDyn.base;
+    const unsigned long long kFirstInstruction =
+        kDyn.instruction != 0 ? kDyn.instruction : facts.program_entry;
     mm::VmaRegion stack_range{};
     stack_range.start = proc::kUserProgramStackTop - mm::kUserStackBytes - cinux::arch::page::kSize;
     stack_range.end   = proc::kUserProgramStackTop;
@@ -177,21 +291,11 @@ long long HandleExecve(const SyscallFrame& frame) {
     kSelf->signals         = proc::SignalState{};
     kSelf->clear_child_tid = 0;
     kSelf->files->close_on_exec();
-    std::string_view comm_parent = {};
-    std::string_view comm_leaf   = {};
-    static_cast<void>(base::SplitLeaf(path, comm_parent, comm_leaf));
-    const std::string_view kExePath   = path;
-    unsigned long long     name_index = 0;
-    base::SetBytes(kSelf->comm, 0, sizeof(kSelf->comm));
-    while (name_index < comm_leaf.size() && name_index < sizeof(kSelf->comm) - 1) {
-        kSelf->comm[name_index] = comm_leaf[name_index];
-        ++name_index;
-    }
-    base::SetBytes(kSelf->exe, 0, sizeof(kSelf->exe));
-    unsigned long long exe_index = 0;
-    while (exe_index < kExePath.size() && exe_index < sizeof(kSelf->exe) - 1) {
-        kSelf->exe[exe_index] = kExePath[exe_index];
-        ++exe_index;
+    note_program_identity(*kSelf, path);
+    unsigned char entry_random[16] = {};
+    facts.randomness               = draw_entry_random(entry_random);
+    if (facts.randomness != nullptr) {
+        facts.random_bytes = sizeof(entry_random);
     }
     // The dying worlds must not come apart while CR3 still walks them:
     // park the old holds aside, switch, and let them go at scope end.
@@ -203,15 +307,15 @@ long long HandleExecve(const SyscallFrame& frame) {
     kSelf->vmas                               = std::move(ranges);
     kSelf->user_root                          = kSelf->space->root();
     kSelf->space->activate();
-    auto& mutable_frame = const_cast<SyscallFrame&>(frame);
+    auto&                   mutable_frame = const_cast<SyscallFrame&>(frame);
+    const loader::EntryRuns kRuns{.arguments = argv_words, .environment = envp_words};
     if (loader::WriteEntryPicture(
             cinux::base::PtrAt<unsigned char>(mm::DirectMapVirt(kStackFrame.raw)),
-            proc::kUserProgramStackTop - proc::kUserEntryStackOffset, argv_words,
-            envp_words) == 0) {
+            proc::kUserProgramStackTop - proc::kUserEntryStackOffset, kRuns, facts) == 0) {
         return -kE2big;
     }
     mutable_frame.user_rsp = proc::kUserProgramStackTop - proc::kUserEntryStackOffset;
-    mutable_frame.rcx      = entry;
+    mutable_frame.rcx      = kFirstInstruction;
     mutable_frame.r11      = kUserFlags;
     mutable_frame.rax      = 0;
     return 0;

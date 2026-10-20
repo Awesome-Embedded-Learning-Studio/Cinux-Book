@@ -180,13 +180,14 @@ TEST("vma: protect rewrites the terms of spans it wholly owns") {
     ASSERT_TRUE(!store.find(0x1800)->writable);
 }
 
-TEST("vma: protect refuses to split a span") {
+TEST("vma: protect accepts a stretch cutting through a span") {
     cinux::mm::VmaStore store;
     ASSERT_TRUE(store.register_range(range_at(0x1000, 0x3000)).ok());
-    const cinux::base::Result<void> kSplit =
+    const cinux::base::Result<void> kCut =
         store.protect(0x1000, 0x2000, {.readable = true, .writable = false});
-    ASSERT_TRUE(!kSplit.ok());
-    ASSERT_TRUE(store.find(0x1800)->writable);
+    ASSERT_TRUE(kCut.ok());
+    ASSERT_TRUE(!store.find(0x1800)->writable);
+    ASSERT_TRUE(!store.protect(0x8000, 0x9000, {.readable = true}).ok());
 }
 
 TEST("vma: max_end reports the highest recorded end") {

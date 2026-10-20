@@ -1,5 +1,6 @@
 #include "kernel/loader/elf_layout.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 
@@ -18,7 +19,7 @@ constexpr std::uint8_t kDataLittle  = 1;
 
 }  // namespace
 
-base::Result<ElfImage> ParseElf64(const std::uint8_t* data, std::size_t bytes) {
+base::Result<ElfImage> ParseElf64(const std::uint8_t* data, std::size_t bytes, ImageRole role) {
     if (data == nullptr || bytes < kEhdr64Bytes) {
         return base::KernelError::kInvalidArgument;
     }
@@ -32,7 +33,8 @@ base::Result<ElfImage> ParseElf64(const std::uint8_t* data, std::size_t bytes) {
     }
     const std::uint16_t kType    = base::ReadWord16(data, kIdentBytes);
     const std::uint16_t kMachine = base::ReadWord16(data, kIdentBytes + 2);
-    if (kType != kTypeExecutable || kMachine != kMachineX8664) {
+    const std::uint16_t kWanted  = role == ImageRole::kProgram ? kTypeExecutable : kTypeShared;
+    if (kType != kWanted || kMachine != kMachineX8664) {
         return base::KernelError::kInvalidArgument;
     }
     const std::uint64_t kEntry      = base::ReadWord64(data, 24);
@@ -46,11 +48,27 @@ base::Result<ElfImage> ParseElf64(const std::uint8_t* data, std::size_t bytes) {
     if (kPhdrOffset > bytes || kTableBytes > bytes - kPhdrOffset) {
         return base::KernelError::kInvalidArgument;
     }
+    std::uint64_t headers_address = 0;
+    for (std::uint16_t index = 0; index < kPhdrCount; ++index) {
+        const std::uint8_t* const kAt =
+            data + (kPhdrOffset +
+                    (static_cast<std::uint64_t>(index) * static_cast<std::uint64_t>(kPhdrSize)));
+        if (base::ReadWord32(kAt, 0) != kProgramLoad) {
+            continue;
+        }
+        const std::uint64_t kOffset = base::ReadWord64(kAt, 8);
+        const std::uint64_t kFiles  = base::ReadWord64(kAt, 32);
+        if (kOffset <= kPhdrOffset && kPhdrOffset < kOffset + kFiles) {
+            headers_address = base::ReadWord64(kAt, 16) + (kPhdrOffset - kOffset);
+            break;
+        }
+    }
     return ElfImage{
-        .entry         = kEntry,
-        .segments      = data + kPhdrOffset,
-        .segment_count = kPhdrCount,
-        .segment_size  = kPhdrSize,
+        .entry           = kEntry,
+        .headers_address = headers_address,
+        .segments        = data + kPhdrOffset,
+        .segment_count   = kPhdrCount,
+        .segment_size    = kPhdrSize,
     };
 }
 
@@ -71,6 +89,35 @@ bool ReadSegment(const ElfImage& image, std::uint16_t index, ElfSegment& segment
         .flags           = base::ReadWord32(kAt, 4),
     };
     return true;
+}
+
+bool ReadInterpreterPath(const std::uint8_t* data, std::size_t bytes, char* path,
+                         std::size_t path_bytes) {
+    const base::Result<ElfImage> kParsed = ParseElf64(data, bytes, ImageRole::kProgram);
+    if (!kParsed.ok() || path == nullptr || path_bytes == 0) {
+        return false;
+    }
+    const ElfImage kImage = kParsed.value();
+    for (std::uint16_t index = 0; index < kImage.segment_count; ++index) {
+        const std::uint8_t* const kAt =
+            kImage.segments +
+            (static_cast<std::size_t>(index) * static_cast<std::size_t>(kImage.segment_size));
+        if (base::ReadWord32(kAt, 0) != kProgramInterp) {
+            continue;
+        }
+        const std::uint64_t kOffset = base::ReadWord64(kAt, 8);
+        const std::uint64_t kFiles  = base::ReadWord64(kAt, 32);
+        if (kOffset > bytes || kFiles > bytes - kOffset) {
+            return false;
+        }
+        const std::uint64_t kCopy = std::min(kFiles, static_cast<std::uint64_t>(path_bytes - 1));
+        for (std::uint64_t done = 0; done < kCopy; ++done) {
+            path[done] = static_cast<char>(data[kOffset + done]);
+        }
+        path[kCopy] = '\0';
+        return true;
+    }
+    return false;
 }
 
 }  // namespace cinux::loader

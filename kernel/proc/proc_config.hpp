@@ -69,7 +69,7 @@ inline constexpr unsigned long kUserProgramStackTop = mm::kUserStackTop;
 /// offset once broke exactly there (station 19's lesson, lost again in
 /// the station 23 rewrite and caught by the first demo whose entry
 /// picture compiled a movaps).
-inline constexpr unsigned long kUserEntryStackOffset = 0x108;
+inline constexpr unsigned long kUserEntryStackOffset = 0x208;
 
 /// Resource rows prlimit64 can name; the uapi source stops at row 15
 /// (RLIMIT_RTTIME) and one past it closes the table.

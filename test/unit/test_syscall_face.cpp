@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 
 #include "../framework/framework.hpp"
 #include "cinux/result.hpp"
@@ -38,6 +39,10 @@ namespace {
 // teaching FsStat does not yet supply. A compact FsStat is not a wire record.
 using WireStat = cinux::syscall::SyscallStat;
 static_assert(sizeof(WireStat) == sizeof(struct stat));
+static_assert(static_cast<int>(cinux::syscall::SyscallNr::kMmap) == SYS_mmap);
+static_assert(static_cast<int>(cinux::syscall::SyscallNr::kMprotect) == SYS_mprotect);
+static_assert(static_cast<int>(cinux::syscall::SyscallNr::kMunmap) == SYS_munmap);
+static_assert(static_cast<int>(cinux::syscall::SyscallNr::kBrk) == SYS_brk);
 static_assert(offsetof(WireStat, dev) == offsetof(struct stat, st_dev));
 static_assert(offsetof(WireStat, ino) == offsetof(struct stat, st_ino));
 static_assert(offsetof(WireStat, links) == offsetof(struct stat, st_nlink));

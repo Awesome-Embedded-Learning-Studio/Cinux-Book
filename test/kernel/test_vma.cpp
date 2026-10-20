@@ -133,15 +133,16 @@ TEST("vma: unregister empties a wholly withdrawn heap") {
     ASSERT_TRUE(store.find(0x101000) == nullptr);
 }
 
-TEST("vma: protect rewrites terms it owns and refuses to split") {
+TEST("vma: protect rewrites terms it owns and cuts through spans") {
     cinux::mm::VmaStore store;
     ASSERT_TRUE(store.register_range(range_at(0x1000, 0x3000)).ok());
-    const cinux::base::Result<void> kSplit =
+    const cinux::base::Result<void> kCut =
         store.protect(0x1000, 0x2000, {.readable = true, .writable = false});
-    ASSERT_TRUE(!kSplit.ok());
+    ASSERT_TRUE(kCut.ok());
     const cinux::base::Result<void> kWhole =
         store.protect(0x1000, 0x3000, {.readable = true, .writable = false});
     ASSERT_TRUE(kWhole.ok());
+    ASSERT_TRUE(!store.protect(0x8000, 0x9000, {.readable = true}).ok());
     ASSERT_TRUE(store.find(0x1800)->readable);
     ASSERT_TRUE(!store.find(0x1800)->writable);
 }

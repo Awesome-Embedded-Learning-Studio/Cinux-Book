@@ -5,8 +5,10 @@
 #include "cinux/ptr.hpp"
 #include "framework_kernel.hpp"
 #include "kernel/arch/x86_64/registers.hpp"
+#include "kernel/loader/elf_layout.hpp"
 #include "kernel/loader/loader.hpp"
 #include "kernel/mm/address_space.hpp"
+#include "kernel/mm/layout.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vma.hpp"
 #include "kernel/mm/vmm.hpp"
@@ -116,6 +118,40 @@ constexpr MidImage build_mid_image() {
 
 constexpr MidImage kMidSegImage = build_mid_image();
 
+constexpr TestImage build_shared_image() {
+    TestImage image{};
+    image.bytes[0] = 0x7F;
+    image.bytes[1] = 'E';
+    image.bytes[2] = 'L';
+    image.bytes[3] = 'F';
+    image.bytes[4] = 2;
+    image.bytes[5] = 1;
+    image.bytes[6] = 1;
+    put_word(image, 16, 3);
+    put_word(image, 18, 0x3E);
+    put_dword(image, 20, 1);
+    put_qword(image, 24, 0x2000);
+    put_qword(image, 32, 64);
+    put_qword(image, 40, 0);
+    put_word(image, 52, 64);
+    put_word(image, 54, 56);
+    put_word(image, 56, 1);
+    put_dword(image, 64, 1);
+    put_dword(image, 68, 5);
+    put_qword(image, 72, 0);
+    put_qword(image, 80, 0);
+    put_qword(image, 88, 0);
+    put_qword(image, 96, kImageBytes);
+    put_qword(image, 104, kImageBytes);
+    put_qword(image, 112, 0x1000);
+    for (std::size_t index = 0; index < kPayloadBytes; ++index) {
+        image.bytes[kEhdrBytes + kPhdrBytes + index] = static_cast<std::uint8_t>(0x30 + index);
+    }
+    return image;
+}
+
+constexpr TestImage kSharedImage = build_shared_image();
+
 void check_payload_word() {
     // NOLINTBEGIN(clang-analyzer-optin.core.FixedAddressDereference)
     ASSERT_EQ(*cinux::base::PtrAt<std::uint32_t>(0x401000), 0x13121110U);
@@ -142,11 +178,11 @@ TEST("loader: segments land page-aligned and bss arrives zero") {
     const unsigned long     kBefore = ledger.free_page_count();
     cinux::mm::AddressSpace space;
     ASSERT_TRUE(space.init());
-    cinux::mm::VmaStore      vmas;
-    std::uint64_t            entry = 0;
-    cinux::loader::LoadWorld world{.space = space, .vmas = vmas, .file = {}};
-    ASSERT_TRUE(cinux::loader::LoadElfIntoSpace(kGoodImage.bytes, kImageBytes, world, entry));
-    ASSERT_EQ(entry, 0x401000ULL);
+    cinux::mm::VmaStore            vmas;
+    cinux::loader::EntryFacts      facts{};
+    const cinux::loader::LoadWorld kWorld{.space = space, .vmas = vmas, .file = {}};
+    ASSERT_TRUE(cinux::loader::LoadElfIntoSpace(kGoodImage.bytes, kImageBytes, kWorld, facts));
+    ASSERT_EQ(facts.program_entry, 0x401000ULL);
     space.activate();
     check_payload_word();
     check_bss_zero();
@@ -178,14 +214,44 @@ TEST("loader: a segment mid-page keeps its head page's file bytes") {
     const unsigned long     kBefore = ledger.free_page_count();
     cinux::mm::AddressSpace space;
     ASSERT_TRUE(space.init());
-    cinux::mm::VmaStore      vmas;
-    std::uint64_t            entry = 0;
-    cinux::loader::LoadWorld world{.space = space, .vmas = vmas, .file = {}};
-    ASSERT_TRUE(cinux::loader::LoadElfIntoSpace(kMidSegImage.bytes, kMidImageBytes, world, entry));
-    ASSERT_EQ(entry, 0x401BF0ULL);
+    cinux::mm::VmaStore            vmas;
+    cinux::loader::EntryFacts      facts{};
+    const cinux::loader::LoadWorld kWorld{.space = space, .vmas = vmas, .file = {}};
+    ASSERT_TRUE(cinux::loader::LoadElfIntoSpace(kMidSegImage.bytes, kMidImageBytes, kWorld, facts));
+    ASSERT_EQ(facts.program_entry, 0x401BF0ULL);
     space.activate();
     check_mid_head_data();
     check_mid_around_zero();
+    cinux::arch::LoadCr3(cinux::mm::KernelPageRoot());
+    space.teardown();
+    ASSERT_EQ(ledger.free_page_count(), kBefore);
+}
+
+TEST("loader: an interpreter-seat image lands at its base") {
+    const auto* const kWarm = new cinux::mm::AddressSpace{};
+    delete kWarm;
+    const auto&             ledger  = cinux::mm::Pmm::self();
+    const unsigned long     kBefore = ledger.free_page_count();
+    cinux::mm::AddressSpace space;
+    ASSERT_TRUE(space.init());
+    cinux::mm::VmaStore            vmas;
+    cinux::loader::EntryFacts      facts{};
+    const cinux::loader::LoadWorld kWorld{
+        .space = space,
+        .vmas  = vmas,
+        .file  = {},
+        .role  = cinux::loader::ImageRole::kInterpreter,
+        .base  = cinux::mm::kUserInterpreterBase,
+    };
+    ASSERT_TRUE(cinux::loader::LoadElfIntoSpace(kSharedImage.bytes, kImageBytes, kWorld, facts));
+    ASSERT_EQ(facts.program_entry, cinux::mm::kUserInterpreterBase + 0x2000ULL);
+    ASSERT_EQ(facts.program_headers, cinux::mm::kUserInterpreterBase + kEhdrBytes);
+    space.activate();
+    // NOLINTBEGIN(clang-analyzer-optin.core.FixedAddressDereference)
+    ASSERT_EQ(*cinux::base::PtrAt<std::uint32_t>(cinux::mm::kUserInterpreterBase + kEhdrBytes +
+                                                 kPhdrBytes),
+              0x33323130U);
+    // NOLINTEND(clang-analyzer-optin.core.FixedAddressDereference)
     cinux::arch::LoadCr3(cinux::mm::KernelPageRoot());
     space.teardown();
     ASSERT_EQ(ledger.free_page_count(), kBefore);

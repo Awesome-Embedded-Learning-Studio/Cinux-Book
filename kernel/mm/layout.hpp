@@ -62,18 +62,21 @@ inline constexpr unsigned long kKernelImageBase = 0xFFFFFFFF80000000UL;
 inline constexpr unsigned long kModuleBase      = 0xFFFFFFFFC0000000UL;
 
 /** @brief Highest user-visible address plus one; PML4 entries 0..255 end here. */
-inline constexpr unsigned long kUserTop          = 0x0000800000000000UL;
+inline constexpr unsigned long kUserTop             = 0x0000800000000000UL;
 /** @brief Null-trap guard: user mappings never start below this address. */
-inline constexpr unsigned long kUserNullTop      = 64_KiB;
+inline constexpr unsigned long kUserNullTop         = 64_KiB;
+/** @brief Fixed load base for the dynamic interpreter a PT_INTERP names;
+           deterministic on purpose, ASLR is a later station's question. */
+inline constexpr unsigned long kUserInterpreterBase = 256_MiB;
 /** @brief Default boundary between the program-plus-brk area and the mmap area. */
-inline constexpr unsigned long kUserBrkMmapSplit = 0x0000400000000000UL;
+inline constexpr unsigned long kUserBrkMmapSplit    = 0x0000400000000000UL;
 /** @brief Default top of the mmap area; allocations grow down from here. */
-inline constexpr unsigned long kUserMmapTop      = 0x00007F8000000000UL;
+inline constexpr unsigned long kUserMmapTop         = 0x00007F8000000000UL;
 /** @brief Upper edge of the default main stack; the page above stays unmapped. */
-inline constexpr unsigned long kUserStackTop     = kUserTop - cinux::arch::page::kSize;
+inline constexpr unsigned long kUserStackTop        = kUserTop - cinux::arch::page::kSize;
 /** @brief How far the main stack may grow down from its top: one megabyte
            of address range, filled page by page on demand. */
-inline constexpr unsigned long kUserStackBytes   = 1_MiB;
+inline constexpr unsigned long kUserStackBytes      = 1_MiB;
 /** @brief Lower edge of the stack's registered range: the stack span plus
            one guard page below it, which demand filling refuses to map. */
 inline constexpr unsigned long kUserStackBottom =

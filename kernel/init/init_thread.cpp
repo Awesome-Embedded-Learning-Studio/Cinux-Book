@@ -86,16 +86,19 @@ ShellWorld build_shell_world(std::uint64_t& entry) {
     if (!kNode.ok()) {
         return {};
     }
-    loader::LoadWorld world{
+    const loader::LoadWorld kWorld{
         .space     = *space,
         .vmas      = *vmas,
         .file      = kNode.value(),
         .file_ops  = view.ops,
         .file_self = view.self,
     };
-    if (!loader::LoadElfIntoSpace(program.get(), program_bytes, world, entry)) {
+    loader::EntryFacts facts{};
+    if (!loader::LoadElfIntoSpace(program.get(), program_bytes, kWorld, facts)) {
         return {};
     }
+    entry            = facts.program_entry;
+    facts.page_bytes = cinux::arch::page::kSize;
     vmas->seed_heap(cinux::base::math::AlignUp(vmas->max_end(), cinux::arch::page::kSize),
                     mm::kUserBrkMmapSplit);
     mm::VmaRegion stack_range{};
@@ -113,10 +116,12 @@ ShellWorld build_shell_world(std::uint64_t& entry) {
     }
     cinux::base::SetBytes(cinux::base::PtrAt<unsigned char>(mm::DirectMapVirt(kStackFrame.raw)), 0,
                           cinux::arch::page::kSize);
-    const char* const kShellArgv[2] = {"/bin/sh", nullptr};
+    const char* const       kShellArgv[2] = {"/bin/sh", nullptr};
+    const char* const       kShellEnvp[2] = {"PATH=/bin:/usr/bin", nullptr};
+    const loader::EntryRuns kShellRuns{.arguments = kShellArgv, .environment = kShellEnvp};
     loader::WriteEntryPicture(cinux::base::PtrAt<unsigned char>(mm::DirectMapVirt(kStackFrame.raw)),
-                              proc::kUserProgramStackTop - proc::kUserEntryStackOffset, kShellArgv,
-                              nullptr);
+                              proc::kUserProgramStackTop - proc::kUserEntryStackOffset, kShellRuns,
+                              facts);
     if (!space->map_user(proc::kUserProgramStackTop - cinux::arch::page::kSize, kStackFrame.raw)) {
         mm::Pmm::self().free_page(kStackFrame);
         return {};

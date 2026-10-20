@@ -171,22 +171,45 @@ base::Result<void> VmaStore::unregister_range(unsigned long start, unsigned long
 }
 
 base::Result<void> VmaStore::protect(unsigned long start, unsigned long end, VmaProtection terms) {
-    if (start >= end || !movable_within(start, end)) {
+    if (start >= end || !span_known(start, end)) {
         return base::KernelError::kInvalidArgument;
     }
-    if (heap_.start < heap_.end && inside(start, end, heap_.start, heap_.end)) {
+    if (heap_.start < heap_.end && (inside(heap_.start, heap_.end, start, end) ||
+                                    inside(start, end, heap_.start, heap_.end))) {
         heap_.readable   = terms.readable;
         heap_.writable   = terms.writable;
         heap_.executable = terms.executable;
     }
     for (VmaRegion* scan = regions_.head(); scan != nullptr; scan = regions_.after(*scan)) {
-        if (inside(start, end, scan->start, scan->end)) {
+        if (inside(scan->start, scan->end, start, end) ||
+            inside(start, end, scan->start, scan->end)) {
             scan->readable   = terms.readable;
             scan->writable   = terms.writable;
             scan->executable = terms.executable;
         }
     }
     return base::Result<void>{};
+}
+
+bool VmaStore::span_known(unsigned long start, unsigned long end) const {
+    unsigned long spot = start;
+    while (spot < end) {
+        unsigned long reach = spot;
+        if (heap_.start <= spot && spot < heap_.end) {
+            reach = heap_.end;
+        }
+        for (const VmaRegion* scan = regions_.head(); scan != nullptr;
+             scan                  = regions_.after(*scan)) {
+            if (scan->start <= spot && spot < scan->end) {
+                reach = cinux::base::math::Max(reach, scan->end);
+            }
+        }
+        if (reach <= spot) {
+            return false;
+        }
+        spot = reach;
+    }
+    return true;
 }
 
 unsigned long VmaStore::max_end() const {

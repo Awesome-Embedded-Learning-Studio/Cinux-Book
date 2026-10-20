@@ -288,13 +288,14 @@ public:
      * @param[in]     start   First byte of the stretch.
      * @param[in]     end     One past the last byte.
      * @param[in]     terms   The new terms.
-     * @return        Ok, kInvalidArgument when a recorded span overlaps
-     *                the stretch only partly.
-     * @note          The register is the only thing rewritten here: pages
-     *                already mapped keep yesterday's table bits until the
-     *                fault path that reads these terms is the one writing
-     *                tables. The register is the promise; this changes
-     *                the promise.
+     * @return        Ok, kInvalidArgument when a page of the stretch
+     *                belongs to no recorded span.
+     * @note          The stretch may cut through a promise: a span's
+     *                words move only when the stretch covers it whole
+     *                or sits inside it, and a straddling cut rewrites
+     *                tables alone (the caller's page walk), leaving
+     *                the span's own words as they were. The register is
+     *                the promise; this changes the promise.
      * @warning       None
      * @throws        None
      * @since         0.2.0
@@ -331,6 +332,21 @@ private:
      * @ingroup       kernel_mm
      */
     [[nodiscard]] bool movable_within(unsigned long start, unsigned long end) const;
+
+    /**
+     * @brief         Whether every page of a stretch belongs to a span
+     *                the register knows.
+     * @param[in]     start   First byte of the stretch.
+     * @param[in]     end     One past the last byte.
+     * @return        True when the heap or the chain covers the stretch
+     *                with no unmapped hole.
+     * @note          The gate protect answers to instead of the whole-span
+     *                rule: rewriting terms never withdraws a promise, so
+     *                a stretch that cuts through spans is still sound.
+     * @since         0.4.0
+     * @ingroup       kernel_mm
+     */
+    [[nodiscard]] bool span_known(unsigned long start, unsigned long end) const;
 
     base::container::SelfList<VmaRegion> regions_;     ///< The promises, arrival order.
     VmaRegion                            heap_{};      ///< The brk span, empty until seeded.

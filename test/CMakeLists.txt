@@ -82,7 +82,8 @@ add_cinux_test(fpu_gate ${CMAKE_SOURCE_DIR}/kernel/proc/fpu_gate.cpp
 set_source_files_properties(unit/test_fpu_gate.cpp PROPERTIES COMPILE_OPTIONS "-mno-sse;-mno-sse2")
 add_cinux_test(self_list)
 add_cinux_test(shared)
-add_cinux_test(elf ${CMAKE_SOURCE_DIR}/kernel/loader/elf_layout.cpp)
+add_cinux_test(elf ${CMAKE_SOURCE_DIR}/kernel/loader/elf_layout.cpp
+                    ${CMAKE_SOURCE_DIR}/kernel/loader/entry_picture.cpp)
 add_cinux_test(sync ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                       ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
                       ${CMAKE_SOURCE_DIR}/kernel/proc/futex.cpp
