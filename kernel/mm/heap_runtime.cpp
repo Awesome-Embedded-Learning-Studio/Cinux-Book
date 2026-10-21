@@ -3,6 +3,7 @@
 #include "cinux/addr.hpp"
 #include "cinux/assert.hpp"
 #include "cinux/math.hpp"
+#include "cinux/spin_mutex.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"  // NOLINT(misc-include-cleaner) IrqGuard is used below
 #include "kernel/arch/x86_64/page.hpp"
 #include "kernel/arch/x86_64/registers.hpp"
@@ -19,6 +20,7 @@ namespace {
 
 using cinux::arch::page::kSize;
 using walk::MapPage;
+base::SpinMutex g_heap_gate;
 
 bool map_heap_pages(unsigned long spot, unsigned long bytes) {
     KernelTables        tables;
@@ -48,6 +50,7 @@ bool BringUpHeap() {
 
 void* HeapAllocate(unsigned long bytes) {
     const cinux::arch::IrqGuard kGuard;
+    const auto                  kLock = g_heap_gate.guard();
     if (void* const kBlock = Heap::self().allocate(bytes)) {
         return kBlock;
     }
@@ -62,6 +65,7 @@ void* HeapAllocate(unsigned long bytes) {
 
 bool HeapFree(void* block) {
     const cinux::arch::IrqGuard kGuard;
+    const auto                  kLock = g_heap_gate.guard();
     return Heap::self().free(block);
 }
 

@@ -10,14 +10,11 @@ long long HandleTgkill(const SyscallFrame& frame) {
     if (frame.rdi == 0 || frame.rdx == 0) {
         return -kEinval;
     }
-    proc::Task* const kTarget = proc::Scheduler::self().find_by_pid(frame.rdi);
-    if (kTarget == nullptr) {
-        return -kEsrch;
-    }
-    if (!proc::SendSignal(*kTarget, static_cast<int>(frame.rdx))) {
-        return -kEinval;
-    }
-    return 0;
+    long long result = -kEsrch;
+    proc::Scheduler::self().with_task(frame.rdi, [&](proc::Task& target) {
+        result = proc::SendSignal(target, static_cast<int>(frame.rdx)) ? 0 : -kEinval;
+    });
+    return result;
 }
 
 }  // namespace cinux::syscall

@@ -3,17 +3,25 @@
 #include <algorithm>
 
 #include "cinux/assert.hpp"
+#include "cinux/spin_mutex.hpp"
+#include "kernel/arch/x86_64/irq_guard.hpp"
+#include "kernel/arch/x86_64/per_cpu.hpp"
 
 namespace cinux::proc {
 
 namespace {
 
-LockdepSink g_lockdep_sink = nullptr;
+LockdepSink     g_lockdep_sink = nullptr;
+base::SpinMutex g_graph_gate;
 
 }  // namespace
 
 void InstallLockdepSink(LockdepSink sink) {
     g_lockdep_sink = sink;
+}
+
+LockOrder::HeldChain& LockOrder::held() {
+    return held_[arch::per_cpu::PerCpu::self().cpu_id];
 }
 
 unsigned int LockOrder::find_lock(const void* lock) const {
@@ -26,7 +34,9 @@ unsigned int LockOrder::vacant_slot() const {
 }
 
 LockOrder::Status LockOrder::acquire(const void* lock) {
-    if (lock == nullptr || held_.full()) {
+    const arch::IrqGuard kIrq;
+    const auto           kGate = g_graph_gate.guard();
+    if (lock == nullptr || held().full()) {
         return Status::kCapacity;
     }
     unsigned int index = find_lock(lock);
@@ -36,7 +46,7 @@ LockOrder::Status LockOrder::acquire(const void* lock) {
             return Status::kCapacity;
         }
     }
-    for (const auto kHeld : held_.view()) {
+    for (const auto kHeld : held().view()) {
         if (kHeld == index) {
             return Status::kRecursive;
         }
@@ -47,34 +57,40 @@ LockOrder::Status LockOrder::acquire(const void* lock) {
     if (locks_.get(index) == nullptr) {
         base::safety::Check(locks_.insert(lock) == index, "lockdep identity slot changed");
     }
-    for (const auto kHeld : held_.view()) {
+    for (const auto kHeld : held().view()) {
         graph_.connect(kHeld, index);
     }
-    base::safety::Check(held_.push(index), "lockdep held stack lost capacity");
+    base::safety::Check(held().push(index), "lockdep held stack lost capacity");
     return Status::kOk;
 }
 
 LockOrder::Status LockOrder::release(const void* lock) {
-    const unsigned int kIndex = find_lock(lock);
-    const auto         kHeld  = held_.view();
+    const arch::IrqGuard kIrq;
+    const auto           kGate  = g_graph_gate.guard();
+    const unsigned int   kIndex = find_lock(lock);
+    const auto           kHeld  = held().view();
     if (kIndex == kLocks || std::ranges::find(kHeld, kIndex) == kHeld.end()) {
         return Status::kNotHeld;
     }
-    if (*held_.top() != kIndex) {
+    if (*held().top() != kIndex) {
         return Status::kOutOfOrder;
     }
-    base::safety::Check(held_.pop(), "lockdep held stack lost its top");
+    base::safety::Check(held().pop(), "lockdep held stack lost its top");
     return Status::kOk;
 }
 
 bool LockOrder::forget(const void* lock) {
-    const unsigned int kIndex = find_lock(lock);
+    const arch::IrqGuard kIrq;
+    const auto           kGate  = g_graph_gate.guard();
+    const unsigned int   kIndex = find_lock(lock);
     if (kIndex == kLocks) {
         return true;
     }
-    const auto kHeld = held_.view();
-    if (std::ranges::find(kHeld, kIndex) != kHeld.end()) {
-        return false;
+    for (const auto& chain : held_) {
+        const auto kHeld = chain.view();
+        if (std::ranges::find(kHeld, kIndex) != kHeld.end()) {
+            return false;
+        }
     }
     base::safety::Check(locks_.erase(kIndex), "lockdep identity slot vanished");
     names_[kIndex] = nullptr;
@@ -83,6 +99,8 @@ bool LockOrder::forget(const void* lock) {
 }
 
 void LockOrder::name_lock(const void* lock, const char* label) {
+    const arch::IrqGuard kIrq;
+    const auto           kGate = g_graph_gate.guard();
     if (lock == nullptr || label == nullptr) {
         return;
     }
@@ -96,10 +114,12 @@ void LockOrder::name_lock(const void* lock, const char* label) {
 }
 
 void LockOrder::dump_held() {
+    const arch::IrqGuard kIrq;
+    const auto           kGate = g_graph_gate.guard();
     if (g_lockdep_sink == nullptr) {
         return;
     }
-    for (const auto kHeld : held_.view()) {
+    for (const auto kHeld : held().view()) {
         const void* const kResident = *locks_.get(kHeld);
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         g_lockdep_sink(names_[kHeld], reinterpret_cast<unsigned long long>(kResident));

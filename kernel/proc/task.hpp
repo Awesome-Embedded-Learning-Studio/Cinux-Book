@@ -84,6 +84,7 @@ struct Task : cinux::base::container::SelfNode<Task> {
     cinux::arch::CpuContext                ctx{};  ///< Register image the switcher moves.
     cinux::arch::FpuImage                  entry_fpu{};
     unsigned long long                     fpu_gate_depth{};
+    int                                    on_cpu = -1;
     TaskState                              state{};  ///< Where this task is in its life.
     unsigned long long                     pid{};    ///< Identity, handed out by the scheduler.
     /// The thread group this task belongs to: getpid answers it, so all

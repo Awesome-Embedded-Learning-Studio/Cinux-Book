@@ -24,6 +24,7 @@
 #include "cinux/addr.hpp"
 #include "cinux/bit_ops/bitmap.hpp"
 #include "cinux/singleton.hpp"
+#include "cinux/spin_mutex.hpp"
 #include "kernel/boot/boot_info.hpp"
 #include "kernel/mm/pmm_config.hpp"
 
@@ -135,6 +136,7 @@ public:
     [[nodiscard]] unsigned long release_frame(PhysAddr phys);
 
 private:
+    mutable base::SpinMutex            lock_;
     [[nodiscard]] PhysAddr             allocate_run(unsigned long page_count);
     [[nodiscard]] static unsigned long frame_index(PhysAddr phys);
 

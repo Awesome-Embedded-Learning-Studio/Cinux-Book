@@ -69,10 +69,6 @@ bool BlockQueue::await(unsigned long slot) {
         }
         if (duty) {
             drive();
-            const proc::SpinGuard kGuard(lock_);
-            if (pending_.count() == 0) {
-                duty_taken_ = false;
-            }
             continue;
         }
         BlockRequest& request = *pool_.get(slot);
@@ -92,6 +88,7 @@ void BlockQueue::drive() {
         {
             const proc::SpinGuard kGuard(lock_);
             if (!pending_.pop(slot_id)) {
+                duty_taken_ = false;
                 return;
             }
         }

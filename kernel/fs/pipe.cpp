@@ -1,5 +1,7 @@
 #include "kernel/fs/pipe.hpp"
 
+#include <atomic>
+
 #include "cinux/result.hpp"
 #include "kernel/fs/vfs.hpp"
 #include "kernel/proc/sync.hpp"
@@ -9,7 +11,7 @@ namespace cinux::fs {
 namespace {
 
 /// One boot-wide counter: every pipe born gets the next number.
-unsigned long g_pipe_identities = 0;
+std::atomic<unsigned long> g_pipe_identities{0};
 
 /// The stat a pipe answers: a fifo, both ends one identity.
 base::Result<void> pipe_stat(void* /*self*/, FsNode node, FsStat& probed) {
@@ -23,8 +25,13 @@ base::Result<void> pipe_stat(void* /*self*/, FsNode node, FsStat& probed) {
 }  // namespace
 
 Pipe::Pipe() : readable_(0), writable_(static_cast<long long>(kPipeBytes)) {
-    ++g_pipe_identities;
-    identity_ = g_pipe_identities;
+    identity_ = g_pipe_identities.fetch_add(1, std::memory_order_relaxed) + 1;
+}
+
+Pipe::~Pipe() {
+    readable_.retire();
+    writable_.retire();
+    ring_gate_.retire();
 }
 
 namespace {
@@ -43,22 +50,31 @@ base::Result<unsigned long> Pipe::pull(void* sink, unsigned long count) {
     if (count == 0) {
         return 0;
     }
-    if (ring_.count() == 0) {
-        if (writers_ == 0) {
+    auto* const kOut   = static_cast<unsigned char*>(sink);
+    bool        waited = false;
+    for (;;) {
+        unsigned long taken = 0;
+        bool          closed;
+        {
+            const auto kGate = ring_gate_.guard();
+            while (taken < count && ring_.pop(kOut[taken])) {
+                ++taken;
+            }
+            closed = writers_ == 0;
+        }
+        if (taken != 0) {
+            post_each(writable_, taken);
+            return taken;
+        }
+        if (closed) {
+            if (waited) {
+                readable_.post();
+            }
             return 0;
         }
         readable_.wait();
-        if (ring_.count() == 0) {
-            return 0;
-        }
+        waited = true;
     }
-    unsigned long taken = 0;
-    auto* const   kOut  = static_cast<unsigned char*>(sink);
-    while (taken < count && ring_.pop(kOut[taken])) {
-        ++taken;
-    }
-    post_each(writable_, taken);
-    return taken;
 }
 
 base::Result<unsigned long> Pipe::push(const void* source, unsigned long count) {
@@ -66,26 +82,50 @@ base::Result<unsigned long> Pipe::push(const void* source, unsigned long count) 
     auto const* const kIn = static_cast<const unsigned char*>(source);
     while (put < count) {
         writable_.wait();
-        if (!ring_.push(kIn[put])) {
-            return base::KernelError::kOutOfMemory;
+        {
+            const auto kGate = ring_gate_.guard();
+            if (!ring_.push(kIn[put])) {
+                return base::KernelError::kOutOfMemory;
+            }
         }
         ++put;
+        readable_.post();
     }
-    post_each(readable_, put);
     return put;
 }
 
 void Pipe::add_writer() {
+    const auto kGate = ring_gate_.guard();
     ++writers_;
 }
 
 void Pipe::drop_writer() {
-    if (writers_ != 0) {
-        --writers_;
+    bool closed;
+    {
+        const auto kGate = ring_gate_.guard();
+        if (writers_ != 0) {
+            --writers_;
+        }
+        closed = writers_ == 0;
     }
-    if (writers_ == 0) {
+    if (closed) {
         readable_.post();
     }
+}
+
+bool Pipe::has_bytes() const {
+    const auto kGate = ring_gate_.guard();
+    return ring_.count() != 0;
+}
+
+bool Pipe::writers_gone() const {
+    const auto kGate = ring_gate_.guard();
+    return writers_ == 0;
+}
+
+bool Pipe::has_room() const {
+    const auto kGate = ring_gate_.guard();
+    return ring_.count() < kPipeBytes;
 }
 
 namespace {

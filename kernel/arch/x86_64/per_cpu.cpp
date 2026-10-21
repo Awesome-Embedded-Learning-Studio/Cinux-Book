@@ -1,12 +1,27 @@
 #include "kernel/arch/x86_64/per_cpu.hpp"
 
+#include "cinux/assert.hpp"
+#include "cinux/ptr.hpp"
 #include "kernel/arch/x86_64/instructions.hpp"
 #include "kernel/arch/x86_64/msr.hpp"
+#include "kernel/arch/x86_64/page.hpp"
+#include "kernel/arch/x86_64/per_cpu_config.hpp"
 
 namespace cinux::arch::per_cpu {
 
-void InstallKernelGs() {
-    auto const kAddress = reinterpret_cast<unsigned long long>(&PerCpu::self());
+namespace {
+[[gnu::section(".data")]] alignas(page::kSize) constinit PerCpu g_percpu_blocks[kMaxCpus] = {};
+}
+
+PerCpu& PerCpu::self() {
+    return *base::PtrAt<PerCpu>(ReadMsr(msr::kGsBase));
+}
+
+void InstallKernelGs(unsigned int cpu_id) {
+    base::safety::Check(cpu_id < kMaxCpus, "CPU index exceeds static per-CPU storage");
+    auto& block         = g_percpu_blocks[cpu_id];
+    block.cpu_id        = cpu_id;
+    auto const kAddress = reinterpret_cast<unsigned long long>(&block);
     WriteMsr(msr::kGsBase, kAddress);
     WriteMsr(msr::kKernelGsBase, kAddress);
 }

@@ -1,6 +1,7 @@
 #include <string_view>
 
 #include "../framework/framework.hpp"
+#include "kernel/arch/x86_64/per_cpu.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/sched_class.hpp"
 #include "kernel/proc/scheduler.hpp"
@@ -192,6 +193,26 @@ TEST("sched class: a handed-off task earns a fresh full slice") {
     g_visit_world = nullptr;
     ASSERT_TRUE(world.kept_full_slice);
     ASSERT_TRUE(world.plain_visits == 2);
+}
+
+void check_saved_frame_filter(cinux::proc::SchedulingClass& cls) {
+    cinux::proc::Task saving;
+    cinux::proc::Task saved;
+    saving.on_cpu                               = 1;
+    saved.on_cpu                                = -1;
+    cinux::arch::per_cpu::PerCpu::self().cpu_id = 0;
+    ASSERT_TRUE(cls.enqueue(saving));
+    ASSERT_TRUE(cls.enqueue(saved));
+    ASSERT_TRUE(cls.pick() == &saved);
+    ASSERT_TRUE(cls.pick() == nullptr);
+    __atomic_store_n(&saving.on_cpu, -1, __ATOMIC_RELEASE);
+    ASSERT_TRUE(cls.pick() == &saving);
+    ASSERT_TRUE(cls.pick() == nullptr);
+}
+
+TEST("sched class: a foreign running frame is skipped until its save is published") {
+    check_saved_frame_filter(cinux::proc::DefaultFifoClass());
+    check_saved_frame_filter(cinux::proc::PriorityClass());
 }
 
 }  // namespace

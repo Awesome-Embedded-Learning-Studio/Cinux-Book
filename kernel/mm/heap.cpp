@@ -4,6 +4,7 @@
 
 #include "cinux/math.hpp"
 #include "cinux/ptr.hpp"
+#include "kernel/arch/x86_64/irq_guard.hpp"
 
 namespace cinux::mm {
 
@@ -16,7 +17,7 @@ constexpr unsigned long kMinPayload   = 16;
 
 enum class BlockState : unsigned char {
     kFree,
-    kLive
+    kLive,
 };
 
 struct Header {
@@ -98,6 +99,8 @@ unsigned long pick_free_block(unsigned long head, unsigned long payload) {
 }  // namespace
 
 bool Heap::init(unsigned long base, unsigned long bytes) {
+    const arch::IrqGuard kIrq;
+    const auto           kLock = lock_.guard();
     if (base % kPayloadAlign != 0 || bytes < span_bytes(kMinPayload)) {
         return false;
     }
@@ -111,8 +114,10 @@ bool Heap::init(unsigned long base, unsigned long bytes) {
 }
 
 void* Heap::allocate(unsigned long bytes) {
-    unsigned long const kWanted = round_payload(bytes);
-    unsigned long const kBlock  = pick_free_block(free_head_, kWanted);
+    const arch::IrqGuard kIrq;
+    const auto           kLock   = lock_.guard();
+    unsigned long const  kWanted = round_payload(bytes);
+    unsigned long const  kBlock  = pick_free_block(free_head_, kWanted);
     if (kBlock == 0) {
         return nullptr;
     }
@@ -136,7 +141,9 @@ void* Heap::allocate(unsigned long bytes) {
 }
 
 bool Heap::free(void* block) {
-    unsigned long const kBlock = reinterpret_cast<unsigned long>(block) - kHeaderBytes;
+    const arch::IrqGuard kIrq;
+    const auto           kLock  = lock_.guard();
+    unsigned long const  kBlock = reinterpret_cast<unsigned long>(block) - kHeaderBytes;
     if (kBlock < base_ || kBlock >= top_) {
         return false;
     }
@@ -179,6 +186,8 @@ bool Heap::free(void* block) {
 }
 
 bool Heap::grow(unsigned long new_top) {
+    const arch::IrqGuard kIrq;
+    const auto           kLock = lock_.guard();
     if (new_top <= top_ || new_top % kPayloadAlign != 0 ||
         new_top - top_ < span_bytes(kMinPayload)) {
         return false;
@@ -203,10 +212,14 @@ bool Heap::grow(unsigned long new_top) {
 }
 
 unsigned long Heap::free_bytes() const {
+    const arch::IrqGuard kIrq;
+    const auto           kLock = lock_.guard();
     return free_bytes_;
 }
 
 unsigned long Heap::top() const {
+    const arch::IrqGuard kIrq;
+    const auto           kLock = lock_.guard();
     return top_;
 }
 

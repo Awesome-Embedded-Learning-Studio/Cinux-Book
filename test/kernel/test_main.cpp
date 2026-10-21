@@ -8,6 +8,7 @@
 
 #if defined(KTEST_STAGE_IRQ) || defined(KTEST_STAGE_KEYBOARD) || defined(KTEST_STAGE_PROC) ||      \
     defined(KTEST_STAGE_BLOCK)
+#    include "cinux/assert.hpp"
 #    include "kernel/arch/x86_64/irq_stubs.hpp"
 #    include "kernel/arch/x86_64/pic.hpp"
 #    include "kernel/driver/pit/pit.hpp"
@@ -17,7 +18,8 @@
 #ifdef KTEST_STAGE_KEYBOARD
 #    include "kernel/driver/keyboard/keyboard.hpp"
 #endif
-#if defined(KTEST_STAGE_MM) || defined(KTEST_STAGE_PROC) || defined(KTEST_STAGE_BLOCK)
+#if defined(KTEST_STAGE_MM) || defined(KTEST_STAGE_PROC) || defined(KTEST_STAGE_BLOCK) ||          \
+    defined(KTEST_STAGE_IRQ) || defined(KTEST_STAGE_KEYBOARD)
 #    include "kernel/driver/serial/serial.hpp"
 #    include "kernel/mm/heap_runtime.hpp"
 #    include "kernel/mm/pmm.hpp"
@@ -37,7 +39,8 @@ namespace kernel {
 // NOLINTNEXTLINE(misc-use-internal-linkage)
 void Main(const cinux::boot::BootInfo& info) {
     cinux::debug::KallsymsInstallBuiltIn();
-#if defined(KTEST_STAGE_MM) || defined(KTEST_STAGE_PROC) || defined(KTEST_STAGE_BLOCK)
+#if defined(KTEST_STAGE_MM) || defined(KTEST_STAGE_PROC) || defined(KTEST_STAGE_BLOCK) ||          \
+    defined(KTEST_STAGE_IRQ) || defined(KTEST_STAGE_KEYBOARD)
     cinux::driver::SerialInit();
     if (!cinux::mm::Pmm::self().init(info)) {
         cinux::print::Println("[ktest] pmm init failed");
@@ -63,18 +66,16 @@ void Main(const cinux::boot::BootInfo& info) {
     cinux::proc::Scheduler::self().install_class(cinux::proc::PriorityClass());
     cinux::proc::InstallKernelSwitchSink();
 #endif
-#if defined(KTEST_STAGE_IRQ) || defined(KTEST_STAGE_KEYBOARD)
+#if defined(KTEST_STAGE_IRQ) || defined(KTEST_STAGE_KEYBOARD) || defined(KTEST_STAGE_PROC) ||      \
+    defined(KTEST_STAGE_BLOCK)
     cinux::arch::Pic::self().remap();
     cinux::time::Tick::self().init(cinux::driver::Pit::self());
     cinux::arch::irq::InstallIrqStubs();
+    cinux::base::safety::Check(cinux::arch::irq::InstallApicBackend(), "APIC backend init failed");
     cinux::interrupt::Irq::self().enable_line(cinux::interrupt::IrqLine{.value = 0});
 #endif
 #ifdef KTEST_STAGE_PROC
-    cinux::arch::Pic::self().remap();
-    cinux::time::Tick::self().init(cinux::driver::Pit::self());
-    cinux::arch::irq::InstallIrqStubs();
-    cinux::interrupt::Irq::self().enable_line(cinux::interrupt::IrqLine{.value = 0});
-    cinux::print::Println("[ktest] proc stage: irq base on, timer live");
+    cinux::print::Println("[ktest] proc stage: APIC backend on, PIT live");
 #endif
 #ifdef KTEST_STAGE_KEYBOARD
     cinux::driver::Keyboard::self().init();
@@ -82,10 +83,6 @@ void Main(const cinux::boot::BootInfo& info) {
     cinux::print::Println("[ktest] keyboard attached");
 #endif
 #ifdef KTEST_STAGE_BLOCK
-    cinux::arch::Pic::self().remap();
-    cinux::time::Tick::self().init(cinux::driver::Pit::self());
-    cinux::arch::irq::InstallIrqStubs();
-    cinux::interrupt::Irq::self().enable_line(cinux::interrupt::IrqLine{.value = 0});
     asm volatile("sti" : : : "memory");
     cinux::driver::PciBus::self().init();
     const bool kDriveUp = cinux::driver::Ahci::self().init();

@@ -58,7 +58,7 @@ long long HandleClone(const SyscallFrame& frame) {
     if ((kFlags & kCloneChildClearTid) != 0) {
         kChild->clear_child_tid = kChildTid;
     }
-    proc::Scheduler::self().seat(*kChild);
+    proc::Scheduler::self().seat(*kChild, false);
     if ((kFlags & kCloneThread) != 0) {
         kChild->tgid = CurrentTask()->tgid;
     }
@@ -69,7 +69,9 @@ long long HandleClone(const SyscallFrame& frame) {
     if ((kFlags & kCloneChildSetTid) != 0) {
         *cinux::base::PtrAt<volatile unsigned int>(kChildTid) = kTid;
     }
-    return static_cast<long long>(kChild->pid);
+    const auto kPid = static_cast<long long>(kChild->pid);
+    proc::Scheduler::self().unblock(*kChild);
+    return kPid;
 }
 
 }  // namespace cinux::syscall

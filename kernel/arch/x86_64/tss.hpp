@@ -22,7 +22,6 @@
 
 #include <cstddef>
 
-#include "cinux/singleton.hpp"
 
 namespace cinux::arch::tss {
 
@@ -33,14 +32,12 @@ namespace cinux::arch::tss {
  *                left zero — interrupt stacks are a deliberate future,
  *                not a default. Reserved fields stay zero because the
  *                CPU reads the whole struct and zero is the only value
- *                it has ever defined for them. Single-core truth: one
- *                CPU, one TSS; the multicore station grows one per CPU
- *                and self() learns whose to hand out — the shape
- *                survives, and so does the static_assert fence below.
+ *                it has ever defined for them. Each CPU has its own
+ *                TSS; self() follows the current per-CPU block.
  * @since         0.1.0
  * @ingroup       kernel_arch
  */
-struct [[gnu::packed]] Tss : public cinux::base::Singleton<Tss> {
+struct [[gnu::packed]] Tss {
     unsigned int       front;          ///< Offset 0x00, architecture reserved.
     unsigned long long rsp0;           ///< Offset 0x04, the ring-0 stack for ring-3 entries.
     unsigned long long rsp1;           ///< Offset 0x0C, unused outside nested privilege levels.
@@ -49,6 +46,14 @@ struct [[gnu::packed]] Tss : public cinux::base::Singleton<Tss> {
     unsigned long long ist[7];         ///< Offset 0x24, interrupt stacks, parked at zero.
     unsigned short     tail[5];        ///< Offset 0x5C, architecture reserved.
     unsigned short     io_bitmap_end;  ///< Offset 0x66, one past the (absent) I/O bitmap.
+
+    /**
+     * @brief Access the executing processor's task-state segment.
+     * @return Its private hardware task-state storage.
+     * @since 0.3.0
+     * @ingroup kernel_arch
+     */
+    static Tss& self();
 };
 
 static_assert(sizeof(Tss) == 104, "the 64-bit TSS is 0x68 bytes, empty base included");

@@ -7,6 +7,7 @@
 #include "cinux/ptr.hpp"
 #include "cinux/result.hpp"
 #include "cinux/singleton.hpp"
+#include "cinux/spin_mutex.hpp"
 #include "kernel/arch/x86_64/context.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/mm/vma.hpp"
@@ -45,8 +46,11 @@ public:
 /// the first caller through here does it; repeating the label is
 /// harmless and every later call is a plain reference fetch.
 FutexTable& shared_table() {
-    static bool named = false;
-    FutexTable& table = FutexTable::self();
+    const arch::IrqGuard   kIrq;
+    static base::SpinMutex naming;
+    const auto             kGate = naming.guard();
+    static bool            named = false;
+    FutexTable&            table = FutexTable::self();
     if (!named) {
         table.gate.set_name("futex table");
         named = true;
@@ -69,8 +73,9 @@ base::KernelError WaitOnUserWord(unsigned long long uaddr, unsigned int expected
         }
         kSelf->futex_uaddr = uaddr;
         table.buckets[FutexTable::bucket_for(uaddr)].push_back(*kSelf);
+        Scheduler::self().prepare_to_wait();
     }
-    Scheduler::self().block_current();
+    Scheduler::self().schedule_blocked();
     return base::KernelError::kOk;
 }
 

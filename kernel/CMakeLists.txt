@@ -30,10 +30,13 @@ set(CINUX_KERNEL_CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/boot/early/libc.cpp)
 
 set(CINUX_KERNEL_NO_SSE_ISLAND
+    ${CMAKE_SOURCE_DIR}/kernel/lib/mem.cpp
     ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/isr.cpp
     ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/exception.cpp
     ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/pic.cpp
     ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_stubs.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/driver/apic/local_apic.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/driver/apic/io_apic.cpp
     ${CMAKE_SOURCE_DIR}/kernel/interrupt/irq.cpp
     ${CMAKE_SOURCE_DIR}/kernel/debug/trace.cpp
     ${CMAKE_SOURCE_DIR}/kernel/debug/kallsyms.cpp

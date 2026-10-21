@@ -82,15 +82,17 @@ TEST("file table: closing a descriptor releases its reference exactly once") {
     ASSERT_EQ(refs.released, 1UL);
 }
 
-TEST("file table: allocation failure does not retain a node") {
+TEST("file table: allocation failure does not retain or release a node") {
     cinux::test::FileRefs refs;
     cinux::fs::FileTable  table;
     for (unsigned long fd = 0; fd < cinux::fs::kFileTableMax; ++fd) {
         ASSERT_TRUE(table.alloc(&cinux::test::FileRefs::kOps, &refs, sample_node(fd)).ok());
     }
-    const auto kBefore = refs.retained;
+    const auto kBefore   = refs.retained;
+    const auto kReleased = refs.released;
     ASSERT_FALSE(table.alloc(&cinux::test::FileRefs::kOps, &refs, sample_node(99)).ok());
     ASSERT_EQ(refs.retained, kBefore);
+    ASSERT_EQ(refs.released, kReleased);
 }
 
 TEST("file table: destruction closes descriptors left open") {

@@ -19,13 +19,21 @@
 
 #include "kernel/arch/x86_64/irq_stubs.hpp"
 
+#include <atomic>
 #include <utility>
 
 #include "kernel/arch/x86_64/context.hpp"
 #include "kernel/arch/x86_64/gdt.hpp"
 #include "kernel/arch/x86_64/idt.hpp"
 #include "kernel/arch/x86_64/isr.hpp"
+#include "kernel/arch/x86_64/per_cpu.hpp"
 #include "kernel/arch/x86_64/pic.hpp"
+#include "kernel/arch/x86_64/smp_config.hpp"
+#include "kernel/arch/x86_64/vector_config.hpp"
+#include "kernel/driver/acpi/acpi.hpp"
+#include "kernel/driver/acpi/madt.hpp"
+#include "kernel/driver/apic/io_apic.hpp"
+#include "kernel/driver/apic/local_apic.hpp"
 #include "kernel/interrupt/irq.hpp"
 #include "kernel/proc/fpu_gate.hpp"
 #include "kernel/proc/scheduler.hpp"
@@ -39,9 +47,12 @@ using cinux::arch::idt::InstallGate;
 using cinux::arch::idt::kTypeInterruptGate;
 using cinux::arch::isr::InterruptFrame;
 
-constexpr unsigned int kFirstIrqVector = 32;
-constexpr unsigned int kIrqCount       = 16;
-constexpr unsigned int kTimerLine      = 0;
+using cinux::arch::irq::kFirstIrqVector;
+using cinux::arch::irq::kSpuriousVector;
+constexpr unsigned int kIrqCount  = 16;
+constexpr unsigned int kTimerLine = 0;
+
+__attribute__((interrupt)) void spurious_entry([[maybe_unused]] InterruptFrame* frame) {}
 
 void heartbeat() {
     cinux::time::Tick::self().on_interrupt();
@@ -67,6 +78,25 @@ void install(unsigned int vector, void (*handler)(InterruptFrame*)) {
 }
 
 template <unsigned int Vector>
+__attribute__((interrupt)) void local_entry([[maybe_unused]] InterruptFrame* frame) {
+    cinux::arch::FpuImage interrupted_fpu{};
+    cinux::arch::SaveFpu(interrupted_fpu);
+    EnterFpuGate();
+    cinux::driver::LocalApic::self().eoi();
+    if constexpr (Vector == cinux::arch::smp::kTimerVector) {
+        cinux::arch::per_cpu::PerCpu::self().local_timer_interrupts.fetch_add(
+            1, std::memory_order_relaxed);
+        cinux::proc::Scheduler::self().on_timer_tick();
+    } else {
+        cinux::arch::per_cpu::PerCpu::self().reschedule_interrupts.fetch_add(
+            1, std::memory_order_relaxed);
+    }
+    cinux::proc::Scheduler::self().maybe_preempt();
+    ExitFpuGate();
+    cinux::arch::RestoreFpu(interrupted_fpu);
+}
+
+template <unsigned int Vector>
 void install_one() {
     install(Vector, &irq_entry<Vector>);
 }
@@ -79,6 +109,23 @@ void install_all([[maybe_unused]] std::integer_sequence<unsigned int, Vectors...
 }  // namespace
 
 namespace cinux::arch::irq {
+
+void InstallLocalInterrupts() {
+    install(smp::kTimerVector, local_entry<smp::kTimerVector>);
+    install(smp::kRescheduleVector, local_entry<smp::kRescheduleVector>);
+}
+
+bool InstallApicBackend() {
+    const auto kTopology = driver::acpi::FindInterruptTopology(driver::acpi::FindRootPointer());
+    if (!driver::LocalApic::self().init(kTopology.local_apic_address) ||
+        !driver::IoApic::self().init(kTopology)) {
+        return false;
+    }
+    install(kSpuriousVector, spurious_entry);
+    driver::LocalApic::self().enable(kSpuriousVector);
+    interrupt::Irq::self().init(driver::IoApic::self());
+    return true;
+}
 
 void InstallIrqStubs() {
     cinux::interrupt::Irq::self().init(cinux::arch::Pic::self());

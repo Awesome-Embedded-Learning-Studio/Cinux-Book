@@ -1,7 +1,12 @@
+#include <thread>
+
 #include "../framework/framework.hpp"
+#include "kernel/arch/x86_64/per_cpu.hpp"
+#include "kernel/proc/futex.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/sched_class.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/sync.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/proc/task_snapshot.hpp"
 #include "test_assert.hpp"
@@ -53,6 +58,7 @@ struct World {
     cinux::proc::Task beta;
     unsigned int      alpha_visits = 0;
     bool              clock_mode   = false;
+    bool              guard_mode   = false;
 
     explicit World(unsigned long long slot) {
         alpha.name       = "host";
@@ -72,6 +78,11 @@ struct World {
     }
 
     void run_body_of(cinux::proc::Task& task) {
+        if (guard_mode && &task == &alpha) {
+            run_guard_body(task);
+            cinux::proc::Scheduler::self().exit_current();
+            return;
+        }
         if (clock_mode) {
             run_clock_body(task);
             return;
@@ -86,6 +97,59 @@ struct World {
             return;
         }
         cinux::proc::Scheduler::self().exit_current();
+    }
+
+    void run_guard_body(cinux::proc::Task& task) const {
+        auto& scheduler = cinux::proc::Scheduler::self();
+        {
+            const cinux::proc::Scheduler::NoRescheduleGuard kOuter;
+            check_guard_nesting(task);
+            scheduler.unblock(task);
+            scheduler.unblock(task);
+            scheduler.schedule_blocked();
+            ASSERT_TRUE(task.state == cinux::proc::TaskState::kReady);
+            ASSERT_TRUE(scheduler.withdraw(task));
+            cinux::proc::Semaphore semaphore(0);
+            check_early_wake(task, [&] { semaphore.wait(); }, [&] { semaphore.post(); });
+            ASSERT_TRUE(scheduler.withdraw(task));
+            cinux::proc::Completion completion;
+            check_early_wake(task, [&] { completion.wait(); }, [&] { completion.finish(true); });
+            ASSERT_TRUE(scheduler.withdraw(task));
+            unsigned int word     = 7;
+            const auto   kAddress = reinterpret_cast<unsigned long long>(&word);
+            check_early_wake(
+                task, [&] { cinux::proc::futex::WaitOnUserWord(kAddress, 7); },
+                [&] { cinux::proc::futex::WakeUserWord(kAddress, 1); });
+        }
+        scheduler.schedule_blocked();
+        ASSERT_TRUE(task.state == cinux::proc::TaskState::kRunning);
+        ASSERT_EQ(sink.played, 1U);
+    }
+
+    void check_guard_nesting(cinux::proc::Task& task) const {
+        auto& scheduler = cinux::proc::Scheduler::self();
+        {
+            const cinux::proc::Scheduler::NoRescheduleGuard kInner;
+            scheduler.block_current();
+            ASSERT_TRUE(scheduler.current() == &task);
+        }
+        scheduler.block_current();
+        ASSERT_TRUE(scheduler.current() == &task);
+        ASSERT_TRUE(task.state == cinux::proc::TaskState::kBlocked);
+        ASSERT_EQ(sink.played, 1U);
+    }
+
+    template <typename Wait, typename Wake>
+    void check_early_wake(cinux::proc::Task& task, Wait&& wait, Wake&& wake) const {
+        wait();
+        ASSERT_TRUE(task.state == cinux::proc::TaskState::kBlocked);
+        std::jthread other([&] {
+            cinux::arch::per_cpu::PerCpu::self().cpu_id = 1;
+            wake();
+        });
+        other.join();
+        ASSERT_TRUE(task.state == cinux::proc::TaskState::kReady);
+        ASSERT_EQ(sink.played, 1U);
     }
 
     void run_clock_body(cinux::proc::Task& task) {
@@ -181,10 +245,29 @@ TEST("scheduler: the exit hook rotates a task the clock flagged") {
     ASSERT_TRUE(world.sink.reclaimed_count == 2);
 }
 
+TEST("scheduler: an explicit nested guard marks a wait without leaving the harness stack") {
+    World world(450);
+    world.guard_mode = true;
+    ASSERT_TRUE(cinux::proc::Scheduler::self().withdraw(world.beta));
+    g_world = &world;
+    cinux::proc::Scheduler::self().run_until_done();
+    cinux::proc::Scheduler::self().resume(world.beta);
+    cinux::proc::Scheduler::self().run_until_done();
+    ASSERT_EQ(world.sink.reclaimed_count, 2U);
+}
+
+void check_registry_identity(cinux::proc::Task& expected) {
+    bool       matches  = false;
+    const bool kVisited = cinux::proc::Scheduler::self().with_task(
+        expected.pid, [&](cinux::proc::Task& target) { matches = &target == &expected; });
+    ASSERT_TRUE(kVisited);
+    ASSERT_TRUE(matches);
+}
+
 TEST("scheduler: parentless tasks stay visible until they are reclaimed") {
     World world(500);
     auto& scheduler = cinux::proc::Scheduler::self();
-    ASSERT_TRUE(scheduler.find_by_pid(world.alpha.pid) == &world.alpha);
+    check_registry_identity(world.alpha);
     cinux::proc::TaskSnapshot shot{};
     ASSERT_TRUE(scheduler.snapshot_by_pid(world.alpha.pid, shot));
     ASSERT_EQ(shot.parent_pid, 0L);
@@ -193,7 +276,8 @@ TEST("scheduler: parentless tasks stay visible until they are reclaimed") {
     ASSERT_EQ(pid, world.alpha.pid);
     g_world = &world;
     scheduler.run_until_done();
-    ASSERT_TRUE(scheduler.find_by_pid(world.alpha.pid) == nullptr);
+    ASSERT_FALSE(
+        scheduler.with_task(world.alpha.pid, []([[maybe_unused]] cinux::proc::Task& task) {}));
     ASSERT_FALSE(scheduler.snapshot_by_pid(world.beta.pid, shot));
     ASSERT_FALSE(scheduler.nth_group_leader(0, pid));
 }

@@ -12,6 +12,7 @@ function(add_cinux_test name)
         ${ARGN}
         framework/framework.cpp
         framework/assert_host.cpp
+        framework/per_cpu_host.cpp
         framework/irq_guard_host.cpp)
     target_include_directories(test_${name} PRIVATE ${TEST_INCLUDE_DIRS})
     target_link_libraries(test_${name} PRIVATE cinux_base cinux_warnings)
@@ -36,8 +37,10 @@ add_cinux_test(image)
 add_cinux_test(bitmap)
 add_cinux_test(time)
 add_cinux_test(path)
+add_cinux_test(text)
 add_cinux_test(rtc)
 add_cinux_test(hpet)
+add_cinux_test(madt ${CMAKE_SOURCE_DIR}/kernel/driver/acpi/madt.cpp)
 add_cinux_test(font)
 add_cinux_test(framebuffer)
 add_cinux_test(console)
@@ -68,6 +71,7 @@ add_cinux_test(directed_graph)
 add_cinux_test(static_stack)
 add_cinux_test(slot_table)
 add_cinux_test(ref_count)
+target_link_libraries(test_ref_count PRIVATE Threads::Threads)
 add_cinux_test(context ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                         ${CMAKE_SOURCE_DIR}/kernel/fs/file_table.cpp)
 add_cinux_test(fpu_gate ${CMAKE_SOURCE_DIR}/kernel/proc/fpu_gate.cpp
@@ -102,6 +106,7 @@ add_cinux_test(scheduler ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/proc/sched_class.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
+target_link_libraries(test_scheduler PRIVATE Threads::Threads)
 add_cinux_test(sched_class ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                             ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
                             ${CMAKE_SOURCE_DIR}/kernel/proc/futex.cpp

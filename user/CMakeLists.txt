@@ -114,3 +114,14 @@ target_link_options(user_ttydemo PRIVATE
 set_target_properties(user_ttydemo PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
     OUTPUT_NAME "ttydemo.elf")
+
+add_executable(user_smpstress programs/smpstress.cpp
+    ${CMAKE_SOURCE_DIR}/boot/early/libc.cpp
+    ${CMAKE_SOURCE_DIR}/base/src/format/entry.cpp
+    ${CMAKE_SOURCE_DIR}/base/src/format/radix.cpp)
+target_compile_options(user_smpstress PRIVATE ${USER_COMPILE_FLAGS})
+target_include_directories(user_smpstress PRIVATE ${USER_INCLUDE_DIRS})
+target_link_options(user_smpstress PRIVATE -nostdlib -static -no-pie -Wl,-e,SmpStressStart -lgcc)
+set_target_properties(user_smpstress PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
+    OUTPUT_NAME "smpstress.elf")

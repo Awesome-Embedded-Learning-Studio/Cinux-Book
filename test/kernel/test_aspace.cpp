@@ -1,9 +1,21 @@
 #include "cinux/addr.hpp"
+#include "cinux/bit_ops/bitmask.hpp"
 #include "cinux/literal_types.hpp"
 #include "cinux/ptr.hpp"
 #include "framework_kernel.hpp"
+#include "kernel/arch/x86_64/gdt.hpp"
+#include "kernel/arch/x86_64/instructions.hpp"
+#include "kernel/arch/x86_64/msr.hpp"
+#include "kernel/arch/x86_64/page.hpp"
 #include "kernel/arch/x86_64/page_entry.hpp"
+#include "kernel/arch/x86_64/per_cpu.hpp"
 #include "kernel/arch/x86_64/registers.hpp"
+#include "kernel/arch/x86_64/tss.hpp"
+#include "kernel/driver/acpi/acpi.hpp"
+#include "kernel/driver/acpi/madt.hpp"
+#include "kernel/driver/apic/io_apic.hpp"
+#include "kernel/driver/apic/local_apic.hpp"
+#include "kernel/interrupt/irq.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/layout.hpp"
 #include "kernel/mm/pmm.hpp"
@@ -15,6 +27,90 @@ namespace {
 
 using cinux::base::operator""_KiB;
 using cinux::arch::page::Entry;
+
+TEST("percpu: reloading GDT preserves both address bases and the CPU owner") {
+    const auto                   kGs         = cinux::arch::per_cpu::ReadGsBase();
+    const auto                   kFs         = cinux::arch::ReadMsr(cinux::arch::msr::kFsBase);
+    constexpr unsigned long long kThreadBase = 0x12345000;
+    cinux::arch::WriteMsr(cinux::arch::msr::kFsBase, kThreadBase);
+    cinux::arch::gdt::LoadOwnedGdt();
+    cinux::arch::tss::LoadTaskRegister();
+    ASSERT_EQ(cinux::arch::per_cpu::ReadGsBase(), kGs);
+    ASSERT_EQ(cinux::arch::ReadMsr(cinux::arch::msr::kFsBase), kThreadBase);
+    ASSERT_EQ(cinux::arch::per_cpu::PerCpu::self().cpu_id, 0U);
+    ASSERT_TRUE(cinux::arch::per_cpu::PerCpu::self().current == nullptr);
+    cinux::arch::WriteMsr(cinux::arch::msr::kFsBase, kFs);
+}
+
+void check_local_admission(unsigned long long physical) {
+    auto& local = cinux::driver::LocalApic::self();
+    ASSERT_TRUE(!local.init(0));
+    constexpr unsigned int kApicBase  = 0x1B;
+    const auto             kPriorBase = cinux::arch::ReadMsr(kApicBase);
+    const auto             kEnabled   = cinux::base::bit::MaskBit<unsigned long long>(11);
+    cinux::arch::WriteMsr(kApicBase, kPriorBase & ~kEnabled.raw);
+    const bool kDisabledRefused = !local.init(physical);
+    cinux::arch::WriteMsr(kApicBase, kPriorBase);
+    ASSERT_TRUE(kDisabledRefused);
+}
+
+TEST("apic: firmware lists the executing BSP and the local MMIO address agrees with its MSR") {
+    const auto kTopology =
+        cinux::driver::acpi::FindInterruptTopology(cinux::driver::acpi::FindRootPointer());
+    ASSERT_TRUE(kTopology.processor_count > 0);
+    ASSERT_TRUE(kTopology.io_apic_address != 0);
+    auto& local = cinux::driver::LocalApic::self();
+    ASSERT_TRUE(local.init(kTopology.local_apic_address));
+    bool found = false;
+    for (unsigned int index = 0; index < kTopology.processor_count; ++index) {
+        found = found || kTopology.processor_apic_ids[index] == local.id();
+    }
+    ASSERT_TRUE(found);
+    ASSERT_TRUE(!local.init(kTopology.local_apic_address + cinux::arch::page::kSize));
+    check_local_admission(kTopology.local_apic_address);
+    bool timer_override = false;
+    for (unsigned int index = 0; index < kTopology.override_count; ++index) {
+        const auto& route = kTopology.overrides[index];
+        timer_override    = timer_override || (route.source == 0 && route.gsi == 2);
+    }
+    ASSERT_TRUE(timer_override);
+}
+
+TEST("ioapic: GSI base and low-level routes read back independently from MMIO") {
+    const auto kOriginal =
+        cinux::driver::acpi::FindInterruptTopology(cinux::driver::acpi::FindRootPointer());
+    auto topology = kOriginal;
+    ASSERT_TRUE(cinux::driver::LocalApic::self().init(topology.local_apic_address));
+    auto& controller          = cinux::driver::IoApic::self();
+    topology.io_apic_gsi_base = 4;
+    topology.override_count   = 16;
+    for (unsigned int source = 0; source < 16; ++source) {
+        topology.overrides[source] = {
+            .source = static_cast<unsigned char>(source),
+            .gsi    = source + 4,
+            .flags  = 0,
+        };
+    }
+    topology.overrides[3].flags = 15;
+    ASSERT_TRUE(controller.init(topology));
+    controller.unmask(cinux::interrupt::IrqLine{.value = 3});
+    auto* const kWindow =
+        cinux::base::PtrAt<volatile unsigned int>(cinux::mm::IoremapVirt(topology.io_apic_address));
+    kWindow[0] = 0x16;
+    ASSERT_EQ(kWindow[4], 0xA023U);
+    kWindow[0] = 0x17;
+    cinux::base::bit::BitMask<unsigned int> expected;
+    expected.deposit({.low = 24, .width = 8}, cinux::driver::LocalApic::self().id());
+    ASSERT_EQ(kWindow[4], expected.raw);
+    topology.overrides[3].flags = 2;
+    ASSERT_TRUE(!controller.init(topology));
+    topology.overrides[3].flags = 8;
+    ASSERT_TRUE(!controller.init(topology));
+    topology.overrides[3].flags = 0;
+    topology.overrides[3].gsi   = 1000;
+    ASSERT_TRUE(!controller.init(topology));
+    ASSERT_TRUE(controller.init(kOriginal));
+}
 
 TEST("aspace: a fresh space mirrors the kernel half and nothing else") {
     cinux::mm::AddressSpace space;

@@ -89,10 +89,7 @@ inline void Emit(bool newline, const char* fmt) {
     char                         buf[kPrintBufferSize];
     base::format::ArgsView const kNone{.data = nullptr, .count = 0};
     base::format::FormatToBuf(buf, sizeof(buf), fmt, kNone);
-    console::PutString(buf);
-    if (newline) {
-        console::PutChar('\n');
-    }
+    console::PutString(buf, newline);
 }
 
 /**
@@ -114,10 +111,7 @@ void Emit(bool newline, const char* fmt, Args... args) {
     // NOLINTNEXTLINE(readability-identifier-naming)
     base::format::Arg const kArgs[] = {Argify(args)...};
     base::format::FormatToBuf(buf, sizeof(buf), fmt, base::format::ArgsView::of(kArgs));
-    console::PutString(buf);
-    if (newline) {
-        console::PutChar('\n');
-    }
+    console::PutString(buf, newline);
 }
 
 }  // namespace detail

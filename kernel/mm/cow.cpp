@@ -4,6 +4,8 @@
 #include "cinux/assert.hpp"
 #include "cinux/memory.hpp"
 #include "cinux/ptr.hpp"
+#include "cinux/spin_mutex.hpp"
+#include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/arch/x86_64/isr.hpp"  // NOLINT(misc-include-cleaner) fault-code words shared with the reporter
 #include "kernel/arch/x86_64/page.hpp"
 #include "kernel/arch/x86_64/page_entry.hpp"
@@ -21,6 +23,8 @@ namespace {
 using cinux::arch::page::Entry;
 using walk::FindSlot;
 using walk::SlotAt;
+
+base::SpinMutex g_fault_gate;
 
 unsigned long long release_share(unsigned long long frame) {
     return Pmm::self().release_frame(cinux::base::PhysAddr{frame});
@@ -83,6 +87,8 @@ void descend(Entry* table, walk::WalkLevel level, unsigned long base, const Clon
 }  // namespace
 
 bool MarkPageShared(unsigned long root, unsigned long virtual_address) {
+    const arch::IrqGuard    kIrq;
+    const auto              kGate = g_fault_gate.guard();
     cinux::mm::KernelTables world;
     const SlotAt            kSlot = FindSlot(world, root, virtual_address);
     if (kSlot.entry == nullptr || kSlot.level != walk::WalkLevel::kPageTable) {
@@ -103,6 +109,8 @@ bool MarkPageShared(unsigned long root, unsigned long virtual_address) {
 }
 
 bool TryResolvePageFault(unsigned long long address, unsigned long long error_code) {
+    const arch::IrqGuard kIrq;
+    const auto           kGate = g_fault_gate.guard();
     if ((error_code & cinux::arch::isr::kFaultWasWrite) == 0) {
         return false;
     }
@@ -140,6 +148,8 @@ void InstallResolver() {
 }
 
 void ReleaseFrame(unsigned long long frame) {
+    const arch::IrqGuard kIrq;
+    const auto           kGate = g_fault_gate.guard();
     if (release_share(frame) == 0) {
         cinux::mm::Pmm::self().free_page(cinux::base::PhysAddr{frame});
     }
@@ -169,6 +179,9 @@ AddressSpace* CloneSharedSpace(const AddressSpace& parent) {
         const unsigned long      kBase   = slot << walk::IndexRange(walk::WalkLevel::kPml4).low;
         descend(cinux::base::PtrAt<Entry>(cinux::mm::DirectMapVirt(kTarget)),
                 walk::WalkLevel::kPdpt, kBase, kContext);
+    }
+    if (arch::ReadCr3() == kParentRoot) {
+        arch::LoadCr3(kParentRoot);
     }
     return kChild;
 }

@@ -9,26 +9,6 @@ namespace cinux::syscall {
 
 namespace {
 
-/// Resolves the setpgid target: the caller itself, or a named pid
-/// that must be one of the caller's own children still sharing its
-/// session. nullptr with a written errno when the name points
-/// nowhere or at a stranger.
-proc::Task* resolve_move_target(proc::Task& caller, unsigned long long pid, int& error) {
-    if (pid == 0) {
-        return &caller;
-    }
-    proc::Task* const kTarget = proc::Scheduler::self().find_by_pid(pid);
-    if (kTarget == nullptr) {
-        error = kEsrch;
-        return nullptr;
-    }
-    if (kTarget->parent != &caller || kTarget->sid != caller.sid) {
-        error = kEperm;
-        return nullptr;
-    }
-    return kTarget;
-}
-
 /// Checks the group a target is being moved into: the target's own
 /// pid founds a fresh group, and any other value must already name a
 /// group inside the target's session — a group lives as long as any
@@ -52,12 +32,11 @@ bool group_allowed(const proc::Task& target, unsigned long long pgid, int& error
 /// named task, zero naming the caller. Answers a negative errno when
 /// the name points nowhere.
 long long read_identity(unsigned long long pid, const unsigned long long proc::Task::* field) {
-    const proc::Task* const kTarget =
-        pid == 0 ? CurrentTask() : proc::Scheduler::self().find_by_pid(pid);
-    if (kTarget == nullptr) {
-        return -kEsrch;
-    }
-    return static_cast<long long>(kTarget->*field);
+    const auto kPid   = pid == 0 ? CurrentTask()->pid : pid;
+    long long  result = -kEsrch;
+    proc::Scheduler::self().with_task(
+        kPid, [&](const proc::Task& target) { result = static_cast<long long>(target.*field); });
+    return result;
 }
 
 }  // namespace
@@ -69,17 +48,22 @@ long long HandleSetpgid(const SyscallFrame& frame) {
     if (static_cast<long long>(kPgid) < 0) {
         return -kEinval;
     }
-    int               error   = 0;
-    proc::Task* const kTarget = resolve_move_target(*kSelf, kPid, error);
-    if (kTarget == nullptr) {
-        return -error;
-    }
-    const unsigned long long kNewGroup = kPgid == 0 ? kTarget->pid : kPgid;
-    if (!group_allowed(*kTarget, kNewGroup, error)) {
-        return -error;
-    }
-    kTarget->pgid = kNewGroup;
-    return 0;
+    long long result = -kEsrch;
+    proc::Scheduler::self().with_task(kPid == 0 ? kSelf->pid : kPid, [&](proc::Task& target) {
+        if (&target != kSelf && (target.parent != kSelf || target.sid != kSelf->sid)) {
+            result = -kEperm;
+            return;
+        }
+        const auto kNewGroup = kPgid == 0 ? target.pid : kPgid;
+        int        error     = 0;
+        if (!group_allowed(target, kNewGroup, error)) {
+            result = -error;
+            return;
+        }
+        target.pgid = kNewGroup;
+        result      = 0;
+    });
+    return result;
 }
 
 long long HandleSetsid(const SyscallFrame& /*frame*/) {

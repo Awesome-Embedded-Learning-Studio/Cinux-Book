@@ -6,9 +6,9 @@
  * addressing is the only addressing that survives a privilege hop:
  * segment overrides keep working when the page tables switch, so the
  * CPU's GS base is the one pointer the kernel never has to reload.
- * This block is what it points at. Today one CPU owns one static
- * block; the multicore station grows one per CPU and the accessor
- * follows. Field offsets are load-bearing — assembly addresses them
+ * This block is what it points at. Each processor owns one static
+ * block, and the accessor follows the installed GS base.
+ * Field offsets are load-bearing — assembly addresses them
  * as gs:0 / gs:8 / gs:16 / gs:24, and the asserts keep the C++ and
  * the asm from drifting apart.
  *
@@ -22,9 +22,12 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 
-#include "cinux/singleton.hpp"
+namespace cinux::proc {
+struct Task;
+}
 
 namespace cinux::arch::per_cpu {
 
@@ -37,21 +40,39 @@ namespace cinux::arch::per_cpu {
  *                banks where the entry frame sits, which fork reads
  *                for the whole user register image now that the frame
  *                carries every general register. All start zero and
- *                are written only by entry assembly. One CPU, one
- *                block today; the multicore station grows one per CPU
- *                and self() learns whose to hand out — the call sites
- *                never learn the difference.
+ *                are written only by entry assembly. self() follows
+ *                the installed GS base to the executing CPU's block.
  * @since         0.1.0
  * @ingroup       kernel_arch
  */
-struct PerCpu : public cinux::base::Singleton<PerCpu> {
-    unsigned long long kernel_rsp;     ///< gs:0, the syscall-entry stack.
-    unsigned long long user_rsp;       ///< gs:8, the caller's stack, staged here.
-    unsigned long long scratch;        ///< gs:16, one quadword of crossing room.
-    unsigned long long syscall_frame;  ///< gs:24, where the entry frame sits.
+struct PerCpu {
+    unsigned long long        kernel_rsp;     ///< gs:0, the syscall-entry stack.
+    unsigned long long        user_rsp;       ///< gs:8, the caller's stack, staged here.
+    unsigned long long        scratch;        ///< gs:16, one quadword of crossing room.
+    unsigned long long        syscall_frame;  ///< gs:24, where the entry frame sits.
+    proc::Task*               current;
+    unsigned int              cpu_id;
+    unsigned int              apic_id;
+    proc::Task*               pending_reap;
+    unsigned int              slice_ticks;
+    unsigned int              preempt_depth;
+    unsigned int              no_reschedule_depth;
+    unsigned int              queue_depth;
+    bool                      rotate_due;
+    bool                      notify_pending;
+    std::atomic<unsigned int> local_timer_interrupts{0};
+    std::atomic<unsigned int> reschedule_interrupts{0};
+
+    /**
+     * @brief Access the block installed on the executing processor.
+     * @return This processor's GS block.
+     * @since 0.3.0
+     * @ingroup kernel_arch
+     */
+    static PerCpu& self();
 };
 
-static_assert(sizeof(PerCpu) == 32, "the GS block is four quadwords now");
+static_assert(offsetof(PerCpu, current) == 32);
 static_assert(offsetof(PerCpu, kernel_rsp) == 0, "assembly reaches kernel_rsp at gs:0");
 static_assert(offsetof(PerCpu, user_rsp) == 8, "assembly stages user_rsp at gs:8");
 static_assert(offsetof(PerCpu, scratch) == 16, "assembly keeps its scratch at gs:16");
@@ -59,6 +80,7 @@ static_assert(offsetof(PerCpu, syscall_frame) == 24, "assembly banks the frame a
 
 /**
  * @brief         Point both GS bases at the per-CPU block.
+ * @param[in]     cpu_id Logical processor index in the static array.
  * @return        None.
  * @note          Bring-up only. IA32_GS_BASE is the one live MSR in
  *                every ring from here on — the block never leaves it,
@@ -69,7 +91,7 @@ static_assert(offsetof(PerCpu, syscall_frame) == 24, "assembly banks the frame a
  * @since         0.1.0
  * @ingroup       kernel_arch
  */
-void InstallKernelGs();
+void InstallKernelGs(unsigned int cpu_id = 0);
 
 /**
  * @brief         Save the outgoing task's address-space bases.

@@ -1,8 +1,15 @@
 #include "kernel/arch/x86_64/tss.hpp"
 
 #include "kernel/arch/x86_64/gdt.hpp"
+#include "kernel/arch/x86_64/per_cpu.hpp"
+#include "kernel/arch/x86_64/per_cpu_config.hpp"
 
 namespace cinux::arch::tss {
+
+Tss& Tss::self() {
+    static constinit Tss blocks[per_cpu::kMaxCpus]{};
+    return blocks[per_cpu::PerCpu::self().cpu_id];
+}
 
 void LoadTaskRegister() {
     Tss::self().io_bitmap_end = sizeof(Tss);

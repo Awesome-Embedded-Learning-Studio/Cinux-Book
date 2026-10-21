@@ -1,8 +1,11 @@
 #include "cinux/memory.hpp"
 #include "cinux/own.hpp"
+#include "cinux/text.hpp"
 #include "kernel/arch/x86_64/context.hpp"
 #include "kernel/arch/x86_64/halt.hpp"
+#include "kernel/arch/x86_64/instructions.hpp"
 #include "kernel/arch/x86_64/per_cpu.hpp"
+#include "kernel/arch/x86_64/per_cpu_config.hpp"
 #include "kernel/arch/x86_64/registers.hpp"
 #include "kernel/arch/x86_64/tss.hpp"
 #include "kernel/mm/layout.hpp"
@@ -49,13 +52,17 @@ public:
     void switch_tasks(Task& outgoing, Task& incoming) {
         arm_task_entry(incoming);
         swap_address_regs(&outgoing, &incoming);
-        ContextSwitch(&outgoing.ctx, &incoming.ctx);
+        __atomic_store_n(&incoming.on_cpu, static_cast<int>(arch::per_cpu::PerCpu::self().cpu_id),
+                         __ATOMIC_RELEASE);
+        ContextSwitch(&outgoing.ctx, &incoming.ctx, &outgoing.on_cpu);
     }
 
     void enter_from_main(Task& incoming) {
         arm_task_entry(incoming);
         swap_address_regs(nullptr, &incoming);
-        ContextSwitch(&main_ctx_, &incoming.ctx);
+        __atomic_store_n(&incoming.on_cpu, static_cast<int>(arch::per_cpu::PerCpu::self().cpu_id),
+                         __ATOMIC_RELEASE);
+        ContextSwitch(&main_ctx_[arch::per_cpu::PerCpu::self().cpu_id], &incoming.ctx);
     }
 
     void return_to_main(Task& outgoing) {
@@ -63,17 +70,21 @@ public:
             cinux::arch::LoadCr3(cinux::mm::KernelPageRoot());
         }
         swap_address_regs(&outgoing, nullptr);
-        ContextSwitch(&outgoing.ctx, &main_ctx_);
+        ContextSwitch(&outgoing.ctx, &main_ctx_[arch::per_cpu::PerCpu::self().cpu_id],
+                      &outgoing.on_cpu);
     }
 
     void reclaim(Task& dead) {
+        while (__atomic_load_n(&dead.on_cpu, __ATOMIC_ACQUIRE) != -1) {
+            arch::CpuRelax();
+        }
         const auto kStackPhys = cinux::mm::DirectMapPhys(dead.stack_base);
         cinux::mm::Pmm::self().free_pages(cinux::base::PhysAddr{kStackPhys}, kStackOrder);
         delete &dead;
     }
 
 private:
-    cinux::arch::CpuContext main_ctx_{};
+    cinux::arch::CpuContext main_ctx_[arch::per_cpu::kMaxCpus]{};
 };
 
 KernelSwitchSink g_kernel_sink;
@@ -135,10 +146,7 @@ Task* TaskBuilder::build() {
     kBorn->state = TaskState::kReady;
     kBorn->name  = name_;
     if (name_ != nullptr) {
-        for (unsigned long index = 0; index + 1 < sizeof(kBorn->comm) && name_[index] != '\0';
-             ++index) {
-            kBorn->comm[index] = name_[index];
-        }
+        base::CopyText(kBorn->comm, name_);
     }
     kBorn->stack_base  = kStackVirt;
     kBorn->parent      = parent_;

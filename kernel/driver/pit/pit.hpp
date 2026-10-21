@@ -21,6 +21,7 @@
 
 #include "cinux/literal_types.hpp"
 #include "cinux/singleton.hpp"
+#include "cinux/time.hpp"
 
 namespace cinux::driver {
 
@@ -48,6 +49,14 @@ public:
      * @ingroup       kernel_driver
      */
     void start(cinux::base::Hertz rate);
+
+    /**
+     * @brief Wait against channel two without disturbing the channel-zero tick.
+     * @param[in] span Nonzero delay, at most 50000 microseconds.
+     * @since 0.3.0
+     * @ingroup kernel_driver
+     */
+    void wait_microseconds(base::time::Microseconds span);
 
 private:
     Pit() = default;

@@ -53,6 +53,7 @@ debugfs -w -R 'mkdir /lib' "$image" >/dev/null 2>&1
 debugfs -w -R 'mkdir /proc' "$image" >/dev/null 2>&1
 debugfs -w -R "write ${seed_dir}/motd.txt /etc/motd" "$image" >/dev/null 2>&1
 debugfs -w -R "write ${seed_dir}/hello.txt /hello.txt" "$image" >/dev/null 2>&1
+debugfs -w -R "write ${seed_dir}/smp-stress.sh /etc/smp-stress.sh" "$image" >/dev/null 2>&1
 if [ -n "$busybox" ]; then
     debugfs -w -R "write ${busybox} /bin/busybox" "$image" >/dev/null 2>&1
     debugfs -w -R "write ${busybox} /bin/sh" "$image" >/dev/null 2>&1
@@ -78,6 +79,9 @@ if [ -f "${CINUX_THREADDEMO_ELF:-}" ]; then
 fi
 if [ -f "${CINUX_TTYDEMO_ELF:-}" ]; then
     debugfs -w -R "write ${CINUX_TTYDEMO_ELF} /bin/ttydemo" "$image" >/dev/null 2>&1
+fi
+if [ -f "${CINUX_SMPSTRESS_ELF:-}" ]; then
+    debugfs -w -R "write ${CINUX_SMPSTRESS_ELF} /bin/smpstress" "$image" >/dev/null 2>&1
 fi
 if [ -f "$ldso" ]; then
     debugfs -w -R "write ${ldso} /lib/ld-musl-x86_64.so.1" "$image" >/dev/null 2>&1

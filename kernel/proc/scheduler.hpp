@@ -33,10 +33,15 @@
 #include "cinux/container/static_stack.hpp"
 #include "cinux/scoped_guard.hpp"
 #include "cinux/singleton.hpp"
+#include "cinux/spin_mutex.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/proc/task_snapshot.hpp"
+
+namespace cinux::arch::per_cpu {
+struct PerCpu;
+}
 
 namespace cinux::proc {
 
@@ -83,7 +88,23 @@ concept SwitchSink = requires(Sink& sink, Task& outgoing, Task& incoming) {
 class Scheduler : public cinux::base::Singleton<Scheduler> {
     friend class cinux::base::Singleton<Scheduler>;
 
+    /** @brief Harness suppression policy for the shared guard. */
+    struct NoReschedulePolicy {
+        /** @brief Stateless per-CPU counter discipline. */
+        struct State {};
+        static void enter(State& state);
+        /** @brief Leave one suppression level. */
+        static void exit(State& state);
+    };
+
 public:
+    /**
+     * @brief Keep a role-play test on its harness stack while marking a wait.
+     * @since 0.3.0
+     * @ingroup kernel_proc
+     */
+    using NoRescheduleGuard = base::ScopedGuard<NoReschedulePolicy>;
+
     /**
      * @brief         Inject the executor that performs real switches.
      * @param[in]     sink   Any SwitchSink; stored type-erased.
@@ -123,7 +144,7 @@ public:
      * @since         0.2.0
      * @ingroup       kernel_proc
      */
-    void seat(Task& task);
+    void seat(Task& task, bool runnable = true);
 
     /**
      * @brief         Register a scheduling class; pick order follows
@@ -305,7 +326,7 @@ public:
      */
     template <typename Visit>
     void for_each_task(Visit&& visit) {
-        const cinux::arch::IrqGuard kGuard;
+        const QueueGuard kGuard(*this);
         for (Task* scan = tasks_.head(); scan != nullptr; scan = tasks_.after(*scan)) {
             visit(*scan);
         }
@@ -324,6 +345,20 @@ public:
      * @ingroup       kernel_proc
      */
     void block_current();
+
+    /**
+     * @brief Mark the current task blocked while its wait lock is held.
+     * @since 0.3.0
+     * @ingroup kernel_proc
+     */
+    void prepare_to_wait();
+
+    /**
+     * @brief Switch after releasing the wait lock, preserving an intervening wake.
+     * @since 0.3.0
+     * @ingroup kernel_proc
+     */
+    void schedule_blocked();
 
     /**
      * @brief         Wake one parked task into the ready queue.
@@ -414,20 +449,25 @@ public:
     [[nodiscard]] unsigned long long offspring_count() const;
 
     /**
-     * @brief         The task carrying one pid, live or zombie.
-     * @param[in]     pid   The identity to look up.
-     * @return        The task, nullptr when nothing in the roll
-     *                carries it.
-     * @note          The kill door's lookup half. The registry includes
-     *                every seated task, including parentless threads.
-     *                The separate offspring roll serves wait only.
-     *                A zombie remains registered until reaped:
-     *                what the signal then does is the sender's
-     *                business, and send drops it quietly.
-     * @since         0.6.0
-     * @ingroup       kernel_proc
+     * @brief Visit one registered task while its lifetime is protected.
+     * @tparam Visit Nonblocking callback that retains no task pointer.
+     * @param[in] pid Identity to look up.
+     * @param[in] visit Operation completed before the registry lock is released.
+     * @return True when a registered task was visited.
+     * @since 0.3.0
+     * @ingroup kernel_proc
      */
-    [[nodiscard]] Task* find_by_pid(unsigned long long pid);
+    template <typename Visit>
+    bool with_task(unsigned long long pid, Visit&& visit) {
+        const QueueGuard kGuard(*this);
+        for (Task* scan = tasks_.head(); scan != nullptr; scan = tasks_.after(*scan)) {
+            if (scan->pid == pid) {
+                visit(*scan);
+                return true;
+            }
+        }
+        return false;
+    }
 
     /**
      * @brief         Copies one task's vital signs out under the lock.
@@ -468,8 +508,21 @@ public:
 private:
     Scheduler() = default;
 
+    struct QueuePolicy {
+        struct State {
+            const Scheduler&   scheduler;
+            unsigned long long irq = 0;
+        };
+        static void enter(State& state);
+        static void exit(State& state);
+    };
+    using QueueGuard = base::ScopedGuard<QueuePolicy>;
+    mutable base::SpinMutex       queue_lock_;
+    static arch::per_cpu::PerCpu& local();
+
 
     [[nodiscard]] bool  sink_ready() const;
+    void                set_current(Task* task);
     void                reap_pending();
     void                rotate_from_interrupt();
     void                park_current();
@@ -489,15 +542,11 @@ private:
 
     cinux::base::container::SelfList<Task, &Task::child_link>                    offspring_;
     cinux::base::container::SelfList<Task, &Task::registry_link>                 tasks_;
+    cinux::base::container::SelfList<Task, &Task::registry_link>                 retired_;
     cinux::base::container::SelfList<Task>                                       waiters_;
-    cinux::base::container::StaticStack<SchedulingClass*, kMaxSchedulingClasses> classes_ = {};
-    Task*                                                                        current_ = nullptr;
-    Task*              pending_reap_                                                      = nullptr;
-    unsigned long long next_pid_                                                          = 1;
-    unsigned int       slice_ticks_                                                       = 0;
-    bool               rotate_due_                                                        = false;
-    bool               preemption_                                                        = false;
-    unsigned int       preempt_disable_depth_                                             = 0;
+    cinux::base::container::StaticStack<SchedulingClass*, kMaxSchedulingClasses> classes_  = {};
+    unsigned long long                                                           next_pid_ = 1;
+    std::atomic<bool>                                                            preemption_{false};
 };
 
 /**

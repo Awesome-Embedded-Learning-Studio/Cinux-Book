@@ -6,6 +6,7 @@ import subprocess
 import time
 
 import frame
+from qemu_args import device_args
 
 QEMU = "qemu-system-x86_64"
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -29,12 +30,8 @@ class Session:
                 os.unlink(stale)
         self.proc = subprocess.Popen(
             [
-                QEMU, "-accel", "kvm", "-display", "none", "-no-reboot",
-                "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
-                "-device", "ahci,id=sata0",
+                QEMU, *device_args(self.image),
                 "-drive", f"format=raw,file={self.image}",
-                "-drive", f"format=raw,file={VOLUME_PATH},if=none,id=spare",
-                "-device", "ide-hd,drive=spare,bus=sata0.0",
                 "-serial", f"file:{SERIAL_PATH}",
                 "-monitor", f"unix:{MON_PATH},server,nowait",
             ],

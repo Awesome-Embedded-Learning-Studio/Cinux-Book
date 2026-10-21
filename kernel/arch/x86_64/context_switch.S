@@ -13,6 +13,10 @@ ContextSwitch:
     leaq .Lresume(%rip), %rax
     movq %rax, 56(%rdi)
     fxsave64 64(%rdi)
+    testq %rdx, %rdx
+    jz .Lsaved
+    movl $-1, (%rdx)
+.Lsaved:
 
     movq 0(%rsi), %r15
     movq 8(%rsi), %r14

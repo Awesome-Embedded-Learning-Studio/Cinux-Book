@@ -6,6 +6,7 @@
 #include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/arch/x86_64/msr.hpp"
 #include "kernel/arch/x86_64/per_cpu.hpp"
+#include "kernel/arch/x86_64/smp.hpp"
 #include "kernel/arch/x86_64/tss.hpp"
 #include "kernel/boot/boot_info.hpp"
 #include "kernel/boot/print.hpp"
@@ -64,7 +65,9 @@ void Main(const cinux::boot::BootInfo& boot_info) {
     cinux::proc::InstallKernelSwitchSink();
     cinux::proc::Scheduler::self().set_preemption(true);
     cinux::init::StartInitThread();
+    cinux::arch::smp::EnableSecondaryDispatch();
     for (;;) {
+        asm volatile("cli" : : : "memory");
         cinux::proc::Scheduler::self().run_until_done();
         cinux::arch::EnableIrqAndHalt();
     }

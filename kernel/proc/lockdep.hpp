@@ -1,6 +1,6 @@
 /**
  * @file    lockdep.hpp
- * @brief   Bounded lock-order graph for one interrupt-excluded core.
+ * @brief   Shared lock-order graph with per-CPU held chains.
  * @author  Charliechen114514
  * @date    2026-10-07
  * @version 0.1
@@ -13,6 +13,7 @@
 #include "cinux/container/directed_graph.hpp"
 #include "cinux/container/slot_table.hpp"
 #include "cinux/container/static_stack.hpp"
+#include "kernel/arch/x86_64/per_cpu_config.hpp"
 
 namespace cinux::proc {
 
@@ -71,13 +72,15 @@ public:
     void dump_held();
 
 private:
+    using HeldChain = base::container::StaticStack<unsigned int, kDepth>;
+    HeldChain&                 held();
     [[nodiscard]] unsigned int find_lock(const void* lock) const;
     [[nodiscard]] unsigned int vacant_slot() const;
 
-    base::container::SlotTable<const void*, kLocks>    locks_;
-    const char*                                        names_[kLocks] = {};
-    base::DirectedGraph<kLocks>                        graph_;
-    base::container::StaticStack<unsigned int, kDepth> held_;
+    base::container::SlotTable<const void*, kLocks> locks_;
+    const char*                                     names_[kLocks] = {};
+    base::DirectedGraph<kLocks>                     graph_;
+    HeldChain                                       held_[arch::per_cpu::kMaxCpus];
 };
 
 }  // namespace cinux::proc

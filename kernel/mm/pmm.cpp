@@ -6,6 +6,7 @@
 #include "cinux/assert.hpp"
 #include "cinux/bit_ops/bitmap.hpp"
 #include "cinux/math.hpp"
+#include "cinux/spin_mutex.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"  // NOLINT(misc-include-cleaner) IrqGuard is used below
 #include "kernel/arch/x86_64/page.hpp"
 #include "kernel/boot/boot_info.hpp"
@@ -16,6 +17,8 @@ namespace cinux::mm {
 using cinux::base::PhysAddr;
 
 bool Pmm::init(const cinux::boot::BootInfo& info) {
+    const cinux::arch::IrqGuard kIrq;
+    const auto                  kLock = lock_.guard();
     bitmap_.init(words_, kPmmTotalPages);
     bitmap_.set_all();
     managed_pages_ = 0;
@@ -45,7 +48,6 @@ bool Pmm::init(const cinux::boot::BootInfo& info) {
 }
 
 PhysAddr Pmm::allocate_pages(int order) {
-    const cinux::arch::IrqGuard kGuard;
     if (order < 0 || order > kMaxOrder) {
         return PhysAddr{};
     }
@@ -54,6 +56,7 @@ PhysAddr Pmm::allocate_pages(int order) {
 
 void Pmm::free_pages(PhysAddr phys, int order) {
     const cinux::arch::IrqGuard kGuard;
+    const auto                  kLock = lock_.guard();
     if (phys == PhysAddr{}) {
         return;
     }
@@ -62,10 +65,14 @@ void Pmm::free_pages(PhysAddr phys, int order) {
 }
 
 unsigned long Pmm::free_page_count() const {
+    const cinux::arch::IrqGuard kGuard;
+    const auto                  kLock = lock_.guard();
     return bitmap_.clear_count();
 }
 
 unsigned long Pmm::managed_page_count() const {
+    const cinux::arch::IrqGuard kGuard;
+    const auto                  kLock = lock_.guard();
     return managed_pages_;
 }
 
@@ -75,6 +82,7 @@ unsigned long Pmm::frame_index(PhysAddr phys) {
 
 void Pmm::retain_frame(PhysAddr phys) {
     const cinux::arch::IrqGuard kGuard;
+    const auto                  kLock  = lock_.guard();
     const unsigned long         kIndex = frame_index(phys);
     cinux::base::safety::Check(kIndex < kPmmTotalPages, "retain of a frame the ledger never saw");
     cinux::base::safety::Check(shares_[kIndex] != 0xFF, "frame shared past the count's width");
@@ -83,6 +91,7 @@ void Pmm::retain_frame(PhysAddr phys) {
 
 unsigned long Pmm::release_frame(PhysAddr phys) {
     const cinux::arch::IrqGuard kGuard;
+    const auto                  kLock  = lock_.guard();
     const unsigned long         kIndex = frame_index(phys);
     if (kIndex >= kPmmTotalPages || shares_[kIndex] == 0) {
         return 0;
@@ -93,6 +102,7 @@ unsigned long Pmm::release_frame(PhysAddr phys) {
 
 PhysAddr Pmm::allocate_run(unsigned long page_count) {
     const cinux::arch::IrqGuard kGuard;
+    const auto                  kLock     = lock_.guard();
     unsigned long const         kBasePage = bitmap_.find_clear_run(page_count);
     if (kBasePage == cinux::base::bit::kInvalidIndex) {
         return PhysAddr{};

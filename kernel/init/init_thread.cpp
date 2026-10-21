@@ -163,12 +163,13 @@ bool seat_shell_task(proc::Task& parent) {
     if (!fs::FileWorld::self().seat_console_streams(*kShell->files).ok()) {
         return false;
     }
-    proc::Scheduler::self().seat(*kShell);
+    proc::Scheduler::self().seat(*kShell, false);
     kShell->pgid            = kShell->pid;
     kShell->sid             = kShell->pid;
     kShell->controlling_tty = &driver::ConsoleTty();
     fs::AdoptConsoleForeground(kShell->pgid);
     cinux::base::CopyBytes(kShell->exe, "/bin/sh", 8);
+    proc::Scheduler::self().unblock(*kShell);
     return true;
 }
 
@@ -191,9 +192,10 @@ void StartInitThread() {
     };
     auto* const kInit = proc::TaskBuilder{}.set_entry(kernel_init).set_name("kernel_init").build();
     base::safety::Check(kInit != nullptr, "kernel_init task failed to build");
-    proc::Scheduler::self().seat(*kInit);
+    proc::Scheduler::self().seat(*kInit, false);
     kInit->pgid = kInit->pid;
     kInit->sid  = kInit->pid;
+    proc::Scheduler::self().unblock(*kInit);
 }
 
 }  // namespace cinux::init

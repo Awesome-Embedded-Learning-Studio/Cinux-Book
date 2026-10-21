@@ -141,7 +141,8 @@ extern "C" {
  * @since         0.1.0
  * @ingroup       kernel_arch
  */
-void ContextSwitch(cinux::arch::CpuContext* outgoing, const cinux::arch::CpuContext* incoming);
+void ContextSwitch(cinux::arch::CpuContext* outgoing, const cinux::arch::CpuContext* incoming,
+                   int* released_cpu = nullptr);
 
 /**
  * @brief         First instruction of every freshly built task.

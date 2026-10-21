@@ -28,6 +28,7 @@
 #include <type_traits>
 
 #include "cinux/container/self_list.hpp"
+#include "kernel/arch/x86_64/per_cpu_config.hpp"
 #include "kernel/proc/checks_config.hpp"
 #include "kernel/proc/lockdep.hpp"
 #include "kernel/proc/task.hpp"
@@ -70,7 +71,7 @@ public:
      * @since     0.1.0
      * @ingroup   kernel_proc
      */
-    [[nodiscard]] unsigned int depth() const { return depth_; }
+    [[nodiscard]] unsigned int depth() const;
 
     /**
      * @brief     Register the human name of a lock on this ledger.
@@ -101,7 +102,7 @@ private:
         void dump_held() {}
     };
     using Order = std::conditional_t<kLockdepEnabled, LockOrder, InactiveOrder>;
-    unsigned int                depth_ = 0;
+    unsigned int                depth_[arch::per_cpu::kMaxCpus] = {};
     [[no_unique_address]] Order order_{};
 };
 
@@ -233,6 +234,7 @@ private:
     friend class SpinGuardImpl;
 
     std::atomic_flag   held_;
+    std::atomic<int>   owner_cpu_{-1};
     unsigned long long irq_state_ = 0;
     Task*              holder_    = nullptr;
     SpinLedger*        ledger_    = nullptr;
@@ -296,6 +298,14 @@ public:
     constexpr Semaphore() = default;
 
     explicit Semaphore(long long initial);
+
+    /**
+     * @brief Forget this semaphore's lock after all users have left.
+     * @return None.
+     * @since 0.3.0
+     * @ingroup kernel_proc
+     */
+    void retire();
 
     /**
      * @brief     Consume a unit, or park until one arrives.

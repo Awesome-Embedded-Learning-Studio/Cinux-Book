@@ -1,6 +1,9 @@
+#include <thread>
 #include <type_traits>
 
+#include "cinux/assert.hpp"
 #include "cinux/ref_count.hpp"
+#include "cinux/spin_mutex.hpp"
 #include "framework.hpp"
 #include "test/mock/ref_object.hpp"
 #include "test_assert.hpp"
@@ -25,7 +28,9 @@ TEST("ref counted: separate owners keep an object alive until the last release")
     kObject->add_ref();
     ASSERT_EQ(kObject->use_count(), 3UL);
     kObject->release_ref();
+    cinux::base::safety::Check(destroyed == 0, "first shared release destroyed a live owner");
     kObject->release_ref();
+    cinux::base::safety::Check(destroyed == 0, "second shared release destroyed a live owner");
     ASSERT_EQ(destroyed, 0U);
     ASSERT_EQ(kObject->use_count(), 1UL);
     kObject->release_ref();
@@ -48,4 +53,37 @@ TEST("ref count: narrow storage reaches its limit and reports only the final rel
 
 int main() {
     return cinux::test::RunAll();
+}
+
+TEST("ref count: concurrent owners leave exactly the original reference") {
+    cinux::base::RefCount<> references;
+    const auto              kWorker = [&references] {
+        for (unsigned int turn = 0; turn < 100000; ++turn) {
+            references.retain();
+            const bool kLast = references.release();
+            cinux::base::safety::Check(!kLast, "concurrent owner consumed the original reference");
+        }
+    };
+    {
+        const std::jthread kFirst(kWorker);
+        const std::jthread kSecond(kWorker);
+    }
+    ASSERT_EQ(references.use_count(), 1UL);
+    ASSERT_TRUE(references.release());
+}
+
+TEST("spin mutex: concurrent critical sections retain every increment") {
+    cinux::base::SpinMutex lock;
+    unsigned int           count   = 0;
+    const auto             kWorker = [&] {
+        for (unsigned int turn = 0; turn < 100000; ++turn) {
+            const auto kGuard = lock.guard();
+            ++count;
+        }
+    };
+    {
+        const std::jthread kFirst(kWorker);
+        const std::jthread kSecond(kWorker);
+    }
+    ASSERT_EQ(count, 200000U);
 }

@@ -10,6 +10,7 @@
  */
 #pragma once
 
+#include <atomic>
 #include <limits>
 #include <type_traits>
 
@@ -20,7 +21,7 @@ namespace cinux::base {
 /**
  * @brief Ownership counter starting with one reference; last release reports true.
  * @tparam Count Unsigned integral storage type, excluding bool.
- * @note Callers serialize access and destroy their object at the last release.
+ * @note Atomic ownership changes publish with acquire/release ordering.
  *       Borrowed pointers add no reference. Zero cannot be retained again.
  *       Copying and moving are forbidden because ownership belongs to one object.
  * @since 0.1.0
@@ -45,9 +46,9 @@ public:
      * @ingroup base_ptr
      */
     void retain() {
-        safety::Check(count_ != 0, "reference acquired without a live owner");
-        safety::Check(count_ != std::numeric_limits<Count>::max(), "reference count overflow");
-        ++count_;
+        const Count kBefore = count_.fetch_add(1, std::memory_order_acq_rel);
+        safety::Check(kBefore != 0, "reference acquired without a live owner");
+        safety::Check(kBefore != std::numeric_limits<Count>::max(), "reference count overflow");
     }
 
     /**
@@ -57,16 +58,16 @@ public:
      * @ingroup base_ptr
      */
     [[nodiscard]] bool release() {
-        safety::Check(count_ != 0, "reference released without an owner");
-        --count_;
-        return count_ == 0;
+        const Count kBefore = count_.fetch_sub(1, std::memory_order_acq_rel);
+        safety::Check(kBefore != 0, "reference released without an owner");
+        return kBefore == 1;
     }
 
     /// @brief Number of owning references, read under the caller's synchronization.
-    [[nodiscard]] Count use_count() const { return count_; }
+    [[nodiscard]] Count use_count() const { return count_.load(std::memory_order_acquire); }
 
 private:
-    Count count_ = 1;
+    std::atomic<Count> count_{1};
 };
 
 }  // namespace cinux::base

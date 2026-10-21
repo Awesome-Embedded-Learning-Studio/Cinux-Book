@@ -3,12 +3,15 @@
 #include "kernel/arch/x86_64/halt.hpp"
 #include "kernel/arch/x86_64/irq_stubs.hpp"
 #include "kernel/arch/x86_64/pic.hpp"
+#include "kernel/arch/x86_64/smp.hpp"
 #include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/boot/boot_info.hpp"
 #include "kernel/boot/print.hpp"
 #include "kernel/console/screen.hpp"
 #include "kernel/driver/acpi/acpi.hpp"
+#include "kernel/driver/acpi/madt.hpp"
 #include "kernel/driver/ahci/ahci.hpp"
+#include "kernel/driver/apic/local_apic.hpp"
 #include "kernel/driver/hpet/hpet.hpp"
 #include "kernel/driver/keyboard/keyboard.hpp"
 #include "kernel/driver/pci/pci.hpp"
@@ -77,6 +80,20 @@ constexpr InitStep kInitSteps[] = {
         },
     },
     {
+        .name = "local apic mapping",
+        .run  = +[](const BootInfo* info) -> const BootInfo* {
+            const auto kTopology =
+                driver::acpi::FindInterruptTopology(driver::acpi::FindRootPointer());
+            if (!driver::LocalApic::self().init(kTopology.local_apic_address)) {
+                return nullptr;
+            }
+            print::Println("[apic] %u processor(s), local id %u, IOAPIC %x, overrides %u",
+                           kTopology.processor_count, driver::LocalApic::self().id(),
+                           kTopology.io_apic_address, kTopology.override_count);
+            return info;
+        },
+    },
+    {
         .name = "pic",
         .run  = +[](const BootInfo* info) -> const BootInfo* {
             arch::Pic::self().remap();
@@ -102,6 +119,12 @@ constexpr InitStep kInitSteps[] = {
         .run  = +[](const BootInfo* info) -> const BootInfo* {
             arch::irq::InstallIrqStubs();
             return info;
+        },
+    },
+    {
+        .name = "apic interrupt delivery",
+        .run  = +[](const BootInfo* info) -> const BootInfo* {
+            return arch::irq::InstallApicBackend() ? info : nullptr;
         },
     },
     {
@@ -147,6 +170,21 @@ constexpr InitStep kInitSteps[] = {
         .run  = +[](const BootInfo* info) -> const BootInfo* {
             if (!driver::Hpet::self().init(driver::acpi::FindRootPointer())) {
                 print::Println("[kern] hpet absent, clocks stay tick-grained");
+            }
+            return info;
+        },
+    },
+    {
+        .name = "secondary processors",
+        .run  = +[](const BootInfo* info) -> const BootInfo* {
+            if (!arch::smp::BootSecondaryCpus()) {
+                return nullptr;
+            }
+            print::Println("[smp] %u CPUs online", arch::smp::OnlineCpuCount());
+            for (unsigned int cpu = 0; cpu < arch::smp::OnlineCpuCount(); ++cpu) {
+                const auto& state = arch::smp::Mechanisms(cpu);
+                print::Println("[cpu %u] APIC %u online, LSTAR %llx", state.cpu_id, state.apic_id,
+                               state.lstar);
             }
             return info;
         },

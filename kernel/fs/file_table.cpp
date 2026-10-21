@@ -30,17 +30,20 @@ FileTable::~FileTable() {
 }
 
 base::Result<unsigned long> FileTable::alloc(const FsOps* ops, void* backend, FsNode node) {
-    const arch::IrqGuard         kGuard;
+    const arch::IrqGuard kGuard;
+    if (slots_.vacant() == kFileTableMax) {
+        return base::KernelError::kOutOfMemory;
+    }
     const base::Shared<OpenFile> kFresh{new OpenFile(ops, backend, node)};
     if (!kFresh.holds()) {
         return base::KernelError::kOutOfMemory;
     }
+    if (ops != nullptr) {
+        ops->retain(backend, node);
+    }
     const unsigned long kFd = slots_.insert(kFresh, 0);
     if (kFd == kFileTableMax) {
         return base::KernelError::kOutOfMemory;
-    }
-    if (ops != nullptr) {
-        ops->retain(backend, node);
     }
     cloexec_map_.clear(kFd);
     return kFd;

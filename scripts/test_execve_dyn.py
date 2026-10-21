@@ -22,7 +22,7 @@ import qemu  # noqa: E402
 
 
 def text_to_keys(text):
-    named = {" ": "spc", "-": "minus", "/": "slash"}
+    named = {" ": "spc", "-": "minus", "/": "slash", ".": "dot"}
     return [named.get(ch, ch) for ch in text] + ["ret"]
 
 
@@ -36,7 +36,10 @@ def wait_for_serial(session, marker, timeout):
 
 
 def run_command(session, line, markers, timeout):
-    session.sendkeys(text_to_keys(line))
+    result = session.sendkeys(text_to_keys(line))
+    if not result.startswith("sent "):
+        print(f"[dyn-smoke] FAIL: {result}")
+        return False
     for marker in markers:
         if not wait_for_serial(session, marker, timeout):
             print(f"[dyn-smoke] FAIL: {marker!r} never arrived after {line!r}")

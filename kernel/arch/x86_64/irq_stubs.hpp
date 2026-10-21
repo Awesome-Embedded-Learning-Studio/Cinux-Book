@@ -35,4 +35,19 @@ namespace cinux::arch::irq {
  */
 void InstallIrqStubs();
 
+/**
+ * @brief Switch the interrupt service to the firmware APIC topology.
+ * @return True when the local and IO controller are ready.
+ * @since 0.3.0
+ * @ingroup kernel_arch
+ */
+[[nodiscard]] bool InstallApicBackend();
+
+/**
+ * @brief Arm the local timer and reschedule interrupt gates.
+ * @since 0.3.0
+ * @ingroup kernel_arch
+ */
+void InstallLocalInterrupts();
+
 }  // namespace cinux::arch::irq

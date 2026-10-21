@@ -415,11 +415,22 @@ TEST("signal delivery: a delivery that cannot fit the stack window kills") {
     ASSERT_TRUE(world.alpha.exit_code == kSigInt);
 }
 
-TEST("signal scheduler: find_by_pid answers for seated tasks and nobody else") {
+void check_registry_identity(cinux::proc::Task& expected) {
+    bool       matches  = false;
+    const bool kVisited = cinux::proc::Scheduler::self().with_task(
+        expected.pid, [&](cinux::proc::Task& target) { matches = &target == &expected; });
+    ASSERT_TRUE(kVisited);
+    ASSERT_TRUE(matches);
+}
+
+TEST("signal scheduler: guarded lookup visits seated tasks and nobody else") {
     World world(1300);
-    ASSERT_TRUE(cinux::proc::Scheduler::self().find_by_pid(world.alpha.pid) == &world.alpha);
-    ASSERT_TRUE(cinux::proc::Scheduler::self().find_by_pid(world.beta.pid) == &world.beta);
-    ASSERT_TRUE(cinux::proc::Scheduler::self().find_by_pid(9999) == nullptr);
+    check_registry_identity(world.alpha);
+    check_registry_identity(world.beta);
+    bool visited = false;
+    ASSERT_FALSE(cinux::proc::Scheduler::self().with_task(
+        9999, [&]([[maybe_unused]] cinux::proc::Task& target) { visited = true; }));
+    ASSERT_FALSE(visited);
 }
 
 TEST("signal pairs: an exit marks the parent's pending chld") {

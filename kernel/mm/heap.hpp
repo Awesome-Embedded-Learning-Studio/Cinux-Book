@@ -23,6 +23,7 @@
 #pragma once
 
 #include "cinux/singleton.hpp"
+#include "cinux/spin_mutex.hpp"
 
 
 namespace cinux::mm {
@@ -106,10 +107,11 @@ public:
     [[nodiscard]] unsigned long top() const;
 
 private:
-    unsigned long base_       = 0;
-    unsigned long top_        = 0;
-    unsigned long free_head_  = 0;
-    unsigned long free_bytes_ = 0;
+    mutable base::SpinMutex lock_;
+    unsigned long           base_       = 0;
+    unsigned long           top_        = 0;
+    unsigned long           free_head_  = 0;
+    unsigned long           free_bytes_ = 0;
 };
 
 }  // namespace cinux::mm

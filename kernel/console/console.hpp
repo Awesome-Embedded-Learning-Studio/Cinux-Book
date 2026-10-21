@@ -77,12 +77,7 @@ void PutChar(char character);
  * @since         0.1.0
  * @ingroup       kernel_boot
  */
-inline void PutString(const char* text) {
-    while (*text != '\0') {
-        PutChar(*text);
-        ++text;
-    }
-}
+void PutString(const char* text, bool newline = false);
 
 /**
  * @brief         Waits until every console sink has finished sending.

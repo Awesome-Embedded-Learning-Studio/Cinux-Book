@@ -20,8 +20,8 @@ long long seat_pipe_pair(unsigned long long user_fds) {
     if (user_fds == 0 || user_fds >= kUserAddressLimit) {
         return -kEfault;
     }
-    auto* const kPipe = new fs::Pipe();
-    if (kPipe == nullptr) {
+    const base::Shared<fs::Pipe> kPipe{new fs::Pipe()};
+    if (!kPipe.holds()) {
         return -kEnomem;
     }
     kPipe->add_writer();
@@ -39,17 +39,15 @@ long long seat_pipe_pair(unsigned long long user_fds) {
     };
     const proc::Task* const           kSelf = CurrentTask();
     const base::Result<unsigned long> kReadEnd =
-        kSelf->files->alloc(fs::PipeOps(), kPipe, kReadMark);
+        kSelf->files->alloc(fs::PipeOps(), kPipe.get(), kReadMark);
     if (!kReadEnd.ok()) {
-        delete kPipe;
         return -kEnomem;
     }
     const base::Result<unsigned long> kWriteEnd =
-        kSelf->files->alloc(fs::PipeOps(), kPipe, kWriteMark);
+        kSelf->files->alloc(fs::PipeOps(), kPipe.get(), kWriteMark);
     if (!kWriteEnd.ok()) {
         cinux::base::safety::Check(kSelf->files->free(kReadEnd.value()).ok(),
                                    "pipe read end vanished while seating the write end");
-        delete kPipe;
         return -kEnomem;
     }
     // NOLINTNEXTLINE(performance-no-int-to-ptr)

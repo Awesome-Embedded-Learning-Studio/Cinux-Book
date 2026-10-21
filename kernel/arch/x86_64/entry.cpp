@@ -22,9 +22,9 @@ extern "C" [[noreturn]] void KernelStart(unsigned long long info_addr) {
     auto const kBssBytes = static_cast<unsigned long>(g_kernel_bss_end - g_kernel_bss_start);
     cinux::base::SetBytes(g_kernel_bss_start, 0, kBssBytes);
     cinux::arch::WriteCr0(cinux::arch::ReadCr0() | cinux::arch::kCr0WriteProtect);
+    cinux::arch::per_cpu::InstallKernelGs();
     cinux::arch::gdt::LoadOwnedGdt();
     cinux::arch::tss::LoadTaskRegister();
-    cinux::arch::per_cpu::InstallKernelGs();
     cinux::arch::isr::InstallExceptionStubs();
     cinux::arch::idt::LoadIdt();
     kernel::Main(*cinux::base::PtrAt<cinux::boot::BootInfo>(info_addr));

@@ -38,6 +38,7 @@ inline constexpr unsigned long kPipeBytes = 4096;
 class Pipe final : public base::RefCount<> {
 public:
     Pipe();
+    ~Pipe();
 
     /**
      * @brief     This pipe's distinguishing inode number.
@@ -81,12 +82,13 @@ public:
     void drop_writer();
 
     /// The poll faces: bytes waiting, farewell arrived, room to write.
-    [[nodiscard]] bool has_bytes() const { return ring_.count() != 0; }
-    [[nodiscard]] bool writers_gone() const { return writers_ == 0; }
-    [[nodiscard]] bool has_room() const { return ring_.count() < kPipeBytes; }
+    [[nodiscard]] bool has_bytes() const;
+    [[nodiscard]] bool writers_gone() const;
+    [[nodiscard]] bool has_room() const;
 
 private:
     base::container::RingQueue<unsigned char, kPipeBytes + 1> ring_;
+    mutable proc::Spinlock                                    ring_gate_;
     proc::Semaphore                                           readable_;
     proc::Semaphore                                           writable_;
     unsigned long                                             writers_  = 0;

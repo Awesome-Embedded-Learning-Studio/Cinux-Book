@@ -19,6 +19,7 @@ import socket
 import subprocess
 import tempfile
 import time
+from qemu_args import device_args
 
 STOP_TIMEOUT = 10.0
 COMMAND_TIMEOUT = 5.0
@@ -147,12 +148,8 @@ class Session:
         with open(self.qemu_log, "wb") as errors:
             self.qemu = subprocess.Popen(
                 [
-                    "qemu-system-x86_64", "-accel", "kvm", "-display", "none", "-no-reboot",
-                    "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
-                    "-device", "ahci,id=sata0",
+                    "qemu-system-x86_64", *device_args(self.image),
                     "-drive", f"format=raw,file={self.image}",
-                    "-drive", f"format=raw,file={os.path.join(REPO_ROOT, 'build', 'boot', 'ext2.img')},if=none,id=spare",
-                    "-device", "ide-hd,drive=spare,bus=sata0.0",
                     "-serial", f"file:{self.serial_log}", "-S", "-gdb", f"tcp:127.0.0.1:{self.gdb_port}",
                 ],
                 stdout=subprocess.DEVNULL,

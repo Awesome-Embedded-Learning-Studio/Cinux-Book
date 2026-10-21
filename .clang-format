@@ -99,7 +99,7 @@ AccessModifierOffset: -4
 
 # namespace 缩进
 NamespaceIndentation: None
-FixNamespaceComments: true
+FixNamespaceComments: false
 
 # ============================================================
 # 其他格式化选项

@@ -38,8 +38,10 @@ add_custom_command(
             "CINUX_TLSDEMO_ELF=$<TARGET_FILE:user_tlsdemo>"
             "CINUX_THREADDEMO_ELF=$<TARGET_FILE:user_threaddemo>"
             "CINUX_TTYDEMO_ELF=$<TARGET_FILE:user_ttydemo>"
+            "CINUX_SMPSTRESS_ELF=$<TARGET_FILE:user_smpstress>"
             bash ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh ${CINUX_EXT2_IMG}
     DEPENDS user_hello user_shell user_mapper user_sigdemo user_tlsdemo user_threaddemo user_ttydemo
+            user_smpstress ${CMAKE_SOURCE_DIR}/scripts/ext2_seed/smp-stress.sh
     COMMENT "teaching ext2 volume for the block and fs experiments")
 add_custom_target(ext2_img DEPENDS ${CINUX_EXT2_IMG})
 set(CINUX_EXT2_KTEST_IMG ${CMAKE_BINARY_DIR}/boot/ext2_ktest.img)
@@ -50,12 +52,16 @@ add_custom_target(ext2_ktest_img
     COMMENT "scratch copy of the ext2 volume for kernel tests")
 set(CINUX_QEMU_DEVICE_ARGS
     -accel;kvm
+    -smp;2
     -display;none
     -no-reboot
     -device;isa-debug-exit,iobase=0xf4,iosize=0x04
     -device;ahci,id=sata0
     -drive;format=raw,file=${CINUX_EXT2_IMG},if=none,id=spare
     -device;ide-hd,drive=spare,bus=sata0.0)
+string(REPLACE ";" "\n" CINUX_QEMU_DEVICE_LINES "${CINUX_QEMU_DEVICE_ARGS}")
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/qemu-device-args.txt"
+    CONTENT "${CINUX_QEMU_DEVICE_LINES}\n")
 
 # Kernel test kernels: one entry "name:stage" = one test file
 # test/kernel/test_<name>.cpp (integration: test/kernel/integration/) =
@@ -63,7 +69,8 @@ set(CINUX_QEMU_DEVICE_ARGS
 # names the init-ladder level the test main walks before running cases.
 set(CINUX_KTEST_STAGES exceptions irq keyboard mm proc block)
 set(CINUX_KTESTS selfcheck:exceptions tick:irq keyboard:keyboard vmm:mm heap:mm aspace:mm cow:mm
-    vma:mm demand:mm loader:mm sched:proc block:block ext2:block pipe:proc tty:keyboard)
+    vma:mm demand:mm loader:mm sched:proc block:block block_error:block ext2:block pipe:proc
+    tty:keyboard smp:proc smp_pipe:proc)
 set(CINUX_KTESTS_INTEGRATION "")
 
 message("Configuring Boot")

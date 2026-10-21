@@ -1,5 +1,8 @@
 #include "kernel/proc/sched_class.hpp"
 
+#include <utility>
+
+#include "kernel/arch/x86_64/per_cpu.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/task.hpp"
 
@@ -27,7 +30,14 @@ public:
         return kChosen;
     }
 
-    Task* take_front() { return count_ == 0 ? nullptr : take_at(0); }
+    Task* take_front() {
+        for (unsigned long long slot = 0; slot < count_; ++slot) {
+            if (available(*slots_[slot])) {
+                return take_at(slot);
+            }
+        }
+        return nullptr;
+    }
 
     bool remove(Task& task) {
         for (unsigned long long i = 0; i < count_; ++i) {
@@ -40,16 +50,21 @@ public:
     }
 
     Task* take_best_priority() {
-        unsigned long long best = 0;
-        for (unsigned long long i = 1; i < count_; ++i) {
-            if (slots_[i]->priority < slots_[best]->priority) {
+        unsigned long long best = count_;
+        for (unsigned long long i = 0; i < count_; ++i) {
+            if (available(*slots_[i]) &&
+                (best == count_ || slots_[i]->priority < slots_[best]->priority)) {
                 best = i;
             }
         }
-        return count_ == 0 ? nullptr : take_at(best);
+        return best == count_ ? nullptr : take_at(best);
     }
 
 private:
+    static bool available(const Task& task) {
+        const int kOwner = __atomic_load_n(&task.on_cpu, __ATOMIC_ACQUIRE);
+        return kOwner == -1 || std::cmp_equal(kOwner, arch::per_cpu::PerCpu::self().cpu_id);
+    }
     Task*              slots_[kReadyQueueCapacity] = {};
     unsigned long long count_                      = 0;
 };

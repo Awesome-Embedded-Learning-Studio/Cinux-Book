@@ -25,6 +25,7 @@
 #include <stdint.h>
 
 #include <array>
+#include <atomic>
 
 #include "cinux/addr.hpp"
 #include "cinux/singleton.hpp"
@@ -174,6 +175,7 @@ private:
     uint64_t              sector_count_ = 0;
     std::array<char, 41>  model_        = {};
     proc::Completion      completion_;  ///< One request's verdict, rearmed per command.
+    std::atomic_bool      quarantined_{false};
 };
 
 }  // namespace cinux::driver

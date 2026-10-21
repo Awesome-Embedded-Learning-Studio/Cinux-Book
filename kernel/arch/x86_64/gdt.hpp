@@ -280,14 +280,22 @@ struct [[gnu::packed]] TablePointer {
 };
 
 /**
+ * @brief Store the executing processor's hardware GDTR.
+ * @param[out] snapshot Receives the limit and the linear GDT base.
+ * @since 0.3.0
+ * @ingroup kernel_arch
+ */
+extern "C" void StoreGdtSnapshot(TablePointer* snapshot);
+
+/**
  * @brief         Load the kernel GDT and start running on its selectors.
  * @return        None.
  * @note          lgdt followed by a far return into selector 0x08 and a
- *                reload of every data segment register; interrupts are
+ *                reload of DS, ES and SS; interrupts are
  *                still off at this point in the bring-up, so the reload
  *                races nothing. The TSS pair in the static table is
  *                zero from MakeKernelGdt; this call encodes the real
- *                address and limit of the one Tss before loading.
+ *                address and limit of this CPU's Tss before loading.
  *                Loading the register itself (ltr) belongs to the
  *                task-state side, tss.hpp.
  * @since         0.1.0

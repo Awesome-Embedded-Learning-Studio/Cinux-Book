@@ -25,18 +25,11 @@ long long HandleKill(const SyscallFrame& frame) {
     const auto       kNamedPid = static_cast<long long>(frame.rdi);
     proc::Scheduler& scheduler = proc::Scheduler::self();
     if (kNamedPid > 0) {
-        proc::Task* const kTarget =
-            scheduler.find_by_pid(static_cast<unsigned long long>(kNamedPid));
-        if (kTarget == nullptr) {
-            return -kEsrch;
-        }
-        if (kNumber == 0) {
-            return 0;
-        }
-        if (!proc::SendSignal(*kTarget, kNumber)) {
-            return -kEinval;
-        }
-        return 0;
+        long long result = -kEsrch;
+        scheduler.with_task(static_cast<unsigned long long>(kNamedPid), [&](proc::Task& target) {
+            result = (kNumber == 0 || proc::SendSignal(target, kNumber)) ? 0 : -kEinval;
+        });
+        return result;
     }
     // Zero names the caller's own group, -1 every other task on the
     // roll (the bring-up init has no parent, so it is not on the roll

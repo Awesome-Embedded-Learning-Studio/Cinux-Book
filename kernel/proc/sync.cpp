@@ -6,11 +6,16 @@
 #include "cinux/assert.hpp"
 #include "kernel/arch/x86_64/instructions.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
+#include "kernel/arch/x86_64/per_cpu.hpp"
 #include "kernel/proc/lockdep.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
 
 namespace cinux::proc {
+
+unsigned int SpinLedger::depth() const {
+    return depth_[arch::per_cpu::PerCpu::self().cpu_id];
+}
 
 SpinLedger& DefaultSpinLedger() {
     static constinit SpinLedger instance{};
@@ -26,6 +31,8 @@ void record_acquire(Order& order, const void* lock, Dump&& dump) {
         if (kOutcome != LockOrder::Status::kOk) {
             dump();
         }
+        cinux::base::safety::Check(kOutcome != LockOrder::Status::kCapacity,
+                                   "lockdep acquisition exhausted identity or held-chain capacity");
         cinux::base::safety::Check(kOutcome == LockOrder::Status::kOk,
                                    "lockdep acquisition failed: cycle, recursion or capacity");
     }
@@ -62,13 +69,14 @@ void SpinLedger::dump_held() {
 
 void SpinLedger::note_acquire(const void* lock) {
     record_acquire(order_, lock, [this] { dump_held(); });
-    ++depth_;
+    ++depth_[arch::per_cpu::PerCpu::self().cpu_id];
 }
 
 void SpinLedger::note_release(const void* lock) {
-    cinux::base::safety::Check(depth_ != 0, "spin ledger underflow");
+    auto& depth = depth_[arch::per_cpu::PerCpu::self().cpu_id];
+    cinux::base::safety::Check(depth != 0, "spin ledger underflow");
     record_release(order_, lock, [this] { dump_held(); });
-    --depth_;
+    --depth;
 }
 
 void SpinLedger::forget(const void* lock) {
@@ -83,25 +91,30 @@ void Spinlock::retire() {
 }
 
 void Spinlock::lock() {
-    cinux::base::safety::Check(!held_.test(std::memory_order_relaxed),
+    const auto kIrq = cinux::arch::SaveAndDisableIrq();
+    const auto kCpu = static_cast<int>(arch::per_cpu::PerCpu::self().cpu_id);
+    cinux::base::safety::Check(owner_cpu_.load(std::memory_order_relaxed) != kCpu,
                                "spinlock re-entered on one core");
-    irq_state_ = cinux::arch::SaveAndDisableIrq();
     while (held_.test_and_set(std::memory_order_acquire)) {
         cinux::arch::CpuRelax();
     }
+    irq_state_ = kIrq;
+    owner_cpu_.store(kCpu, std::memory_order_relaxed);
     SpinLedger& ledger = ledger_ != nullptr ? *ledger_ : DefaultSpinLedger();
     ledger.note_acquire(this);
     holder_ = Scheduler::self().current();
 }
 
 void Spinlock::unlock() {
+    const auto kIrq = irq_state_;
     cinux::base::safety::Check(holder_ == Scheduler::self().current(),
                                "spinlock released by a non-holder");
     holder_            = nullptr;
     SpinLedger& ledger = ledger_ != nullptr ? *ledger_ : DefaultSpinLedger();
     ledger.note_release(this);
+    owner_cpu_.store(-1, std::memory_order_relaxed);
     held_.clear(std::memory_order_release);
-    cinux::arch::RestoreIrq(irq_state_);
+    cinux::arch::RestoreIrq(kIrq);
 }
 
 const char* Spinlock::holder_name() const {
@@ -138,8 +151,9 @@ void Mutex::lock() {
             return;
         }
         waiters_.push_back(*kSelf);
+        Scheduler::self().prepare_to_wait();
     }
-    Scheduler::self().block_current();
+    Scheduler::self().schedule_blocked();
 }
 
 void Mutex::unlock() {
@@ -169,6 +183,11 @@ MutexGuard Mutex::guard() {
 
 Semaphore::Semaphore(long long initial) : count_(initial) {}
 
+void Semaphore::retire() {
+    cinux::base::safety::Check(waiters_.empty(), "retired semaphore still has waiters");
+    spin_.retire();
+}
+
 void Semaphore::wait() {
     const cinux::arch::IrqGuard kParkGuard;
     Task* const                 kSelf = Scheduler::self().current();
@@ -179,8 +198,9 @@ void Semaphore::wait() {
             return;
         }
         waiters_.push_back(*kSelf);
+        Scheduler::self().prepare_to_wait();
     }
-    Scheduler::self().block_current();
+    Scheduler::self().schedule_blocked();
 }
 
 void Semaphore::post() {
@@ -215,8 +235,9 @@ bool Completion::wait() {
             return state_ == State::kSuccess;
         }
         waiters_.push_back(*kSelf);
+        Scheduler::self().prepare_to_wait();
     }
-    Scheduler::self().block_current();
+    Scheduler::self().schedule_blocked();
     {
         const SpinGuard kGuard(spin_);
         return state_ == State::kSuccess;

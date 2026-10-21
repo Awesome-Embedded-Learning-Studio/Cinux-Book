@@ -25,6 +25,7 @@
 #pragma once
 
 #include <concepts>
+#include <utility>
 
 namespace cinux::base {
 
@@ -57,7 +58,10 @@ concept GuardPolicy = requires(Policy::State& state) {
 template <GuardPolicy Policy>
 class ScopedGuard {
 public:
-    ScopedGuard() { Policy::enter(state_); }
+    template <typename... Args>
+    explicit ScopedGuard(Args&&... args) : state_{std::forward<Args>(args)...} {
+        Policy::enter(state_);
+    }
 
     ~ScopedGuard() { Policy::exit(state_); }
 

@@ -3,7 +3,9 @@
 #include <stdint.h>
 
 #include <array>
+#include <atomic>
 
+#include "cinux/assert.hpp"
 #include "cinux/bit_ops/bitmask.hpp"
 #include "cinux/memory.hpp"
 #include "cinux/ptr.hpp"
@@ -54,17 +56,13 @@ constexpr AhciReg kCmdFisReceiveRunning = cinux::base::bit::MaskBit<uint32_t>(14
 /// @brief Port command bit: a command list walk is in flight, ditto.
 constexpr AhciReg kCmdCommandListRunning = cinux::base::bit::MaskBit<uint32_t>(15);
 
-/// @brief Task file bit: the status byte's error flag, which the spec seats in the high half.
-constexpr AhciReg kTfdError = cinux::base::bit::MaskBit<uint32_t>(8);
+constexpr AhciReg kTfdError = cinux::base::bit::MaskBit<uint32_t>(0);
 
-/// @brief Task file bit: the status byte's data request, same half.
-constexpr AhciReg kTfdDataRequest = cinux::base::bit::MaskBit<uint32_t>(11);
+constexpr AhciReg kTfdDataRequest = cinux::base::bit::MaskBit<uint32_t>(3);
 
-/// @brief Task file bit: the status byte's device fault, same half.
-constexpr AhciReg kTfdDeviceFault = cinux::base::bit::MaskBit<uint32_t>(13);
+constexpr AhciReg kTfdDeviceFault = cinux::base::bit::MaskBit<uint32_t>(5);
 
-/// @brief Task file bit: the status byte's busy flag, same half.
-constexpr AhciReg kTfdBusy = cinux::base::bit::MaskBit<uint32_t>(15);
+constexpr AhciReg kTfdBusy = cinux::base::bit::MaskBit<uint32_t>(7);
 
 /// @brief The status flags a finished command must have cleared.
 constexpr AhciReg kTfdNotClean{kTfdError | kTfdDataRequest | kTfdDeviceFault | kTfdBusy};
@@ -329,6 +327,14 @@ bool Ahci::read_blocks(Lba first, BlockSpan span, uint8_t* destination) {
     if (!wait_for_completion()) {
         return false;
     }
+    const AhciReg kOutstanding{regs_->ports[port_index_].command_issue};
+    base::safety::Check(!kOutstanding.has(kSlotZero),
+                        "AHCI completion returned while the command is still in flight");
+    const auto* const kHeader =
+        base::PtrAt<const volatile CommandHeader>(mm::DirectMapVirt(command_page_.raw));
+    base::safety::Check(
+        kHeader->prd_byte_count == static_cast<unsigned long>(span.value) * kSectorBytes,
+        "AHCI completion returned before the requested DMA bytes arrived");
     cinux::base::CopyBytes(destination,
                            cinux::base::PtrAt<const void>(mm::DirectMapVirt(data_page_.raw)),
                            static_cast<unsigned long>(span.value) * kSectorBytes);
@@ -359,20 +365,27 @@ void Ahci::on_interrupt() {
     }
     const AhciReg kIssue{port.command_issue};
     const AhciReg kTask{port.task_file_data};
-    if (kEvents.has(kFatal)) {
-        completion_.finish(false);
-    } else if (kEvents.has(kIsDeviceToHost | kIsPioSetup) && !kIssue.has(kSlotZero) &&
-               (kTask & kTfdNotClean).raw == 0) {
-        completion_.finish(true);
+    const bool    kFailed = kEvents.has(kFatal);
+    const bool kSucceeded = kEvents.has(kIsDeviceToHost | kIsPioSetup) && !kIssue.has(kSlotZero) &&
+                            (kTask & kTfdNotClean).raw == 0;
+    if (kFailed) {
+        quarantined_.store(true, std::memory_order_release);
+        port.interrupt_enable = 0;
+        port.command          = (AhciReg{port.command} & ~kCmdStart).raw;
+        print::Println("[kern] ahci quarantined: events %X tfd %X ci %X", kEvents.raw, kTask.raw,
+                       kIssue.raw);
     }
     port.interrupt_status = (kEvents & kWatched).raw;
     regs_->interrupt_status =
         cinux::base::bit::MaskBit<uint32_t>(static_cast<unsigned char>(port_index_)).raw;
     [[maybe_unused]] const AhciReg kEcho{regs_->interrupt_status};
+    if (kFailed || kSucceeded) {
+        completion_.finish(!kFailed);
+    }
 }
 
 bool Ahci::issue(uint32_t command, uint64_t lba, uint16_t count, bool write) {
-    if (count > kMaxSectorsPerCommand) {
+    if (count > kMaxSectorsPerCommand || quarantined_.load(std::memory_order_acquire)) {
         return false;
     }
     const unsigned long kBytes = static_cast<unsigned long>(count) * kSectorBytes;

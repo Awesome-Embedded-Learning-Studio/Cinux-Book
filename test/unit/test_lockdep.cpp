@@ -1,10 +1,40 @@
 #include "framework.hpp"
+#include "kernel/arch/x86_64/per_cpu.hpp"
 #include "kernel/proc/lockdep.hpp"
 #include "test_assert.hpp"
 
 namespace {
 using Order  = cinux::proc::LockOrder;
 using Status = Order::Status;
+void record_pair(Order& order, const void* earlier, const void* later);
+
+TEST("lockdep: CPU held stacks are private while lock order edges cross CPUs") {
+    Order order;
+    int   alpha = 0;
+    int   beta  = 0;
+    auto& cpu   = cinux::arch::per_cpu::PerCpu::self();
+    ASSERT_TRUE(order.acquire(&alpha) == Status::kOk);
+    cpu.cpu_id = 1;
+    ASSERT_TRUE(order.acquire(&beta) == Status::kOk);
+    cpu.cpu_id = 0;
+    ASSERT_TRUE(order.release(&alpha) == Status::kOk);
+    cpu.cpu_id = 1;
+    ASSERT_TRUE(order.release(&beta) == Status::kOk);
+    cpu.cpu_id = 0;
+}
+
+TEST("lockdep: another CPU observes established lock-order cycles") {
+    Order order;
+    int   alpha = 0;
+    int   beta  = 0;
+    auto& cpu   = cinux::arch::per_cpu::PerCpu::self();
+    record_pair(order, &alpha, &beta);
+    cpu.cpu_id = 1;
+    ASSERT_TRUE(order.acquire(&beta) == Status::kOk);
+    ASSERT_TRUE(order.acquire(&alpha) == Status::kCycle);
+    ASSERT_TRUE(order.release(&beta) == Status::kOk);
+    cpu.cpu_id = 0;
+}
 
 void record_pair(Order& order, const void* earlier, const void* later) {
     ASSERT_TRUE(order.acquire(earlier) == Status::kOk);
