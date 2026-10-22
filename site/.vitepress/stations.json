@@ -171,12 +171,85 @@
       "trail": ["ext2", "block cache", "cwd", "RTC"]
     },
     {
-      "id": "act2",
-      "eyebrow": "幕间 & ACT II(预告)",
-      "title": "重来一遍,从地基到系统",
-      "desc": "带着答案重走地基,多核、驱动、网络,直到跑起别人的程序。",
-      "status": "planned",
-      "trail": ["rebuild", "SMP", "driver", "busybox"]
+      "id": "17",
+      "slug": "17-fork-exec",
+      "title": "生与收",
+      "titleEn": "Birth and Reaping",
+      "desc": "盘上有字,机器却只会跑一个烤在镜像里的 shell,装载器贴着一页的天花板。这一卷教机器生养进程:pid 与僵尸立起家族,写时复制带着引用计数一次立对,fork 合成一帧从返回尾进场,execve 改旧帧换一个新世界,wait 收下孩子的退出码。收卷时 shell 住进盘上的 /bin,init 等在楼上,孩子退场就重拉,第一幕在此收官。",
+      "note": "两拍走的 fork、WP 位从加电起就是零的真发现、一帧两映射的测试重写、帧计数升格 PMM、返回尾镜像与双链踩踏、ELF 静态装载、respawn 收官——第一幕合龙",
+      "status": "open",
+      "trail": ["fork", "CoW", "execve", "respawn"]
+    },
+    {
+      "id": "18",
+      "slug": "18-interlude",
+      "eyebrow": "幕间",
+      "title": "为什么重来一遍",
+      "titleEn": "Why Rebuild",
+      "desc": "上一卷收卷时说好歇一站。当年五月末的一个早晨,教程与工程分成两家,前后不到半个钟头。这一卷不添一行代码,把两个故事摆开讲:分家那天两边一个字节不差,推倒重来推倒的是章法和历史;二十六天的冲刺成了奇迹也留下教训;五处旧病凭版式与案卷没有再犯,三处弯明知故绕,等实弹来考。第一幕在此收束,第二幕带着答案开锣。",
+      "note": "三个时刻分秒核对、五避三绕对照单、教学仓/教学树/工程线三名制、七百多条提交的口径、一卷不添代码——两幕之间的渡口",
+      "status": "open",
+      "trail": ["interlude", "fork", "rebuild", "second act"]
+    },
+    {
+      "id": "19",
+      "slug": "19-lazy",
+      "title": "懒到家",
+      "titleEn": "Lazy on Purpose",
+      "desc": "第二幕开场,教机器偷懒:登记册记账许诺,mmap 四个号开窗,块缓存长到页的个头;缺页进门过五问的堂,补的才铺,守卫页拦底。锁学会报名号,浮点立起三道闸门,两件上一卷点名的遗留当面销清。省的那一半给了实数,快的那一半认当年的账。",
+      "note": "懒章程三词、构造假命中一案、FindSlot 望文生义学费、四代辈分挂死案、munmap/mprotect 换座如实、SSE 五类六一八亲手数——第二幕的锣,懒是快",
+      "status": "open",
+      "trail": ["demand paging", "VMA", "mmap", "FPU gate"]
+    },
+    {
+      "id": "20",
+      "slug": "20-visibility",
+      "title": "看得见的内核",
+      "titleEn": "Seeing Itself",
+      "desc": "内核学会说自己:一张名字簿把裸地址翻成真名,panic 一站式报原因、回溯与家底;两段链接让运行着的镜像自己答自己的函数地址。调度的主见从队列里搬进可插拔的类,交 CPU 前先清拍数,旧时间片的错处顺手翻案。注入表八页对八页,黑着的测试被检查线照了出来。",
+      "note": "weak 双符号注入脸、KEEP 五户、调度类四问、fresh slice 错处、虚析构与浮点断言两个侥幸绿、权重类=priority 的替代叫法——叫什么,崩在哪,轮到谁",
+      "status": "open",
+      "trail": ["kallsyms", "panic", "scheduling class", "nm injection"]
+    },
+    {
+      "id": "21",
+      "slug": "21-signals",
+      "title": "听得懂喊声",
+      "titleEn": "Hearing the Shout",
+      "desc": "进程学会被打断:帧长全到一百二十八字,关门的银行存下被遗漏的四个寄存器;信号两段路,发送登记、投递分发,默认四种下场,句柄可装可还;死讯配对 SIGSEGV 与 SIGCHLD,退出码编进收据。进程组立门牌,kill 学会广播,wait 认得组;停是第五种活法,发送时清位、投递时续跑,停得下来,醒得过来。",
+      "note": "十六连压与 r10 讲究、蹦床一页 r-x、rax 保真、(code&0xFF)<<8、kernel_init 不上名册的 parent 守卫、ASan 拦下长凳死链、句柄路的诚实边界——喊一个人,喊一片,喊停喊醒",
+      "status": "open",
+      "trail": ["signals", "process group", "STOP/CONT", "sigreturn"]
+    },
+    {
+      "id": "22",
+      "slug": "22-threads",
+      "title": "同一副身家,各一条栈",
+      "titleEn": "One Body, Many Flows",
+      "desc": "一个进程的身子住进好几条执行流:TLS 双基址随任务摆渡,swapgs 退场;futex 一个词二百五十六只桶,丢唤醒的窗口从结构上关上;打开的描述成了共享的家当,fork 走 adopt,偏移终于一起走。clone 按旗分家,cleartid 留下送行的字,join 等在词上,退场的成员由除名的人亲手摘链。",
+      "note": "fs:0 承载等式、十六字节对齐与余八旧约、五道护栏、假栈窗口步进避让、threaddemo 念三遍、GS 远话在这卷收口——组长的号牌,各家的栈",
+      "status": "open",
+      "trail": ["threads", "TLS", "futex", "clone"]
+    },
+    {
+      "id": "23",
+      "slug": "23-run-progs",
+      "title": "开门迎客",
+      "titleEn": "Hosting Real Guests",
+      "desc": "musl 进门,busybox 上桌:十九个号位照人家的表铺开,stat 的座坐错了六年,真 ABI 一调就破。管子通了,记录打包了,说谎的 mode 拆穿了,细钟从 ACPI 表里请了出来。行规程住进 read,ppoll 数着就绪,四句假话换成真话——ash 的管道里,echo 一敲就应。",
+      "note": "工具链四层旧病、画像三版三窗口、凌晨两案、ENOENT 乌龙与 144 字节 ABI、HPET 偏移晚四字节、双退格吃尾、外面的眼睛四诊——第一个真客人,五案一缘",
+      "status": "open",
+      "trail": ["musl", "busybox", "pipe", "TTY", "ppoll"]
+    },
+    {
+      "id": "24",
+      "slug": "24-devfs-tty",
+      "title": "假文件与真终端",
+      "titleEn": "Fake Files, Real Terminals",
+      "desc": "名字是真的,内容是活的:devfs 开出 /dev 的座,procfs 照出活进程的影子。Tty 可实例化,termios 六十字节照真 ABI 落座;ptmx 一开就铸一对,座位革命让前三个号各归其位。作业控制开锣:^C 归组,ctty 认主,ash 从 console 起整套会话,降级一次没有。最后一个 ud2 熄了,检查镜像带盘零 trap。",
+      "note": "四缝与四件、36B 线格式真 ABI、八字节失而复得、FsOps 十三法、锁内快照、外面的眼睛四纸判决、ACPI 字节化收口——名字里的家什,逐件兑现",
+      "status": "open",
+      "trail": ["devfs", "procfs", "PTY", "termios", "job control"]
     }
   ]
 }
