@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "cinux/container/ring_queue.hpp"
 #include "kernel/driver/tty/tty_config.hpp"
 
@@ -119,12 +121,30 @@ public:
      *
      * @param[out] sink    Where the line's bytes land, newline included.
      * @param[in]  count   How many bytes sink holds.
+     * @param[in]  wait    Whether an empty input may park the reader.
      * @return    The bytes handed over; blocks until a whole line exists
-     *              in canonical mode, until any byte exists otherwise.
+     *              in canonical mode, until any byte exists otherwise,
+     *              when wait is true. Hangup drains a partial final line.
      * @since     0.3.0
      * @ingroup   kernel_driver
      */
-    unsigned long read_line(unsigned char* sink, unsigned long count);
+    unsigned long read_line(unsigned char* sink, unsigned long count, bool wait = true);
+
+    /**
+     * @brief     Ends input after the remaining keys and edited bytes drain.
+     * @return    None
+     * @since     0.6.0
+     * @ingroup   kernel_driver
+     */
+    void hang_up() { hung_up_.store(true); }
+
+    /**
+     * @brief     Whether the input producer has closed.
+     * @return    True after hang_up, until the terminal is rewired.
+     * @since     0.6.0
+     * @ingroup   kernel_driver
+     */
+    [[nodiscard]] bool hung_up() const { return hung_up_.load(); }
 
     /**
      * @brief     Feeds one byte through the discipline.
@@ -245,6 +265,8 @@ private:
 
     /// The parked signal number, zero when none.
     int pending_signal_ = 0;
+
+    std::atomic<bool> hung_up_{false};
 
     const TtyWiring* wiring_ = nullptr;
 

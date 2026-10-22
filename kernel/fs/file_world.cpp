@@ -21,7 +21,9 @@
 #include "kernel/driver/block/block_cache.hpp"
 #include "kernel/driver/block/block_config.hpp"
 #include "kernel/driver/block/block_queue.hpp"
+#include "kernel/driver/device/device.hpp"
 #include "kernel/driver/rtc/rtc.hpp"
+#include "kernel/driver/usb/usb_keyboard.hpp"
 #include "kernel/fs/devfs/console_node.hpp"
 #include "kernel/fs/devfs/devfs.hpp"
 #include "kernel/fs/devfs/pty_node.hpp"
@@ -52,9 +54,20 @@ void FileWorld::init() {
     const base::Result<void> kRoot = vfs_.mount("/", *volume_);
     base::safety::Check(kRoot.ok(), "ext2 root mount failed");
 
-    RegisterBuiltinDevices(devfs_);
-    RegisterConsoleDevice(devfs_);
-    RegisterPtyDevices(devfs_);
+    driver::DeviceModel::self().bind(devfs_);
+    RegisterBuiltinDevices();
+    RegisterConsoleDevice();
+    RegisterPtyDevices();
+    [[maybe_unused]] const bool kUsbKeyboard = driver::SeatUsbKeyboard();
+    const base::Result<void>    kSata        = driver::DeviceModel::self().seat({
+        .klass       = driver::DeviceClass::kBlock,
+        .name        = "sata0",
+        .number      = MakeDeviceId(8, 0),
+        .ops         = nullptr,
+        .bus         = "pci",
+        .driver_name = "ahci",
+    });
+    base::safety::Check(kSata.ok(), "device model refused the sata0 seat");
     const base::Result<void> kDevices = vfs_.mount("/dev", devfs_);
     base::safety::Check(kDevices.ok(), "devfs mount failed");
 

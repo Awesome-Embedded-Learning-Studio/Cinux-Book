@@ -1,5 +1,7 @@
 #include "kernel/init/init_sequence.hpp"
 
+#include "cinux/assert.hpp"
+#include "cinux/result.hpp"
 #include "kernel/arch/x86_64/halt.hpp"
 #include "kernel/arch/x86_64/irq_stubs.hpp"
 #include "kernel/arch/x86_64/pic.hpp"
@@ -12,11 +14,15 @@
 #include "kernel/driver/acpi/madt.hpp"
 #include "kernel/driver/ahci/ahci.hpp"
 #include "kernel/driver/apic/local_apic.hpp"
+#include "kernel/driver/device/device.hpp"
 #include "kernel/driver/hpet/hpet.hpp"
 #include "kernel/driver/keyboard/keyboard.hpp"
+#include "kernel/driver/net/loopback.hpp"
 #include "kernel/driver/pci/pci.hpp"
 #include "kernel/driver/pit/pit.hpp"
 #include "kernel/driver/serial/serial.hpp"
+#include "kernel/driver/usb/usb_keyboard.hpp"
+#include "kernel/driver/usb/xhci.hpp"
 #include "kernel/interrupt/irq.hpp"
 #include "kernel/mm/heap_runtime.hpp"
 #include "kernel/mm/pmm.hpp"
@@ -171,6 +177,40 @@ constexpr InitStep kInitSteps[] = {
             if (!driver::Hpet::self().init(driver::acpi::FindRootPointer())) {
                 print::Println("[kern] hpet absent, clocks stay tick-grained");
             }
+            return info;
+        },
+    },
+    {
+        .name = "xhci host",
+        .run  = +[](const BootInfo* info) -> const BootInfo* {
+            if (!driver::XhciHost::self().init()) {
+                print::Println("[kern] xhci absent, usb stays dark");
+            }
+            return info;
+        },
+    },
+    {
+        .name = "usb keyboard",
+        .run  = +[](const BootInfo* info) -> const BootInfo* {
+            if (!driver::UsbKeyboard::self().init() && driver::XhciHost::self().present()) {
+                print::Println("[kern] usb keyboard refused enumeration, ps/2 carries the typing");
+            }
+            return info;
+        },
+    },
+    {
+        .name = "network loopback",
+        .run  = +[](const BootInfo* info) -> const BootInfo* {
+            driver::net::Loopback::self().init();
+            const base::Result<void> kLo = driver::DeviceModel::self().seat({
+                .klass       = driver::DeviceClass::kNetwork,
+                .name        = "lo",
+                .number      = 0,
+                .ops         = nullptr,
+                .bus         = "virtual",
+                .driver_name = "loopback",
+            });
+            base::safety::Check(kLo.ok(), "device model refused the loopback seat");
             return info;
         },
     },

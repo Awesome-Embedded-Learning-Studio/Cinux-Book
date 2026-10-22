@@ -65,6 +65,32 @@ constexpr cinux::base::bit::BitRange kBarMemoryFlags{.low = 0, .width = 4};
 /// @brief Where a 64-bit bar's high half sits inside the combined address.
 constexpr cinux::base::bit::BitRange kBarHighHalf{.low = 32, .width = 32};
 
+/// @brief Register offset: command and status share this dword.
+constexpr uint8_t kRegStatus = 0x04;
+
+/// @brief Register offset: the capability list's first pointer lives here.
+constexpr uint8_t kRegCapabilityPointer = 0x34;
+
+/// @brief Status bit: the device keeps a capability list.
+constexpr ConfigWord kStatusHasCaps = cinux::base::bit::MaskBit<uint32_t>(20);
+
+/// @brief Capability id field of a capability header dword.
+constexpr cinux::base::bit::BitRange kCapId{.low = 0, .width = 8};
+
+/// @brief Next-pointer field of a capability header dword.
+constexpr cinux::base::bit::BitRange kCapNext{.low = 8, .width = 8};
+
+/// @brief The two reserved low bits every capability pointer keeps clear.
+constexpr ConfigWord kPointerReserved = ConfigWord{cinux::base::bit::Ones<uint32_t>(2)};
+
+/// @brief The walk's hard bound, where a circling list gives up.
+constexpr unsigned kCapabilityWalkLimit = 48;
+
+/// @brief Keeps a pointer's offset, dropping the reserved low bits.
+uint8_t aligned_pointer(uint32_t pointer) {
+    return static_cast<uint8_t>((ConfigWord{pointer} & ~kPointerReserved).raw);
+}
+
 }  // namespace
 
 uint32_t MakeConfigAddress(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset) {
@@ -72,7 +98,7 @@ uint32_t MakeConfigAddress(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offs
     address.deposit(kConfigBus, bus);
     address.deposit(kConfigSlot, slot);
     address.deposit(kConfigFunction, func);
-    address.deposit(kConfigRegister, static_cast<uint32_t>(offset) >> 2);
+    address.deposit(kConfigRegister, static_cast<uint32_t>(offset) / 4U);
     return address.raw;
 }
 
@@ -88,10 +114,12 @@ PciBar DecodeBar(uint32_t raw) {
     }
     ConfigWord base{kWord};
     base.deposit(kBarMemoryFlags, 0);
-    return {.base         = base.raw,
-            .kind         = kWord.extract(kBarWidth) == kBarWidth64 ? PciBarKind::kMemory64
-                                                                    : PciBarKind::kMemory32,
-            .prefetchable = kWord.has(kBarPrefetchable)};
+    return {
+        .base = base.raw,
+        .kind =
+            kWord.extract(kBarWidth) == kBarWidth64 ? PciBarKind::kMemory64 : PciBarKind::kMemory32,
+        .prefetchable = kWord.has(kBarPrefetchable),
+    };
 }
 
 uint64_t BarBase(const std::array<uint32_t, 6>& bars, unsigned long index) {
@@ -102,6 +130,21 @@ uint64_t BarBase(const std::array<uint32_t, 6>& bars, unsigned long index) {
     cinux::base::bit::BitMask<uint64_t> wide{kLow.base};
     wide.deposit(kBarHighHalf, bars[index + 1]);
     return wide.raw;
+}
+
+uint8_t FindCapability(PciConfigRead read, const void* context, PciSpot spot, uint8_t wanted) {
+    if (!ConfigWord{read(context, spot, kRegStatus)}.has(kStatusHasCaps)) {
+        return 0;
+    }
+    uint8_t offset = aligned_pointer(read(context, spot, kRegCapabilityPointer));
+    for (unsigned step = 0; offset != 0 && step < kCapabilityWalkLimit; ++step) {
+        const ConfigWord kHeader{read(context, spot, offset)};
+        if (static_cast<uint8_t>(kHeader.extract(kCapId)) == wanted) {
+            return offset;
+        }
+        offset = aligned_pointer(kHeader.extract(kCapNext));
+    }
+    return 0;
 }
 
 }  // namespace cinux::driver

@@ -34,6 +34,7 @@ Tty::Tty(const TtyWiring& wiring) {
 }
 
 void Tty::wire(const TtyWiring& wiring) {
+    hung_up_.store(false);
     wiring_         = &wiring;
     used_           = 0;
     pending_signal_ = 0;
@@ -142,13 +143,13 @@ int Tty::signal_for(char key) const {
 
 bool Tty::has_input() const {
     require_wired();
-    if (pool_.count() != 0 || used_ != 0 || pending_signal_ != 0) {
+    if (hung_up() || pool_.count() != 0 || used_ != 0 || pending_signal_ != 0) {
         return true;
     }
     return wiring_->has_key(wiring_->context);
 }
 
-unsigned long Tty::read_line(unsigned char* sink, unsigned long count) {
+unsigned long Tty::read_line(unsigned char* sink, unsigned long count, bool wait) {
     require_wired();
     if (pending_signal_ != 0 || count == 0) {
         return 0;
@@ -156,6 +157,13 @@ unsigned long Tty::read_line(unsigned char* sink, unsigned long count) {
     while (pool_.count() == 0) {
         char key = 0;
         if (!wiring_->take_key(wiring_->context, &key)) {
+            if (hung_up()) {
+                park_line();
+                break;
+            }
+            if (!wait) {
+                return 0;
+            }
             wiring_->wait(wiring_->context);
             continue;
         }

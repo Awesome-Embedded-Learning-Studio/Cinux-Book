@@ -10,7 +10,7 @@
  *
  * @author  Charliechen114514
  * @date    2026-10-09
- * @version 0.3
+ * @version 0.4
  * @since   0.1.0
  * @ingroup kernel_driver
  * @copyright Copyright (c) 2026
@@ -32,6 +32,9 @@ inline constexpr uint8_t kPciSubclassAhci = 0x06;
 
 /// @brief Subclass under mass storage: NVMe, the second consumer waiting at a later station.
 inline constexpr uint8_t kPciSubclassNvme = 0x08;
+
+/// @brief Subclass under serial bus: USB, prog_if separates the generations.
+inline constexpr uint8_t kPciSubclassUsb = 0x03;
 
 /**
  * @brief   Class-base bytes the kernel names; the raw byte stays raw.
@@ -142,5 +145,43 @@ struct PciBar {
  * @ingroup       kernel_driver
  */
 [[nodiscard]] uint64_t BarBase(const std::array<uint32_t, 6>& bars, unsigned long index);
+
+/**
+ * @brief   One device's seat in configuration space, bus and function named.
+ * @note    The readers below take a spot instead of a whole device, so the
+ *          host test world can speak about a device no bus ever probed.
+ * @since   0.6.0
+ * @ingroup kernel_driver
+ */
+struct PciSpot {
+    uint8_t bus;   ///< Bus the device answers on.
+    uint8_t slot;  ///< Device number on that bus.
+    uint8_t func;  ///< Function within the device.
+};
+
+/// Reads one configuration dword; both worlds inject their own.
+using PciConfigRead = uint32_t (*)(const void* context, PciSpot spot, uint8_t offset);
+
+/**
+ * @brief         Finds one capability's offset in a device's linked list.
+ *
+ * @param[in]     read    The configuration-space reader, injected.
+ * @param[in]     context The reader's own context word, passed through.
+ * @param[in]     spot    Which device's list to walk.
+ * @param[in]     wanted  The capability id looked for.
+ * @return        The capability header's offset, or zero when the status
+ *                register promises no list or the id never appears.
+ * @note          The walk is bounded: a list that circles or runs away
+ *                stops after forty-eight headers and answers zero. Both
+ *                the first pointer and every next pointer keep their low
+ *                two bits clear, so a misaligned pointer reads as its
+ *                containing dword offset.
+ * @warning       None
+ * @throws        None
+ * @since         0.6.0
+ * @ingroup       kernel_driver
+ */
+[[nodiscard]] uint8_t FindCapability(PciConfigRead read, const void* context, PciSpot spot,
+                                     uint8_t wanted);
 
 }  // namespace cinux::driver

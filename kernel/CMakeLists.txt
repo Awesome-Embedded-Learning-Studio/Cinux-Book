@@ -37,6 +37,10 @@ set(CINUX_KERNEL_NO_SSE_ISLAND
     ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/irq_stubs.cpp
     ${CMAKE_SOURCE_DIR}/kernel/driver/apic/local_apic.cpp
     ${CMAKE_SOURCE_DIR}/kernel/driver/apic/io_apic.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/driver/usb/xhci.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/driver/usb/xhci_layout.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/driver/usb/usb_device.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/driver/usb/usb_keyboard.cpp
     ${CMAKE_SOURCE_DIR}/kernel/interrupt/irq.cpp
     ${CMAKE_SOURCE_DIR}/kernel/debug/trace.cpp
     ${CMAKE_SOURCE_DIR}/kernel/debug/kallsyms.cpp

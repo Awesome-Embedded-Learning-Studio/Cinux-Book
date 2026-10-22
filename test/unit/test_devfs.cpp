@@ -34,9 +34,55 @@ const cinux::fs::DeviceOps kEchoOps{
     .context   = nullptr,
 };
 
+cinux::base::Result<unsigned long> stock_null_read(void* /*context*/, void* /*sink*/,
+                                                   unsigned long /*count*/) {
+    return 0;
+}
+
+cinux::base::Result<unsigned long> stock_null_write(void* /*context*/, const void* /*source*/,
+                                                    unsigned long count) {
+    return count;
+}
+
+cinux::base::Result<unsigned long> stock_zero_read(void* /*context*/, void* sink,
+                                                   unsigned long count) {
+    auto* const kOut = static_cast<unsigned char*>(sink);
+    for (unsigned long index = 0; index < count; ++index) {
+        kOut[index] = 0;
+    }
+    return count;
+}
+
+const cinux::fs::DeviceOps kStockNullOps{
+    .read      = stock_null_read,
+    .write     = stock_null_write,
+    .has_input = nullptr,
+    .ioctl     = nullptr,
+    .release   = nullptr,
+    .context   = nullptr,
+};
+
+const cinux::fs::DeviceOps kStockZeroOps{
+    .read      = stock_zero_read,
+    .write     = stock_null_write,
+    .has_input = nullptr,
+    .ioctl     = nullptr,
+    .release   = nullptr,
+    .context   = nullptr,
+};
+
 /// One devfs with the builtin pair seated, the shape every mount shows.
 cinux::fs::DevFs& stocked(cinux::fs::DevFs& devfs) {
-    cinux::fs::RegisterBuiltinDevices(devfs);
+    const cinux::base::Result<void> kNull =
+        devfs.register_device("null", cinux::fs::MakeDeviceId(1, 3), kStockNullOps);
+    if (!kNull.ok()) {
+        return devfs;
+    }
+    const cinux::base::Result<void> kZero =
+        devfs.register_device("zero", cinux::fs::MakeDeviceId(1, 5), kStockZeroOps);
+    if (!kZero.ok()) {
+        return devfs;
+    }
     return devfs;
 }
 

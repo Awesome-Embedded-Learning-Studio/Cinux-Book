@@ -145,4 +145,21 @@ private:
     cinux::base::container::SlotTable<PciDevice, kDeviceCapacity> devices_;
 };
 
+/**
+ * @brief         Reads one configuration dword at a spot.
+ *
+ * @param[in]     context Unused; the port pair needs none.
+ * @param[in]     spot    Which device and function to read.
+ * @param[in]     offset  Register offset; the engine fetches its dword.
+ * @return        The dword the device answered.
+ * @note          The layout seam's kernel face: injected readers take
+ *                this function's shape, so a host test's mock and a real
+ *                bus walk the same decoder.
+ * @warning       None
+ * @throws        None
+ * @since         0.6.0
+ * @ingroup       kernel_driver
+ */
+[[nodiscard]] uint32_t ReadSpotConfig(const void* context, PciSpot spot, uint8_t offset);
+
 }  // namespace cinux::driver

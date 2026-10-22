@@ -108,8 +108,12 @@ add_custom_target(run_debug
     DEPENDS boot_image
 )
 
+set(CINUX_QEMU_GUI_ARGS ${CINUX_QEMU_DEVICE_ARGS})
+list(REMOVE_ITEM CINUX_QEMU_GUI_ARGS -display)
+list(REMOVE_ITEM CINUX_QEMU_GUI_ARGS none)
+
 add_custom_target(run_gui
-    COMMAND ${CINUX_QEMU_PROGRAM} -accel kvm -no-reboot
+    COMMAND ${CINUX_QEMU_PROGRAM} ${CINUX_QEMU_GUI_ARGS}
             -drive format=raw,file=${CMAKE_CURRENT_BINARY_DIR}/cinux.img
             -serial stdio
     DEPENDS boot_image

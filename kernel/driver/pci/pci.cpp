@@ -97,8 +97,10 @@ struct ConfigSpot {
 };
 
 void select_config(ConfigSpot spot) {
-    Out32(PortWrite32{.port  = kConfigAddressPort,
-                      .value = MakeConfigAddress(spot.bus, spot.slot, spot.func, spot.offset)});
+    Out32(PortWrite32{
+        .port  = kConfigAddressPort,
+        .value = MakeConfigAddress(spot.bus, spot.slot, spot.func, spot.offset),
+    });
 }
 
 uint32_t read_config(ConfigSpot spot) {
@@ -176,6 +178,15 @@ std::optional<PciDevice> probe_location(uint8_t bus, uint8_t slot, uint8_t func)
 
 }  // namespace
 
+uint32_t ReadSpotConfig(const void* /*context*/, PciSpot spot, uint8_t offset) {
+    return read_config(ConfigSpot{
+        .bus    = spot.bus,
+        .slot   = spot.slot,
+        .func   = spot.func,
+        .offset = offset,
+    });
+}
+
 std::optional<unsigned long> PciBus::scan_slot(uint8_t bus, uint8_t slot) {
     if (!probe_location(bus, slot, 0)) {
         return 0;
@@ -229,7 +240,11 @@ const PciDevice* PciBus::find_by_class(PciClassCode base, uint8_t subclass) cons
 
 void PciBus::enable_device(const PciDevice& device) {
     const ConfigSpot kSpot{
-        .bus = device.bus, .slot = device.slot, .func = device.func, .offset = kRegCommand};
+        .bus    = device.bus,
+        .slot   = device.slot,
+        .func   = device.func,
+        .offset = kRegCommand,
+    };
     ConfigWord command{read_config(kSpot)};
     command = (command | kCommandBusMaster | kCommandMemorySpace) & ~kCommandIntDisable;
     write_config(kSpot, command.raw);

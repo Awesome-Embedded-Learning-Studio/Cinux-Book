@@ -116,4 +116,26 @@ inline void SetBytes(void* destination, unsigned char value, unsigned long bytes
     return true;
 }
 
+/**
+ * @brief         Counts one NUL-terminated string's bytes, bounded.
+ * @param[in]     text   The string to measure; the scan never runs past
+ *                       the bound even when no NUL waits there.
+ * @param[in]     cap    How many bytes the scan may touch, one upward.
+ * @return        The bytes before the NUL, capped by the bound.
+ * @note          The strlen-equals shape with a wall; the format
+ *                engine answers void, so its callers measure what it
+ *                wrote with this instead of trusting luck.
+ * @warning       None
+ * @throws        None
+ * @since         0.6.0
+ * @ingroup       base_memory
+ */
+[[nodiscard]] inline unsigned long StrLength(const char* text, unsigned long cap) {
+    unsigned long length = 0;
+    while (length + 1 < cap && text[length] != '\0') {
+        ++length;
+    }
+    return length;
+}
+
 }  // namespace cinux::base

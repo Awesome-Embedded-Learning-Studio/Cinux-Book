@@ -38,6 +38,12 @@ inline constexpr unsigned long kTtyPoolBytes = kTtyLineMax * 8;
 /// whatever the caller kept beside it.
 inline constexpr unsigned long kTermiosBytes = 36;
 
+/// The window-size ioctl record's bytes on the wire.
+inline constexpr unsigned long kTtyWinsizeBytes = 8;
+
+/// The process-group ioctl word's bytes on the wire.
+inline constexpr unsigned long kTtyPgrpBytes = 4;
+
 /// The lflag word's seat inside a termios record.
 inline constexpr unsigned long kTermiosLflagAt = 12;
 

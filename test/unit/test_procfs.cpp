@@ -2,6 +2,8 @@
 
 #include "../framework/framework.hpp"
 #include "cinux/result.hpp"
+#include "cinux/text.hpp"
+#include "kernel/fs/devfs/devfs.hpp"
 #include "kernel/fs/procfs/procfs.hpp"
 #include "kernel/fs/vfs.hpp"
 #include "kernel/proc/task_snapshot.hpp"
@@ -71,14 +73,31 @@ void fake_memory(void* /*context*/, unsigned long& free_pages, unsigned long& to
     total_pages = 200;
 }
 
+bool fake_nth_device(void* /*context*/, unsigned long ordinal, cinux::fs::ProcDeviceFacts& into) {
+    if (ordinal >= 2) {
+        return false;
+    }
+    into = cinux::fs::ProcDeviceFacts{};
+    if (ordinal == 0) {
+        cinux::base::CopyText(into.name, "console");
+        cinux::base::CopyText(into.class_name, cinux::fs::kProcClassCharacter);
+        into.number = cinux::fs::MakeDeviceId(5, 1);
+        return true;
+    }
+    cinux::base::CopyText(into.name, "lo");
+    cinux::base::CopyText(into.class_name, cinux::fs::kProcClassNetwork);
+    return true;
+}
+
 const cinux::fs::ProcSource kFakeSource{
-    .nth_tgid  = fake_nth_tgid,
-    .snapshot  = fake_snapshot,
-    .exe_path  = fake_exe_path,
-    .exe_bytes = fake_exe_bytes,
-    .exe_size  = fake_exe_size,
-    .memory    = fake_memory,
-    .context   = nullptr,
+    .nth_tgid   = fake_nth_tgid,
+    .snapshot   = fake_snapshot,
+    .exe_path   = fake_exe_path,
+    .exe_bytes  = fake_exe_bytes,
+    .exe_size   = fake_exe_size,
+    .memory     = fake_memory,
+    .nth_device = fake_nth_device,
+    .context    = nullptr,
 };
 
 /// One procfs wired to the fake facts, the shape every case mounts.
@@ -112,6 +131,8 @@ TEST("procfs: the root lists meminfo and self first") {
     ASSERT_STREQ(entry.name, "meminfo");
     ASSERT_TRUE(stock.read_dir(kRoot.value(), 3, entry).value());
     ASSERT_STREQ(entry.name, "self");
+    ASSERT_TRUE(stock.read_dir(kRoot.value(), 4, entry).value());
+    ASSERT_STREQ(entry.name, "devices");
 }
 
 TEST("procfs: the root then lists living pids in walk order") {
@@ -119,9 +140,9 @@ TEST("procfs: the root then lists living pids in walk order") {
     const cinux::base::Result<cinux::fs::FsNode> kRoot = stocked(stock).lookup("");
 
     cinux::fs::FsDirent entry;
-    ASSERT_TRUE(stock.read_dir(kRoot.value(), 4, entry).value());
-    ASSERT_STREQ(entry.name, "1");
     ASSERT_TRUE(stock.read_dir(kRoot.value(), 5, entry).value());
+    ASSERT_STREQ(entry.name, "1");
+    ASSERT_TRUE(stock.read_dir(kRoot.value(), 6, entry).value());
     ASSERT_STREQ(entry.name, "2");
 }
 
@@ -130,9 +151,25 @@ TEST("procfs: the pid walk ends past the last leader") {
     const cinux::base::Result<cinux::fs::FsNode> kRoot = stocked(stock).lookup("");
 
     cinux::fs::FsDirent entry;
-    ASSERT_TRUE(stock.read_dir(kRoot.value(), 7, entry).value());
+    ASSERT_TRUE(stock.read_dir(kRoot.value(), 8, entry).value());
     ASSERT_STREQ(entry.name, "12");
-    ASSERT_FALSE(stock.read_dir(kRoot.value(), 8, entry).value());
+    ASSERT_FALSE(stock.read_dir(kRoot.value(), 9, entry).value());
+}
+
+TEST("procfs: devices spells its classes in seating order") {
+    cinux::fs::ProcFs stock;
+    stocked(stock);
+    const cinux::base::Result<cinux::fs::FsNode> kDevices = stock.lookup("devices");
+    ASSERT_TRUE(kDevices.ok());
+    ASSERT_EQ(kDevices.value().type, cinux::fs::InodeType::kFile);
+
+    char                                     text[160] = {};
+    const cinux::base::Result<unsigned long> kGot =
+        stock.read(kDevices.value(), 0, text, sizeof(text) - 1);
+    ASSERT_TRUE(kGot.ok());
+    text[kGot.value()] = '\0';
+    ASSERT_TRUE(std::strstr(text, "character:\n  console 5:1\nblock:\nnetwork:\n  lo\n") !=
+                nullptr);
 }
 
 TEST("procfs: meminfo answers both counters in kilobytes") {
@@ -198,6 +235,21 @@ TEST("procfs: self/exe hands over the delegate's bytes") {
     ASSERT_EQ(kGot, 4UL);
     ASSERT_EQ(static_cast<unsigned>(bytes[0]), 1U);
     ASSERT_EQ(static_cast<unsigned>(bytes[3]), 4U);
+}
+
+TEST("procfs: cmdline hands the name plus its terminator") {
+    cinux::fs::ProcFs stock;
+    stocked(stock);
+    const cinux::base::Result<cinux::fs::FsNode> kCmd = stock.lookup("7/cmdline");
+    ASSERT_TRUE(kCmd.ok());
+    char                                     text[64] = {};
+    const cinux::base::Result<unsigned long> kGot = stock.read(kCmd.value(), 0, text, sizeof(text));
+    ASSERT_TRUE(kGot.ok());
+    ASSERT_EQ(kGot.value(), 8UL);
+    ASSERT_STREQ(text, "ttydemo");
+    cinux::fs::FsStat probed{};
+    ASSERT_TRUE(stock.stat(kCmd.value(), probed).ok());
+    ASSERT_EQ(probed.size, 8UL);
 }
 
 TEST("procfs: stat answers the generated size for a pseudo file") {

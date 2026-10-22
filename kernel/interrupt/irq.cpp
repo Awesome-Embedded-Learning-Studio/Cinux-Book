@@ -17,6 +17,8 @@
 
 #include "kernel/interrupt/irq.hpp"
 
+#include "cinux/assert.hpp"
+#include "cinux/result.hpp"
 #include "kernel/interrupt/irq_config.hpp"
 
 namespace cinux::interrupt {
@@ -39,6 +41,33 @@ void Irq::dispatch(IrqLine line) {
     }
     if (ack_ != nullptr) {
         ack_(chip_, line);
+    }
+}
+
+void Irq::init_message_range(unsigned int first, unsigned int count) {
+    base::safety::Check(count <= kMessageVectorCount, "message pool larger than its table");
+    message_first_ = first;
+    message_count_ = count;
+}
+
+base::Result<MsiVector> Irq::seat_message(IrqHandler handler) {
+    if (message_count_ == 0) {
+        return base::KernelError::kNotSupported;
+    }
+    for (unsigned int index = 0; index < message_count_; ++index) {
+        if (message_seats_[index] == nullptr) {
+            message_seats_[index] = handler;
+            return MsiVector{.value = message_first_ + index};
+        }
+    }
+    return base::KernelError::kOutOfMemory;
+}
+
+void Irq::dispatch_message(MsiVector vector) {
+    const unsigned long kOffset = vector.value - message_first_;
+    if (vector.value >= message_first_ && kOffset < message_count_ &&
+        message_seats_[kOffset] != nullptr) {
+        message_seats_[kOffset]();
     }
 }
 

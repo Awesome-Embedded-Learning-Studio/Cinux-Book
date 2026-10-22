@@ -118,10 +118,32 @@ add_cinux_test(sched_class ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                             ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
 add_cinux_test(vfs ${CMAKE_SOURCE_DIR}/kernel/fs/vfs.cpp)
 add_cinux_test(devfs ${CMAKE_SOURCE_DIR}/kernel/fs/devfs/devfs.cpp
-                       ${CMAKE_SOURCE_DIR}/kernel/fs/vfs.cpp)
+                       ${CMAKE_SOURCE_DIR}/kernel/fs/vfs.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/driver/device/device.cpp)
+add_cinux_test(device_model ${CMAKE_SOURCE_DIR}/kernel/driver/device/device.cpp
+                             ${CMAKE_SOURCE_DIR}/kernel/fs/devfs/devfs.cpp
+                             ${CMAKE_SOURCE_DIR}/kernel/fs/vfs.cpp)
+add_cinux_test(net_loopback ${CMAKE_SOURCE_DIR}/kernel/driver/net/loopback.cpp)
 add_cinux_test(tty ${CMAKE_SOURCE_DIR}/kernel/driver/tty/tty.cpp)
 add_cinux_test(pty ${CMAKE_SOURCE_DIR}/kernel/driver/tty/pty.cpp
                       ${CMAKE_SOURCE_DIR}/kernel/driver/tty/tty.cpp)
+add_cinux_test(pty_node ${CMAKE_SOURCE_DIR}/kernel/driver/tty/pty.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/driver/tty/tty.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/driver/device/device.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/fs/devfs/pty_node.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/fs/devfs/devfs.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/fs/vfs.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/fs/file_table.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_read.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_common.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/proc/futex.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/proc/signals.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/proc/sched_class.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/mm/vma.cpp)
 add_cinux_test(procfs ${CMAKE_SOURCE_DIR}/kernel/fs/procfs/procfs.cpp
                         ${CMAKE_SOURCE_DIR}/kernel/fs/vfs.cpp)
 add_cinux_test(file_table ${CMAKE_SOURCE_DIR}/kernel/fs/file_table.cpp)
@@ -150,6 +172,12 @@ add_cinux_test(ext2 ${CMAKE_SOURCE_DIR}/kernel/fs/ext2/ext2_layout.cpp
                     ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
                     ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
 add_cinux_test(pci ${CMAKE_SOURCE_DIR}/kernel/driver/pci/pci_layout.cpp)
+add_cinux_test(msi_layout ${CMAKE_SOURCE_DIR}/kernel/driver/pci/pci_layout.cpp
+                            ${CMAKE_SOURCE_DIR}/kernel/driver/msi/msi_layout.cpp
+                            ${CMAKE_SOURCE_DIR}/kernel/driver/msi/msix.cpp)
+add_cinux_test(irq ${CMAKE_SOURCE_DIR}/kernel/interrupt/irq.cpp)
+add_cinux_test(xhci_layout ${CMAKE_SOURCE_DIR}/kernel/driver/usb/xhci_layout.cpp)
+add_cinux_test(async)
 add_cinux_test(ahci ${CMAKE_SOURCE_DIR}/kernel/driver/ahci/ahci_identify.cpp
                     ${CMAKE_SOURCE_DIR}/kernel/driver/ahci/ahci_layout.cpp)
 add_cinux_test(block ${CMAKE_SOURCE_DIR}/kernel/driver/block/block_queue.cpp

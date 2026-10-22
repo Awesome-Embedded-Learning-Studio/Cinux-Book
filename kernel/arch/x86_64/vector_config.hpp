@@ -13,4 +13,9 @@
 namespace cinux::arch::irq {
 inline constexpr unsigned int kFirstIrqVector = 0x20;
 inline constexpr unsigned int kSpuriousVector = 0xFF;
+
+/// First vector of the message pool. Chosen clear of every resident
+/// assignment: line stubs 0x20-0x2F, local timer 0x30, sigreturn 0x80,
+/// reschedule IPI 0xE0, spurious 0xFF.
+inline constexpr unsigned int kFirstMessageVector = 0x40;
 }

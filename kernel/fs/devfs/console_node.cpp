@@ -1,9 +1,12 @@
 #include "kernel/fs/devfs/console_node.hpp"
 
 #include "cinux/assert.hpp"
+#include "cinux/container/name_table.hpp"
 #include "cinux/memory.hpp"
 #include "cinux/result.hpp"
+#include "cinux/singleton.hpp"
 #include "kernel/console/console.hpp"
+#include "kernel/driver/device/device.hpp"
 #include "kernel/driver/tty/console_tty.hpp"
 #include "kernel/driver/tty/tty.hpp"
 #include "kernel/driver/tty/tty_config.hpp"
@@ -17,18 +20,41 @@ namespace cinux::fs {
 
 namespace {
 
-constexpr unsigned long kWinsizeBytes = 8;
-constexpr unsigned long kPgrpBytes    = 4;
-
 /// The console's foreground group: whose keys these are, whose ^C lands.
-unsigned long long g_foreground_pgid = 1;
+class ConsoleForeground : public cinux::base::Singleton<ConsoleForeground> {
+    friend class cinux::base::Singleton<ConsoleForeground>;
+
+public:
+    /**
+     * @brief         The group holding the console's keys.
+     * @return        The foreground pgid, zero when nobody holds them.
+     * @since         0.6.0
+     * @ingroup       kernel_fs
+     */
+    [[nodiscard]] unsigned long long get() const { return pgid_; }
+
+    /**
+     * @brief         Hands the console's keys to a group.
+     * @param[in,out] pgid   The group taking the foreground.
+     * @return        None
+     * @since         0.6.0
+     * @ingroup       kernel_fs
+     */
+    void adopt(unsigned long long pgid) { pgid_ = pgid; }
+
+private:
+    ConsoleForeground() = default;
+
+    unsigned long long pgid_ = 1;
+};
 
 base::Result<unsigned long> console_read(void* /*context*/, void* sink, unsigned long count) {
-    driver::Tty&        tty     = driver::ConsoleTty();
-    const unsigned long kGot    = tty.read_line(static_cast<unsigned char*>(sink), count);
-    const int           kSignal = tty.take_pending_signal();
-    if (kSignal != 0 && g_foreground_pgid != 0) {
-        proc::SendToGroup(g_foreground_pgid, kSignal);
+    driver::Tty&             tty     = driver::ConsoleTty();
+    const unsigned long      kGot    = tty.read_line(static_cast<unsigned char*>(sink), count);
+    const int                kSignal = tty.take_pending_signal();
+    const unsigned long long kGroup  = ConsoleForeground::self().get();
+    if (kSignal != 0 && kGroup != 0) {
+        proc::SendToGroup(kGroup, kSignal);
     }
     if (kSignal != 0) {
         return base::KernelError::kInterrupted;
@@ -49,44 +75,80 @@ bool console_has_input(void* /*context*/) {
     return driver::ConsoleTty().has_input();
 }
 
-/// Answers the terminal questions the console node understands.
-long long console_ioctl(void* /*context*/, unsigned long long word, unsigned long long argument) {
+long long answer_termios_get(unsigned long long argument) {
     // NOLINTNEXTLINE(performance-no-int-to-ptr)
     auto* const kOut = reinterpret_cast<unsigned char*>(argument);
-    if (word == driver::kTtyTcgets) {
-        driver::ConsoleTty().copy_termios(kOut);
-        return 0;
+    driver::ConsoleTty().copy_termios(kOut);
+    return 0;
+}
+
+long long answer_termios_set(unsigned long long argument) {
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
+    auto const* const kOut = reinterpret_cast<const unsigned char*>(argument);
+    driver::ConsoleTty().apply_termios(kOut);
+    return 0;
+}
+
+long long answer_window(unsigned long long argument) {
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
+    auto* const             kOut   = reinterpret_cast<unsigned char*>(argument);
+    const driver::TtyWindow kShape = driver::ConsoleTty().window();
+    base::CopyBytes(kOut, &kShape, driver::kTtyWinsizeBytes);
+    return 0;
+}
+
+long long answer_pgrp_get(unsigned long long argument) {
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
+    auto* const              kOut   = reinterpret_cast<unsigned char*>(argument);
+    const unsigned long long kGroup = ConsoleForeground::self().get();
+    base::CopyBytes(kOut, &kGroup, driver::kTtyPgrpBytes);
+    return 0;
+}
+
+long long answer_pgrp_set(unsigned long long argument) {
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
+    auto const* const kOut = reinterpret_cast<const unsigned char*>(argument);
+    unsigned int      pgid = 0;
+    base::CopyBytes(&pgid, kOut, driver::kTtyPgrpBytes);
+    ConsoleForeground::self().adopt(pgid);
+    return 0;
+}
+
+long long answer_ctty(unsigned long long /*argument*/) {
+    proc::Task* const kSelf   = cinux::syscall::CurrentTask();
+    const bool        kLeader = kSelf->sid == kSelf->pid;
+    if (!kLeader || kSelf->controlling_tty != nullptr) {
+        return -syscall::kEperm;
     }
-    if (word == driver::kTtyTcsets || word == driver::kTtyTcsetsw || word == driver::kTtyTcsetsf) {
-        driver::ConsoleTty().apply_termios(kOut);
-        return 0;
+    kSelf->controlling_tty = &driver::ConsoleTty();
+    ConsoleForeground::self().adopt(kSelf->pgid);
+    return 0;
+}
+
+/// One console question and its answer.
+struct ConsoleAnswer {
+    unsigned long long word;
+    long long (*answer)(unsigned long long argument);
+};
+
+constexpr ConsoleAnswer kConsoleAnswers[] = {
+    {.word = driver::kTtyTcgets, .answer = answer_termios_get},
+    {.word = driver::kTtyTcsets, .answer = answer_termios_set},
+    {.word = driver::kTtyTcsetsw, .answer = answer_termios_set},
+    {.word = driver::kTtyTcsetsf, .answer = answer_termios_set},
+    {.word = driver::kTtyTiocgwinsz, .answer = answer_window},
+    {.word = driver::kTtyTiocgpgrp, .answer = answer_pgrp_get},
+    {.word = driver::kTtyTiocspgrp, .answer = answer_pgrp_set},
+    {.word = driver::kTtyTiocsctty, .answer = answer_ctty},
+};
+
+/// Answers the terminal questions the console node understands.
+long long console_ioctl(void* /*context*/, unsigned long long word, unsigned long long argument) {
+    const ConsoleAnswer* const kAnswer = cinux::base::container::FindByWord(kConsoleAnswers, word);
+    if (kAnswer == nullptr) {
+        return -syscall::kEnotty;
     }
-    if (word == driver::kTtyTiocgwinsz) {
-        const driver::TtyWindow kShape = driver::ConsoleTty().window();
-        base::CopyBytes(kOut, &kShape, kWinsizeBytes);
-        return 0;
-    }
-    if (word == driver::kTtyTiocgpgrp) {
-        base::CopyBytes(kOut, &g_foreground_pgid, kPgrpBytes);
-        return 0;
-    }
-    if (word == driver::kTtyTiocspgrp) {
-        unsigned int pgid = 0;
-        base::CopyBytes(&pgid, kOut, kPgrpBytes);
-        g_foreground_pgid = pgid;
-        return 0;
-    }
-    if (word == driver::kTtyTiocsctty) {
-        proc::Task* const kSelf   = cinux::syscall::CurrentTask();
-        const bool        kLeader = kSelf->sid == kSelf->pid;
-        if (!kLeader || kSelf->controlling_tty != nullptr) {
-            return -syscall::kEperm;
-        }
-        kSelf->controlling_tty = &driver::ConsoleTty();
-        g_foreground_pgid      = kSelf->pgid;
-        return 0;
-    }
-    return -syscall::kEnotty;
+    return kAnswer->answer(argument);
 }
 
 const DeviceOps kConsoleOps{
@@ -100,14 +162,20 @@ const DeviceOps kConsoleOps{
 
 }  // namespace
 
-void RegisterConsoleDevice(DevFs& devfs) {
-    const base::Result<void> kSeated =
-        devfs.register_device("console", MakeDeviceId(5, 1), kConsoleOps);
-    base::safety::Check(kSeated.ok(), "devfs refused the console seat");
+void RegisterConsoleDevice() {
+    const base::Result<void> kSeated = driver::DeviceModel::self().seat({
+        .klass       = driver::DeviceClass::kCharacter,
+        .name        = "console",
+        .number      = MakeDeviceId(5, 1),
+        .ops         = &kConsoleOps,
+        .bus         = "virtual",
+        .driver_name = "console",
+    });
+    base::safety::Check(kSeated.ok(), "device model refused the console seat");
 }
 
 void AdoptConsoleForeground(unsigned long long pgid) {
-    g_foreground_pgid = pgid;
+    ConsoleForeground::self().adopt(pgid);
 }
 
 }  // namespace cinux::fs

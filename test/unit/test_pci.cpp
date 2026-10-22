@@ -64,6 +64,68 @@ TEST("pci: storage classes carry their spec numbers") {
     ASSERT_EQ(cinux::driver::kPciSubclassNvme, 0x08U);
 }
 
+namespace {
+
+/// @brief Register offset: command and status share this dword.
+constexpr uint8_t kStatusRegister = 0x04;
+
+/// @brief Register offset: the capability list's first pointer lives here.
+constexpr uint8_t kCapabilityPointerRegister = 0x34;
+
+/// @brief Status word bit that promises a capability list.
+constexpr uint32_t kStatusHasCaps = 0x00100000U;
+
+uint32_t read_mock_words(const void* context, cinux::driver::PciSpot /*spot*/, uint8_t offset) {
+    const auto* const kWords = static_cast<const uint32_t*>(context);
+    return kWords[offset / 4U];
+}
+
+}  // namespace
+
+TEST("pci: the capability walk finds the ids the list names") {
+    uint32_t words[64]                     = {};
+    words[kStatusRegister / 4U]            = kStatusHasCaps;
+    words[kCapabilityPointerRegister / 4U] = 0x40U;
+    words[0x40 / 4U]                       = 0x00005011U;
+    words[0x50 / 4U]                       = 0x00000005U;
+
+    const cinux::driver::PciSpot kSpot{.bus = 0, .slot = 2, .func = 1};
+    ASSERT_EQ(cinux::driver::FindCapability(&read_mock_words, words, kSpot, 0x11U), 0x40U);
+    ASSERT_EQ(cinux::driver::FindCapability(&read_mock_words, words, kSpot, 0x05U), 0x50U);
+}
+
+TEST("pci: the walk answers zero without a list or without the id") {
+    uint32_t words[64]                     = {};
+    words[kCapabilityPointerRegister / 4U] = 0x40U;
+    words[0x40 / 4U]                       = 0x00000011U;
+
+    const cinux::driver::PciSpot kSpot{.bus = 0, .slot = 0, .func = 0};
+    ASSERT_EQ(cinux::driver::FindCapability(&read_mock_words, words, kSpot, 0x11U), 0U);
+
+    words[kStatusRegister / 4U] = kStatusHasCaps;
+    ASSERT_EQ(cinux::driver::FindCapability(&read_mock_words, words, kSpot, 0x05U), 0U);
+}
+
+TEST("pci: a circling list stops at the walk limit") {
+    uint32_t words[64]                     = {};
+    words[kStatusRegister / 4U]            = kStatusHasCaps;
+    words[kCapabilityPointerRegister / 4U] = 0x40U;
+    words[0x40 / 4U]                       = 0x00400011U;
+
+    const cinux::driver::PciSpot kSpot{.bus = 0, .slot = 0, .func = 0};
+    ASSERT_EQ(cinux::driver::FindCapability(&read_mock_words, words, kSpot, 0x05U), 0U);
+}
+
+TEST("pci: a pointer's reserved low bits read as cleared") {
+    uint32_t words[64]                     = {};
+    words[kStatusRegister / 4U]            = kStatusHasCaps;
+    words[kCapabilityPointerRegister / 4U] = 0x41U;
+    words[0x40 / 4U]                       = 0x00000005U;
+
+    const cinux::driver::PciSpot kSpot{.bus = 0, .slot = 0, .func = 0};
+    ASSERT_EQ(cinux::driver::FindCapability(&read_mock_words, words, kSpot, 0x05U), 0x40U);
+}
+
 int main() {
     return cinux::test::RunAll();
 }

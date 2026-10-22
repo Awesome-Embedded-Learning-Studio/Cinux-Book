@@ -6,6 +6,7 @@
 #include "kernel/driver/serial/serial.hpp"
 #include "kernel/driver/tty/tty.hpp"
 #include "kernel/driver/tty/tty_config.hpp"
+#include "kernel/driver/usb/usb_keyboard.hpp"
 #include "kernel/proc/scheduler.hpp"
 
 namespace cinux::driver {
@@ -23,11 +24,15 @@ bool console_take_key(void* /*context*/, char* out) {
         *out = kMaybe;
         return true;
     }
+    if (UsbKeyboard::self().poll()) {
+        *out = UsbKeyboard::self().take();
+        return true;
+    }
     return false;
 }
 
 bool console_has_key(void* /*context*/) {
-    return SerialHasKey() || Keyboard::self().poll();
+    return SerialHasKey() || Keyboard::self().poll() || UsbKeyboard::self().poll();
 }
 
 void console_echo(void* /*context*/, char key) {

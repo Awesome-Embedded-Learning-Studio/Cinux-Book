@@ -36,6 +36,34 @@ inline constexpr unsigned long kProcPidBase = 0x100;
 /// The self/exe node's own inode number.
 inline constexpr unsigned long kProcExeIno = 4;
 
+/// The devices node's own inode number.
+inline constexpr unsigned long kProcDevicesIno = 5;
+
+/// The character class's name, as the devices node prints it.
+inline constexpr const char* kProcClassCharacter = "character";
+
+/// The block class's name, as the devices node prints it.
+inline constexpr const char* kProcClassBlock = "block";
+
+/// The network class's name, as the devices node prints it.
+inline constexpr const char* kProcClassNetwork = "network";
+
+/// The longest class name plus its terminator.
+inline constexpr unsigned long kProcClassMax = 10;
+
+/**
+ * @brief   One seated device's facts, as the devices node tells them.
+ * @note    The class travels as its name — character, block, network —
+ *          so this file keeps no driver types of its own.
+ * @since   0.6.0
+ * @ingroup kernel_fs
+ */
+struct ProcDeviceFacts {
+    char          name[kFsNameMax]          = {};  ///< The device's name.
+    char          class_name[kProcClassMax] = {};  ///< The device class, spelled out.
+    unsigned long number = 0;  ///< The packed identity, zero for class-less seats.
+};
+
 /**
  * @brief   The facts one procfs instance answers with.
  * @note    Every seat is a function pointer over a context the
@@ -65,6 +93,9 @@ struct ProcSource {
 
     /// The memory counters, in pages.
     void (*memory)(void* context, unsigned long& free_pages, unsigned long& total_pages) = nullptr;
+
+    /// Names the ordinal-th seated device; false past the last.
+    bool (*nth_device)(void* context, unsigned long ordinal, ProcDeviceFacts& into) = nullptr;
 
     /// The word every seat receives back.
     void* context = nullptr;

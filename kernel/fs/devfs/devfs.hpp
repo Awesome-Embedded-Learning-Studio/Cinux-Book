@@ -25,20 +25,15 @@
 
 #include <string_view>
 
+#include "cinux/bit_ops/bitmask.hpp"
 #include "cinux/result.hpp"
+#include "kernel/fs/devfs/devfs_config.hpp"
 #include "kernel/fs/fs_config.hpp"
 #include "kernel/fs/vfs.hpp"
 
 namespace cinux::fs {
 
 class DevFs;
-
-/**
- * @brief   How many devices the table holds at once.
- * @since   0.5.0
- * @ingroup kernel_fs
- */
-inline constexpr unsigned long kDevfsDeviceMax = 8;
 
 /**
  * @brief         Packs a major:minor pair into one device identity word.
@@ -51,8 +46,45 @@ inline constexpr unsigned long kDevfsDeviceMax = 8;
  * @ingroup       kernel_fs
  */
 [[nodiscard]] constexpr unsigned long MakeDeviceId(unsigned long major, unsigned long minor) {
-    return (major << 8U) | minor;
+    constexpr base::bit::BitRange     kMinorRange{.low = 0U, .width = 8U};
+    constexpr base::bit::BitRange     kMajorRange{.low = 8U, .width = 56U};
+    base::bit::BitMask<unsigned long> identity{};
+    identity.deposit(kMajorRange, major);
+    identity.deposit(kMinorRange, minor);
+    return identity.raw;
 }
+
+/**
+ * @brief   One device identity, unpacked into its two parts.
+ * @since   0.6.0
+ * @ingroup kernel_fs
+ */
+struct DeviceNumber {
+    unsigned long major;  ///< Device class, the high part.
+    unsigned long minor;  ///< Instance inside the class, the low part.
+};
+
+/**
+ * @brief         Splits one device identity word back into its parts.
+ *
+ * @param[in]     identity   The word MakeDeviceId packed.
+ * @return        The major and minor it carried.
+ * @since         0.6.0
+ * @ingroup       kernel_fs
+ */
+[[nodiscard]] constexpr DeviceNumber SplitDeviceId(unsigned long identity) {
+    constexpr base::bit::BitRange           kMinorRange{.low = 0U, .width = 8U};
+    constexpr base::bit::BitRange           kMajorRange{.low = 8U, .width = 56U};
+    const base::bit::BitMask<unsigned long> kIdentity{identity};
+    return DeviceNumber{
+        .major = kIdentity.extract(kMajorRange),
+        .minor = kIdentity.extract(kMinorRange),
+    };
+}
+
+static_assert(MakeDeviceId(1, 3) == 0x103UL, "device ids keep the eight-bit-minor packing");
+static_assert(SplitDeviceId(0x103UL).major == 1UL && SplitDeviceId(0x103UL).minor == 3UL,
+              "split reverses the packing exactly");
 
 /// Reads count bytes into sink on behalf of one device.
 using DeviceRead = base::Result<unsigned long> (*)(void* context, void* sink, unsigned long count);
@@ -82,28 +114,29 @@ using DeviceIoctl = long long (*)(void* context, unsigned long long word,
  * @ingroup kernel_fs
  */
 struct DeviceOps {
-    DeviceRead     read;       ///< Pulls bytes out of the device.
-    DeviceWrite    write;      ///< Pushes bytes into the device.
-    DeviceHasInput has_input;  ///< Optional: can a reader progress now.
-    DeviceIoctl    ioctl;      ///< Optional: answer one device question.
-    /// Optional: the last descriptor on this device has closed.
-    void (*release)(void* context);
-    void* context;  ///< The word every seat receives back.
+    DeviceRead     read            = nullptr;  ///< Pulls bytes out of the device.
+    DeviceWrite    write           = nullptr;  ///< Pushes bytes into the device.
+    DeviceHasInput has_input       = nullptr;  ///< Optional: can a reader progress now.
+    DeviceIoctl    ioctl           = nullptr;  ///< Optional: answer one device question.
+    /// Optional: one open description has lost its last descriptor.
+    void (*release)(void* context) = nullptr;
+    void* context                  = nullptr;  ///< The word every seat receives back.
+    /// Optional: one independent open description now holds this device.
+    void (*retain)(void* context)  = nullptr;
 };
 
 /**
  * @brief   Seats the two pure-computation devices, null and zero.
  *
- * @param[in,out] devfs   The table receiving them.
- * @return        None
- * @note          Bring-up wiring: a freshly built DevFs is an empty
- *                directory, and the population is a kernel decision
- *                expressed as registrations. Null takes 1:3, zero 1:5,
- *                the Linux pairings.
- * @since         0.5.0
- * @ingroup       kernel_fs
+ * @return  None
+ * @note    Bring-up wiring: the registrations travel through the device
+ *          model, so both devices join the model's registry and the
+ *          bound devfs in one breath. Null takes 1:3, zero 1:5, the
+ *          Linux pairings.
+ * @since   0.5.0
+ * @ingroup kernel_fs
  */
-void RegisterBuiltinDevices(DevFs& devfs);
+void RegisterBuiltinDevices();
 
 /**
  * @brief   Memory-backed directory of kernel-registered devices.
@@ -271,21 +304,20 @@ public:
      *
      * @param[in]     node   Handle from lookup.
      * @return        None
-     * @note          No-op: table rows outlive every descriptor.
+     * @note          Forwards to the device's optional ownership hook.
      * @since         0.5.0
      * @ingroup       kernel_fs
      */
-    void retain(FsNode node);
+    void retain(FsNode node) const;
 
     /**
      * @brief         Drops an open descriptor's pin on a node.
      *
      * @param[in]     node   Handle from lookup.
      * @return        None
-     * @note          Table rows outlive every descriptor; a device that
-     *                keeps its own seat — a cloned pair, say — hears
-     *                the last close through its release face and gives
-     *                the seat back itself.
+     * @note          Table rows outlive every descriptor. Each independent
+     *                open has one retain/release pair; dup and fork share
+     *                the open description and do not add device pins.
      * @since         0.5.0
      * @ingroup       kernel_fs
      */

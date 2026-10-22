@@ -32,4 +32,18 @@ Result<unsigned long> ParseOctal(std::string_view field) {
     return value;
 }
 
+Result<unsigned long> ParseDecimal(std::string_view field) {
+    if (field.empty()) {
+        return KernelError::kInvalidArgument;
+    }
+    unsigned long value = 0;
+    for (const char kDigit : field) {
+        if (kDigit < '0' || kDigit > '9') {
+            return KernelError::kInvalidArgument;
+        }
+        value = (value * 10) + static_cast<unsigned long>(kDigit - '0');
+    }
+    return value;
+}
+
 }  // namespace cinux::base

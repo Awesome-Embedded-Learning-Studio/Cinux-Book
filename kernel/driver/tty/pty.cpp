@@ -60,14 +60,40 @@ unsigned long Pty::slave_write(const void* source, unsigned long count) {
 }
 
 bool Pty::master_has_input() const {
-    return out_.count() != 0;
+    return out_.count() != 0 || slave_closed();
 }
 
 bool Pty::raw_has_keys() const {
     return raw_.count() != 0;
 }
 
+void Pty::retain_master() {
+    master_opens_.fetch_add(1);
+}
+
+void Pty::release_master() {
+    if (master_opens_.fetch_sub(1) == 1) {
+        slave_.hang_up();
+    }
+}
+
+void Pty::retain_slave() {
+    unsigned long opens = slave_opens_.load();
+    for (;;) {
+        const unsigned long kNext = opens == kSlaveNeverOpened ? 1 : opens + 1;
+        if (slave_opens_.compare_exchange_weak(opens, kNext)) {
+            return;
+        }
+    }
+}
+
+void Pty::release_slave() {
+    slave_opens_.fetch_sub(1);
+}
+
 void Pty::reset() {
+    master_opens_.store(0);
+    slave_opens_.store(kSlaveNeverOpened);
     unsigned char byte = 0;
     while (raw_.pop(byte)) {
     }

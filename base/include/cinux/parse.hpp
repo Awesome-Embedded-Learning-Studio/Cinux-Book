@@ -38,4 +38,20 @@ namespace cinux::base {
  */
 [[nodiscard]] Result<unsigned long> ParseOctal(std::string_view field);
 
+/**
+ * @brief         Parses a whole decimal ASCII field into a number.
+ *
+ * @param[in]     field   The field bytes, every one of them a digit;
+ *                        an empty field refuses, no terminator counts.
+ * @return        The value, or kInvalidArgument when anything but a
+ *                decimal digit appears.
+ * @note          The whole-field contract is the point: a name being
+ *                a number — a pid directory, a pts seat — either parses
+ *                completely or is not a number at all. Callers bound
+ *                the length first when the field has a ceiling.
+ * @since         0.6.0
+ * @ingroup       base_parse
+ */
+[[nodiscard]] Result<unsigned long> ParseDecimal(std::string_view field);
+
 }  // namespace cinux::base

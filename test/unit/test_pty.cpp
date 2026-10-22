@@ -100,6 +100,72 @@ TEST("pty: reset drains both rings and restores born flags") {
     ASSERT_EQ(kFlags & cinux::driver::kTermiosEcho, cinux::driver::kTermiosEcho);
 }
 
+TEST("pty: master hangup drains a final partial canonical line then EOF") {
+    cinux::driver::Pty pair(&no_wait);
+    pair.retain_master();
+    pair.master_write("tail", 4);
+    unsigned char heard[8] = {};
+    ASSERT_EQ(pair.slave().read_line(heard, sizeof(heard), false), 0UL);
+    pair.release_master();
+    ASSERT_TRUE(pair.slave().has_input());
+    ASSERT_EQ(pair.slave().read_line(heard, 2), 2UL);
+    ASSERT_EQ(heard[0], static_cast<unsigned char>('t'));
+    ASSERT_EQ(heard[1], static_cast<unsigned char>('a'));
+    ASSERT_EQ(pair.slave().read_line(heard, sizeof(heard)), 2UL);
+    ASSERT_EQ(heard[0], static_cast<unsigned char>('i'));
+    ASSERT_EQ(pair.slave().read_line(heard, sizeof(heard)), 0UL);
+}
+
+TEST("pty: the first slave open differs from the last slave close") {
+    cinux::driver::Pty pair(&no_wait);
+    ASSERT_FALSE(pair.master_has_input());
+    pair.retain_slave();
+    pair.retain_slave();
+    pair.release_slave();
+    ASSERT_FALSE(pair.slave_closed());
+    pair.slave_write("out", 3);
+    pair.release_slave();
+    ASSERT_TRUE(pair.master_has_input());
+    unsigned char heard[8] = {};
+    ASSERT_EQ(pair.master_read(heard, sizeof(heard)), 3UL);
+    ASSERT_TRUE(pair.master_has_input());
+    ASSERT_EQ(pair.master_read(heard, sizeof(heard)), 0UL);
+}
+
+TEST("pty: reopening a slave clears EOF and reset restores the unopened state") {
+    cinux::driver::Pty pair(&no_wait);
+    pair.retain_slave();
+    pair.release_slave();
+    pair.retain_slave();
+    ASSERT_FALSE(pair.master_has_input());
+    pair.release_slave();
+    pair.reset();
+    ASSERT_FALSE(pair.master_has_input());
+    ASSERT_FALSE(pair.master_closed());
+}
+
+namespace {
+
+cinux::driver::Pty* g_closing_pair = nullptr;
+
+void close_waiting_master(void* context) {
+    auto* const kPair = static_cast<cinux::driver::Pty*>(context);
+    g_closing_pair    = kPair;
+    kPair->release_master();
+}
+
+}  // namespace
+
+TEST("pty: master close releases a slave already waiting inside the discipline") {
+    cinux::driver::Pty pair(&close_waiting_master);
+    pair.retain_master();
+    unsigned char heard = 0;
+    g_closing_pair      = nullptr;
+    ASSERT_EQ(pair.slave().read_line(&heard, 1), 0UL);
+    ASSERT_TRUE(g_closing_pair == &pair);
+    ASSERT_TRUE(pair.master_closed());
+}
+
 int main() {
     return cinux::test::RunAll();
 }

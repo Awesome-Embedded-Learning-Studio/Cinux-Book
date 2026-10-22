@@ -20,19 +20,18 @@
 
 namespace cinux::fs {
 
-class DevFs;
-
 /**
- * @brief         Seats the console device in a devfs instance.
+ * @brief   Seats the console device with the device model.
  *
- * @param[in,out] devfs   The table receiving /dev/console.
- * @return        None
- * @note          Bring-up wiring, single-threaded, before the mount
- *                goes live — same discipline as DevFs::register_device.
- * @since         0.5.0
- * @ingroup       kernel_fs
+ * @return  None
+ * @note    Bring-up wiring, single-threaded, before the mount goes
+ *          live. The registration travels through the device model, so
+ *          the console joins the model's registry and the bound devfs
+ *          in one breath — same discipline as every character device.
+ * @since   0.5.0
+ * @ingroup kernel_fs
  */
-void RegisterConsoleDevice(DevFs& devfs);
+void RegisterConsoleDevice();
 
 /**
  * @brief         Names the group the console's keys belong to.

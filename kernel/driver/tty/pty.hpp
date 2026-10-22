@@ -23,6 +23,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "cinux/container/ring_queue.hpp"
 #include "kernel/driver/tty/pty_config.hpp"
 #include "kernel/driver/tty/tty.hpp"
@@ -35,10 +37,11 @@ namespace cinux::driver {
  *          keys from this pair's raw ring and echoes into this pair's
  *          master ring, whatever a constructor could not express with
  *          captureless seats it receives as the wait hook. The rings are
- *          byte queues with no reader blocking inside this class — a
- *          master reading an empty ring waits in the syscall layer, the
- *          same way a pipe's reader does, and a slave reading before any
- *          master write parks on the wait hook.
+ *          byte queues with no reader blocking inside this class. The
+ *          devfs faces return WouldBlock while a peer is live; the
+ *          syscall layer chooses between waiting and EAGAIN. Independent
+ *          opens pin each end; dup and fork share those pins through
+ *          OpenFile. The last master close hangs up the slave discipline.
  * @since   0.5.0
  * @ingroup kernel_driver
  */
@@ -110,7 +113,7 @@ public:
     unsigned long slave_write(const void* source, unsigned long count);
 
     /**
-     * @brief     Whether the master ring holds anything to read.
+     * @brief     Whether the master can read output or observe slave EOF.
      *
      * @return    True when the master's reader would make progress.
      * @since     0.5.0
@@ -126,6 +129,54 @@ public:
      * @ingroup   kernel_driver
      */
     [[nodiscard]] bool raw_has_keys() const;
+
+    /**
+     * @brief     Pins one independent master open description.
+     * @return    None
+     * @since     0.6.0
+     * @ingroup   kernel_driver
+     */
+    void retain_master();
+
+    /**
+     * @brief     Hangs up slave input when the last master open closes.
+     * @return    None
+     * @since     0.6.0
+     * @ingroup   kernel_driver
+     */
+    void release_master();
+
+    /**
+     * @brief     Pins one independent slave open description.
+     * @return    None
+     * @since     0.6.0
+     * @ingroup   kernel_driver
+     */
+    void retain_slave();
+
+    /**
+     * @brief     Makes master EOF visible at the last slave close.
+     * @return    None
+     * @since     0.6.0
+     * @ingroup   kernel_driver
+     */
+    void release_slave();
+
+    /**
+     * @brief     Whether the master has closed its last open description.
+     * @return    True when slave input is hung up.
+     * @since     0.6.0
+     * @ingroup   kernel_driver
+     */
+    [[nodiscard]] bool master_closed() const { return slave_.hung_up(); }
+
+    /**
+     * @brief     Whether a previously opened slave has no opens left.
+     * @return    True between the last slave close and a subsequent open.
+     * @since     0.6.0
+     * @ingroup   kernel_driver
+     */
+    [[nodiscard]] bool slave_closed() const { return slave_opens_.load() == 0; }
 
     /**
      * @brief     Resets the pair to its born state, rings drained.
@@ -152,6 +203,11 @@ private:
     base::container::RingQueue<unsigned char, kPtyMasterBytes + 1> out_;
     TtyWiring                                                      wiring_;
     Tty                                                            slave_;
+    std::atomic<unsigned long>                                     master_opens_{0};
+    std::atomic<unsigned long>                                     slave_opens_{kSlaveNeverOpened};
+
+    /// Before the first slave open, an empty master still waits for data.
+    static constexpr unsigned long kSlaveNeverOpened = ~0UL;
 };
 
 }  // namespace cinux::driver

@@ -21,4 +21,7 @@ namespace cinux::interrupt {
 /// Seats in the dispatch table: one chip pair, sixteen lines.
 inline constexpr unsigned int kIrqLineCount = 16;
 
+/// Seats in the message pool: one vector per message-signaled device.
+inline constexpr unsigned int kMessageVectorCount = 8;
+
 }  // namespace cinux::interrupt

@@ -24,6 +24,7 @@
 
 #include <concepts>
 
+#include "cinux/result.hpp"
 #include "cinux/singleton.hpp"
 #include "kernel/interrupt/irq_config.hpp"
 
@@ -40,6 +41,19 @@ namespace cinux::interrupt {
  */
 struct IrqLine {
     unsigned int value;  ///< Line number, 0 on the first chip upward.
+};
+
+/**
+ * @brief         A message-signaled interrupt vector, as its own vocabulary.
+ * @note          The value is the raw vector the arch layer placed in the
+ *                pool, the same word a device programs into its message
+ *                data — so what the service seats and what the device
+ *                sends are one number, never translated twice.
+ * @since         0.6.0
+ * @ingroup       kernel_interrupt
+ */
+struct MsiVector {
+    unsigned int value;  ///< Raw vector number inside the injected range.
 };
 
 /// What a device line hands the service: a plain entry, no frame.
@@ -132,10 +146,61 @@ public:
      */
     void dispatch(IrqLine line);
 
+    /**
+     * @brief         Injects the message-vector range the arch layer armed.
+     *
+     * @param[in]     first   Raw vector of the pool's first seat.
+     * @param[in]     count   How many vectors the pool spans.
+     * @return        None
+     * @note          The numbers are platform wiring knowledge — which
+     *                vectors the IDT stubs own — so the arch layer hands
+     *                them over instead of this file guessing. Called once
+     *                while installing the interrupt backend, before any
+     *                message seat is asked for.
+     * @since         0.6.0
+     * @ingroup       kernel_interrupt
+     */
+    void init_message_range(unsigned int first, unsigned int count);
+
+    /**
+     * @brief         Seats one handler on the next free message vector.
+     *
+     * @param[in]     handler   Entry to call when the vector fires.
+     * @return        The seated vector, or kNotSupported when no range
+     *                was injected, kOutOfMemory when the pool is full.
+     * @note          Seating is all the service side of a message
+     *                interrupt: the gate is armed with the backend, and
+     *                opening the line is the device's own arming, not a
+     *                chip unmask. The answered vector is the word to
+     *                program into the device's message data.
+     * @since         0.6.0
+     * @ingroup       kernel_interrupt
+     */
+    [[nodiscard]] base::Result<MsiVector> seat_message(IrqHandler handler);
+
+    /**
+     * @brief         Runs the message handler one vector carries.
+     *
+     * @param[in]     vector   Message vector that fired.
+     * @return        None
+     * @note          Called by the arch stub layer, which acknowledges
+     *                the local controller afterwards — message delivery
+     *                ends at the local APIC, never at the line chip. An
+     *                unseated vector drops quietly, the message twin of
+     *                the spurious-line behavior above.
+     * @since         0.6.0
+     * @ingroup       kernel_interrupt
+     */
+    void dispatch_message(MsiVector vector);
+
 private:
     Irq() = default;
 
     IrqHandler seats_[kIrqLineCount] = {};
+
+    IrqHandler   message_seats_[kMessageVectorCount] = {};
+    unsigned int message_first_                      = 0;
+    unsigned int message_count_                      = 0;
 
     void (*unmask_)(void*, IrqLine) = nullptr;
     void (*ack_)(void*, IrqLine)    = nullptr;

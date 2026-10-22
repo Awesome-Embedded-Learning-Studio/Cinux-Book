@@ -5,7 +5,9 @@
 #include "cinux/assert.hpp"
 #include "cinux/memory.hpp"
 #include "cinux/result.hpp"
+#include "kernel/driver/device/device.hpp"
 #include "kernel/driver/tty/pty_config.hpp"
+#include "kernel/fs/devfs/devfs_config.hpp"
 #include "kernel/fs/fs_config.hpp"
 #include "kernel/fs/vfs.hpp"
 #include "kernel/syscall/syscall.hpp"
@@ -24,10 +26,7 @@ base::Result<unsigned long> null_write(void* /*context*/, const void* /*source*/
 }
 
 base::Result<unsigned long> zero_read(void* /*context*/, void* sink, unsigned long count) {
-    auto* const kOut = static_cast<unsigned char*>(sink);
-    for (unsigned long index = 0; index < count; ++index) {
-        kOut[index] = 0;
-    }
+    base::SetBytes(sink, 0, count);
     return count;
 }
 
@@ -55,11 +54,25 @@ bool same_name(const char (&seated)[kFsNameMax], std::string_view name) {
 
 }  // namespace
 
-void RegisterBuiltinDevices(DevFs& devfs) {
-    const base::Result<void> kNull = devfs.register_device("null", MakeDeviceId(1, 3), kNullOps);
-    base::safety::Check(kNull.ok(), "devfs refused the null seat");
-    const base::Result<void> kZero = devfs.register_device("zero", MakeDeviceId(1, 5), kZeroOps);
-    base::safety::Check(kZero.ok(), "devfs refused the zero seat");
+void RegisterBuiltinDevices() {
+    const base::Result<void> kNull = driver::DeviceModel::self().seat({
+        .klass       = driver::DeviceClass::kCharacter,
+        .name        = "null",
+        .number      = MakeDeviceId(1, 3),
+        .ops         = &kNullOps,
+        .bus         = "virtual",
+        .driver_name = "mem",
+    });
+    base::safety::Check(kNull.ok(), "device model refused the null seat");
+    const base::Result<void> kZero = driver::DeviceModel::self().seat({
+        .klass       = driver::DeviceClass::kCharacter,
+        .name        = "zero",
+        .number      = MakeDeviceId(1, 5),
+        .ops         = &kZeroOps,
+        .bus         = "virtual",
+        .driver_name = "mem",
+    });
+    base::safety::Check(kZero.ok(), "device model refused the zero seat");
 }
 
 void DevFs::set_dynamic_lookup(base::Result<FsNode> (*resolve)(std::string_view path)) {
@@ -206,7 +219,15 @@ base::Result<void> DevFs::stat(FsNode node, FsStat& probed) {
     return {};
 }
 
-void DevFs::retain(FsNode /*node*/) {}
+void DevFs::retain(FsNode node) const {
+    if (node.type != InodeType::kCharDevice) {
+        return;
+    }
+    const DeviceOps* const kOps = ops_of(node);
+    if (kOps->retain != nullptr) {
+        kOps->retain(kOps->context);
+    }
+}
 
 void DevFs::release(FsNode node) const {
     if (node.type != InodeType::kCharDevice) {

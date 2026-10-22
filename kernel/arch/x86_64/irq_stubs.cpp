@@ -35,6 +35,7 @@
 #include "kernel/driver/apic/io_apic.hpp"
 #include "kernel/driver/apic/local_apic.hpp"
 #include "kernel/interrupt/irq.hpp"
+#include "kernel/interrupt/irq_config.hpp"
 #include "kernel/proc/fpu_gate.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/time/tick.hpp"
@@ -106,6 +107,30 @@ void install_all([[maybe_unused]] std::integer_sequence<unsigned int, Vectors...
     (install_one<Vectors + kFirstIrqVector>(), ...);
 }
 
+template <unsigned int Vector>
+__attribute__((interrupt)) void message_entry([[maybe_unused]] InterruptFrame* frame) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
+    cinux::arch::FpuImage interrupted_fpu;
+    cinux::arch::SaveFpu(interrupted_fpu);
+    EnterFpuGate();
+    cinux::interrupt::Irq::self().dispatch_message(cinux::interrupt::MsiVector{.value = Vector});
+    cinux::driver::LocalApic::self().eoi();
+    cinux::proc::Scheduler::self().maybe_preempt();
+    ExitFpuGate();
+    cinux::arch::RestoreFpu(interrupted_fpu);
+}
+
+template <unsigned int Vector>
+void install_message_one() {
+    install(Vector, &message_entry<Vector>);
+}
+
+template <unsigned int... Vectors>
+void install_message_all(
+    [[maybe_unused]] std::integer_sequence<unsigned int, Vectors...> sequence) {
+    (install_message_one<Vectors + cinux::arch::irq::kFirstMessageVector>(), ...);
+}
+
 }  // namespace
 
 namespace cinux::arch::irq {
@@ -124,6 +149,9 @@ bool InstallApicBackend() {
     install(kSpuriousVector, spurious_entry);
     driver::LocalApic::self().enable(kSpuriousVector);
     interrupt::Irq::self().init(driver::IoApic::self());
+    interrupt::Irq::self().init_message_range(irq::kFirstMessageVector,
+                                              interrupt::kMessageVectorCount);
+    install_message_all(std::make_integer_sequence<unsigned int, interrupt::kMessageVectorCount>{});
     return true;
 }
 

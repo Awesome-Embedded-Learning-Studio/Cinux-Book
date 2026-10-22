@@ -23,20 +23,18 @@
 
 namespace cinux::fs {
 
-class DevFs;
-
 /**
- * @brief         Seats ptmx and the pair resolvers in a devfs instance.
+ * @brief         Seats ptmx and the pair resolvers with the device model.
  *
- * @param[in,out] devfs   The table receiving the PTY seats.
- * @return        None
- * @note          Bring-up wiring, single-threaded, before the mount goes
- *                live. The pair table lives here, eight seats; a pair is
- *                minted on the first ptmx open that needs it and reset,
- *                never destroyed, when its seat returns.
- * @since         0.5.0
- * @ingroup       kernel_fs
+ * @return  None
+ * @note    Bring-up wiring, single-threaded, before the mount goes
+ *          live. The ptmx seat travels through the device model; the
+ *          pair table lives here, eight seats, and a pair is minted on
+ *          the first ptmx open that needs it and reset, never
+ *          destroyed, when its seat returns.
+ * @since   0.5.0
+ * @ingroup kernel_fs
  */
-void RegisterPtyDevices(DevFs& devfs);
+void RegisterPtyDevices();
 
 }  // namespace cinux::fs

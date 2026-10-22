@@ -1,6 +1,8 @@
 #include "kernel/fs/procfs/procfs_init.hpp"
 
 #include "cinux/result.hpp"
+#include "cinux/text.hpp"
+#include "kernel/driver/device/device.hpp"
 #include "kernel/fs/file_world.hpp"
 #include "kernel/fs/fs_config.hpp"
 #include "kernel/fs/procfs/procfs.hpp"
@@ -14,6 +16,18 @@
 namespace cinux::fs {
 
 namespace {
+
+/// One device class's name, the seam's shared spelling.
+const char* class_name_of(driver::DeviceClass klass) {
+    switch (klass) {
+    case driver::DeviceClass::kCharacter:
+        return kProcClassCharacter;
+    case driver::DeviceClass::kBlock:
+        return kProcClassBlock;
+    default:
+        return kProcClassNetwork;
+    }
+}
 
 bool source_nth_tgid(void* /*context*/, unsigned long ordinal, unsigned long& tgid) {
     unsigned long long pid = 0;
@@ -94,17 +108,30 @@ void source_memory(void* /*context*/, unsigned long& free_pages, unsigned long& 
     total_pages = mm::Pmm::self().managed_page_count();
 }
 
+bool source_nth_device(void* /*context*/, unsigned long ordinal, ProcDeviceFacts& into) {
+    driver::DeviceFacts facts{};
+    if (!driver::DeviceModel::self().nth_device(ordinal, facts)) {
+        return false;
+    }
+    into        = ProcDeviceFacts{};
+    into.number = facts.number;
+    base::CopyText(into.name, facts.name);
+    base::CopyText(into.class_name, class_name_of(facts.klass));
+    return true;
+}
+
 }  // namespace
 
 void WireKernelProcSource(ProcFs& procfs) {
     const ProcSource kSource{
-        .nth_tgid  = source_nth_tgid,
-        .snapshot  = source_snapshot,
-        .exe_path  = source_exe_path,
-        .exe_bytes = source_exe_bytes,
-        .exe_size  = source_exe_size,
-        .memory    = source_memory,
-        .context   = nullptr,
+        .nth_tgid   = source_nth_tgid,
+        .snapshot   = source_snapshot,
+        .exe_path   = source_exe_path,
+        .exe_bytes  = source_exe_bytes,
+        .exe_size   = source_exe_size,
+        .memory     = source_memory,
+        .nth_device = source_nth_device,
+        .context    = nullptr,
     };
     procfs.set_source(kSource);
 }

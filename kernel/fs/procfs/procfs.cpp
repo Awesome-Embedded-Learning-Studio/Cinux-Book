@@ -1,9 +1,15 @@
 #include "kernel/fs/procfs/procfs.hpp"
 
+#include <iterator>
 #include <string_view>
 
+#include "cinux/container/name_table.hpp"
+#include "cinux/format.hpp"
 #include "cinux/memory.hpp"
+#include "cinux/parse.hpp"
 #include "cinux/result.hpp"
+#include "cinux/text.hpp"
+#include "kernel/fs/devfs/devfs.hpp"
 #include "kernel/fs/fs_config.hpp"
 #include "kernel/fs/vfs.hpp"
 #include "kernel/proc/task_snapshot.hpp"
@@ -28,67 +34,55 @@ constexpr unsigned long kPidStride = 4;
 /// One process directory's entries, stat first, cmdline second.
 constexpr unsigned long kPidEntries = 2;
 
-/// Writes one decimal word; returns the bytes written.
-unsigned long put_decimal(char* out, unsigned long value) {
-    char          digits[24] = {};
-    unsigned long count      = 0;
-    if (value == 0) {
-        out[0] = '0';
-        return 1;
-    }
-    while (value != 0) {
-        digits[count] = static_cast<char>('0' + (value % 10UL));
-        ++count;
-        value /= 10UL;
-    }
-    for (unsigned long index = 0; index < count; ++index) {
-        out[index] = digits[count - 1 - index];
-    }
-    return count;
-}
+/// One fixed directory name: what lookup answers and read_dir lists.
+struct FixedName {
+    const char*   name;
+    InodeType     type;
+    unsigned long step;
+};
 
-unsigned long put_text(char* out, std::string_view text) {
-    for (unsigned long index = 0; index < text.size(); ++index) {
-        out[index] = text[index];
+/// The root's fixed names, in listing order, dots aside.
+constexpr FixedName kRootNames[] = {
+    {.name = "meminfo", .type = InodeType::kFile, .step = kMeminfoIno - kRootIno},
+    {.name = "self", .type = InodeType::kDirectory, .step = kSelfIno - kRootIno},
+    {.name = "devices", .type = InodeType::kFile, .step = kProcDevicesIno - kRootIno},
+};
+
+/// One process directory's fixed names, stat first, cmdline second.
+constexpr FixedName kPidDirNames[] = {
+    {.name = "stat", .type = InodeType::kFile, .step = 1},
+    {.name = "cmdline", .type = InodeType::kFile, .step = 2},
+};
+
+/// Serves one directory's fixed names, the index after the two dots.
+template <unsigned long Count>
+bool serve_fixed(const FixedName (&names)[Count], unsigned long base_ino, unsigned long index,
+                 FsDirent& entry) {
+    if (index < 2 || index - 2 >= Count) {
+        return false;
     }
-    return text.size();
+    const FixedName& fixed = names[index - 2];
+    base::CopyText(entry.name, fixed.name);
+    entry.ino  = base_ino + fixed.step;
+    entry.type = fixed.type;
+    return true;
 }
 
 /// The Linux stat layout through field 24 (rss); unavailable accounting
 /// fields are zero, with no terminal represented by tty 0 and tpgid -1.
 unsigned long format_stat(char* out, unsigned long out_cap, const proc::TaskSnapshot& shot) {
-    unsigned long used = 0;
-    used += put_decimal(out + used, static_cast<unsigned long>(shot.pid));
-    out[used] = ' ';
-    ++used;
-    out[used] = '(';
-    ++used;
-    for (unsigned long index = 0; shot.name[index] != '\0' && index < proc::kTaskNameMax; ++index) {
-        out[used] = shot.name[index];
-        ++used;
-    }
-    out[used] = ')';
-    ++used;
-    out[used] = ' ';
-    ++used;
-    out[used] = shot.state;
-    ++used;
-    out[used] = ' ';
-    ++used;
-    used += put_decimal(out + used, static_cast<unsigned long>(shot.parent_pid));
-    out[used] = ' ';
-    ++used;
-    used += put_decimal(out + used, static_cast<unsigned long>(shot.pgid));
-    out[used] = ' ';
-    ++used;
-    used += put_decimal(out + used, static_cast<unsigned long>(shot.sid));
-    used += put_text(out + used, " 0 -1");
-    for (unsigned long field = 9; field <= 24; ++field) {
-        used += put_text(out + used, " 0");
-    }
-    out[used] = '\n';
-    ++used;
-    return used < out_cap ? used : out_cap;
+    const base::format::Arg kArgs[] = {
+        base::format::NumS(shot.pid),
+        base::format::Str(shot.name),
+        base::format::NumU(static_cast<unsigned long long>(shot.state)),
+        base::format::NumS(shot.parent_pid),
+        base::format::NumS(shot.pgid),
+        base::format::NumS(shot.sid),
+    };
+    base::format::FormatToBuf(out, out_cap,
+                              "%ld (%s) %c %ld %ld %ld 0 -1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n",
+                              base::format::ArgsView::of(kArgs));
+    return base::StrLength(out, out_cap);
 }
 
 /// "MemTotal:\nMemFree:\n" in kilobytes, pages times four.
@@ -98,40 +92,93 @@ unsigned long format_meminfo(char* out, unsigned long out_cap, const ProcSource&
     if (source.memory != nullptr) {
         source.memory(source.context, free_pages, total_pages);
     }
+    const base::format::Arg kArgs[] = {
+        base::format::NumU(total_pages * 4UL),
+        base::format::NumU(free_pages * 4UL),
+    };
+    base::format::FormatToBuf(out, out_cap, "MemTotal:  %lu kB\nMemFree:   %lu kB\n",
+                              base::format::ArgsView::of(kArgs));
+    return base::StrLength(out, out_cap);
+}
+
+/// One class section of the devices node: the header, then every
+/// seated device of that class in seating order.
+unsigned long format_device_section(char* out, unsigned long out_cap, const ProcSource& source,
+                                    const char* section) {
+    const base::format::Arg kHeader[] = {
+        base::format::Str(section),
+    };
+    base::format::FormatToBuf(out, out_cap, "%s:\n", base::format::ArgsView::of(kHeader));
+    unsigned long used = base::StrLength(out, out_cap);
+    if (source.nth_device == nullptr) {
+        return used;
+    }
+    for (unsigned long ordinal = 0;; ++ordinal) {
+        ProcDeviceFacts facts{};
+        if (!source.nth_device(source.context, ordinal, facts)) {
+            break;
+        }
+        if (std::string_view(facts.class_name) != std::string_view(section)) {
+            continue;
+        }
+        if (out_cap - used < 2) {
+            break;
+        }
+        if (facts.number != 0) {
+            const DeviceNumber      kId     = SplitDeviceId(facts.number);
+            const base::format::Arg kLine[] = {
+                base::format::Str(facts.name),
+                base::format::NumU(kId.major),
+                base::format::NumU(kId.minor),
+            };
+            base::format::FormatToBuf(out + used, out_cap - used, "  %s %lu:%lu\n",
+                                      base::format::ArgsView::of(kLine));
+        } else {
+            const base::format::Arg kLine[] = {
+                base::format::Str(facts.name),
+            };
+            base::format::FormatToBuf(out + used, out_cap - used, "  %s\n",
+                                      base::format::ArgsView::of(kLine));
+        }
+        used += base::StrLength(out + used, out_cap - used);
+    }
+    return used;
+}
+
+/// The devices node: three class sections, one line per device.
+unsigned long format_devices(char* out, unsigned long out_cap, const ProcSource& source) {
     unsigned long used = 0;
-    used += put_text(out + used, "MemTotal:  ");
-    used += put_decimal(out + used, total_pages * 4UL);
-    used += put_text(out + used, " kB\nMemFree:   ");
-    used += put_decimal(out + used, free_pages * 4UL);
-    used += put_text(out + used, " kB\n");
+    used += format_device_section(out + used, out_cap, source, kProcClassCharacter);
+    if (used >= out_cap) {
+        return out_cap;
+    }
+    used += format_device_section(out + used, out_cap - used, source, kProcClassBlock);
+    if (used >= out_cap) {
+        return out_cap;
+    }
+    used += format_device_section(out + used, out_cap - used, source, kProcClassNetwork);
     return used < out_cap ? used : out_cap;
 }
 
 /// The name bytes plus one NUL, the whole cmdline this kernel keeps.
 unsigned long format_cmdline(char* out, unsigned long out_cap, const proc::TaskSnapshot& shot) {
-    unsigned long used = 0;
-    for (unsigned long index = 0; shot.name[index] != '\0' && index < proc::kTaskNameMax; ++index) {
-        out[used] = shot.name[index];
-        ++used;
-    }
-    out[used] = '\0';
-    ++used;
-    return used < out_cap ? used : out_cap;
+    const base::format::Arg kArgs[] = {
+        base::format::Str(shot.name),
+    };
+    base::format::FormatToBuf(out, out_cap, "%s", base::format::ArgsView::of(kArgs));
+    return base::StrLength(out, out_cap) + 1;
 }
 
 /// Parses a whole decimal word; false on any other shape.
 bool parse_whole_decimal(std::string_view text, unsigned long& value) {
-    if (text.empty() || text.size() > 9) {
+    if (text.size() > 9) {
         return false;
     }
-    unsigned long parsed = 0;
-    for (const char kDigit : text) {
-        if (kDigit < '0' || kDigit > '9') {
-            return false;
-        }
-        parsed = (parsed * 10) + static_cast<unsigned long>(kDigit - '0');
+    const base::Result<unsigned long> kParsed = base::ParseDecimal(text);
+    if (!kParsed.ok()) {
+        return false;
     }
-    value = parsed;
+    value = kParsed.value();
     return true;
 }
 
@@ -166,6 +213,10 @@ bool generate(const ProcSource& source, unsigned long ino, char* scratch, unsign
         bytes = format_meminfo(scratch, scratch_cap, source);
         return true;
     }
+    if (ino == kProcDevicesIno) {
+        bytes = format_devices(scratch, scratch_cap, source);
+        return true;
+    }
     if (ino < kProcPidBase) {
         return false;
     }
@@ -188,11 +239,14 @@ base::Result<FsNode> ProcFs::lookup(std::string_view path) {
     if (path.empty()) {
         return FsNode{.opaque = nullptr, .type = InodeType::kDirectory, .ino = kRootIno, .size = 0};
     }
-    if (path == "meminfo") {
-        return FsNode{.opaque = nullptr, .type = InodeType::kFile, .ino = kMeminfoIno, .size = 0};
-    }
-    if (path == "self") {
-        return FsNode{.opaque = nullptr, .type = InodeType::kDirectory, .ino = kSelfIno, .size = 0};
+    const FixedName* const kFixed = base::container::FindByName(kRootNames, path);
+    if (kFixed != nullptr) {
+        return FsNode{
+            .opaque = nullptr,
+            .type   = kFixed->type,
+            .ino    = kRootIno + kFixed->step,
+            .size   = 0,
+        };
     }
     if (path == "self/exe") {
         return FsNode{.opaque = nullptr, .type = InodeType::kFile, .ino = kProcExeIno, .size = 0};
@@ -210,16 +264,18 @@ base::Result<FsNode> ProcFs::lookup(std::string_view path) {
     if (!parse_whole_decimal(path.substr(0, kSlash), tgid) || !tgid_lives(source_, tgid)) {
         return base::KernelError::kNotFound;
     }
-    const std::string_view kLeaf = path.substr(kSlash + 1);
-    if (kLeaf == "stat") {
-        const unsigned long kIno = kProcPidBase + (tgid * kPidStride) + 1;
-        return FsNode{.opaque = nullptr, .type = InodeType::kFile, .ino = kIno, .size = 0};
+    const std::string_view kLeaf        = path.substr(kSlash + 1);
+    const unsigned long    kDirIno      = kProcPidBase + (tgid * kPidStride);
+    const FixedName* const kPidDirEntry = base::container::FindByName(kPidDirNames, kLeaf);
+    if (kPidDirEntry == nullptr) {
+        return base::KernelError::kNotFound;
     }
-    if (kLeaf == "cmdline") {
-        const unsigned long kIno = kProcPidBase + (tgid * kPidStride) + 2;
-        return FsNode{.opaque = nullptr, .type = InodeType::kFile, .ino = kIno, .size = 0};
-    }
-    return base::KernelError::kNotFound;
+    return FsNode{
+        .opaque = nullptr,
+        .type   = kPidDirEntry->type,
+        .ino    = kDirIno + kPidDirEntry->step,
+        .size   = 0,
+    };
 }
 
 base::Result<FsNode> ProcFs::make_file(std::string_view /*path*/) {
@@ -249,7 +305,7 @@ base::Result<unsigned long> ProcFs::read(FsNode node, unsigned long offset, void
         }
         return gave;
     }
-    char          scratch[192] = {};
+    char          scratch[512] = {};
     unsigned long bytes        = 0;
     if (!generate(source_, node.ino, scratch, sizeof(scratch), bytes)) {
         return base::KernelError::kNotFound;
@@ -286,24 +342,19 @@ base::Result<bool> ProcFs::read_dir(FsNode node, unsigned long index, FsDirent& 
             entry.ino     = kRootIno;
             return true;
         }
-        if (index == 2) {
-            base::CopyBytes(entry.name, "meminfo", 8);
-            entry.ino  = kMeminfoIno;
-            entry.type = InodeType::kFile;
-            return true;
-        }
-        if (index == 3) {
-            base::CopyBytes(entry.name, "self", 5);
-            entry.ino = kSelfIno;
+        if (serve_fixed(kRootNames, kRootIno, index, entry)) {
             return true;
         }
         unsigned long tgid = 0;
-        if (source_.nth_tgid == nullptr || !source_.nth_tgid(source_.context, index - 4, tgid)) {
+        if (source_.nth_tgid == nullptr ||
+            !source_.nth_tgid(source_.context, index - 2 - std::size(kRootNames), tgid)) {
             return false;
         }
-        const unsigned long kNameLen = put_decimal(entry.name, tgid);
-        entry.name[kNameLen]         = '\0';
-        entry.ino                    = kProcPidBase + (tgid * kPidStride);
+        const base::format::Arg kName[] = {
+            base::format::NumU(tgid),
+        };
+        base::format::FormatToBuf(entry.name, kFsNameMax, "%lu", base::format::ArgsView::of(kName));
+        entry.ino = kProcPidBase + (tgid * kPidStride);
         return true;
     }
     if (index == 0) {
@@ -317,19 +368,7 @@ base::Result<bool> ProcFs::read_dir(FsNode node, unsigned long index, FsDirent& 
         entry.ino     = kRootIno;
         return true;
     }
-    if (index == 2) {
-        base::CopyBytes(entry.name, "stat", 5);
-        entry.ino  = node.ino + 1;
-        entry.type = InodeType::kFile;
-        return true;
-    }
-    if (index == 3) {
-        base::CopyBytes(entry.name, "cmdline", 8);
-        entry.ino  = node.ino + 2;
-        entry.type = InodeType::kFile;
-        return true;
-    }
-    return false;
+    return serve_fixed(kPidDirNames, node.ino, index, entry);
 }
 
 base::Result<void> ProcFs::stat(FsNode node, FsStat& probed) {
@@ -345,7 +384,7 @@ base::Result<void> ProcFs::stat(FsNode node, FsStat& probed) {
         probed.size = source_.exe_size != nullptr ? source_.exe_size(source_.context) : 0;
         return {};
     }
-    char          scratch[192] = {};
+    char          scratch[512] = {};
     unsigned long bytes        = 0;
     if (generate(source_, node.ino, scratch, sizeof(scratch), bytes)) {
         probed.size = bytes;
