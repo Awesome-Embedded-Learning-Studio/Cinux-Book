@@ -25,6 +25,16 @@ namespace cinux::arch {
 /// every write-xor-execute plan both stand on this bit being set.
 inline constexpr unsigned long long kCr0WriteProtect = 1ULL << 16U;
 
+/// CR4 bit 20: supervisor mode execution prevention — ring 0 fetching
+/// instructions from a user page faults instead of executing. A 2011+
+/// feature, so the enable path asks CPUID before writing the bit.
+inline constexpr unsigned long long kCr4Smep = 1ULL << 20U;
+
+/// CR4 bit 21: supervisor mode access prevention — ring 0 touching a
+/// user page at all faults unless RFLAGS.AC is set for the moment.
+/// Gated by CPUID like SMEP, and served by the stac/clac window pair.
+inline constexpr unsigned long long kCr4Smap = 1ULL << 21U;
+
 /**
  * @brief         Reads CR0, the machine's coarse behavior switches.
  *
@@ -56,6 +66,43 @@ inline unsigned long long ReadCr0() {
  */
 inline void WriteCr0(unsigned long long value) {
     asm volatile("movq %0, %%cr0" : : "r"(value) : "memory");
+}
+
+/**
+ * @brief         Reads CR4, the per-CPU feature switches.
+ *
+ * @return        The current CR4 image.
+ * @note          CR4 belongs to one processor only: the read answers for
+ *                the core it runs on, so the mechanism snapshot the boot
+ *                prints per CPU takes one read per online core.
+ * @warning       None
+ * @throws        None
+ * @since         0.3.0
+ * @ingroup       kernel_arch
+ */
+inline unsigned long long ReadCr4() {
+    // NOLINTNEXTLINE(misc-const-correctness)
+    unsigned long long value = 0;
+    asm volatile("movq %%cr4, %0" : "=r"(value));
+    return value;
+}
+
+/**
+ * @brief         Writes CR4 wholesale.
+ *
+ * @param[in]     value   The new image.
+ * @return        None.
+ * @note          Callers read, OR in named bits, and write back — never
+ *                rebuild the word, the machine owns the rest of it. Bits
+ *                the CPU does not know refuse the whole write with #GP,
+ *                which is why SMEP and SMAP ask CPUID first.
+ * @warning       None
+ * @throws        None
+ * @since         0.3.0
+ * @ingroup       kernel_arch
+ */
+inline void WriteCr4(unsigned long long value) {
+    asm volatile("movq %0, %%cr4" : : "r"(value) : "memory");
 }
 
 /**

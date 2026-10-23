@@ -11,7 +11,9 @@
 #include "cinux/ptr.hpp"
 #include "cinux/result.hpp"
 #include "cinux/shared.hpp"
+#include "kernel/arch/x86_64/entropy.hpp"
 #include "kernel/arch/x86_64/page.hpp"
+#include "kernel/arch/x86_64/page_entry.hpp"
 #include "kernel/arch/x86_64/rdrand.hpp"
 #include "kernel/fs/file_table.hpp"
 #include "kernel/fs/file_world.hpp"
@@ -28,6 +30,7 @@
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::syscall {
 
@@ -144,24 +147,27 @@ char g_default_path[] = "PATH=/bin:/usr/bin";
 /// Copies one null-terminated user run into the staging pool; false
 /// when the run walks out of the user half or out of budget.
 bool stage_user_run(unsigned long address, char* pool, unsigned long& pool_used, char*& landed) {
-    if (address >= kUserAddressLimit) {
+    if (address == 0 || address >= kUserAddressLimit) {
         return false;
     }
-    auto const* const kText =
-        reinterpret_cast<const char*>(address);  // NOLINT(performance-no-int-to-ptr)
-    unsigned long length = 0;
-    while (length < kEntryTextBytes - pool_used && kText[length] != '\0') {
-        ++length;
+    const unsigned long     kBudget     = kEntryTextBytes - pool_used;
+    constexpr unsigned long kChunkBytes = 64;
+    unsigned long           done        = 0;
+    while (done < kBudget) {
+        const unsigned long kChunk = done + kChunkBytes < kBudget ? kChunkBytes : kBudget - done;
+        if (!uaccess::CopyFromUser(pool + pool_used + done, address + done, kChunk)) {
+            return false;
+        }
+        for (unsigned long index = done; index < done + kChunk; ++index) {
+            if (pool[pool_used + index] == '\0') {
+                landed = pool + pool_used;
+                pool_used += index + 1;
+                return true;
+            }
+        }
+        done += kChunk;
     }
-    if (kText[length] != '\0') {
-        return false;
-    }
-    landed = pool + pool_used;
-    for (unsigned long index = 0; index <= length; ++index) {
-        landed[index] = kText[index];
-    }
-    pool_used += length + 1;
-    return true;
+    return false;
 }
 
 /// Stages one user pointer array into kernel terms; counts the run
@@ -171,20 +177,24 @@ bool stage_user_vector(unsigned long user_words, char* pool, unsigned long& pool
     if (user_words == 0) {
         return true;
     }
-    if (!UserRangeReadable(user_words, (kMaxEntryWords + 1) * sizeof(void*))) {
-        return false;
+    unsigned long long words[kMaxEntryWords + 1] = {};
+    unsigned long      total                     = 0;
+    for (unsigned long index = 0; index <= kMaxEntryWords; ++index) {
+        if (!uaccess::CopyFromUser(&words[index], user_words + (index * sizeof(words[0])),
+                                   sizeof(words[0]))) {
+            return false;
+        }
+        if (words[index] == 0) {
+            total = index;
+            break;
+        }
     }
-    auto const* const kWords =
-        reinterpret_cast<const unsigned long*>(user_words);  // NOLINT(performance-no-int-to-ptr)
-    unsigned long total = 0;
-    while (total <= kMaxEntryWords && kWords[total] != 0) {
-        ++total;
-    }
-    if (total > kMaxEntryWords) {
+    if (words[total] != 0) {
         return false;
     }
     for (unsigned long index = 0; index < total; ++index) {
-        if (!stage_user_run(kWords[index], pool, pool_used, staged[index])) {
+        const auto kRun = static_cast<unsigned long>(words[index]);
+        if (!stage_user_run(kRun, pool, pool_used, staged[index])) {
             return false;
         }
     }
@@ -247,9 +257,13 @@ long long HandleExecve(const SyscallFrame& frame) {
     if (!loader::LoadElfIntoSpace(program.get(), program_size, kWorld, facts)) {
         return -kEnomem;
     }
-    facts.page_bytes = cinux::arch::page::kSize;
-    ranges->seed_heap(cinux::base::math::AlignUp(ranges->max_end(), cinux::arch::page::kSize),
+    facts.page_bytes                            = cinux::arch::page::kSize;
+    constexpr unsigned long long kBrkSlideMask  = 0xFFF'000;
+    constexpr unsigned long long kMmapSlideMask = 0x3FFF'FF000;
+    ranges->seed_heap(cinux::base::math::AlignUp(ranges->max_end(), cinux::arch::page::kSize) +
+                          (arch::RandomWord() & kBrkSlideMask),
                       mm::kUserBrkMmapSplit);
+    ranges->set_mmap_ceiling(mm::kUserMmapTop - (arch::RandomWord() & kMmapSlideMask));
     char        interpreter_path[fs::kFsPathMax] = {};
     const char* interpreter                      = nullptr;
     if (loader::ReadInterpreterPath(program.get(), program_size, interpreter_path,
@@ -266,10 +280,13 @@ long long HandleExecve(const SyscallFrame& frame) {
     facts.interpreter_base = kDyn.base;
     const unsigned long long kFirstInstruction =
         kDyn.instruction != 0 ? kDyn.instruction : facts.program_entry;
+    constexpr unsigned long long kStackSlideMask = 0x7FF'000;
+    const unsigned long long     kStackTop =
+        proc::kUserProgramStackTop - (arch::RandomWord() & kStackSlideMask);
     mm::VmaRegion stack_range{};
-    stack_range.start = proc::kUserProgramStackTop - mm::kUserStackBytes - cinux::arch::page::kSize;
-    stack_range.end   = proc::kUserProgramStackTop;
-    stack_range.kind  = mm::VmaKind::kStack;
+    stack_range.start    = kStackTop - mm::kUserStackBytes - cinux::arch::page::kSize;
+    stack_range.end      = kStackTop;
+    stack_range.kind     = mm::VmaKind::kStack;
     stack_range.readable = true;
     stack_range.writable = true;
     if (!ranges->register_range(stack_range).ok()) {
@@ -281,14 +298,15 @@ long long HandleExecve(const SyscallFrame& frame) {
     }
     cinux::base::SetBytes(cinux::base::PtrAt<unsigned char>(mm::DirectMapVirt(kStackFrame.raw)), 0,
                           cinux::arch::page::kSize);
-    if (!fresh->map_user(proc::kUserProgramStackTop - cinux::arch::page::kSize, kStackFrame.raw)) {
+    if (!fresh->map_user(kStackTop - cinux::arch::page::kSize, kStackFrame.raw,
+                         cinux::arch::page::UserLeafTerms(true, false))) {
         mm::Pmm::self().free_page(kStackFrame);
         return -kEnomem;
     }
     if (!proc::MapSignalTrampoline(*fresh, *ranges)) {
         return -kEnomem;
     }
-    kSelf->signals         = proc::SignalState{};
+    kSelf->signals.reset();
     kSelf->clear_child_tid = 0;
     kSelf->files->close_on_exec();
     note_program_identity(*kSelf, path);
@@ -311,10 +329,10 @@ long long HandleExecve(const SyscallFrame& frame) {
     const loader::EntryRuns kRuns{.arguments = argv_words, .environment = envp_words};
     if (loader::WriteEntryPicture(
             cinux::base::PtrAt<unsigned char>(mm::DirectMapVirt(kStackFrame.raw)),
-            proc::kUserProgramStackTop - proc::kUserEntryStackOffset, kRuns, facts) == 0) {
+            kStackTop - proc::kUserEntryStackOffset, kRuns, facts) == 0) {
         return -kE2big;
     }
-    mutable_frame.user_rsp = proc::kUserProgramStackTop - proc::kUserEntryStackOffset;
+    mutable_frame.user_rsp = kStackTop - proc::kUserEntryStackOffset;
     mutable_frame.rcx      = kFirstInstruction;
     mutable_frame.r11      = kUserFlags;
     mutable_frame.rax      = 0;

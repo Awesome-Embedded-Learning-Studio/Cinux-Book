@@ -52,6 +52,14 @@ inline constexpr Entry kCacheDisable = base::bit::MaskBit<uint64_t>(4);
 /// the available-to-software bits the hardware ignores outright.
 inline constexpr Entry kCow = base::bit::MaskBit<uint64_t>(9);
 
+/// Bit 63: instruction fetches through this entry fault. The bit only
+/// means anything once EFER.NXE (MSR 0xC0000080, bit 11) is set — with
+/// NXE clear it is reserved, and writing it into an entry invites a
+/// reserved-bit page fault. Writers pass this flag only from that day
+/// forward, which is why every mapping call names its flags explicitly
+/// instead of inheriting a house default.
+inline constexpr Entry kNoExec = base::bit::MaskBit<uint64_t>(63);
+
 /// Shift of a 2MB large page: frame numbers below count in 2MB units.
 inline constexpr unsigned char kLargePageShift = 21;
 
@@ -77,6 +85,34 @@ static_assert(kLargePageSize == (1ULL << kLargePageShift));
 static_assert(kHugePageSize == (1ULL << kHugePageShift));
 static_assert(kLargePageShift == kLargePagePhys.low);
 static_assert(kHugePageShift == kHugePagePhys.low);
+
+/**
+ * @brief         Composes the permission terms of one user leaf.
+ *
+ * @param[in]     writable    Whether stores through this leaf are promised.
+ * @param[in]     executable  Whether instruction fetches through this leaf
+ *                            are promised; a false answer names the
+ *                            no-execute bit, so data leaves refuse code
+ *                            the moment EFER.NXE is on.
+ * @return        The User bit plus the two permission bits named above.
+ * @note          One home for every leaf the kernel maps into the user
+ *                half: demand fills, the loader's segments, fork-shared
+ *                pages and the exec stack all speak it, so no site
+ *                invents its own flags and a forgotten no-execute bit
+ *                cannot hide in a private composition.
+ * @since         0.3.0
+ * @ingroup       base_page
+ */
+constexpr Entry UserLeafTerms(bool writable, bool executable) {
+    Entry terms = kUser;
+    if (writable) {
+        terms = terms | kWritable;
+    }
+    if (!executable) {
+        terms = terms | kNoExec;
+    }
+    return terms;
+}
 
 /**
  * @brief         Build a table-pointer entry: present plus the given flags,

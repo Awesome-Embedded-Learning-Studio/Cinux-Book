@@ -2,9 +2,14 @@
 
 #include "cinux/assert.hpp"
 #include "cinux/result.hpp"
+#include "kernel/arch/x86_64/cpuid.hpp"
+#include "kernel/arch/x86_64/entropy.hpp"
+#include "kernel/arch/x86_64/ex_table.hpp"
 #include "kernel/arch/x86_64/halt.hpp"
 #include "kernel/arch/x86_64/irq_stubs.hpp"
 #include "kernel/arch/x86_64/pic.hpp"
+#include "kernel/arch/x86_64/protections.hpp"
+#include "kernel/arch/x86_64/registers.hpp"
 #include "kernel/arch/x86_64/smp.hpp"
 #include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/boot/boot_info.hpp"
@@ -30,6 +35,7 @@
 #include "kernel/proc/fault_diagnose.hpp"
 #include "kernel/proc/fault_resolve.hpp"
 #include "kernel/proc/lockdep.hpp"
+#include "kernel/syscall/uaccess.hpp"
 #include "kernel/time/tick.hpp"
 
 namespace cinux::init {
@@ -110,6 +116,23 @@ constexpr InitStep kInitSteps[] = {
         .name = "fast system calls",
         .run  = +[](const BootInfo* info) -> const BootInfo* {
             arch::usermode::EnableFastSystemCalls();
+            arch::ex_table::ArmTable();
+            syscall::uaccess::ArmWindows(arch::HasSmap());
+            return info;
+        },
+    },
+    {
+        .name = "kernel random",
+        .run  = +[](const BootInfo* info) -> const BootInfo* {
+            arch::SeedKernelRandom();
+            return info;
+        },
+    },
+    {
+        .name = "core protections",
+        .run  = +[](const BootInfo* info) -> const BootInfo* {
+            arch::EnableCoreProtections();
+            print::Println("[kern] cr4 %X after core protections", arch::ReadCr4());
             return info;
         },
     },
@@ -223,8 +246,8 @@ constexpr InitStep kInitSteps[] = {
             print::Println("[smp] %u CPUs online", arch::smp::OnlineCpuCount());
             for (unsigned int cpu = 0; cpu < arch::smp::OnlineCpuCount(); ++cpu) {
                 const auto& state = arch::smp::Mechanisms(cpu);
-                print::Println("[cpu %u] APIC %u online, LSTAR %llx", state.cpu_id, state.apic_id,
-                               state.lstar);
+                print::Println("[cpu %u] APIC %u online, LSTAR %llx, EFER %llx, CR4 %llx",
+                               state.cpu_id, state.apic_id, state.lstar, state.efer, state.cr4);
             }
             return info;
         },

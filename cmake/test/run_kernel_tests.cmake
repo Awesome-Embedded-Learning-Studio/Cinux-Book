@@ -15,6 +15,7 @@ file(REMOVE "${serial_log}")
 
 execute_process(
     COMMAND ${QEMU_PROGRAM} ${QEMU_DEVICE_ARGS}
+            -snapshot
             -drive format=raw,file=${IMAGE_FILE}
             -serial file:${serial_log}
     RESULT_VARIABLE qemu_status

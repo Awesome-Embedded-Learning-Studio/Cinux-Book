@@ -97,7 +97,10 @@ proc::Task* CurrentTask();
  * @since         0.5.0
  * @ingroup       kernel_syscall
  */
-[[nodiscard]] bool UserRangeReadable(Word start, Word bytes);
+[[nodiscard]] inline bool UserRangeReadable(Word start, Word bytes) {
+    return bytes != 0 && start != 0 && start < kUserAddressLimit &&
+           bytes <= kUserAddressLimit - start;
+}
 
 /**
  * @brief         Whether a user stretch may be written through.
@@ -109,7 +112,9 @@ proc::Task* CurrentTask();
  * @since         0.5.0
  * @ingroup       kernel_syscall
  */
-[[nodiscard]] bool UserRangeWritable(Word start, Word bytes);
+[[nodiscard]] inline bool UserRangeWritable(Word start, Word bytes) {
+    return UserRangeReadable(start, bytes);
+}
 
 /**
  * @brief         Range-checks a descriptor and hands back its live open.

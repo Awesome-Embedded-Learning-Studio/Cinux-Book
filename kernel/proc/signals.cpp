@@ -1,12 +1,13 @@
 #include "kernel/proc/signals.hpp"
 
-#include "cinux/ptr.hpp"
 #include "kernel/arch/x86_64/page.hpp"
 #include "kernel/mm/layout.hpp"
+#include "kernel/mm/vma.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/signal.hpp"
 #include "kernel/syscall/syscall.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::proc {
 
@@ -42,8 +43,9 @@ constexpr unsigned long long kDeliveryBytes = kRedZoneBytes + 15 + sizeof(SigRet
  * @ingroup       kernel_proc
  */
 bool stack_holds_delivery(unsigned long long rsp) {
-    return rsp > mm::kUserStackBottom && rsp - kDeliveryBytes >= mm::kUserStackBottom &&
-           rsp <= mm::kUserStackTop;
+    const Task* const kSelf = Scheduler::self().current();
+    return rsp >= kDeliveryBytes && kSelf != nullptr && kSelf->vmas.holds() &&
+           kSelf->vmas->stack_contains(rsp - kDeliveryBytes, kDeliveryBytes);
 }
 
 /**
@@ -94,12 +96,14 @@ void die_by_signal(int number) {
  * @note          The layout under the interrupted red zone, low to high:
  *                the return address, then the context itself. The frame
  *                then reads like a call just happened: the stack
- *                pointer rests on the trampoline slot (eight mod
- *                sixteen, as the ABI demands after a call), rcx
- *                carries the handler, rdi the signal number. The
- *                handler's ret lands on the trampoline with the
- *                context itself as rsp. Nothing saved below the return
- *                address may survive an ordinary handler's pushes.
+ *                pointer rests on the return slot (eight mod sixteen,
+ *                as the ABI demands after a call), rcx carries the
+ *                handler, rdi the signal number. The handler's ret
+ *                lands on the return word — the action's own restorer
+ *                when SA_RESTORER promised one, the kernel trampoline
+ *                page otherwise — with the context itself as rsp.
+ *                Nothing saved below the return address may survive an
+ *                ordinary handler's pushes.
  * @since         0.1.0
  * @ingroup       kernel_proc
  */
@@ -111,7 +115,7 @@ bool frame_handler_entry(SyscallFrame& frame, int number, const SigAction& act,
     const unsigned long long kContext =
         (frame.user_rsp - kRedZoneBytes - sizeof(SigReturnContext)) & ~0xFULL;
     const unsigned long long kReturnSlot = kContext - 8;
-    auto& image       = *cinux::base::PtrAt<SigReturnContext>(static_cast<unsigned long>(kContext));
+    SigReturnContext         image{};
     image.user_rsp    = frame.user_rsp;
     image.rcx         = frame.rcx;
     image.r11         = frame.r11;
@@ -130,13 +134,25 @@ bool frame_handler_entry(SyscallFrame& frame, int number, const SigAction& act,
     image.r15         = frame.r15;
     image.old_blocked = blocked_before;
     image.reserved    = 0;
-    *cinux::base::PtrAt<unsigned long long>(static_cast<unsigned long>(kReturnSlot)) =
-        SignalTrampolineAddress();
+    const unsigned long long kReturnAddress =
+        (act.flags & cinux::syscall::kSaRestorer) != 0 ? act.restorer : SignalTrampolineAddress();
+    if (!cinux::syscall::uaccess::CopyToUser(kContext, &image, sizeof(image)) ||
+        !cinux::syscall::uaccess::CopyToUser(kReturnSlot, &kReturnAddress,
+                                             sizeof(kReturnAddress))) {
+        return false;
+    }
     frame.user_rsp = kReturnSlot;
     frame.rcx      = act.handler;
     frame.rdi      = static_cast<unsigned long long>(number);
     frame.rax      = 0;
     return true;
+}
+
+/// Clears one pending bit under the gate; senders on other cores hold
+/// the same gate for their rewrites, so a clear never eats a send.
+void clear_pending_bit(SignalState& state, int number) {
+    const auto kGate = state.gate.guard();
+    state.pending    = state.pending & ~bit_for(number);
 }
 
 }  // namespace
@@ -169,6 +185,15 @@ SignalDisposition DefaultDisposition(int number) {
     }
 }
 
+void SignalState::reset() {
+    const auto kGate = gate.guard();
+    for (SigAction& act : actions) {
+        act = SigAction{};
+    }
+    blocked = {};
+    pending = {};
+}
+
 void SendToGroup(unsigned long long pgid, int number) {
     Scheduler::self().for_each_task([&](Task& scan) {
         if (scan.pgid == pgid) {
@@ -188,10 +213,13 @@ bool SendSignal(Task& target, int number) {
     if (kAction.handler == kSignalIgnore) {
         return true;
     }
-    if (number == cinux::syscall::kSigCont) {
-        target.signals.pending = target.signals.pending & ~stop_class_mask();
+    {
+        const auto kGate = target.signals.gate.guard();
+        if (number == cinux::syscall::kSigCont) {
+            target.signals.pending = target.signals.pending & ~stop_class_mask();
+        }
+        target.signals.pending = target.signals.pending | bit_for(number);
     }
-    target.signals.pending = target.signals.pending | bit_for(number);
     if (target.state == TaskState::kStopped &&
         (number == cinux::syscall::kSigCont || number == cinux::syscall::kSigKill)) {
         Scheduler::self().resume(target);
@@ -218,7 +246,7 @@ bool DeliverPendingSignals(SyscallFrame& frame) {
         }
         SigAction& action = kSelf->signals.actions[kNumber - 1];
         if (action.handler == kSignalIgnore) {
-            kSelf->signals.pending = kSelf->signals.pending & ~bit_for(kNumber);
+            clear_pending_bit(kSelf->signals, kNumber);
             continue;
         }
         if (action.handler == kSignalDefault) {
@@ -226,7 +254,7 @@ bool DeliverPendingSignals(SyscallFrame& frame) {
                 die_by_signal(kNumber);
                 break;
             }
-            kSelf->signals.pending = kSelf->signals.pending & ~bit_for(kNumber);
+            clear_pending_bit(kSelf->signals, kNumber);
             if (DefaultDisposition(kNumber) == SignalDisposition::kStop) {
                 Scheduler::self().stop_current();
                 break;
@@ -238,10 +266,10 @@ bool DeliverPendingSignals(SyscallFrame& frame) {
             if ((action.flags & cinux::syscall::kSaResethand) != 0) {
                 action = SigAction{};
             }
-            kSelf->signals.pending = kSelf->signals.pending & ~bit_for(kNumber);
-            rewrote                = true;
+            clear_pending_bit(kSelf->signals, kNumber);
+            rewrote = true;
         } else {
-            die_by_signal(kNumber);
+            die_by_signal(cinux::syscall::kSigSegv);
         }
         break;
     }

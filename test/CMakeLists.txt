@@ -33,6 +33,19 @@ add_cinux_test(layout)
 add_cinux_test(mm_layout)
 add_cinux_test(vmm)
 add_cinux_test(page)
+add_cinux_test(cpu_bits)
+add_cinux_test(extable)
+add_cinux_test(random)
+add_cinux_test(uaccess ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
+                         ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
+                         ${CMAKE_SOURCE_DIR}/kernel/proc/sched_class.cpp
+                         ${CMAKE_SOURCE_DIR}/kernel/proc/futex.cpp
+                         ${CMAKE_SOURCE_DIR}/kernel/proc/signals.cpp
+                         ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
+                         ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp
+                         ${CMAKE_SOURCE_DIR}/kernel/fs/file_table.cpp
+                         ${CMAKE_SOURCE_DIR}/kernel/mm/vma.cpp
+                         ${CMAKE_SOURCE_DIR}/kernel/syscall/uaccess.cpp)
 add_cinux_test(image)
 add_cinux_test(bitmap)
 add_cinux_test(time)
@@ -58,7 +71,8 @@ add_cinux_test(syscall_face ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_uname.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/fs/file_table.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/mm/vma.cpp
-                           framework/syscall_host.cpp)
+                           framework/syscall_host.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/uaccess.cpp)
 
 add_cinux_test(keyboard ${CMAKE_SOURCE_DIR}/kernel/driver/keyboard/scancode.cpp)
 add_cinux_test(pmm ${CMAKE_SOURCE_DIR}/kernel/mm/pmm.cpp)
@@ -82,7 +96,7 @@ add_cinux_test(fpu_gate ${CMAKE_SOURCE_DIR}/kernel/proc/fpu_gate.cpp
                         ${CMAKE_SOURCE_DIR}/kernel/proc/signals.cpp
                         ${CMAKE_SOURCE_DIR}/kernel/proc/sched_class.cpp
                         ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
-                        ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
+                        ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp ${CMAKE_SOURCE_DIR}/kernel/syscall/uaccess.cpp)
 set_source_files_properties(unit/test_fpu_gate.cpp PROPERTIES COMPILE_OPTIONS "-mno-sse;-mno-sse2")
 add_cinux_test(self_list)
 add_cinux_test(shared)
@@ -95,7 +109,7 @@ add_cinux_test(sync ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                       ${CMAKE_SOURCE_DIR}/kernel/fs/file_table.cpp
                       ${CMAKE_SOURCE_DIR}/kernel/proc/signals.cpp
                       ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
-                      ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
+                      ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp ${CMAKE_SOURCE_DIR}/kernel/syscall/uaccess.cpp)
 add_cinux_test(guard)
 add_cinux_test(scheduler ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
@@ -105,7 +119,7 @@ add_cinux_test(scheduler ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/proc/signals.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/proc/sched_class.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
-                          ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
+                          ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp ${CMAKE_SOURCE_DIR}/kernel/syscall/uaccess.cpp)
 target_link_libraries(test_scheduler PRIVATE Threads::Threads)
 add_cinux_test(sched_class ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                             ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
@@ -115,7 +129,7 @@ add_cinux_test(sched_class ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                             ${CMAKE_SOURCE_DIR}/kernel/proc/signals.cpp
                             ${CMAKE_SOURCE_DIR}/kernel/proc/sched_class.cpp
                             ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
-                            ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
+                            ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp ${CMAKE_SOURCE_DIR}/kernel/syscall/uaccess.cpp)
 add_cinux_test(vfs ${CMAKE_SOURCE_DIR}/kernel/fs/vfs.cpp)
 add_cinux_test(devfs ${CMAKE_SOURCE_DIR}/kernel/fs/devfs/devfs.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/fs/vfs.cpp
@@ -143,7 +157,7 @@ add_cinux_test(pty_node ${CMAKE_SOURCE_DIR}/kernel/driver/tty/pty.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/sched_class.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp
-                       ${CMAKE_SOURCE_DIR}/kernel/mm/vma.cpp)
+                       ${CMAKE_SOURCE_DIR}/kernel/mm/vma.cpp ${CMAKE_SOURCE_DIR}/kernel/syscall/uaccess.cpp)
 add_cinux_test(procfs ${CMAKE_SOURCE_DIR}/kernel/fs/procfs/procfs.cpp
                         ${CMAKE_SOURCE_DIR}/kernel/fs/vfs.cpp)
 add_cinux_test(file_table ${CMAKE_SOURCE_DIR}/kernel/fs/file_table.cpp)
@@ -156,7 +170,7 @@ add_cinux_test(ramfs ${CMAKE_SOURCE_DIR}/kernel/fs/ramfs/ramfs.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/mm/vma.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/signals.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
-                       ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
+                       ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp ${CMAKE_SOURCE_DIR}/kernel/syscall/uaccess.cpp)
 add_cinux_test(ustar ${CMAKE_SOURCE_DIR}/kernel/fs/ustar.cpp)
 add_cinux_test(ext2 ${CMAKE_SOURCE_DIR}/kernel/fs/ext2/ext2_layout.cpp
                     ${CMAKE_SOURCE_DIR}/kernel/fs/ext2/ext2.cpp
@@ -170,7 +184,7 @@ add_cinux_test(ext2 ${CMAKE_SOURCE_DIR}/kernel/fs/ext2/ext2_layout.cpp
                     ${CMAKE_SOURCE_DIR}/kernel/mm/vma.cpp
                     ${CMAKE_SOURCE_DIR}/kernel/proc/signals.cpp
                     ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
-                    ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
+                    ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp ${CMAKE_SOURCE_DIR}/kernel/syscall/uaccess.cpp)
 add_cinux_test(pci ${CMAKE_SOURCE_DIR}/kernel/driver/pci/pci_layout.cpp)
 add_cinux_test(msi_layout ${CMAKE_SOURCE_DIR}/kernel/driver/pci/pci_layout.cpp
                             ${CMAKE_SOURCE_DIR}/kernel/driver/msi/msi_layout.cpp
@@ -188,7 +202,7 @@ add_cinux_test(block ${CMAKE_SOURCE_DIR}/kernel/driver/block/block_queue.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/mm/vma.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/signals.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
-                       ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
+                       ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp ${CMAKE_SOURCE_DIR}/kernel/syscall/uaccess.cpp)
 add_cinux_test(vma ${CMAKE_SOURCE_DIR}/kernel/mm/vma.cpp)
 add_cinux_test(signal ${CMAKE_SOURCE_DIR}/kernel/proc/signals.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_signal.cpp
@@ -200,7 +214,8 @@ add_cinux_test(signal ${CMAKE_SOURCE_DIR}/kernel/proc/signals.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/sched_class.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp
-                       framework/syscall_host.cpp)
+                       framework/syscall_host.cpp
+                       ${CMAKE_SOURCE_DIR}/kernel/syscall/uaccess.cpp)
 add_cinux_test(thread_exit ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                              ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
                              ${CMAKE_SOURCE_DIR}/kernel/proc/futex.cpp
@@ -209,7 +224,7 @@ add_cinux_test(thread_exit ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                              ${CMAKE_SOURCE_DIR}/kernel/proc/signals.cpp
                              ${CMAKE_SOURCE_DIR}/kernel/proc/sched_class.cpp
                              ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
-                             ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp)
+                             ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp ${CMAKE_SOURCE_DIR}/kernel/syscall/uaccess.cpp)
 add_cinux_test(kallsyms ${CMAKE_SOURCE_DIR}/kernel/debug/kallsyms.cpp)
 
 add_test(NAME kernel_image
@@ -248,8 +263,14 @@ foreach(entry IN LISTS CINUX_KTESTS CINUX_KTESTS_INTEGRATION)
     add_dependencies(boot_ktest_${ktest} ext2_ktest_img)
 endforeach()
 
+set(CINUX_CTEST_JOBS "$ENV{CINUX_CHECK_JOBS}")
+if(NOT CINUX_CTEST_JOBS)
+    set(CINUX_CTEST_JOBS 4)
+endif()
+
 add_custom_target(test_host
-    COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_CURRENT_BINARY_DIR}
+    COMMAND ${CMAKE_CTEST_COMMAND} -j ${CINUX_CTEST_JOBS}
+            --test-dir ${CMAKE_CURRENT_BINARY_DIR}
             -E ^kernel_test_ --output-on-failure
     DEPENDS ${ALL_HOST_TESTS}
     USES_TERMINAL
@@ -257,7 +278,8 @@ add_custom_target(test_host
 )
 
 add_custom_target(test_kernel
-    COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_CURRENT_BINARY_DIR}
+    COMMAND ${CMAKE_CTEST_COMMAND} -j ${CINUX_CTEST_JOBS}
+            --test-dir ${CMAKE_CURRENT_BINARY_DIR}
             -R ^kernel_test_ --output-on-failure
     DEPENDS ${CINUX_KTEST_IMAGE_TARGETS}
     USES_TERMINAL

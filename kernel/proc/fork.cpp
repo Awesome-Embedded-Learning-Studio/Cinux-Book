@@ -118,6 +118,10 @@ Task* BuildForkChild(unsigned long long frame_address) {
     kBorn->controlling_tty = kParent->controlling_tty;
     cinux::base::CopyBytes(kBorn->comm, kParent->comm, sizeof(kBorn->comm));
     cinux::base::CopyBytes(kBorn->limits, kParent->limits, sizeof(kBorn->limits));
+    kBorn->uid  = kParent->uid;
+    kBorn->euid = kParent->euid;
+    kBorn->gid  = kParent->gid;
+    kBorn->egid = kParent->egid;
     for (unsigned long descriptor = 0; descriptor < fs::kFileTableMax; ++descriptor) {
         const base::Result<base::Shared<fs::OpenFile>> kOpen = kParent->files->shared(descriptor);
         if (!kOpen.ok()) {

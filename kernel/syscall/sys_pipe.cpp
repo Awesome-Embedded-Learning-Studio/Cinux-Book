@@ -10,6 +10,7 @@
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::syscall {
 
@@ -50,10 +51,13 @@ long long seat_pipe_pair(unsigned long long user_fds) {
                                    "pipe read end vanished while seating the write end");
         return -kEnomem;
     }
-    // NOLINTNEXTLINE(performance-no-int-to-ptr)
-    auto* const kOut = reinterpret_cast<unsigned int*>(user_fds);
-    kOut[0]          = static_cast<unsigned int>(kReadEnd.value());
-    kOut[1]          = static_cast<unsigned int>(kWriteEnd.value());
+    const unsigned int kPair[2] = {
+        static_cast<unsigned int>(kReadEnd.value()),
+        static_cast<unsigned int>(kWriteEnd.value()),
+    };
+    if (!uaccess::CopyToUser(user_fds, kPair, sizeof(kPair))) {
+        return -kEfault;
+    }
     return 0;
 }
 

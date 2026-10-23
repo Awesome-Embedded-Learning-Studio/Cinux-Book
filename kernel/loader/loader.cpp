@@ -21,13 +21,12 @@ namespace cinux::loader {
 namespace {
 
 using arch::page::kSize;
-using arch::page::kUser;
-using arch::page::kWritable;
 
 struct ChunkPlan {
     const std::uint8_t* source;
     std::size_t         bytes;
     bool                writable;
+    bool                executable;
     unsigned long long  dest_offset;
 };
 
@@ -39,11 +38,10 @@ void map_segment_page(const mm::AddressSpace& space, std::uint64_t spot, const C
     if (chunk.bytes > 0) {
         cinux::base::CopyBytes(kDestination + chunk.dest_offset, chunk.source, chunk.bytes);
     }
-    cinux::arch::page::Entry bits = kUser;
-    if (chunk.writable) {
-        bits = bits | kWritable;
-    }
-    cinux::base::safety::Check(space.map_user(spot, kFrame.raw, bits), "loader map refused a page");
+    const cinux::arch::page::Entry kBits =
+        cinux::arch::page::UserLeafTerms(chunk.writable, chunk.executable);
+    cinux::base::safety::Check(space.map_user(spot, kFrame.raw, kBits),
+                               "loader map refused a page");
 }
 
 bool map_segment(const std::uint8_t* data, std::size_t bytes, const LoadWorld& world,
@@ -70,6 +68,7 @@ bool map_segment(const std::uint8_t* data, std::size_t bytes, const LoadWorld& w
                              .source      = chunk_source,
                              .bytes       = kChunkBytes,
                              .writable    = (segment.flags & kSegmentWrite) != 0,
+                             .executable  = (segment.flags & kSegmentExec) != 0,
                              .dest_offset = kCopyFrom - kSpot,
                          });
     }

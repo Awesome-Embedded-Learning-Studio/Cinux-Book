@@ -8,8 +8,18 @@
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::syscall {
+
+namespace {
+
+/// The read staging buffer: one backend read fills it, the accessor
+/// carries it across the user line, and no backend ever sees a
+/// ring-3 address.
+constexpr unsigned long long kReadStageBytes = 1024;
+
+}  // namespace
 
 long long HandleRead(const SyscallFrame& frame) {
     if (frame.rdi >= fs::kFileTableMax) {
@@ -22,12 +32,17 @@ long long HandleRead(const SyscallFrame& frame) {
     if (!kSlot.ok()) {
         return -kEbadf;
     }
-    auto* const kFile = kSlot.value().get();
-    auto* const kSink = reinterpret_cast<void*>(frame.rsi);  // NOLINT(performance-no-int-to-ptr)
+    auto* const   kFile = kSlot.value().get();
+    unsigned char stage[kReadStageBytes];
+    const auto    kWant =
+        static_cast<unsigned long>(frame.rdx < kReadStageBytes ? frame.rdx : kReadStageBytes);
     for (;;) {
         const base::Result<unsigned long> kGot =
-            kFile->ops->read(kFile->backend, kFile->node, kFile->offset, kSink, frame.rdx);
+            kFile->ops->read(kFile->backend, kFile->node, kFile->offset, stage, kWant);
         if (kGot.ok()) {
+            if (!uaccess::CopyToUser(frame.rsi, stage, kGot.value())) {
+                return -kEfault;
+            }
             kFile->offset += kGot.value();
             return static_cast<long long>(kGot.value());
         }

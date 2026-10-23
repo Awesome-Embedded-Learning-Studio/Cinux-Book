@@ -59,12 +59,21 @@ const VmaRegion* VmaStore::find(unsigned long address) const {
     return nullptr;
 }
 
+bool VmaStore::stack_contains(unsigned long start, unsigned long bytes) const {
+    const VmaRegion* const kRegion = find(start);
+    return bytes != 0 && kRegion != nullptr && kRegion->kind == VmaKind::kStack &&
+           kRegion->readable && kRegion->writable && start - kRegion->start >= kSize &&
+           bytes <= kRegion->end - start;
+}
+
 VmaStore* VmaStore::clone() const {
     base::Own<VmaStore> copy(new VmaStore{});
     if (!copy.holds()) {
         return nullptr;
     }
-    copy->heap_ = heap_;
+    copy->heap_         = heap_;
+    copy->heap_max_     = heap_max_;
+    copy->mmap_ceiling_ = mmap_ceiling_;
     for (const VmaRegion* scan = regions_.head(); scan != nullptr; scan = regions_.after(*scan)) {
         const base::Result<void> kFiled = copy->register_range(*scan);
         if (!kFiled.ok()) {

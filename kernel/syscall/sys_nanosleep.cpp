@@ -5,6 +5,7 @@
 #include "kernel/syscall/sys_clock.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::syscall {
 
@@ -16,27 +17,26 @@ constexpr unsigned long      kTimespecBytes = 16;
 }  // namespace
 
 long long HandleNanosleep(const SyscallFrame& frame) {
-    if (frame.rdi == 0 || frame.rdi >= kUserAddressLimit) {
-        return -kEfault;
-    }
-    if (!UserRangeReadable(frame.rdi, kTimespecBytes)) {
+    if (frame.rdi == 0) {
         return -kEfault;
     }
     if (frame.rsi != 0 &&
         (frame.rsi >= kUserAddressLimit || !UserRangeWritable(frame.rsi, kTimespecBytes))) {
         return -kEfault;
     }
-    // NOLINTNEXTLINE(performance-no-int-to-ptr)
-    const auto* const kAsked = reinterpret_cast<const unsigned long long*>(frame.rdi);
-    if (kAsked[0] >= (~0ULL / kNsPerSecond) || kAsked[1] >= kNsPerSecond) {
+    unsigned long long asked[2] = {};
+    if (!uaccess::CopyFromUser(asked, frame.rdi, kTimespecBytes)) {
+        return -kEfault;
+    }
+    if (asked[0] >= (~0ULL / kNsPerSecond) || asked[1] >= kNsPerSecond) {
         return -kEinval;
     }
     const unsigned long long kNow   = MonotonicNanoseconds();
     const unsigned long long kSlack = ~0ULL - kNow;
-    if (kAsked[1] > kSlack || kAsked[0] > ((kSlack - kAsked[1]) / kNsPerSecond)) {
+    if (asked[1] > kSlack || asked[0] > ((kSlack - asked[1]) / kNsPerSecond)) {
         return 0;
     }
-    const unsigned long long kDeadline = kNow + (kAsked[0] * kNsPerSecond) + kAsked[1];
+    const unsigned long long kDeadline = kNow + (asked[0] * kNsPerSecond) + asked[1];
 
     for (;;) {
         const proc::Task* const kSelf = CurrentTask();
@@ -44,10 +44,10 @@ long long HandleNanosleep(const SyscallFrame& frame) {
             if (frame.rsi != 0) {
                 const unsigned long long kLeft =
                     kDeadline > MonotonicNanoseconds() ? kDeadline - MonotonicNanoseconds() : 0;
-                // NOLINTNEXTLINE(performance-no-int-to-ptr)
-                auto* const kRemain = reinterpret_cast<unsigned long long*>(frame.rsi);
-                kRemain[0]          = kLeft / kNsPerSecond;
-                kRemain[1]          = kLeft % kNsPerSecond;
+                const unsigned long long kRemain[2] = {kLeft / kNsPerSecond, kLeft % kNsPerSecond};
+                if (!uaccess::CopyToUser(frame.rsi, kRemain, sizeof(kRemain))) {
+                    return -kEfault;
+                }
             }
             return -kEintr;
         }

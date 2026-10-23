@@ -3,6 +3,7 @@
 #include "kernel/driver/hpet/hpet.hpp"
 #include "kernel/driver/rtc/rtc.hpp"
 #include "kernel/syscall/syscall.hpp"
+#include "kernel/syscall/uaccess.hpp"
 #include "kernel/time/tick.hpp"
 
 namespace cinux::syscall {
@@ -42,12 +43,8 @@ unsigned long long MonotonicNanoseconds() {
 
 long long HandleTime(const SyscallFrame& frame) {
     const unsigned long long kNow = boot_wall() + split_ns(MonotonicNanoseconds()).seconds;
-    if (frame.rdi != 0) {
-        if (frame.rdi >= kUserAddressLimit) {
-            return -kEfault;
-        }
-        // NOLINTNEXTLINE(performance-no-int-to-ptr)
-        *reinterpret_cast<unsigned long long*>(frame.rdi) = kNow;
+    if (frame.rdi != 0 && !uaccess::CopyToUser(frame.rdi, &kNow, sizeof(kNow))) {
+        return -kEfault;
     }
     return static_cast<long long>(kNow);
 }
@@ -56,16 +53,19 @@ long long HandleGettimeofday(const SyscallFrame& frame) {
     if (frame.rdi == 0 || frame.rdi >= kUserAddressLimit) {
         return -kEfault;
     }
-    const ClockSplit kSince = split_ns(MonotonicNanoseconds());
-    // NOLINTNEXTLINE(performance-no-int-to-ptr)
-    auto* const      kTv    = reinterpret_cast<unsigned long long*>(frame.rdi);
-    kTv[0]                  = boot_wall() + kSince.seconds;
-    kTv[1]                  = kSince.nanoseconds_past_second / 1'000ULL;
+    const ClockSplit         kSince   = split_ns(MonotonicNanoseconds());
+    const unsigned long long kPair[2] = {
+        boot_wall() + kSince.seconds,
+        kSince.nanoseconds_past_second / 1'000ULL,
+    };
+    if (!uaccess::CopyToUser(frame.rdi, kPair, sizeof(kPair))) {
+        return -kEfault;
+    }
     return 0;
 }
 
 long long HandleClockGettime(const SyscallFrame& frame) {
-    if (frame.rsi == 0 || frame.rsi >= kUserAddressLimit) {
+    if (frame.rsi == 0) {
         return -kEfault;
     }
     constexpr unsigned long long kClockRealtime  = 0;
@@ -77,10 +77,10 @@ long long HandleClockGettime(const SyscallFrame& frame) {
     } else if (frame.rdi != kClockMonotonic) {
         return -kEinval;
     }
-    // NOLINTNEXTLINE(performance-no-int-to-ptr)
-    auto* const kTs = reinterpret_cast<unsigned long long*>(frame.rsi);
-    kTs[0]          = seconds;
-    kTs[1]          = kSince.nanoseconds_past_second;
+    const unsigned long long kPair[2] = {seconds, kSince.nanoseconds_past_second};
+    if (!uaccess::CopyToUser(frame.rsi, kPair, sizeof(kPair))) {
+        return -kEfault;
+    }
     return 0;
 }
 

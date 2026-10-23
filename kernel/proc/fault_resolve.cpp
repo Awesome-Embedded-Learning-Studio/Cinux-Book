@@ -13,8 +13,10 @@
 #include "kernel/proc/fault_resolve.hpp"
 
 #include "kernel/arch/x86_64/isr.hpp"
+#include "kernel/arch/x86_64/page.hpp"
 #include "kernel/mm/cow.hpp"
 #include "kernel/mm/demand.hpp"
+#include "kernel/mm/vma.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/signal.hpp"
@@ -24,15 +26,21 @@ namespace cinux::proc {
 namespace {
 
 bool resolve_current_fault(unsigned long long address, unsigned long long error_code) {
-    if (mm::cow::TryResolvePageFault(address, error_code)) {
-        return true;
-    }
     const Task* const kSelf = Scheduler::self().current();
     if (kSelf == nullptr || !kSelf->space.holds() || !kSelf->vmas.holds()) {
         return false;
     }
-    if (!mm::demand::FillPage(*kSelf->space, *kSelf->vmas, address, error_code)) {
-        if ((error_code & 0x4ULL) != 0) {
+    const mm::VmaRegion* const kRegion      = kSelf->vmas->find(address);
+    const bool                 kWrite       = (error_code & arch::isr::kFaultWasWrite) != 0;
+    const bool                 kInstruction = (error_code & arch::isr::kFaultInstruction) != 0;
+    const bool                 kAllowed =
+        kRegion != nullptr && (error_code & arch::isr::kFaultReserved) == 0 &&
+        (!kWrite || kRegion->writable) && (!kInstruction || kRegion->executable) &&
+        (kWrite || kInstruction || kRegion->readable) &&
+        (kRegion->kind != mm::VmaKind::kStack || address - kRegion->start >= arch::page::kSize);
+    if (!kAllowed || (!mm::cow::TryResolvePageFault(address, error_code) &&
+                      !mm::demand::FillPage(*kSelf->space, *kSelf->vmas, address, error_code))) {
+        if ((error_code & arch::isr::kFaultFromUser) != 0) {
             Scheduler::self().exit_current(cinux::syscall::kSigSegv);
         }
         return false;

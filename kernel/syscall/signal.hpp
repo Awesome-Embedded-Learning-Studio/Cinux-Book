@@ -62,6 +62,13 @@ inline constexpr unsigned long long kSignalIgnore = 1;
 /// sa_flags: interrupted syscalls restart where they left off.
 inline constexpr unsigned long long kSaRestart = 0x10000000;
 
+/// sa_flags: the action record names its own return trampoline. libc
+/// sets this on every handler it installs and points it at a restorer
+/// gadget ending in the rt_sigreturn call; honoring it keeps the
+/// kernel-planted trampoline page a fallback for freestanding programs
+/// that install handlers without one.
+inline constexpr unsigned long long kSaRestorer = 0x04000000;
+
 /// sa_flags: the handler reverts to default once it has run once.
 inline constexpr unsigned long long kSaResethand = 0x80000000;
 

@@ -1,15 +1,15 @@
 #include "kernel/syscall/sys_getcwd.hpp"
 
 #include "cinux/math.hpp"
-#include "cinux/memory.hpp"
 #include "kernel/fs/fs_config.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::syscall {
 
 long long HandleGetcwd(const SyscallFrame& frame) {
-    if (frame.rdi >= kUserAddressLimit) {
+    if (frame.rdi == 0) {
         return -kEfault;
     }
     const unsigned long kRoom = base::math::Min(frame.rsi, fs::kFsPathMax);
@@ -21,8 +21,9 @@ long long HandleGetcwd(const SyscallFrame& frame) {
     if (kCwd[used] != '\0') {
         return -kErange;
     }
-    auto* const kSink = reinterpret_cast<char*>(frame.rdi);  // NOLINT(performance-no-int-to-ptr)
-    base::CopyBytes(kSink, kCwd, used + 1UL);
+    if (!uaccess::CopyToUser(frame.rdi, kCwd, used + 1UL)) {
+        return -kEfault;
+    }
     return static_cast<long long>(used);
 }
 

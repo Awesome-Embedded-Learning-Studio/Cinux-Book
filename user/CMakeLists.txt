@@ -73,6 +73,76 @@ set_target_properties(user_sigdemo PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
     OUTPUT_NAME "sigdemo.elf")
 
+add_executable(user_sigcatch programs/sigcatch.cpp)
+target_compile_options(user_sigcatch PRIVATE ${USER_COMPILE_FLAGS})
+target_include_directories(user_sigcatch PRIVATE ${USER_INCLUDE_DIRS})
+target_compile_definitions(user_sigcatch PRIVATE __USER__)
+target_link_options(user_sigcatch PRIVATE
+    -nostdlib
+    -static
+    -no-pie
+    -Wl,-e,_start
+    -lgcc)
+set_target_properties(user_sigcatch PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
+    OUTPUT_NAME "sigcatch.elf")
+
+add_executable(user_nxdemo programs/nxdemo.cpp)
+target_compile_options(user_nxdemo PRIVATE ${USER_COMPILE_FLAGS})
+target_include_directories(user_nxdemo PRIVATE ${USER_INCLUDE_DIRS})
+target_compile_definitions(user_nxdemo PRIVATE __USER__)
+target_link_options(user_nxdemo PRIVATE
+    -nostdlib
+    -static
+    -no-pie
+    -Wl,-e,_start
+    -lgcc)
+set_target_properties(user_nxdemo PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
+    OUTPUT_NAME "nxdemo.elf")
+
+add_executable(user_efaulter programs/efaulter.cpp)
+target_compile_options(user_efaulter PRIVATE ${USER_COMPILE_FLAGS})
+target_include_directories(user_efaulter PRIVATE ${USER_INCLUDE_DIRS})
+target_compile_definitions(user_efaulter PRIVATE __USER__)
+target_link_options(user_efaulter PRIVATE
+    -nostdlib
+    -static
+    -no-pie
+    -Wl,-e,_start
+    -lgcc)
+set_target_properties(user_efaulter PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
+    OUTPUT_NAME "efaulter.elf")
+
+add_executable(user_smepdemo programs/smepdemo.cpp)
+target_compile_options(user_smepdemo PRIVATE ${USER_COMPILE_FLAGS})
+target_include_directories(user_smepdemo PRIVATE ${USER_INCLUDE_DIRS})
+target_compile_definitions(user_smepdemo PRIVATE __USER__)
+target_link_options(user_smepdemo PRIVATE
+    -nostdlib
+    -static
+    -no-pie
+    -Wl,-e,_start
+    -lgcc)
+set_target_properties(user_smepdemo PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
+    OUTPUT_NAME "smepdemo.elf")
+
+add_executable(user_aslrdemo programs/aslrdemo.cpp)
+target_compile_options(user_aslrdemo PRIVATE ${USER_COMPILE_FLAGS})
+target_include_directories(user_aslrdemo PRIVATE ${USER_INCLUDE_DIRS})
+target_compile_definitions(user_aslrdemo PRIVATE __USER__)
+target_link_options(user_aslrdemo PRIVATE
+    -nostdlib
+    -static
+    -no-pie
+    -Wl,-e,_start
+    -lgcc)
+set_target_properties(user_aslrdemo PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
+    OUTPUT_NAME "aslrdemo.elf")
+
 add_executable(user_tlsdemo programs/tlsdemo.cpp)
 target_compile_options(user_tlsdemo PRIVATE ${USER_COMPILE_FLAGS})
 target_include_directories(user_tlsdemo PRIVATE ${USER_INCLUDE_DIRS})

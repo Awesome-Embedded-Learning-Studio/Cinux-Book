@@ -1,10 +1,13 @@
 #include <sys/mman.h>
 
 #include "../framework/framework.hpp"
+#include "cinux/assert.hpp"
 #include "cinux/memory.hpp"
 #include "cinux/ptr.hpp"
+#include "cinux/shared.hpp"
 #include "kernel/arch/x86_64/page.hpp"
 #include "kernel/mm/layout.hpp"
+#include "kernel/mm/vma.hpp"
 #include "kernel/proc/sched_class.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/signals.hpp"
@@ -92,6 +95,15 @@ struct World {
     bool                      fourth_ok = false;
 
     explicit World(unsigned long long slot) {
+        alpha.vmas = cinux::base::MakeShared<cinux::mm::VmaStore>();
+        cinux::mm::VmaRegion stack{};
+        stack.start    = cinux::mm::kUserStackBottom;
+        stack.end      = cinux::mm::kUserStackTop;
+        stack.kind     = cinux::mm::VmaKind::kStack;
+        stack.readable = true;
+        stack.writable = true;
+        cinux::base::safety::Check(alpha.vmas->register_range(stack).ok(),
+                                   "signal test stack refused");
         kin.name         = "kin";
         alpha.name       = "signal";
         alpha.stack_base = 0x1000ULL * slot;
@@ -320,6 +332,54 @@ TEST("signal delivery: a custom handler rewrites the frame onto its stack") {
     ASSERT_TRUE(!world.alpha.signals.blocked.has(bit_for(kSigInt)));
 }
 
+TEST("signal delivery: an action promising a restorer returns to it, not the trampoline") {
+    constexpr unsigned long kRestorerWord = 0x0000000000402000UL;
+    World                   world(1025);
+    world.body = [](World& site) {
+        SigAction& action   = site.alpha.signals.actions[kSigInt - 1];
+        action.handler      = kHandlerWord;
+        action.flags        = cinux::syscall::kSaRestorer | cinux::syscall::kSaRestart;
+        action.restorer     = kRestorerWord;
+        site.frame.user_rsp = g_fake_rsp;
+        SendSignal(site.alpha, kSigInt);
+        site.rewrote = DeliverPendingSignals(site.frame);
+        cinux::proc::Scheduler::self().exit_current();
+    };
+    world.run();
+    ASSERT_TRUE(world.rewrote);
+    const unsigned long long kContext =
+        (g_fake_rsp - 128 - sizeof(cinux::proc::SigReturnContext)) & ~0xFULL;
+    const unsigned long long kReturnSlot = kContext - 8;
+    ASSERT_EQ(
+        *cinux::base::PtrAt<const unsigned long long>(static_cast<unsigned long>(kReturnSlot)),
+        kRestorerWord);
+    ASSERT_EQ(world.frame.rcx, kHandlerWord);
+    ASSERT_EQ(world.frame.user_rsp, kReturnSlot);
+    ASSERT_NE(kRestorerWord, cinux::proc::SignalTrampolineAddress());
+}
+
+TEST("signal delivery: without the restorer flag the kernel trampoline keeps the slot") {
+    World world(1037);
+    world.body = [](World& site) {
+        SigAction& action   = site.alpha.signals.actions[kSigInt - 1];
+        action.handler      = kHandlerWord;
+        action.flags        = cinux::syscall::kSaRestart;
+        action.restorer     = 0x0000000000402000UL;
+        site.frame.user_rsp = g_fake_rsp;
+        SendSignal(site.alpha, kSigInt);
+        site.rewrote = DeliverPendingSignals(site.frame);
+        cinux::proc::Scheduler::self().exit_current();
+    };
+    world.run();
+    ASSERT_TRUE(world.rewrote);
+    const unsigned long long kContext =
+        (g_fake_rsp - 128 - sizeof(cinux::proc::SigReturnContext)) & ~0xFULL;
+    const unsigned long long kReturnSlot = kContext - 8;
+    ASSERT_EQ(
+        *cinux::base::PtrAt<const unsigned long long>(static_cast<unsigned long>(kReturnSlot)),
+        cinux::proc::SignalTrampolineAddress());
+}
+
 TEST("signal delivery: handler return restores registers, mask and the interrupted red zone") {
     World world(1050);
     world.body = [](World& site) {
@@ -412,7 +472,69 @@ TEST("signal delivery: a delivery that cannot fit the stack window kills") {
     };
     world.run();
     ASSERT_TRUE(!world.rewrote);
-    ASSERT_TRUE(world.alpha.exit_code == kSigInt);
+    ASSERT_EQ(world.alpha.exit_code, cinux::syscall::kSigSegv);
+}
+
+TEST("signal delivery: SIGCHLD returns through a stack slid below the old window") {
+    World                   world(1250);
+    constexpr unsigned long kSlide      = 4UL * 1024UL * 1024UL;
+    const unsigned long     kShiftedRsp = g_fake_rsp - kSlide;
+    const unsigned long     kPage       = kShiftedRsp & ~(cinux::arch::page::kSize - 1);
+    void* const             kWindow = cinux::base::PtrAt<void>(kPage - cinux::arch::page::kSize);
+    constexpr unsigned long kWindowBytes = 2 * cinux::arch::page::kSize;
+    ASSERT_TRUE(mmap(kWindow, kWindowBytes, PROT_READ | PROT_WRITE,
+                     MAP_FIXED_NOREPLACE | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0) == kWindow);
+    world.alpha.vmas->teardown();
+    cinux::mm::VmaRegion stack{};
+    stack.start    = cinux::mm::kUserStackBottom - kSlide;
+    stack.end      = cinux::mm::kUserStackTop - kSlide;
+    stack.kind     = cinux::mm::VmaKind::kStack;
+    stack.readable = true;
+    stack.writable = true;
+    ASSERT_TRUE(world.alpha.vmas->register_range(stack).ok());
+    world.frame.user_rsp = kShiftedRsp;
+    world.body           = [](World& site) {
+        site.alpha.signals.actions[kSigChld - 1].handler = kHandlerWord;
+        const auto kBefore                               = site.frame.user_rsp;
+        SendSignal(site.alpha, kSigChld);
+        site.rewrote = DeliverPendingSignals(site.frame);
+        if (site.rewrote) {
+            site.first_ok = site.frame.rdi == kSigChld && (site.frame.user_rsp & 0xFULL) == 8;
+            site.frame.user_rsp += sizeof(unsigned long long);
+            site.second_ok = cinux::syscall::HandleRtSigreturn(site.frame) == 0 &&
+                             site.frame.user_rsp == kBefore;
+            site.finish();
+        }
+    };
+    world.run();
+    munmap(kWindow, kWindowBytes);
+    ASSERT_TRUE(world.rewrote);
+    ASSERT_TRUE(world.first_ok);
+    ASSERT_TRUE(world.second_ok);
+    ASSERT_EQ(world.alpha.exit_code, 0);
+}
+
+TEST("signal delivery: the registered guard rejects SIGCHLD with SIGSEGV") {
+    World world(1275);
+    world.body = [](World& site) {
+        site.alpha.signals.actions[kSigChld - 1].handler = kHandlerWord;
+        site.frame.user_rsp = cinux::mm::kUserStackBottom + cinux::arch::page::kSize;
+        SendSignal(site.alpha, kSigChld);
+        site.rewrote = DeliverPendingSignals(site.frame);
+    };
+    world.run();
+    ASSERT_FALSE(world.rewrote);
+    ASSERT_EQ(world.alpha.exit_code, cinux::syscall::kSigSegv);
+}
+
+TEST("signal return: an aligned context on the registered guard is rejected") {
+    World world(1280);
+    world.body = [](World& site) {
+        site.frame.user_rsp = cinux::mm::kUserStackBottom;
+        cinux::syscall::HandleRtSigreturn(site.frame);
+    };
+    world.run();
+    ASSERT_EQ(world.alpha.exit_code, cinux::syscall::kSigSegv);
 }
 
 void check_registry_identity(cinux::proc::Task& expected) {

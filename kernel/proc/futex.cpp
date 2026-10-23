@@ -4,7 +4,6 @@
 #include <utility>
 
 #include "cinux/container/self_list.hpp"
-#include "cinux/ptr.hpp"
 #include "cinux/result.hpp"
 #include "cinux/singleton.hpp"
 #include "cinux/spin_mutex.hpp"
@@ -15,6 +14,7 @@
 #include "kernel/proc/sync.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::proc::futex {
 
@@ -60,15 +60,14 @@ FutexTable& shared_table() {
 
 }  // namespace
 
-base::KernelError WaitOnUserWord(unsigned long long uaddr, unsigned int expected) {
+base::KernelError ParkOnWord(unsigned long long uaddr, unsigned int present,
+                             unsigned int expected) {
     const cinux::arch::IrqGuard kQuiet;
     Task* const                 kSelf = Scheduler::self().current();
     FutexTable&                 table = shared_table();
     {
-        const SpinGuard   kGuard(table.gate);
-        // NOLINTNEXTLINE(performance-no-int-to-ptr)
-        auto const* const kWord = reinterpret_cast<volatile const unsigned int*>(uaddr);
-        if (*kWord != expected) {
+        const SpinGuard kGuard(table.gate);
+        if (present != expected) {
             return base::KernelError::kWouldBlock;
         }
         kSelf->futex_uaddr = uaddr;
@@ -77,6 +76,14 @@ base::KernelError WaitOnUserWord(unsigned long long uaddr, unsigned int expected
     }
     Scheduler::self().schedule_blocked();
     return base::KernelError::kOk;
+}
+
+base::KernelError WaitOnUserWord(unsigned long long uaddr, unsigned int expected) {
+    unsigned int word = 0;
+    if (!cinux::syscall::uaccess::CopyFromUser(&word, uaddr, sizeof(word))) {
+        return base::KernelError::kInvalidArgument;
+    }
+    return ParkOnWord(uaddr, word, expected);
 }
 
 long long WakeUserWord(unsigned long long uaddr, unsigned long long count) {
@@ -111,7 +118,8 @@ void ClearTidWord(Task& dying) {
         kRegion->end < static_cast<unsigned long>(kWord + kWordBytes)) {
         return;
     }
-    *cinux::base::PtrAt<volatile unsigned int>(kWord) = 0;
+    const unsigned int kZero = 0;
+    static_cast<void>(cinux::syscall::uaccess::CopyToUser(kWord, &kZero, sizeof(kZero)));
     static_cast<void>(WakeUserWord(kWord, 1));
 }
 

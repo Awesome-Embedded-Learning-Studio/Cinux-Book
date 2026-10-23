@@ -33,6 +33,9 @@ inline constexpr unsigned long long kFaultWasWrite = 1ULL << 1U;
 /// Page-fault error code, bit 2: the access came from ring 3.
 inline constexpr unsigned long long kFaultFromUser = 1ULL << 2U;
 
+inline constexpr unsigned long long kFaultReserved    = 1ULL << 3U;
+inline constexpr unsigned long long kFaultInstruction = 1ULL << 4U;
+
 /**
  * @brief         One chance to answer a page fault without dying.
  * @param[in]     address     CR2 as the handler read it.

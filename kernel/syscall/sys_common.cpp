@@ -19,6 +19,7 @@
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::syscall {
 
@@ -48,15 +49,22 @@ int ErrnoFrom(base::KernelError error) {
 }
 
 long long CopyUserPath(unsigned long long source, char* out, unsigned long cap) {
-    if (source >= kUserAddressLimit) {
+    if (source == 0 || source >= kUserAddressLimit) {
         return -kEfault;
     }
-    auto const* text = reinterpret_cast<const char*>(source);  // NOLINT(performance-no-int-to-ptr)
-    for (unsigned long index = 0; index < cap; ++index) {
-        out[index] = text[index];
-        if (out[index] == '\0') {
-            return index == 0 ? -kEinval : static_cast<long long>(index);
+    constexpr unsigned long kChunkBytes = 64;
+    unsigned long           done        = 0;
+    while (done < cap) {
+        const unsigned long kChunk = done + kChunkBytes < cap ? kChunkBytes : cap - done;
+        if (!uaccess::CopyFromUser(out + done, source + done, kChunk)) {
+            return -kEfault;
         }
+        for (unsigned long index = done; index < done + kChunk; ++index) {
+            if (out[index] == '\0') {
+                return index == 0 ? -kEinval : static_cast<long long>(index);
+            }
+        }
+        done += kChunk;
     }
     return -kEinval;
 }
@@ -77,16 +85,6 @@ long long FoldUserPath(unsigned long long source, char* out, unsigned long cap) 
 
 proc::Task* CurrentTask() {
     return proc::Scheduler::self().current();
-}
-
-bool UserRangeReadable(unsigned long long start, unsigned long long bytes) {
-    return bytes != 0 && start != 0 && start < kUserAddressLimit &&
-           bytes <= kUserAddressLimit - start;
-}
-
-bool UserRangeWritable(unsigned long long start, unsigned long long bytes) {
-    return bytes != 0 && start != 0 && start < kUserAddressLimit &&
-           bytes <= kUserAddressLimit - start;
 }
 
 base::Result<fs::OpenFile*> LiveSlot(unsigned long long descriptor) {

@@ -42,6 +42,22 @@ namespace cinux::proc::futex {
  * @since         0.8.0
  * @ingroup       kernel_proc
  */
+base::KernelError ParkOnWord(unsigned long long uaddr, unsigned int present, unsigned int expected);
+/**
+ * @brief         Parks the caller on a user word after reading it through
+ *                the accessor door.
+ *
+ * @param[in]     uaddr     The word's user address.
+ * @param[in]     expected  The value the caller believes the word holds.
+ * @return        Ok when woken; WouldBlock when the word already moved;
+ *                InvalidArgument when the door refuses the address.
+ * @note          The read happens before the engine takes its lock: the
+ *                SMAP window may never span a spin, so the word crosses
+ *                the door first and the engine parks on the address and
+ *                the value it brought.
+ * @since         0.3.0
+ * @ingroup       kernel_proc
+ */
 base::KernelError WaitOnUserWord(unsigned long long uaddr, unsigned int expected);
 
 /**

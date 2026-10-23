@@ -98,6 +98,14 @@ struct Task : cinux::base::container::SelfNode<Task> {
     /// Session this task belongs to; a group may only be re-rooted
     /// inside it. Zero until the first seat or setsid names it.
     unsigned long long                     sid{};
+    /// Credentials, scalars over a ledger: who the task is, who it
+    /// acts as. Fork copies the row whole, exec keeps it, and the set
+    /// faces below are the only writers. No permission gate consults
+    /// them yet — the marker pen exists, the fence does not.
+    std::uint32_t                          uid{};
+    std::uint32_t                          euid{};
+    std::uint32_t                          gid{};
+    std::uint32_t                          egid{};
     Task*              parent{};      ///< Who may wait for this task; null when nobody can.
     long long          exit_code{};   ///< What a zombie has to hand its parent.
     const char*        name{};        ///< Label for dumps, caller-owned storage.

@@ -51,11 +51,18 @@ using arch::page::Entry;
 
 bool FillPage(const AddressSpace& space, const VmaStore& ranges, unsigned long long address,
               unsigned long long error_code) {
-    if ((error_code & cinux::arch::isr::kFaultProtection) != 0 || address >= kUserTop) {
+    if ((error_code & (arch::isr::kFaultProtection | arch::isr::kFaultReserved)) != 0 ||
+        address >= kUserTop) {
         return false;
     }
     const VmaRegion* const kRegion = ranges.find(address);
     if (kRegion == nullptr) {
+        return false;
+    }
+    const bool kWrite       = (error_code & arch::isr::kFaultWasWrite) != 0;
+    const bool kInstruction = (error_code & arch::isr::kFaultInstruction) != 0;
+    if ((kWrite && !kRegion->writable) || (kInstruction && !kRegion->executable) ||
+        (!kWrite && !kInstruction && !kRegion->readable)) {
         return false;
     }
     const unsigned long kPage = cinux::base::math::AlignDown(address, kSize);
@@ -79,10 +86,7 @@ bool FillPage(const AddressSpace& space, const VmaStore& ranges, unsigned long l
         Pmm::self().free_page(kFrame);
         return false;
     }
-    Entry bits = cinux::arch::page::kUser;
-    if (kRegion->writable) {
-        bits = bits | cinux::arch::page::kWritable;
-    }
+    Entry bits = cinux::arch::page::UserLeafTerms(kRegion->writable, kRegion->executable);
     if (!space.map_user(kPage, kFrame.raw, bits)) {
         Pmm::self().free_page(kFrame);
         return false;

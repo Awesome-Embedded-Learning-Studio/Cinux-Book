@@ -1,5 +1,8 @@
 #include "../framework/framework.hpp"
+#include "cinux/own.hpp"
 #include "cinux/result.hpp"
+#include "kernel/arch/x86_64/page.hpp"
+#include "kernel/mm/layout.hpp"
 #include "kernel/mm/vma.hpp"
 #include "test_assert.hpp"
 
@@ -83,6 +86,58 @@ TEST("vma: child teardown leaves the parent register intact") {
     ASSERT_TRUE(kChild->empty());
     delete kChild;
     ASSERT_TRUE(store.find(0x1800) != nullptr);
+}
+
+void check_heap_target(cinux::mm::VmaStore& store, unsigned long target, unsigned long expected) {
+    const auto kMoved = store.move_heap_end(target);
+    ASSERT_TRUE(kMoved.ok());
+    ASSERT_EQ(kMoved.value(), expected);
+}
+
+TEST("vma: clone preserves the randomized ceiling and the heap bounds") {
+    cinux::mm::VmaStore store;
+    store.set_mmap_ceiling(cinux::mm::kUserMmapTop - 0x12345000UL);
+    store.seed_heap(0x800000, 0x1800000);
+    ASSERT_TRUE(store.move_heap_end(0x900000).ok());
+    const cinux::base::Own<cinux::mm::VmaStore> kChild(store.clone());
+    ASSERT_TRUE(kChild.holds());
+    ASSERT_EQ(kChild->mmap_ceiling(), store.mmap_ceiling());
+    ASSERT_EQ(kChild->heap_end(), 0x900000UL);
+    check_heap_target(*kChild, 0xA00000, 0xA00000);
+    check_heap_target(*kChild, 0x1900000, 0x1800000);
+    check_heap_target(*kChild, 0x700000, 0x800000);
+    ASSERT_EQ(store.heap_end(), 0x900000UL);
+}
+
+TEST("vma: slid stack bounds exclude the guard, holes, overflow and the old window") {
+    cinux::mm::VmaStore     store;
+    constexpr unsigned long kSlide = 4UL * 1024UL * 1024UL;
+    auto stack = range_at(cinux::mm::kUserStackBottom - kSlide, cinux::mm::kUserStackTop - kSlide);
+    stack.kind = cinux::mm::VmaKind::kStack;
+    ASSERT_TRUE(store.register_range(stack).ok());
+    struct StackProbe {
+        unsigned long start;
+        unsigned long bytes;
+        bool          allowed;
+    };
+    const StackProbe kProbes[] = {
+        {.start = stack.start + cinux::arch::page::kSize, .bytes = 1, .allowed = true},
+        {.start = stack.end - 16, .bytes = 16, .allowed = true},
+        {.start = stack.start, .bytes = 1, .allowed = false},
+        {.start = stack.start + cinux::arch::page::kSize - 1, .bytes = 2, .allowed = false},
+        {.start = stack.end - 16, .bytes = 17, .allowed = false},
+        {.start = stack.end, .bytes = 1, .allowed = false},
+        {.start = stack.end - 16, .bytes = ~0UL, .allowed = false},
+        {.start = stack.end - 16, .bytes = 0, .allowed = false},
+        {.start = cinux::mm::kUserStackTop - 16, .bytes = 16, .allowed = false},
+    };
+    for (const auto& probe : kProbes) {
+        ASSERT_EQ(store.stack_contains(probe.start, probe.bytes), probe.allowed);
+    }
+    ASSERT_TRUE(store.register_range(range_at(0x10000, 0x14000)).ok());
+    ASSERT_FALSE(store.stack_contains(0x12000, 16));
+    ASSERT_TRUE(store.protect(stack.start, stack.end, {.readable = true}).ok());
+    ASSERT_FALSE(store.stack_contains(stack.end - 16, 16));
 }
 
 TEST("vma: cloning an empty register yields an empty register") {

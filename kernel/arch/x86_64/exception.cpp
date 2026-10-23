@@ -1,5 +1,7 @@
+#include "cinux/bit_ops/bitmask.hpp"
 #include "cinux/ptr.hpp"
 #include "kernel/arch/x86_64/context.hpp"
+#include "kernel/arch/x86_64/ex_table.hpp"
 #include "kernel/arch/x86_64/isr.hpp"
 #include "kernel/arch/x86_64/page_entry.hpp"
 #include "kernel/arch/x86_64/registers.hpp"
@@ -13,9 +15,39 @@ namespace cinux::arch::isr {
 
 namespace {
 
-PageFaultResolver g_page_fault_resolver = nullptr;
+/// The fault path's seats, one home for every installable hook and
+/// its recovery bookkeeping; Meyers-singleton, no bare globals.
+class FaultSeats {
+public:
+    static FaultSeats& self() {
+        static FaultSeats seats;
+        return seats;
+    }
 
-PageFaultDiagnoser g_page_fault_diagnoser = nullptr;
+    /// One armed fault the ktest ladder may step over.
+    struct RecoveryPlan {
+        unsigned long long vector{};
+        unsigned long long skip_bytes{};
+        bool               armed{};
+    };
+
+    static constexpr unsigned long long kNoFaultRecovered = 256;
+
+    /// The resolver the memory world installs for vector 14.
+    PageFaultResolver resolver = nullptr;
+
+    /// The diagnoser the proc world installs for dumps.
+    PageFaultDiagnoser diagnoser = nullptr;
+
+    /// The recovery plan in force, armed or spent.
+    RecoveryPlan recovery{};
+
+    /// The vector the last recovery swallowed, or the no-seat word.
+    unsigned long long recovered = kNoFaultRecovered;
+
+private:
+    FaultSeats() = default;
+};
 
 unsigned long long faulting_frame_base() {
     unsigned long long reporter_frame = 0;  // NOLINT(misc-const-correctness)
@@ -98,36 +130,25 @@ void report_page_fault(unsigned long long address, unsigned long long error_code
     }
 }
 
-struct RecoveryPlan {
-    unsigned long long vector;
-    unsigned long long skip_bytes;
-    bool               armed;
-};
-
-RecoveryPlan g_recovery{};
-
-constexpr unsigned long long kNoFaultRecovered = 256;
-
-unsigned long long g_recovered = kNoFaultRecovered;
-
 bool try_recover(unsigned long long vector, InterruptFrame& frame) {
-    if (!g_recovery.armed || vector != g_recovery.vector) {
+    FaultSeats& seats = FaultSeats::self();
+    if (!seats.recovery.armed || vector != seats.recovery.vector) {
         return false;
     }
-    frame.rip += g_recovery.skip_bytes;
-    g_recovery.armed = false;
-    g_recovered      = vector;
+    frame.rip += seats.recovery.skip_bytes;
+    seats.recovery.armed = false;
+    seats.recovered      = vector;
     return true;
 }
 
 }  // namespace
 
 void InstallPageFaultResolver(PageFaultResolver resolver) {
-    g_page_fault_resolver = resolver;
+    FaultSeats::self().resolver = resolver;
 }
 
 void InstallPageFaultDiagnoser(PageFaultDiagnoser diagnoser) {
-    g_page_fault_diagnoser = diagnoser;
+    FaultSeats::self().diagnoser = diagnoser;
 }
 
 void ReportFault(unsigned long long vector, InterruptFrame& frame, unsigned long long error_code) {
@@ -135,14 +156,29 @@ void ReportFault(unsigned long long vector, InterruptFrame& frame, unsigned long
     FpuImage interrupted_fpu;
     SaveFpu(interrupted_fpu);
     EnterFpuGate();
-    if (vector == kPageFaultVector && g_page_fault_resolver != nullptr &&
-        g_page_fault_resolver(ReadCr2(), error_code)) {
-        ExitFpuGate();
-        RestoreFpu(interrupted_fpu);
-        return;
+    const FaultSeats& seats = FaultSeats::self();
+    if (vector == kPageFaultVector && seats.resolver != nullptr) {
+        constexpr unsigned long long kAccessFlag = base::bit::MaskBit<unsigned long long>(18).raw;
+        const bool kSmapViolation = (error_code & kFaultFromUser) == 0 &&
+                                    ReadCr2() < mm::kUserTop && (ReadCr4() & kCr4Smap) != 0 &&
+                                    (frame.rflags & kAccessFlag) == 0;
+        if (!kSmapViolation && seats.resolver(ReadCr2(), error_code)) {
+            ExitFpuGate();
+            RestoreFpu(interrupted_fpu);
+            return;
+        }
     }
-    if (vector == kPageFaultVector && g_page_fault_diagnoser != nullptr) {
-        g_page_fault_diagnoser(ReadCr2(), error_code);
+    if (vector == kPageFaultVector && (error_code & kFaultFromUser) == 0) {
+        const unsigned long long kLanding = ex_table::FindFixupFor(frame.rip);
+        if (kLanding != 0) {
+            frame.rip = kLanding;
+            ExitFpuGate();
+            RestoreFpu(interrupted_fpu);
+            return;
+        }
+    }
+    if (vector == kPageFaultVector && seats.diagnoser != nullptr) {
+        seats.diagnoser(ReadCr2(), error_code);
     }
     if (try_recover(vector, frame)) {
         ExitFpuGate();
@@ -160,17 +196,20 @@ void ReportFault(unsigned long long vector, InterruptFrame& frame, unsigned long
 }
 
 bool ArmRecoverableFault(unsigned long long vector, unsigned long long skip_bytes) {
-    if (g_recovery.armed) {
+    FaultSeats& seats = FaultSeats::self();
+    if (seats.recovery.armed) {
         return false;
     }
-    g_recovery  = RecoveryPlan{.vector = vector, .skip_bytes = skip_bytes, .armed = true};
-    g_recovered = kNoFaultRecovered;
+    seats.recovery =
+        FaultSeats::RecoveryPlan{.vector = vector, .skip_bytes = skip_bytes, .armed = true};
+    seats.recovered = FaultSeats::kNoFaultRecovered;
     return true;
 }
 
 unsigned long long TakeRecoveredVector() {
-    const unsigned long long kVector = g_recovered;
-    g_recovered                      = kNoFaultRecovered;
+    FaultSeats&              seats   = FaultSeats::self();
+    const unsigned long long kVector = seats.recovered;
+    seats.recovered                  = FaultSeats::kNoFaultRecovered;
     return kVector;
 }
 

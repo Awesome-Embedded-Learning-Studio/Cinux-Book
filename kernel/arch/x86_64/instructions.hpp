@@ -73,4 +73,38 @@ inline void WriteMsr(unsigned int index, unsigned long long value) {
     __asm__ volatile("wrmsr" : : "c"(index), "a"(kLow), "d"(kHigh) : "memory");
 }
 
+/**
+ * @brief         Opens the SMAP window for the current instruction.
+ *
+ * @return        None.
+ * @note          Sets RFLAGS.AC, the one bit that lets ring 0 touch user
+ *                pages while CR4.SMAP is on. The window must close before
+ *                anything blocks or schedules — AC belongs to the CPU that
+ *                opened it, and a context switch would drop it mid-copy.
+ *                Executing the instruction on a processor without SMAP in
+ *                its CPUID answer faults with #UD, so the accessor keeps
+ *                the arm bit and only reaches for the window on machines
+ *                that promised one.
+ * @since         0.3.0
+ * @ingroup       kernel_arch
+ */
+inline void Stac() {
+    __asm__ volatile("stac" : : : "memory");
+}
+
+/**
+ * @brief         Closes the SMAP window the current instruction opened.
+ *
+ * @return        None.
+ * @note          Clears RFLAGS.AC. Every open has exactly one close on
+ *                every path out of the window, including the fault path,
+ *                where the fixup closes it before reporting the copy
+ *                failed.
+ * @since         0.3.0
+ * @ingroup       kernel_arch
+ */
+inline void Clac() {
+    __asm__ volatile("clac" : : : "memory");
+}
+
 }  // namespace cinux::arch

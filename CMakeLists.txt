@@ -35,13 +35,21 @@ add_custom_command(
             "CINUX_SHELL_ELF=$<TARGET_FILE:user_shell>"
             "CINUX_MAPPER_ELF=$<TARGET_FILE:user_mapper>"
             "CINUX_SIGDEMO_ELF=$<TARGET_FILE:user_sigdemo>"
+            "CINUX_SIGCATCH_ELF=$<TARGET_FILE:user_sigcatch>"
+            "CINUX_NXDEMO_ELF=$<TARGET_FILE:user_nxdemo>"
+            "CINUX_EFAULTER_ELF=$<TARGET_FILE:user_efaulter>"
+            "CINUX_SMEPDEMO_ELF=$<TARGET_FILE:user_smepdemo>"
+            "CINUX_ASLRDEMO_ELF=$<TARGET_FILE:user_aslrdemo>"
             "CINUX_TLSDEMO_ELF=$<TARGET_FILE:user_tlsdemo>"
             "CINUX_THREADDEMO_ELF=$<TARGET_FILE:user_threaddemo>"
             "CINUX_TTYDEMO_ELF=$<TARGET_FILE:user_ttydemo>"
             "CINUX_SMPSTRESS_ELF=$<TARGET_FILE:user_smpstress>"
             bash ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh ${CINUX_EXT2_IMG}
-    DEPENDS user_hello user_shell user_mapper user_sigdemo user_tlsdemo user_threaddemo user_ttydemo
-            user_smpstress ${CMAKE_SOURCE_DIR}/scripts/ext2_seed/smp-stress.sh
+    DEPENDS user_hello user_shell user_mapper user_sigdemo user_sigcatch user_nxdemo
+            user_efaulter user_smepdemo user_aslrdemo
+            user_tlsdemo user_threaddemo user_ttydemo user_smpstress
+            ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh
+            ${CMAKE_SOURCE_DIR}/scripts/ext2_seed/smp-stress.sh
     COMMENT "teaching ext2 volume for the block and fs experiments")
 add_custom_target(ext2_img DEPENDS ${CINUX_EXT2_IMG})
 set(CINUX_EXT2_KTEST_IMG ${CMAKE_BINARY_DIR}/boot/ext2_ktest.img)
@@ -52,6 +60,7 @@ add_custom_target(ext2_ktest_img
     COMMENT "scratch copy of the ext2 volume for kernel tests")
 set(CINUX_QEMU_DEVICE_ARGS
     -accel;kvm
+    -cpu;host
     -smp;2
     -display;none
     -no-reboot
@@ -72,8 +81,8 @@ file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/qemu-device-args.txt"
 # names the init-ladder level the test main walks before running cases.
 set(CINUX_KTEST_STAGES exceptions irq keyboard mm proc block)
 set(CINUX_KTESTS selfcheck:exceptions tick:irq keyboard:keyboard vmm:mm heap:mm aspace:mm cow:mm
-    vma:mm demand:mm loader:mm sched:proc block:block block_error:block ext2:block pipe:proc
-    tty:keyboard smp:proc smp_pipe:proc xhci:block)
+    vma:mm demand:mm loader:mm uaccess:proc sched:proc block:block block_error:block ext2:block
+    pipe:proc tty:keyboard smp:proc smp_pipe:proc xhci:block)
 set(CINUX_KTESTS_INTEGRATION "")
 
 message("Configuring Boot")
