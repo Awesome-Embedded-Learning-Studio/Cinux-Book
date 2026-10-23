@@ -26,7 +26,8 @@ long long HandleMmap(const SyscallFrame& frame) {
         return -kEinval;
     }
     const unsigned long kBytes = cinux::base::math::AlignUp(kLength, cinux::arch::page::kSize);
-    const base::Result<unsigned long> kSpot = kSelf->vmas->find_free_spot(mm::kUserMmapTop, kBytes);
+    const base::Result<unsigned long> kSpot =
+        kSelf->vmas->find_free_spot(kSelf->vmas->mmap_ceiling(), kBytes);
     if (!kSpot.ok()) {
         return -kEnomem;
     }

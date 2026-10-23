@@ -5,8 +5,18 @@
 #include "kernel/fs/open_file.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::syscall {
+
+namespace {
+
+/// The write staging buffer: the accessor carries the caller's bytes
+/// across the user line first, then one backend write consumes them,
+/// so no backend ever sees a ring-3 address.
+constexpr unsigned long long kWriteStageBytes = 1024;
+
+}  // namespace
 
 long long WriteRun(unsigned long long descriptor, unsigned long long source,
                    unsigned long long count) {
@@ -20,11 +30,15 @@ long long WriteRun(unsigned long long descriptor, unsigned long long source,
     if (!kSlot.ok()) {
         return -kEbadf;
     }
-    auto* const       kFile = kSlot.value();
-    auto const* const kSource =
-        reinterpret_cast<const void*>(source);  // NOLINT(performance-no-int-to-ptr)
+    auto* const   kFile = kSlot.value();
+    unsigned char stage[kWriteStageBytes];
+    const auto    kChunk =
+        static_cast<unsigned long>(count < kWriteStageBytes ? count : kWriteStageBytes);
+    if (!uaccess::CopyFromUser(stage, source, kChunk)) {
+        return -kEfault;
+    }
     const base::Result<unsigned long> kPut =
-        kFile->ops->write(kFile->backend, kFile->node, kFile->offset, kSource, count);
+        kFile->ops->write(kFile->backend, kFile->node, kFile->offset, stage, kChunk);
     if (!kPut.ok()) {
         return -ErrnoFrom(kPut.error());
     }

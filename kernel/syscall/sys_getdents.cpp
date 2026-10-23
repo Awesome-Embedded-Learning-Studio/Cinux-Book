@@ -8,6 +8,7 @@
 #include "kernel/fs/vfs.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::syscall {
 
@@ -40,7 +41,11 @@ unsigned char dirent_type_word(fs::InodeType type) {
     }
 }
 
-/// Places one entry into the caller's buffer at base, by the byte plan.
+/// The widest record one entry can produce: the head plus the longest
+/// name with its NUL, rounded up to the record grain.
+constexpr unsigned long kRecordBytes = kDirent64NameAt + fs::kFsNameMax + 8;
+
+/// Places one entry into a record buffer at base, by the byte plan.
 void put_record(unsigned char* base, const fs::FsDirent& entry, unsigned long next_ordinal) {
     const unsigned long kLen = record_bytes(entry);
     base::CopyBytes(base + kDirent64InoAt, &entry.ino, sizeof(entry.ino));
@@ -56,7 +61,7 @@ void put_record(unsigned char* base, const fs::FsDirent& entry, unsigned long ne
 }  // namespace
 
 long long HandleGetdents(const SyscallFrame& frame) {
-    if (frame.rsi >= kUserAddressLimit || frame.rdx == 0) {
+    if (frame.rdx == 0) {
         return -kEfault;
     }
     const base::Result<fs::OpenFile*> kSlot = LiveSlot(frame.rdi);
@@ -65,8 +70,6 @@ long long HandleGetdents(const SyscallFrame& frame) {
     }
     auto* const   kDir   = kSlot.value();
     unsigned long filled = 0;
-    // NOLINTNEXTLINE(performance-no-int-to-ptr)
-    auto* const   kOut   = reinterpret_cast<unsigned char*>(frame.rsi);
     fs::FsDirent  entry{};
     for (;;) {
         const base::Result<bool> kOne =
@@ -81,7 +84,11 @@ long long HandleGetdents(const SyscallFrame& frame) {
         if (filled + kNeed > frame.rdx) {
             break;
         }
-        put_record(kOut + filled, entry, kDir->offset + 1);
+        unsigned char record[kRecordBytes];
+        put_record(record, entry, kDir->offset + 1);
+        if (!uaccess::CopyToUser(frame.rsi + filled, record, kNeed)) {
+            return -kEfault;
+        }
         filled += kNeed;
         ++kDir->offset;
     }

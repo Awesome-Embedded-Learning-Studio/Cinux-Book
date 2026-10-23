@@ -5,7 +5,8 @@ target_compile_options(cinux_kernel_flags INTERFACE
     -ffreestanding
     -fno-pie
     -fno-pic
-    -fno-stack-protector
+    -fstack-protector-strong
+    -mstack-protector-guard=global
     -fno-asynchronous-unwind-tables
     -fno-ident
     -fno-exceptions

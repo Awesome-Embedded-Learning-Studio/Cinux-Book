@@ -1,11 +1,13 @@
 #include "kernel/syscall/sys_ioctl.hpp"
 
+#include "cinux/memory.hpp"
 #include "cinux/result.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/driver/tty/tty_config.hpp"
 #include "kernel/fs/open_file.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::syscall {
 
@@ -62,15 +64,18 @@ long long HandleIoctl(const SyscallFrame& frame) {
     if (kSpan->bytes == 0) {
         return kFile->ops->ioctl(kFile->backend, kFile->node, frame.rsi, frame.rdx);
     }
-    if (frame.rdx == 0 || frame.rdx >= kUserAddressLimit) {
+    unsigned char stage[driver::kTermiosBytes];
+    cinux::base::SetBytes(stage, 0, sizeof(stage));
+    if (kSpan->caller_gives && !uaccess::CopyFromUser(stage, frame.rdx, kSpan->bytes)) {
         return -kEfault;
     }
-    const bool kReachable = kSpan->caller_gives ? UserRangeReadable(frame.rdx, kSpan->bytes)
-                                                : UserRangeWritable(frame.rdx, kSpan->bytes);
-    if (!kReachable) {
+    const auto      kStageWord = reinterpret_cast<unsigned long long>(stage);
+    const long long kAnswer = kFile->ops->ioctl(kFile->backend, kFile->node, frame.rsi, kStageWord);
+    if (kAnswer >= 0 && !kSpan->caller_gives &&
+        !uaccess::CopyToUser(frame.rdx, stage, kSpan->bytes)) {
         return -kEfault;
     }
-    return kFile->ops->ioctl(kFile->backend, kFile->node, frame.rsi, frame.rdx);
+    return kAnswer;
 }
 
 }  // namespace cinux::syscall

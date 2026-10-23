@@ -1,13 +1,13 @@
 #include "kernel/syscall/sys_signal.hpp"
 
-#include "cinux/memory.hpp"
-#include "cinux/ptr.hpp"
-#include "kernel/mm/layout.hpp"
+#include "kernel/mm/vma.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/signals.hpp"
+#include "kernel/proc/task.hpp"
 #include "kernel/syscall/signal.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::syscall {
 
@@ -69,8 +69,8 @@ bool handler_word_ok(Word handler) {
  * @ingroup       kernel_syscall
  */
 bool in_stack_window(Word start, Word bytes) {
-    return start >= mm::kUserStackBottom && start <= mm::kUserStackTop &&
-           bytes <= mm::kUserStackTop - start;
+    const proc::Task* const kSelf = CurrentTask();
+    return kSelf != nullptr && kSelf->vmas.holds() && kSelf->vmas->stack_contains(start, bytes);
 }
 
 }  // namespace
@@ -83,10 +83,9 @@ long long HandleRtSigaction(const SyscallFrame& frame) {
     SigAction wanted{};
     bool      install = false;
     if (frame.rsi != 0) {
-        if (!UserRangeReadable(frame.rsi, kActionBytes)) {
+        if (!uaccess::CopyFromUser(&wanted, frame.rsi, kActionBytes)) {
             return -kEfault;
         }
-        cinux::base::CopyBytes(&wanted, cinux::base::PtrAt<void>(frame.rsi), kActionBytes);
         if (!handler_word_ok(wanted.handler)) {
             return -kEinval;
         }
@@ -95,11 +94,8 @@ long long HandleRtSigaction(const SyscallFrame& frame) {
     }
     proc::Task&     self    = *CurrentTask();
     const SigAction kBefore = self.signals.actions[kNumber - 1];
-    if (frame.rdx != 0) {
-        if (!UserRangeWritable(frame.rdx, kActionBytes)) {
-            return -kEfault;
-        }
-        cinux::base::CopyBytes(cinux::base::PtrAt<void>(frame.rdx), &kBefore, kActionBytes);
+    if (frame.rdx != 0 && !uaccess::CopyToUser(frame.rdx, &kBefore, kActionBytes)) {
+        return -kEfault;
     }
     if (install) {
         self.signals.actions[kNumber - 1] = wanted;
@@ -117,20 +113,18 @@ long long HandleRtSigprocmask(const SyscallFrame& frame) {
         if (frame.rdi > kSigSetmask) {
             return -kEinval;
         }
-        if (!UserRangeReadable(frame.rsi, kSetBytes)) {
+        if (!uaccess::CopyFromUser(&wanted, frame.rsi, kSetBytes)) {
             return -kEfault;
         }
-        cinux::base::CopyBytes(&wanted, cinux::base::PtrAt<void>(frame.rsi), kSetBytes);
         wanted = strip_uncatchable(wanted);
         apply  = true;
     }
     proc::Task& self = *CurrentTask();
     if (frame.rdx != 0) {
         const SigSet kNow = self.signals.blocked;
-        if (!UserRangeWritable(frame.rdx, kSetBytes)) {
+        if (!uaccess::CopyToUser(frame.rdx, &kNow, kSetBytes)) {
             return -kEfault;
         }
-        cinux::base::CopyBytes(cinux::base::PtrAt<void>(frame.rdx), &kNow, kSetBytes);
     }
     if (!apply) {
         return 0;
@@ -156,8 +150,10 @@ long long HandleRtSigreturn(const SyscallFrame& frame) {
         return 0;
     }
     proc::SigReturnContext image{};
-    cinux::base::CopyBytes(&image, cinux::base::PtrAt<void>(kContext),
-                           sizeof(proc::SigReturnContext));
+    if (!uaccess::CopyFromUser(&image, kContext, sizeof(image))) {
+        proc::Scheduler::self().exit_current(kSigSegv);
+        return 0;
+    }
     auto& mutable_frame            = const_cast<SyscallFrame&>(frame);
     mutable_frame.user_rsp         = image.user_rsp;
     mutable_frame.rcx              = image.rcx;

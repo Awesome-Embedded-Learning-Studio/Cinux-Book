@@ -1,12 +1,12 @@
 #include "kernel/syscall/sys_clone.hpp"
 
-#include "cinux/ptr.hpp"
 #include "kernel/arch/x86_64/context.hpp"
 #include "kernel/proc/clone.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::syscall {
 
@@ -63,11 +63,12 @@ long long HandleClone(const SyscallFrame& frame) {
         kChild->tgid = CurrentTask()->tgid;
     }
     const auto kTid = static_cast<unsigned int>(kChild->pid);
-    if ((kFlags & kCloneParentSetTid) != 0) {
-        *cinux::base::PtrAt<volatile unsigned int>(kParentTid) = kTid;
+    if ((kFlags & kCloneParentSetTid) != 0 &&
+        !uaccess::CopyToUser(kParentTid, &kTid, sizeof(kTid))) {
+        return -kEfault;
     }
-    if ((kFlags & kCloneChildSetTid) != 0) {
-        *cinux::base::PtrAt<volatile unsigned int>(kChildTid) = kTid;
+    if ((kFlags & kCloneChildSetTid) != 0 && !uaccess::CopyToUser(kChildTid, &kTid, sizeof(kTid))) {
+        return -kEfault;
     }
     const auto kPid = static_cast<long long>(kChild->pid);
     proc::Scheduler::self().unblock(*kChild);

@@ -30,16 +30,16 @@ unsigned long long release_share(unsigned long long frame) {
     return Pmm::self().release_frame(cinux::base::PhysAddr{frame});
 }
 
-Entry shared_flags() {
-    return cinux::arch::page::kUser | cinux::arch::page::kCow;
-}
-
-Entry private_flags(bool writable) {
-    Entry flags = cinux::arch::page::kUser;
-    if (writable) {
-        flags = flags | cinux::arch::page::kWritable;
+Entry shared_flags(const Entry& original) {
+    Entry flags = cinux::arch::page::kUser | cinux::arch::page::kCow;
+    if (original.has(cinux::arch::page::kNoExec)) {
+        flags = flags | cinux::arch::page::kNoExec;
     }
     return flags;
+}
+
+Entry private_flags(const Entry& original, bool writable) {
+    return cinux::arch::page::UserLeafTerms(writable, !original.has(cinux::arch::page::kNoExec));
 }
 
 [[nodiscard]] walk::WalkLevel level_below(walk::WalkLevel level) {
@@ -53,7 +53,10 @@ struct CloneWalk {
 
 void share_leaf(Entry& slot, unsigned long spot, const CloneWalk& context) {
     const unsigned long long kTarget = walk::EntryTarget(slot);
-    cinux::base::safety::Check(context.child->map_user(spot, kTarget), "fork clone refused a map");
+    const Entry kTerms = cinux::arch::page::UserLeafTerms(slot.has(cinux::arch::page::kWritable),
+                                                          !slot.has(cinux::arch::page::kNoExec));
+    cinux::base::safety::Check(context.child->map_user(spot, kTarget, kTerms),
+                               "fork clone refused a map");
     cinux::base::safety::Check(MarkPageShared(context.parent_root, spot),
                                "fork clone lost a parent page");
     cinux::base::safety::Check(MarkPageShared(context.child->root(), spot),
@@ -103,7 +106,7 @@ bool MarkPageShared(unsigned long root, unsigned long virtual_address) {
     }
     const unsigned long long kTarget = walk::EntryTarget(kLeaf);
     Pmm::self().retain_frame(cinux::base::PhysAddr{kTarget});
-    *kSlot.entry = cinux::arch::page::MakeTableEntry(kTarget, shared_flags());
+    *kSlot.entry = cinux::arch::page::MakeTableEntry(kTarget, shared_flags(kLeaf));
     cinux::arch::InvalidatePage(virtual_address);
     return true;
 }
@@ -127,7 +130,7 @@ bool TryResolvePageFault(unsigned long long address, unsigned long long error_co
     const unsigned long long kTarget  = walk::EntryTarget(kLeaf);
     const unsigned long long kCompany = release_share(kTarget);
     if (kCompany == 0) {
-        *kSlot.entry = cinux::arch::page::MakeTableEntry(kTarget, private_flags(true));
+        *kSlot.entry = cinux::arch::page::MakeTableEntry(kTarget, private_flags(kLeaf, true));
         cinux::arch::InvalidatePage(address);
         return true;
     }
@@ -138,7 +141,7 @@ bool TryResolvePageFault(unsigned long long address, unsigned long long error_co
     // NOLINTNEXTLINE(performance-no-int-to-ptr)
     const auto* const kSource = reinterpret_cast<const void*>(cinux::mm::DirectMapVirt(kTarget));
     cinux::base::CopyBytes(kDestination, kSource, cinux::arch::page::kSize);
-    *kSlot.entry = cinux::arch::page::MakeTableEntry(kCopy.raw, private_flags(true));
+    *kSlot.entry = cinux::arch::page::MakeTableEntry(kCopy.raw, private_flags(kLeaf, true));
     cinux::arch::InvalidatePage(address);
     return true;
 }

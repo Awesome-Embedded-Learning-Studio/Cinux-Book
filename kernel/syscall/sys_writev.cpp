@@ -2,6 +2,7 @@
 
 #include "kernel/syscall/sys_write.hpp"
 #include "kernel/syscall/syscall.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::syscall {
 
@@ -24,11 +25,13 @@ long long HandleWritev(const SyscallFrame& frame) {
     if (kSegments != 0 && frame.rsi >= kUserAddressLimit) {
         return -kEfault;
     }
-    auto const* const kRuns =
-        reinterpret_cast<const IoVector*>(frame.rsi);  // NOLINT(performance-no-int-to-ptr)
     long long total = 0;
     for (unsigned long long index = 0; index < kSegments; ++index) {
-        const long long kPut = WriteRun(frame.rdi, kRuns[index].base, kRuns[index].bytes);
+        IoVector run{};
+        if (!uaccess::CopyFromUser(&run, frame.rsi + (index * sizeof(run)), sizeof(run))) {
+            return total > 0 ? total : -kEfault;
+        }
+        const long long kPut = WriteRun(frame.rdi, run.base, run.bytes);
         if (kPut < 0) {
             return total > 0 ? total : kPut;
         }

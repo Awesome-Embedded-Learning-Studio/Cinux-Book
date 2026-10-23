@@ -1,5 +1,6 @@
 #include "kernel/arch/x86_64/usermode.hpp"
 
+#include "cinux/assert.hpp"
 #include "cinux/bit_ops/bitmask.hpp"
 #include "kernel/arch/x86_64/gdt.hpp"
 #include "kernel/arch/x86_64/instructions.hpp"
@@ -24,8 +25,11 @@ static_assert(((kStarValue >> 32U) & 0xFFFFU) == gdt::kSelectorCode,
 }  // namespace
 
 void EnableFastSystemCalls() {
-    unsigned long long const kEfer = ReadMsr(msr::kEfer) | msr::kEferSyscallEnable;
+    unsigned long long const kEfer =
+        ReadMsr(msr::kEfer) | msr::kEferSyscallEnable | msr::kEferNoExecuteEnable;
     WriteMsr(msr::kEfer, kEfer);
+    const unsigned long long kReadBack = ReadMsr(msr::kEfer);
+    base::safety::Check(((kReadBack >> 11U) & 1ULL) != 0ULL, "efer refused the no-execute enable");
     WriteMsr(msr::kStar, kStarValue);
     WriteMsr(msr::kLstar, reinterpret_cast<unsigned long long>(&SyscallEntry));
     WriteMsr(msr::kSfmask, kInterruptFlagMask);

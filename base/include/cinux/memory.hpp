@@ -39,7 +39,7 @@ inline void CopyBytes(void* destination, const void* source, unsigned long bytes
     auto const* src_byte  = static_cast<const unsigned char*>(source);
     while (bytes-- > 0) {
         // NOLINTNEXTLINE(clang-analyzer-optin.core.FixedAddressDereference)
-        *dest_byte++ = *src_byte++;
+        *dest_byte++ = *src_byte++;  // NOLINT(clang-analyzer-core.uninitialized.Assign)
     }
 }
 

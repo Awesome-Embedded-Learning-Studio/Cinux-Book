@@ -74,6 +74,44 @@ TEST("demand: an anonymous write fault earns one zeroed page") {
     ASSERT_EQ(ledger.free_page_count(), kBefore);
 }
 
+TEST("demand: a filled data leaf carries the no-execute bit") {
+    cinux::mm::AddressSpace space;
+    ASSERT_TRUE(space.init());
+    cinux::mm::VmaStore store;
+    const unsigned long kSpot = cinux::mm::kUserNullTop + 192_KiB;
+    ASSERT_TRUE(store
+                    .register_range(make_region({.start    = kSpot,
+                                                 .bytes    = 16_KiB,
+                                                 .writable = true,
+                                                 .kind     = cinux::mm::VmaKind::kAnonymous}))
+                    .ok());
+    ASSERT_TRUE(cinux::mm::demand::FillPage(space, store, kSpot, kUserWrite));
+    cinux::mm::KernelTables       world;
+    const cinux::mm::walk::SlotAt kSlot = cinux::mm::walk::FindSlot(world, space.root(), kSpot);
+    ASSERT_TRUE(kSlot.entry != nullptr);
+    ASSERT_TRUE(kSlot.entry->has(cinux::arch::page::kNoExec));
+    ASSERT_TRUE(kSlot.entry->has(cinux::arch::page::kWritable));
+    space.teardown();
+}
+
+TEST("demand: a filled code leaf keeps its execute promise") {
+    cinux::mm::AddressSpace space;
+    ASSERT_TRUE(space.init());
+    cinux::mm::VmaStore  store;
+    const unsigned long  kSpot = cinux::mm::kUserNullTop + 256_KiB;
+    cinux::mm::VmaRegion region =
+        make_region({.start = kSpot, .bytes = 16_KiB, .kind = cinux::mm::VmaKind::kAnonymous});
+    region.executable = true;
+    ASSERT_TRUE(store.register_range(region).ok());
+    ASSERT_TRUE(cinux::mm::demand::FillPage(space, store, kSpot, kUserRead));
+    cinux::mm::KernelTables       world;
+    const cinux::mm::walk::SlotAt kSlot = cinux::mm::walk::FindSlot(world, space.root(), kSpot);
+    ASSERT_TRUE(kSlot.entry != nullptr);
+    ASSERT_FALSE(kSlot.entry->has(cinux::arch::page::kNoExec));
+    ASSERT_FALSE(kSlot.entry->has(cinux::arch::page::kWritable));
+    space.teardown();
+}
+
 TEST("demand: a kernel-origin write on a promised page fills anyway") {
     cinux::mm::AddressSpace space;
     ASSERT_TRUE(space.init());

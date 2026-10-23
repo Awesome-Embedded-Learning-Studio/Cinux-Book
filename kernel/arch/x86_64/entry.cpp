@@ -12,6 +12,22 @@
 extern "C" unsigned char g_kernel_bss_start[];
 extern "C" unsigned char g_kernel_bss_end[];
 
+/// The stack-canary guard word, defined beside the panic tripwire;
+/// seeded here from the cycle counter, after the clear and before any
+/// protected function can run.
+// NOLINTNEXTLINE(bugprone-reserved-identifier) the ABI name
+extern "C" {
+unsigned long long __stack_chk_guard = 0xDEAD'BEEF'CAFE'F00DULL;
+}
+
+/// One free-running count; different on every boot by construction.
+unsigned long long cycle_count() {
+    unsigned int low  = 0;
+    unsigned int high = 0;
+    asm volatile("rdtsc" : "=a"(low), "=d"(high));
+    return (static_cast<unsigned long long>(high) << 32U) | static_cast<unsigned long long>(low);
+}
+
 namespace kernel {
 void Main(const cinux::boot::BootInfo& info);
 }
@@ -21,6 +37,7 @@ extern "C" [[noreturn]] void KernelStart(unsigned long long info_addr) {
     // NOLINTNEXTLINE(clang-analyzer-security.PointerSub)
     auto const kBssBytes = static_cast<unsigned long>(g_kernel_bss_end - g_kernel_bss_start);
     cinux::base::SetBytes(g_kernel_bss_start, 0, kBssBytes);
+    __stack_chk_guard = cycle_count() ^ 0xDEAD'BEEF'CAFE'F00DULL;
     cinux::arch::WriteCr0(cinux::arch::ReadCr0() | cinux::arch::kCr0WriteProtect);
     cinux::arch::per_cpu::InstallKernelGs();
     cinux::arch::gdt::LoadOwnedGdt();

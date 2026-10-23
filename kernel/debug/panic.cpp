@@ -64,4 +64,13 @@ void PanicDump(unsigned long long frame_base) {
     cinux::arch::Halt();
 }
 
+
+/// The stack-canary tripwire: the compiler plants a guard word from
+/// this kernel's own generator at frame entry and checks it at exit;
+/// a mismatch lands here, and a smashed canary is never survivable.
+extern "C" [[noreturn]] void __stack_chk_fail() {
+    cinux::print::Println("[panic] stack canary smashed, halting");
+    cinux::arch::Halt();
+}
+
 }  // namespace cinux::debug

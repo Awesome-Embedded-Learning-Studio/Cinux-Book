@@ -8,13 +8,11 @@
 #include "kernel/fs/vfs.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::syscall {
 
 long long HandleFstat(const SyscallFrame& frame) {
-    if (!UserRangeWritable(frame.rsi, sizeof(SyscallStat))) {
-        return -kEfault;
-    }
     const arch::IrqGuard              kGuard;
     const base::Result<fs::OpenFile*> kSlot = LiveSlot(frame.rdi);
     if (!kSlot.ok()) {
@@ -32,15 +30,16 @@ long long HandleFstat(const SyscallFrame& frame) {
     if (!kProbed.ok()) {
         return -ErrnoFrom(kProbed.error());
     }
-    // NOLINTNEXTLINE(performance-no-int-to-ptr)
-    auto* const kSink = reinterpret_cast<SyscallStat*>(frame.rsi);
-    *kSink            = {};
-    kSink->ino        = probed.ino;
-    kSink->mode       = probed.mode;
-    kSink->links      = probed.links;
-    kSink->size       = static_cast<std::int64_t>(probed.size);
-    kSink->rdev       = probed.rdev;
-    kSink->mtime      = probed.mtime;
+    SyscallStat sink{};
+    sink.ino   = probed.ino;
+    sink.mode  = probed.mode;
+    sink.links = probed.links;
+    sink.size  = static_cast<std::int64_t>(probed.size);
+    sink.rdev  = probed.rdev;
+    sink.mtime = probed.mtime;
+    if (!uaccess::CopyToUser(frame.rsi, &sink, sizeof(sink))) {
+        return -kEfault;
+    }
     return 0;
 }
 

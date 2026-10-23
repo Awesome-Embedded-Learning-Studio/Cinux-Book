@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include "cinux/spin_mutex.hpp"
 #include "kernel/syscall/signal.hpp"
 #include "kernel/syscall/syscall.hpp"
 
@@ -60,6 +61,14 @@ struct SignalState {
         {};                          ///< Per-signal disposition.
     cinux::syscall::SigSet blocked;  ///< Held back until unblocked.
     cinux::syscall::SigSet pending;  ///< Sent, awaiting a delivery window.
+    cinux::base::SpinMutex gate;     ///< Serializes every pending rewrite;
+                                     ///< readers may peek unlocked.
+
+    /// Returns the dispositions, the mask and the pending set to their
+    /// boot answers while the gate itself goes on living; exec resets
+    /// the signal face whole, and the lock is not the kind of state a
+    /// reset should touch.
+    void reset();
 };
 
 /**

@@ -1,8 +1,8 @@
 #include "kernel/syscall/sys_wait.hpp"
 
-#include "cinux/ptr.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/syscall/syscall.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::syscall {
 
@@ -21,7 +21,10 @@ long long HandleWait4(const SyscallFrame& frame) {
         return 0;
     }
     if (frame.rsi != 0) {
-        *cinux::base::PtrAt<int>(frame.rsi) = static_cast<int>(receipt.code);
+        const int kStatus = static_cast<int>(receipt.code);
+        if (!uaccess::CopyToUser(frame.rsi, &kStatus, sizeof(kStatus))) {
+            return -kEfault;
+        }
     }
     return static_cast<long long>(receipt.pid);
 }

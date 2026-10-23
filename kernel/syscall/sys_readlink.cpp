@@ -9,14 +9,12 @@
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::syscall {
 
 long long HandleReadlink(const SyscallFrame& frame) {
-    if (frame.rsi == 0 || frame.rsi >= kUserAddressLimit || frame.rdx == 0) {
-        return -kEfault;
-    }
-    if (!UserRangeWritable(frame.rsi, 1)) {
+    if (frame.rsi == 0 || frame.rdx == 0) {
         return -kEfault;
     }
     char storage[fs::kFsPathMax] = {};
@@ -43,13 +41,8 @@ long long HandleReadlink(const SyscallFrame& frame) {
         ++length;
     }
     const unsigned long long kGive = length < frame.rdx ? length : frame.rdx;
-    if (kGive != 0 && !UserRangeWritable(frame.rsi, kGive)) {
+    if (!uaccess::CopyToUser(frame.rsi, kSelf->exe, kGive)) {
         return -kEfault;
-    }
-    // NOLINTNEXTLINE(performance-no-int-to-ptr)
-    auto* const kOut = reinterpret_cast<char*>(frame.rsi);
-    for (unsigned long long index = 0; index < kGive; ++index) {
-        kOut[index] = kSelf->exe[index];
     }
     return static_cast<long long>(kGive);
 }

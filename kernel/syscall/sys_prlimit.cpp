@@ -5,6 +5,7 @@
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::syscall {
 
@@ -36,25 +37,24 @@ long long HandlePrlimit64(const SyscallFrame& frame) {
     }
     proc::Task* const kSelf = CurrentTask();
     if (frame.rdx != 0) {
-        if (frame.rdx >= kUserAddressLimit || !UserRangeReadable(frame.rdx, kLimitRecordBytes)) {
+        unsigned long long record[2] = {};
+        if (!uaccess::CopyFromUser(record, frame.rdx, kLimitRecordBytes)) {
             return -kEfault;
         }
-        // NOLINTNEXTLINE(performance-no-int-to-ptr)
-        const auto* const kRecord = reinterpret_cast<const unsigned long long*>(frame.rdx);
-        if (kRecord[0] > kRecord[1] && kRecord[1] != proc::kResourceLimitInfinity) {
+        if (record[0] > record[1] && record[1] != proc::kResourceLimitInfinity) {
             return -kEperm;
         }
-        kSelf->limits[frame.rsi][0] = kRecord[0];
-        kSelf->limits[frame.rsi][1] = kRecord[1];
+        kSelf->limits[frame.rsi][0] = record[0];
+        kSelf->limits[frame.rsi][1] = record[1];
     }
     if (frame.r10 != 0) {
-        if (frame.r10 >= kUserAddressLimit || !UserRangeWritable(frame.r10, kLimitRecordBytes)) {
+        const unsigned long long kOld[2] = {
+            kSelf->limits[frame.rsi][0],
+            kSelf->limits[frame.rsi][1],
+        };
+        if (!uaccess::CopyToUser(frame.r10, kOld, kLimitRecordBytes)) {
             return -kEfault;
         }
-        // NOLINTNEXTLINE(performance-no-int-to-ptr)
-        auto* const kOld = reinterpret_cast<unsigned long long*>(frame.r10);
-        kOld[0]          = kSelf->limits[frame.rsi][0];
-        kOld[1]          = kSelf->limits[frame.rsi][1];
     }
     return 0;
 }
@@ -62,25 +62,28 @@ long long HandlePrlimit64(const SyscallFrame& frame) {
 long long HandlePrctl(const SyscallFrame& frame) {
     proc::Task* const kSelf = CurrentTask();
     if (frame.rdi == kPrSetName) {
-        if (frame.rsi == 0 || !UserRangeReadable(frame.rsi, kCommBytes)) {
+        if (frame.rsi == 0) {
+            return -kEfault;
+        }
+        unsigned char incoming[kCommBytes] = {};
+        if (!uaccess::CopyFromUser(incoming, frame.rsi, kCommBytes)) {
             return -kEfault;
         }
         base::SetBytes(kSelf->comm, 0, kCommBytes);
-        // NOLINTNEXTLINE(performance-no-int-to-ptr)
-        const auto* const  kFrom = reinterpret_cast<const unsigned char*>(frame.rsi);
         unsigned long long index = 0;
-        while (index < kCommNameBytes && kFrom[index] != 0) {
-            kSelf->comm[index] = static_cast<char>(kFrom[index]);
+        while (index < kCommNameBytes && incoming[index] != 0) {
+            kSelf->comm[index] = static_cast<char>(incoming[index]);
             ++index;
         }
         return 0;
     }
     if (frame.rdi == kPrGetName) {
-        if (frame.rsi == 0 || !UserRangeWritable(frame.rsi, kCommBytes)) {
+        if (frame.rsi == 0) {
             return -kEfault;
         }
-        // NOLINTNEXTLINE(performance-no-int-to-ptr)
-        base::CopyBytes(reinterpret_cast<void*>(frame.rsi), kSelf->comm, kCommBytes);
+        if (!uaccess::CopyToUser(frame.rsi, kSelf->comm, kCommBytes)) {
+            return -kEfault;
+        }
         return 0;
     }
     return -kEinval;

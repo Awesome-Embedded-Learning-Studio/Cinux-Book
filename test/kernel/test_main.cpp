@@ -20,9 +20,14 @@
 #endif
 #if defined(KTEST_STAGE_MM) || defined(KTEST_STAGE_PROC) || defined(KTEST_STAGE_BLOCK) ||          \
     defined(KTEST_STAGE_IRQ) || defined(KTEST_STAGE_KEYBOARD)
+#    include "kernel/arch/x86_64/cpuid.hpp"
+#    include "kernel/arch/x86_64/ex_table.hpp"
+#    include "kernel/arch/x86_64/instructions.hpp"
+#    include "kernel/arch/x86_64/msr.hpp"
 #    include "kernel/driver/serial/serial.hpp"
 #    include "kernel/mm/heap_runtime.hpp"
 #    include "kernel/mm/pmm.hpp"
+#    include "kernel/syscall/uaccess.hpp"
 #endif
 #if defined(KTEST_STAGE_PROC) || defined(KTEST_STAGE_BLOCK)
 #    include "kernel/proc/sched_class.hpp"
@@ -51,6 +56,10 @@ void Main(const cinux::boot::BootInfo& info) {
         cinux::print::Println("[ktest] address space bring-up failed");
         cinux::arch::Halt();
     }
+    cinux::arch::ex_table::ArmTable();
+    cinux::arch::WriteMsr(cinux::arch::msr::kEfer, cinux::arch::ReadMsr(cinux::arch::msr::kEfer) |
+                                                       cinux::arch::msr::kEferNoExecuteEnable);
+    cinux::syscall::uaccess::ArmWindows(cinux::arch::HasSmap());
     cinux::console::InitConsole(*handed);
     if (!cinux::mm::BringUpHeap()) {
         cinux::print::Println("[ktest] heap bring-up failed");

@@ -1,5 +1,6 @@
 #include "kernel/syscall/sys_ppoll.hpp"
 
+#include "cinux/memory.hpp"
 #include "cinux/result.hpp"
 #include "kernel/fs/open_file.hpp"
 #include "kernel/fs/pipe.hpp"
@@ -9,6 +10,7 @@
 #include "kernel/syscall/sys_clock.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::syscall {
 
@@ -58,26 +60,25 @@ unsigned short readiness(unsigned int number, unsigned int events) {
     return 0;
 }
 
-unsigned long long scan_answers(unsigned long long array, unsigned long count) {
-    // NOLINTNEXTLINE(performance-no-int-to-ptr)
-    auto* const        kBase = reinterpret_cast<unsigned char*>(array);
+/// Scans and rewrites the kernel-side copy of the caller's records;
+/// the accessor moves the whole array across the user line once per
+/// syscall, in and out, and the loop never touches ring 3.
+unsigned long long scan_answers(unsigned char* base, unsigned long count) {
     unsigned long long ready = 0;
     for (unsigned long which = 0; which < count; ++which) {
-        unsigned char* const kRecord = kBase + (which * kPollRecordBytes);
-        // NOLINTNEXTLINE(performance-no-int-to-ptr)
-        const auto           kNumber = *reinterpret_cast<const unsigned int*>(kRecord);
-        // NOLINTNEXTLINE(performance-no-int-to-ptr)
-        const auto  kEvents = *reinterpret_cast<const unsigned short*>(kRecord + kInterestOffset);
-        // NOLINTNEXTLINE(performance-no-int-to-ptr)
-        auto* const kAnswer = reinterpret_cast<unsigned short*>(kRecord + kAnswerOffset);
-        if (static_cast<int>(kNumber) < 0) {
-            *kAnswer = 0;
-            continue;
+        unsigned char* const kRecord = base + (which * kPollRecordBytes);
+        unsigned int         number  = 0;
+        unsigned short       events  = 0;
+        base::CopyBytes(&number, kRecord, sizeof(number));
+        base::CopyBytes(&events, kRecord + kInterestOffset, sizeof(events));
+        unsigned short answer = 0;
+        if (static_cast<int>(number) >= 0) {
+            answer = readiness(number, events);
+            if (answer != 0) {
+                ++ready;
+            }
         }
-        *kAnswer = readiness(kNumber, kEvents);
-        if (*kAnswer != 0) {
-            ++ready;
-        }
+        base::CopyBytes(kRecord + kAnswerOffset, &answer, sizeof(answer));
     }
     return ready;
 }
@@ -99,20 +100,19 @@ long long deadline_from(unsigned long long timeout_user, unsigned long long& dea
     if (timeout_user == 0) {
         return 0;
     }
-    if (timeout_user >= kUserAddressLimit || !UserRangeReadable(timeout_user, kTimespecBytes)) {
+    unsigned long long record[2] = {};
+    if (!uaccess::CopyFromUser(record, timeout_user, kTimespecBytes)) {
         return -kEfault;
     }
-    // NOLINTNEXTLINE(performance-no-int-to-ptr)
-    const auto* const kRecord = reinterpret_cast<const unsigned long long*>(timeout_user);
-    if (kRecord[0] >= kNegativeSeconds || kRecord[1] >= kNsPerSecond) {
+    if (record[0] >= kNegativeSeconds || record[1] >= kNsPerSecond) {
         return -kEinval;
     }
     const unsigned long long kNow   = MonotonicNanoseconds();
     const unsigned long long kSlack = ~0ULL - kNow;
-    if (kRecord[1] > kSlack || kRecord[0] > ((kSlack - kRecord[1]) / kNsPerSecond)) {
+    if (record[1] > kSlack || record[0] > ((kSlack - record[1]) / kNsPerSecond)) {
         return 0;
     }
-    deadline = (kNow + (kRecord[0] * kNsPerSecond)) + kRecord[1];
+    deadline = (kNow + (record[0] * kNsPerSecond)) + record[1];
     return 0;
 }
 
@@ -123,20 +123,35 @@ void restore_blocked(proc::Task* self, const SigSet& restore, bool armed) {
     }
 }
 
+/// Reads the caller's records into kernel terms; false when the range
+/// refuses the array.
+bool gather_records(unsigned long long array, unsigned long count, unsigned char* slots) {
+    if (count == 0) {
+        return true;
+    }
+    return array != 0 && uaccess::CopyFromUser(slots, array, count * kPollRecordBytes);
+}
+
+/// Writes the scanned records back; a refused range on the way out
+/// answers EFAULT after the wait itself already ran.
+bool scatter_records(unsigned long long array, unsigned long count, const unsigned char* slots) {
+    if (count == 0) {
+        return true;
+    }
+    return uaccess::CopyToUser(array, slots, count * kPollRecordBytes);
+}
+
 }  // namespace
 
 long long HandlePpoll(const SyscallFrame& frame) {
     if (frame.rsi > kPollRecordsLimit) {
         return -kEinval;
     }
-    const auto kCount = static_cast<unsigned long>(frame.rsi);
-    if (kCount != 0) {
-        const bool kUsable = frame.rdi != 0 && frame.rdi < kUserAddressLimit &&
-                             UserRangeReadable(frame.rdi, kCount * kPollRecordBytes) &&
-                             UserRangeWritable(frame.rdi, kCount * kPollRecordBytes);
-        if (!kUsable) {
-            return -kEfault;
-        }
+    const auto    kCount = static_cast<unsigned long>(frame.rsi);
+    unsigned char slots[kPollRecordsLimit * kPollRecordBytes];
+    base::SetBytes(slots, 0, sizeof(slots));
+    if (!gather_records(frame.rdi, kCount, slots)) {
+        return -kEfault;
     }
 
     unsigned long long deadline = ~0ULL;
@@ -148,28 +163,34 @@ long long HandlePpoll(const SyscallFrame& frame) {
     proc::Task* const kSelf    = CurrentTask();
     const SigSet      kRestore = kSelf->signals.blocked;
     bool              armed    = false;
-    if (frame.r10 != 0 && frame.r10 < kUserAddressLimit &&
-        UserRangeReadable(frame.r10, sizeof(SigSet))) {
-        // NOLINTNEXTLINE(performance-no-int-to-ptr)
-        const auto* const kWords = reinterpret_cast<const unsigned long long*>(frame.r10);
-        kSelf->signals.blocked   = SigSet{*kWords};
-        armed                    = true;
+    if (frame.r10 != 0) {
+        unsigned long long words[1] = {};
+        if (!uaccess::CopyFromUser(words, frame.r10, sizeof(SigSet))) {
+            return -kEfault;
+        }
+        kSelf->signals.blocked = SigSet{words[0]};
+        armed                  = true;
     }
 
     for (;;) {
+        unsigned long long ready = 0;
         if (kCount != 0) {
-            const unsigned long long kReady = scan_answers(frame.rdi, kCount);
-            if (kReady != 0) {
-                restore_blocked(kSelf, kRestore, armed);
-                return static_cast<long long>(kReady);
+            ready = scan_answers(slots, kCount);
+        }
+        const bool kDue    = ready != 0;
+        const bool kSignal = kSelf->signals.pending.has(~kSelf->signals.blocked);
+        const bool kExpire = MonotonicNanoseconds() >= deadline;
+        if (kDue || kSignal || kExpire) {
+            restore_blocked(kSelf, kRestore, armed);
+            if (!scatter_records(frame.rdi, kCount, slots)) {
+                return -kEfault;
             }
-        }
-        if (kSelf->signals.pending.has(~kSelf->signals.blocked)) {
-            restore_blocked(kSelf, kRestore, armed);
-            return -kEintr;
-        }
-        if (MonotonicNanoseconds() >= deadline) {
-            restore_blocked(kSelf, kRestore, armed);
+            if (kDue) {
+                return static_cast<long long>(ready);
+            }
+            if (kSignal) {
+                return -kEintr;
+            }
             return 0;
         }
         proc::Scheduler::self().yield();
@@ -180,14 +201,11 @@ long long HandlePoll(const SyscallFrame& frame) {
     if (frame.rsi > kPollRecordsLimit) {
         return -kEinval;
     }
-    const auto kCount = static_cast<unsigned long>(frame.rsi);
-    if (kCount != 0) {
-        const bool kUsable = frame.rdi != 0 && frame.rdi < kUserAddressLimit &&
-                             UserRangeReadable(frame.rdi, kCount * kPollRecordBytes) &&
-                             UserRangeWritable(frame.rdi, kCount * kPollRecordBytes);
-        if (!kUsable) {
-            return -kEfault;
-        }
+    const auto    kCount = static_cast<unsigned long>(frame.rsi);
+    unsigned char slots[kPollRecordsLimit * kPollRecordBytes];
+    base::SetBytes(slots, 0, sizeof(slots));
+    if (!gather_records(frame.rdi, kCount, slots)) {
+        return -kEfault;
     }
 
     unsigned long long deadline = ~0ULL;
@@ -202,17 +220,24 @@ long long HandlePoll(const SyscallFrame& frame) {
     }
 
     for (;;) {
+        unsigned long long ready = 0;
         if (kCount != 0) {
-            const unsigned long long kReady = scan_answers(frame.rdi, kCount);
-            if (kReady != 0) {
-                return static_cast<long long>(kReady);
+            ready = scan_answers(slots, kCount);
+        }
+        const proc::Task* const kSelf   = CurrentTask();
+        const bool              kDue    = ready != 0;
+        const bool              kSignal = kSelf->signals.pending.has(~kSelf->signals.blocked);
+        const bool              kExpire = MonotonicNanoseconds() >= deadline;
+        if (kDue || kSignal || kExpire) {
+            if (!scatter_records(frame.rdi, kCount, slots)) {
+                return -kEfault;
             }
-        }
-        const proc::Task* const kSelf = CurrentTask();
-        if (kSelf->signals.pending.has(~kSelf->signals.blocked)) {
-            return -kEintr;
-        }
-        if (MonotonicNanoseconds() >= deadline) {
+            if (kDue) {
+                return static_cast<long long>(ready);
+            }
+            if (kSignal) {
+                return -kEintr;
+            }
             return 0;
         }
         proc::Scheduler::self().yield();

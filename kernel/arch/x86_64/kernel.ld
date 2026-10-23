@@ -17,6 +17,11 @@ SECTIONS
         KEEP(*(.rodata.kallsyms))
         *(.rodata*)
     }
+    .ex_table ALIGN(16) : {
+        g_ex_table_start = .;
+        KEEP(*(.ex_table))
+        g_ex_table_end = .;
+    }
     .user ALIGN(4096) : { KEEP(*(usertext.user)) }
     .data : ALIGN(16) {
         *(.data*)

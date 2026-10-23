@@ -206,6 +206,15 @@ inline long long Getpid() {
 }
 
 /**
+ * @brief         getuid(): the caller's user id.
+ * @return        The id, zero for every task in this kernel so far.
+ * @since         0.6.0
+ */
+inline long long Getuid() {
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kGetuid), 0, 0, 0);
+}
+
+/**
  * @brief         gettid(): the caller's own thread identity.
  * @return        The tid; unique per thread, so inside a thread group
  *                it tells the members apart.

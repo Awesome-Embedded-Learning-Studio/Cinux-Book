@@ -27,6 +27,7 @@
 #include "cinux/ref_count.hpp"
 #include "cinux/result.hpp"
 #include "kernel/fs/vfs.hpp"
+#include "kernel/mm/layout.hpp"
 
 namespace cinux::mm {
 
@@ -96,6 +97,20 @@ class VmaStore : public cinux::base::RefCount<> {
 public:
     VmaStore() = default;
 
+    /**
+     * @brief         Names this world's mmap ceiling.
+     *
+     * @param[in]     ceiling   Where anonymous mmap hunts begin; the
+     *                          boot default is the compiled-in top.
+     * @return        None.
+     * @note          exec lowers the ceiling by one random page-multiple
+     *                per world, so no two programs agree on where their
+     *                          mappings start.
+     * @since         0.3.0
+     * @ingroup       kernel_mm
+     */
+    void set_mmap_ceiling(unsigned long ceiling) { mmap_ceiling_ = ceiling; }
+
     VmaStore(const VmaStore&)            = delete;
     VmaStore& operator=(const VmaStore&) = delete;
 
@@ -127,6 +142,8 @@ public:
      * @ingroup       kernel_mm
      */
     [[nodiscard]] const VmaRegion* find(unsigned long address) const;
+
+    [[nodiscard]] bool stack_contains(unsigned long start, unsigned long bytes) const;
 
     /**
      * @brief         Builds an independent copy of the whole register.
@@ -241,6 +258,10 @@ public:
      */
     [[nodiscard]] unsigned long heap_end() const { return heap_.end; }
 
+    /// Where this world's anonymous mmap hunts begin; the boot default
+    /// is the compiled-in top until exec lowers it.
+    [[nodiscard]] unsigned long mmap_ceiling() const { return mmap_ceiling_; }
+
     /**
      * @brief         Finds a free stretch below a ceiling, growing down.
      *
@@ -348,9 +369,10 @@ private:
      */
     [[nodiscard]] bool span_known(unsigned long start, unsigned long end) const;
 
-    base::container::SelfList<VmaRegion> regions_;     ///< The promises, arrival order.
-    VmaRegion                            heap_{};      ///< The brk span, empty until seeded.
-    unsigned long                        heap_max_{};  ///< The break's ceiling from exec.
+    base::container::SelfList<VmaRegion> regions_;         ///< The promises, arrival order.
+    VmaRegion                            heap_{};          ///< The brk span, empty until seeded.
+    unsigned long                        heap_max_{};      ///< The break's ceiling from exec.
+    unsigned long mmap_ceiling_{cinux::mm::kUserMmapTop};  ///< Where anonymous mmap hunts begin.
 };
 
 }  // namespace cinux::mm

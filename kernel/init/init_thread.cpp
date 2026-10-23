@@ -22,7 +22,9 @@
 #include "cinux/ptr.hpp"
 #include "cinux/result.hpp"
 #include "cinux/shared.hpp"
+#include "kernel/arch/x86_64/entropy.hpp"
 #include "kernel/arch/x86_64/page.hpp"
+#include "kernel/arch/x86_64/page_entry.hpp"
 #include "kernel/arch/x86_64/registers.hpp"
 #include "kernel/arch/x86_64/usermode.hpp"
 #include "kernel/boot/print.hpp"
@@ -46,8 +48,27 @@ namespace {
 
 
 /// The loaded shell's entry and root, staged for the capture-free trampoline.
-std::uint64_t g_shell_entry = 0;
-unsigned long g_shell_root  = 0;
+/// The shell's landing facts, one home for the whole seat; Meyers
+/// singleton, no bare globals.
+class ShellSeats {
+public:
+    static ShellSeats& self() {
+        static ShellSeats seats;
+        return seats;
+    }
+
+    /// Where the shell's first instruction sits.
+    std::uint64_t entry = 0;
+
+    /// The shell world's PML4.
+    unsigned long root = 0;
+
+    /// Where the shell's stack picture landed.
+    unsigned long long rsp = 0;
+
+private:
+    ShellSeats() = default;
+};
 
 /// Reads one whole file off the mounted volume into an owned buffer,
 /// handing back the resolved view for the caller's own lookups.
@@ -65,6 +86,7 @@ bool read_volume_file(const char* path, base::Own<unsigned char[]>& out, unsigne
 struct ShellWorld {
     base::Shared<mm::AddressSpace> space;
     base::Shared<mm::VmaStore>     vmas;
+    unsigned long long             entry_rsp;  ///< Where the shell's stack picture landed.
 };
 
 /// Loads the volume's shell ELF into a fresh world with a stack page and a
@@ -97,14 +119,21 @@ ShellWorld build_shell_world(std::uint64_t& entry) {
     if (!loader::LoadElfIntoSpace(program.get(), program_bytes, kWorld, facts)) {
         return {};
     }
-    entry            = facts.program_entry;
-    facts.page_bytes = cinux::arch::page::kSize;
-    vmas->seed_heap(cinux::base::math::AlignUp(vmas->max_end(), cinux::arch::page::kSize),
+    entry                                       = facts.program_entry;
+    facts.page_bytes                            = cinux::arch::page::kSize;
+    constexpr unsigned long long kBrkSlideMask  = 0xFFF'000;
+    constexpr unsigned long long kMmapSlideMask = 0x3FFF'FF000;
+    vmas->seed_heap(cinux::base::math::AlignUp(vmas->max_end(), cinux::arch::page::kSize) +
+                        (arch::RandomWord() & kBrkSlideMask),
                     mm::kUserBrkMmapSplit);
+    vmas->set_mmap_ceiling(mm::kUserMmapTop - (arch::RandomWord() & kMmapSlideMask));
+    constexpr unsigned long long kStackSlideMask = 0x7FF'000;
+    const unsigned long long     kStackTop =
+        proc::kUserProgramStackTop - (arch::RandomWord() & kStackSlideMask);
     mm::VmaRegion stack_range{};
-    stack_range.start = proc::kUserProgramStackTop - mm::kUserStackBytes - cinux::arch::page::kSize;
-    stack_range.end   = proc::kUserProgramStackTop;
-    stack_range.kind  = mm::VmaKind::kStack;
+    stack_range.start    = kStackTop - mm::kUserStackBytes - cinux::arch::page::kSize;
+    stack_range.end      = kStackTop;
+    stack_range.kind     = mm::VmaKind::kStack;
     stack_range.readable = true;
     stack_range.writable = true;
     if (!vmas->register_range(stack_range).ok()) {
@@ -120,16 +149,20 @@ ShellWorld build_shell_world(std::uint64_t& entry) {
     const char* const       kShellEnvp[2] = {"PATH=/bin:/usr/bin", nullptr};
     const loader::EntryRuns kShellRuns{.arguments = kShellArgv, .environment = kShellEnvp};
     loader::WriteEntryPicture(cinux::base::PtrAt<unsigned char>(mm::DirectMapVirt(kStackFrame.raw)),
-                              proc::kUserProgramStackTop - proc::kUserEntryStackOffset, kShellRuns,
-                              facts);
-    if (!space->map_user(proc::kUserProgramStackTop - cinux::arch::page::kSize, kStackFrame.raw)) {
+                              kStackTop - proc::kUserEntryStackOffset, kShellRuns, facts);
+    if (!space->map_user(kStackTop - cinux::arch::page::kSize, kStackFrame.raw,
+                         cinux::arch::page::UserLeafTerms(true, false))) {
         mm::Pmm::self().free_page(kStackFrame);
         return {};
     }
     if (!proc::MapSignalTrampoline(*space, *vmas)) {
         return {};
     }
-    return ShellWorld{.space = std::move(space), .vmas = std::move(vmas)};
+    return ShellWorld{
+        .space     = std::move(space),
+        .vmas      = std::move(vmas),
+        .entry_rsp = kStackTop - proc::kUserEntryStackOffset,
+    };
 }
 
 /// Seats one shell task over a freshly built world; the task owns the world
@@ -141,14 +174,16 @@ bool seat_shell_task(proc::Task& parent) {
     if (!world.space.holds() || !world.vmas.holds()) {
         return false;
     }
-    g_shell_entry    = entry;
-    g_shell_root     = world.space->root();
-    auto enter_ring3 = +[] {
+    ShellSeats::self().entry = entry;
+    ShellSeats::self().root  = world.space->root();
+    ShellSeats::self().rsp   = world.entry_rsp;
+    auto enter_ring3         = +[] {
+        const ShellSeats& seats = ShellSeats::self();
         proc::Task* const kSelf = proc::Scheduler::self().current();
-        kSelf->user_root        = g_shell_root;
+        kSelf->user_root        = seats.root;
         asm volatile("cli" : : : "memory");
-        cinux::arch::LoadCr3(g_shell_root);
-        JumpToRing3(g_shell_entry, proc::kUserProgramStackTop - proc::kUserEntryStackOffset);
+        cinux::arch::LoadCr3(seats.root);
+        JumpToRing3(seats.entry, seats.rsp);
     };
     auto* const kShell = proc::TaskBuilder{}
                              .set_entry(enter_ring3)
@@ -187,7 +222,15 @@ void StartInitThread() {
             }
             proc::ChildReceipt receipt{};
             proc::Scheduler::self().wait_child(-1, false, receipt);
-            print::Println("[kern] kernel_init: shell exited with %lld, respawning", receipt.code);
+            constexpr unsigned long long kSignalMask = 0x7F;
+            const auto                   kStatus = static_cast<unsigned long long>(receipt.code);
+            if ((kStatus & kSignalMask) != 0) {
+                print::Println("[kern] kernel_init: shell killed by signal %llu, respawning",
+                               kStatus & kSignalMask);
+            } else {
+                print::Println("[kern] kernel_init: shell exited with %llu, respawning",
+                               (kStatus >> 8U) & 0xFFULL);
+            }
         }
     };
     auto* const kInit = proc::TaskBuilder{}.set_entry(kernel_init).set_name("kernel_init").build();

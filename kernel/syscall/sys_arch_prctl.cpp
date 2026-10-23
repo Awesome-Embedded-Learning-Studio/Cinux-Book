@@ -5,6 +5,7 @@
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 namespace cinux::syscall {
 
@@ -39,19 +40,17 @@ long long HandleArchPrctl(const SyscallFrame& frame) {
         cinux::arch::per_cpu::WriteKernelGsBase(frame.rsi);
         return 0;
     case kArchGetFs: {
-        if (!UserRangeWritable(frame.rsi, sizeof(Word))) {
+        const unsigned long long kBase = kSelf->ctx.fs_base;
+        if (!uaccess::CopyToUser(frame.rsi, &kBase, sizeof(kBase))) {
             return -kEfault;
         }
-        auto* const kOut = reinterpret_cast<Word*>(frame.rsi);  // NOLINT(performance-no-int-to-ptr)
-        *kOut            = kSelf->ctx.fs_base;
         return 0;
     }
     case kArchGetGs: {
-        if (!UserRangeWritable(frame.rsi, sizeof(Word))) {
+        const unsigned long long kBase = kSelf->ctx.gs_base;
+        if (!uaccess::CopyToUser(frame.rsi, &kBase, sizeof(kBase))) {
             return -kEfault;
         }
-        auto* const kOut = reinterpret_cast<Word*>(frame.rsi);  // NOLINT(performance-no-int-to-ptr)
-        *kOut            = kSelf->ctx.gs_base;
         return 0;
     }
     default:
