@@ -22,6 +22,7 @@
 #include "kernel/driver/device/device.hpp"
 #include "kernel/driver/hpet/hpet.hpp"
 #include "kernel/driver/keyboard/keyboard.hpp"
+#include "kernel/driver/net/e1000.hpp"
 #include "kernel/driver/net/loopback.hpp"
 #include "kernel/driver/pci/pci.hpp"
 #include "kernel/driver/pit/pit.hpp"
@@ -32,6 +33,7 @@
 #include "kernel/mm/heap_runtime.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vmm.hpp"
+#include "kernel/net/net_world.hpp"
 #include "kernel/proc/fault_diagnose.hpp"
 #include "kernel/proc/fault_resolve.hpp"
 #include "kernel/proc/lockdep.hpp"
@@ -234,6 +236,17 @@ constexpr InitStep kInitSteps[] = {
                 .driver_name = "loopback",
             });
             base::safety::Check(kLo.ok(), "device model refused the loopback seat");
+            net::NetWorld::self().init();
+            print::Println("[net] loopback stack wired, pump seats with init");
+            if (driver::net::E1000::self().init()) {
+                net::NetWorld::self().attach_wire(driver::net::E1000::self().port());
+                const auto kMac = driver::net::E1000::self().mac();
+                print::Println("[net] e1000 up, mac %02x:%02x:%02x:%02x:%02x:%02x", kMac.bytes[0],
+                               kMac.bytes[1], kMac.bytes[2], kMac.bytes[3], kMac.bytes[4],
+                               kMac.bytes[5]);
+            } else {
+                print::Println("[net] no e1000 answered, loopback only");
+            }
             return info;
         },
     },

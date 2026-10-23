@@ -238,6 +238,13 @@ const PciDevice* PciBus::find_by_class(PciClassCode base, uint8_t subclass) cons
     return devices_.get(kIndex);
 }
 
+const PciDevice* PciBus::find_by_ids(uint16_t vendor, uint16_t device) const {
+    const unsigned long kIndex = devices_.find_if([vendor, device](const PciDevice& entry) {
+        return entry.vendor_id == vendor && entry.device_id == device;
+    });
+    return devices_.get(kIndex);
+}
+
 void PciBus::enable_device(const PciDevice& device) {
     const ConfigSpot kSpot{
         .bus    = device.bus,
