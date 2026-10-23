@@ -35,6 +35,21 @@ inline constexpr unsigned long kMacAddressBytes = 6;
 inline constexpr unsigned long kMaxEthernetFrame = 1518;
 
 /**
+ * @brief   Bytes an Ethernet-framed device prefixes to a payload:
+ *          two addresses and the type word.
+ * @since   0.6.0
+ * @ingroup kernel_driver
+ */
+inline constexpr unsigned long kEthernetHeaderBytes = 14;
+
+/**
+ * @brief   The all-ones hardware address every card accepts.
+ * @since   0.6.0
+ * @ingroup kernel_driver
+ */
+inline constexpr unsigned char kBroadcastMacBytes[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+/**
  * @brief   How many frames the loopback holds before sends refuse.
  * @since   0.6.0
  * @ingroup kernel_driver

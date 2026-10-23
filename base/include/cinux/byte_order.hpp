@@ -108,4 +108,72 @@ constexpr void WriteWord32(unsigned char* data, uint32_t offset, uint32_t value)
     data[offset + 3] = static_cast<unsigned char>(value >> 24U);
 }
 
+/**
+ * @brief         Write one big-endian 16-bit word into a byte blob.
+ *
+ * @param[out]    data    Blob to write into.
+ * @param[in]     offset  Byte offset of the word's first byte.
+ * @param[in]     value   Word to spell out.
+ * @warning       Undefined when the two bytes leave the blob; callers
+ *                own the bounds.
+ * @since         0.6.0
+ * @ingroup       base_bytes
+ */
+constexpr void WriteWord16Be(unsigned char* data, uint32_t offset, uint16_t value) {
+    data[offset]     = static_cast<unsigned char>(value >> 8U);
+    data[offset + 1] = static_cast<unsigned char>(value);
+}
+
+/**
+ * @brief         Write one big-endian 32-bit word into a byte blob.
+ *
+ * @param[out]    data    Blob to write into.
+ * @param[in]     offset  Byte offset of the word's first byte.
+ * @param[in]     value   Word to spell out.
+ * @warning       Undefined when the four bytes leave the blob; callers
+ *                own the bounds.
+ * @since         0.6.0
+ * @ingroup       base_bytes
+ */
+constexpr void WriteWord32Be(unsigned char* data, uint32_t offset, uint32_t value) {
+    data[offset]     = static_cast<unsigned char>(value >> 24U);
+    data[offset + 1] = static_cast<unsigned char>(value >> 16U);
+    data[offset + 2] = static_cast<unsigned char>(value >> 8U);
+    data[offset + 3] = static_cast<unsigned char>(value);
+}
+
+/**
+ * @brief         Read one big-endian 16-bit word out of a byte blob.
+ *
+ * @param[in]     data    Blob to read from.
+ * @param[in]     offset  Byte offset of the word's first byte.
+ * @return        The word at that offset.
+ * @warning       Undefined when the two bytes leave the blob; callers
+ *                own the bounds.
+ * @since         0.6.0
+ * @ingroup       base_bytes
+ */
+constexpr uint16_t ReadWord16Be(const unsigned char* data, uint32_t offset) {
+    return static_cast<uint16_t>((static_cast<unsigned>(data[offset]) << 8U) |
+                                 static_cast<unsigned>(data[offset + 1]));
+}
+
+/**
+ * @brief         Read one big-endian 32-bit word out of a byte blob.
+ *
+ * @param[in]     data    Blob to read from.
+ * @param[in]     offset  Byte offset of the word's first byte.
+ * @return        The word at that offset.
+ * @warning       Undefined when the four bytes leave the blob; callers
+ *                own the bounds.
+ * @since         0.6.0
+ * @ingroup       base_bytes
+ */
+constexpr uint32_t ReadWord32Be(const unsigned char* data, uint32_t offset) {
+    return (static_cast<uint32_t>(data[offset]) << 24U) |
+           (static_cast<uint32_t>(data[offset + 1]) << 16U) |
+           (static_cast<uint32_t>(data[offset + 2]) << 8U) |
+           static_cast<uint32_t>(data[offset + 3]);
+}
+
 }  // namespace cinux::base

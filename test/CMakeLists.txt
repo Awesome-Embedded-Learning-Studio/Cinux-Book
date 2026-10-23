@@ -27,6 +27,15 @@ add_cinux_test(framework)
 add_cinux_test(result)
 add_cinux_test(vesa)
 add_cinux_test(bits)
+add_cinux_test(checksum)
+add_cinux_test(net_layout ${CMAKE_SOURCE_DIR}/kernel/net/net_layout.cpp)
+add_cinux_test(net_arp ${CMAKE_SOURCE_DIR}/kernel/net/arp.cpp
+                         ${CMAKE_SOURCE_DIR}/kernel/net/net_layout.cpp)
+add_cinux_test(net_stack ${CMAKE_SOURCE_DIR}/kernel/net/net_stack.cpp
+                            ${CMAKE_SOURCE_DIR}/kernel/net/net_layout.cpp
+                            ${CMAKE_SOURCE_DIR}/kernel/net/ipv4.cpp
+                            ${CMAKE_SOURCE_DIR}/kernel/net/icmp.cpp
+                            ${CMAKE_SOURCE_DIR}/kernel/driver/net/loopback.cpp)
 add_cinux_test(gdt)
 add_cinux_test(idt)
 add_cinux_test(layout)
