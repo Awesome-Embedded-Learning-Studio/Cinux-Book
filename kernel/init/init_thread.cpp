@@ -37,6 +37,8 @@
 #include "kernel/mm/layout.hpp"
 #include "kernel/mm/pmm.hpp"
 #include "kernel/mm/vma.hpp"
+#include "kernel/net/net_config.hpp"
+#include "kernel/net/net_world.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/signals.hpp"
@@ -213,7 +215,13 @@ bool seat_shell_task(proc::Task& parent) {
 void StartInitThread() {
     auto kernel_init = +[] {
         fs::FileWorld::self().init();
-        print::Println("[kern] kernel_init: root mounted, launching shell from the volume");
+        base::safety::Check(net::NetWorld::self().start_pump(), "net pump refused its seat");
+        {
+            const unsigned long kReplies =
+                net::NetWorld::self().ping_sweep(net::kUserNetworkHost, 4);
+            print::Println("[kern] kernel_init: ping 10.0.2.2 answered %u of 4, launching shell",
+                           kReplies);
+        }
         for (;;) {
             proc::Task* const kSelf = proc::Scheduler::self().current();
             if (!seat_shell_task(*kSelf)) {

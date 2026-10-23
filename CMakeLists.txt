@@ -70,7 +70,9 @@ set(CINUX_QEMU_DEVICE_ARGS
     -device;ide-hd,drive=spare,bus=sata0.0
     -device;qemu-xhci,id=xhci0
     -device;usb-kbd,bus=xhci0.0
-    -device;usb-tablet,bus=xhci0.0)
+    -device;usb-tablet,bus=xhci0.0
+    -netdev;user,id=net0
+    -device;e1000,netdev=net0)
 string(REPLACE ";" "\n" CINUX_QEMU_DEVICE_LINES "${CINUX_QEMU_DEVICE_ARGS}")
 file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/qemu-device-args.txt"
     CONTENT "${CINUX_QEMU_DEVICE_LINES}\n")
@@ -82,7 +84,7 @@ file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/qemu-device-args.txt"
 set(CINUX_KTEST_STAGES exceptions irq keyboard mm proc block)
 set(CINUX_KTESTS selfcheck:exceptions tick:irq keyboard:keyboard vmm:mm heap:mm aspace:mm cow:mm
     vma:mm demand:mm loader:mm uaccess:proc sched:proc block:block block_error:block ext2:block
-    pipe:proc tty:keyboard smp:proc smp_pipe:proc xhci:block)
+    pipe:proc tty:keyboard smp:proc smp_pipe:proc xhci:block net:block)
 set(CINUX_KTESTS_INTEGRATION "")
 
 message("Configuring Boot")

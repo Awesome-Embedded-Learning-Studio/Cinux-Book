@@ -94,6 +94,23 @@ public:
     [[nodiscard]] const PciDevice* find_by_class(PciClassCode base, uint8_t subclass) const;
 
     /**
+     * @brief         Finds the first device answering to exact identities.
+     *
+     * @param[in]     vendor   Vendor identity to match.
+     * @param[in]     device   Device identity to match under that vendor.
+     * @return        The matching device, or nullptr when none answered.
+     * @note          Identity is how a driver claims one specific card:
+     *                class codes gather siblings that need not share a
+     *                register layout, so a driver that knows its silicon
+     *                asks by name.
+     * @warning       None
+     * @throws        None
+     * @since         0.6.0
+     * @ingroup       kernel_driver
+     */
+    [[nodiscard]] const PciDevice* find_by_ids(uint16_t vendor, uint16_t device) const;
+
+    /**
      * @brief         Wakes one device for driving.
      *
      * @param[in]     device  The device the driver is about to command.
