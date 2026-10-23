@@ -250,6 +250,36 @@
       "note": "四缝与四件、36B 线格式真 ABI、八字节失而复得、FsOps 十三法、锁内快照、外面的眼睛四纸判决、ACPI 字节化收口——名字里的家什,逐件兑现",
       "status": "open",
       "trail": ["devfs", "procfs", "PTY", "termios", "job control"]
+    },
+    {
+      "id": "25",
+      "slug": "25-elf-dynamic",
+      "title": "把后半场交给解释器:ELF 动态链接",
+      "titleEn": "Handing the Second Half to the Interpreter",
+      "desc": "静态的小程序跑通了,动态的那一半还欠着。解析器学双座位,程序座收 ET_EXEC,解释器座收 ET_DYN,换座即拒。musl 的解释器装进 256MiB 的固定家,入口交给 ld.so,真的 auxv 十四味摆上栈。破两案:mprotect 与 munmap 的号位对调六年没人发现,protect 拒劈段的旧栅挡住 RELRO。烤盘默认自带解释器,busybox ash 换血坐上登录座。",
+      "note": "双座位解析、装载基址与选址论证、auxv 活命组与营养组、页预算抬格、探针零打印、假货与魔数校验、822KB 双重间接考古、ash 就座——后半场的戏,一件一件唱完",
+      "status": "open",
+      "trail": ["ELF", "dynamic linking", "ld.so", "auxv", "musl"]
+    },
+    {
+      "id": "26",
+      "slug": "26-smp",
+      "title": "请第二颗脑子上线:APIC、蹦床与共享调度",
+      "titleEn": "Bringing the Second Brain Online",
+      "desc": "机器到今天还是一个脑子在转,这一卷请第二颗核上线。固件的中断户口本逐字节读,两片 APIC 换下只向一颗核喊话的老门房,每颗核分到自己的家当,一页蹦床让醒来的核从实模式一路变回 64 位。共享就绪队列挂真锁,五处等待统一睡与醒的口径,锁与引用把单核的侥幸还清。破两案:盘的完成通知被旧清理吞掉,清零的扫帚弄脏了浮点现场。96 轮跨核 fork 全绿,单核镜像诚实不报双核。",
+      "note": "MADT 逐字节、IRQ0 走改写表、per-CPU 地基、启动序列与对表案、on_cpu 纪律、五处等待统一口径、锁的生卒、AHCI 唤醒竞态、XMM0 污染浮点现场红绿两证——两颗核一台戏,幕幕落实",
+      "status": "open",
+      "trail": ["MADT", "APIC", "per-CPU", "trampoline", "SMP scheduling", "synchronization"]
+    },
+    {
+      "id": "27",
+      "slug": "27-drivers",
+      "title": "驱动基本框架:门房、册子与门铃",
+      "titleEn": "A Driver Framework: Doorkeeper, Ledgers, and a Doorbell",
+      "desc": "散装进门的设备收进一座统一的门房:设备模型照生产内核的对象系统思路搭,字符块网络三本册子,/proc 一座只读观测座。顺手收掉伪终端不认挂断的旧案。配置空间的活页翻开,能力链走到头,MSI 与 MSI-X 解码成词,消息向量在 0x40 起的池里安座。末了一位重客:xHCI 主机控制器,四区寄存器、三只环、一枚门铃,枚举走完,USB 键盘汇成控制台第三张嘴。五桩案连破,模拟器没学过的那条指令最险。",
+      "note": "三册类面与设备归位、PTY 挂断生命周期、能力链 48 步、武装四步与回读栅栏、TRB 环与 cycle bit、枚举七环、端点号换算、movd 向量化撞模拟器、串口在前屏幕在后——框架打底,不做玩具",
+      "status": "open",
+      "trail": ["device model", "PCI capabilities", "MSI-X", "xHCI", "USB", "HID keyboard"]
     }
   ]
 }
