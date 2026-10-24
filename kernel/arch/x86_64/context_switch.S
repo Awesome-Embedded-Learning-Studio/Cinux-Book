@@ -37,5 +37,6 @@ ContextSwitch:
 TaskTrampoline:
     sti
     call *%r12
-    jmp *%r13
+    call *%r13
+    ud2
 .size TaskTrampoline, . - TaskTrampoline

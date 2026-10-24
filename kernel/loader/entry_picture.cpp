@@ -16,7 +16,7 @@ struct PicturePlane {
 };
 
 bool plane_room(const PicturePlane& plane) {
-    return plane.words_at + 16 < kSize - plane.strings_at;
+    return plane.words_at + 16 <= plane.strings_at;
 }
 
 void put_word(PicturePlane& plane, unsigned long word) {
@@ -34,16 +34,19 @@ bool put_pair(PicturePlane& plane, unsigned long type, unsigned long value) {
 }
 
 bool put_string(PicturePlane& plane, const char* text) {
-    if (text == nullptr || !plane_room(plane)) {
+    if (text == nullptr) {
         return false;
     }
     unsigned long length = 0;
     while (text[length] != '\0') {
         ++length;
     }
+    if (length + 1 + 8 + 16 > plane.strings_at - plane.words_at) {
+        return false;
+    }
+    plane.strings_at -= length + 1;
     cinux::base::CopyBytes(plane.page + plane.strings_at, text, length + 1);
     const unsigned long kLanded = plane.page_base + plane.strings_at;
-    plane.strings_at += length + 1;
     cinux::base::CopyBytes(plane.page + plane.words_at, &kLanded, sizeof(kLanded));
     plane.words_at += 8;
     return true;
@@ -51,13 +54,12 @@ bool put_string(PicturePlane& plane, const char* text) {
 
 unsigned long land_randomness(PicturePlane& plane, const EntryFacts& facts) {
     if (facts.randomness == nullptr || facts.random_bytes == 0 ||
-        plane.strings_at + facts.random_bytes + plane.words_at >= kSize) {
+        facts.random_bytes > plane.strings_at - plane.words_at - 16) {
         return 0;
     }
+    plane.strings_at -= facts.random_bytes;
     cinux::base::CopyBytes(plane.page + plane.strings_at, facts.randomness, facts.random_bytes);
-    const unsigned long kLanded = plane.page_base + plane.strings_at;
-    plane.strings_at += facts.random_bytes;
-    return kLanded;
+    return plane.page_base + plane.strings_at;
 }
 
 bool put_facts(PicturePlane& plane, const EntryFacts& facts, unsigned long first_run_landed,
@@ -90,7 +92,7 @@ unsigned long WriteEntryPicture(unsigned char* stack_page, unsigned long entry_r
     PicturePlane        plane{
         .page       = stack_page,
         .page_base  = kPageBase,
-        .strings_at = 0,
+        .strings_at = kSize,
         .words_at   = entry_rsp - kPageBase,
     };
     const unsigned long kRandomLanded = land_randomness(plane, facts);
@@ -105,10 +107,13 @@ unsigned long WriteEntryPicture(unsigned char* stack_page, unsigned long entry_r
         }
     }
     put_word(plane, argc);
-    const unsigned long kFirstStringAt = plane.strings_at;
+    unsigned long first_run_landed = 0;
     for (unsigned long index = 0; index < argc; ++index) {
         if (!put_string(plane, runs.arguments[index])) {
             return 0;
+        }
+        if (index == 0) {
+            first_run_landed = plane.page_base + plane.strings_at;
         }
     }
     put_word(plane, 0);
@@ -118,7 +123,7 @@ unsigned long WriteEntryPicture(unsigned char* stack_page, unsigned long entry_r
         }
     }
     put_word(plane, 0);
-    const unsigned long kFirstRunLanded = argc > 0 ? kPageBase + kFirstStringAt : 0;
+    const unsigned long kFirstRunLanded = first_run_landed;
     if (!put_facts(plane, facts, kFirstRunLanded, kRandomLanded)) {
         return 0;
     }

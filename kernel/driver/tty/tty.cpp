@@ -127,6 +127,17 @@ bool Tty::feed(char key) {
     return false;
 }
 
+void Tty::poll_input(unsigned long budget) {
+    require_wired();
+    for (unsigned long index = 0; index < budget && pending_signal_ == 0; ++index) {
+        char key = 0;
+        if (!wiring_->take_key(wiring_->context, &key)) {
+            return;
+        }
+        feed(key);
+    }
+}
+
 int Tty::signal_for(char key) const {
     const auto kByte = static_cast<unsigned char>(key);
     if (kByte == 0) {

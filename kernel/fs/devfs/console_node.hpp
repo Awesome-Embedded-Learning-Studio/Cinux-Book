@@ -33,6 +33,9 @@ namespace cinux::fs {
  */
 void RegisterConsoleDevice();
 
+/** @brief Starts the resident input pump so terminal signals do not depend on read. */
+void StartConsoleInputPump();
+
 /**
  * @brief         Names the group the console's keys belong to.
  *

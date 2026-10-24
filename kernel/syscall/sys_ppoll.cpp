@@ -2,9 +2,11 @@
 
 #include "cinux/memory.hpp"
 #include "cinux/result.hpp"
+#include "cinux/shared.hpp"
 #include "kernel/fs/open_file.hpp"
 #include "kernel/fs/pipe.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/signals.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/signal.hpp"
 #include "kernel/syscall/sys_clock.hpp"
@@ -31,11 +33,11 @@ constexpr unsigned long long kTimespecBytes   = 16;
 constexpr unsigned long long kNegativeSeconds = 0x8000000000000000ULL;
 
 unsigned short readiness(unsigned int number, unsigned int events) {
-    const base::Result<fs::OpenFile*> kOpen = LiveSlot(number);
+    const base::Result<base::Shared<fs::OpenFile>> kOpen = LiveSlot(number);
     if (!kOpen.ok()) {
         return static_cast<unsigned short>(kPollNval);
     }
-    const fs::OpenFile* const kFile = kOpen.value();
+    const fs::OpenFile* const kFile = kOpen.value().get();
     if (kFile->ops != fs::PipeOps()) {
         unsigned int answer = events & (kPollIn | kPollOut);
         if ((answer & kPollIn) != 0U && !kFile->ops->readable(kFile->backend, kFile->node)) {
@@ -178,7 +180,7 @@ long long HandlePpoll(const SyscallFrame& frame) {
             ready = scan_answers(slots, kCount);
         }
         const bool kDue    = ready != 0;
-        const bool kSignal = kSelf->signals.pending.has(~kSelf->signals.blocked);
+        const bool kSignal = proc::HasPendingSignal(*kSelf);
         const bool kExpire = MonotonicNanoseconds() >= deadline;
         if (kDue || kSignal || kExpire) {
             restore_blocked(kSelf, kRestore, armed);
@@ -226,7 +228,7 @@ long long HandlePoll(const SyscallFrame& frame) {
         }
         const proc::Task* const kSelf   = CurrentTask();
         const bool              kDue    = ready != 0;
-        const bool              kSignal = kSelf->signals.pending.has(~kSelf->signals.blocked);
+        const bool              kSignal = proc::HasPendingSignal(*kSelf);
         const bool              kExpire = MonotonicNanoseconds() >= deadline;
         if (kDue || kSignal || kExpire) {
             if (!scatter_records(frame.rdi, kCount, slots)) {

@@ -13,10 +13,12 @@
 namespace cinux::net {
 
 void Ipv4Module::init(const DatagramSink& sink, uint32_t own_address) {
-    sink_           = sink;
-    own_address_    = own_address;
-    stats_          = {};
-    protocol_count_ = 0;
+    sink_             = sink;
+    own_address_      = own_address;
+    stats_            = {};
+    protocol_count_   = 0;
+    observer_         = nullptr;
+    observer_context_ = nullptr;
 }
 
 void Ipv4Module::aim(const DatagramSink& sink, uint32_t own_address) {
@@ -68,6 +70,10 @@ void Ipv4Module::handle(const unsigned char* bytes, size_t length) {
     const size_t kEffective     = std::min(static_cast<size_t>(kView.value().total_length), length);
     const size_t kPayloadLength = kEffective - kView.value().header_bytes;
 
+    if (observer_ != nullptr) {
+        observer_(observer_context_, bytes, kEffective, kView.value());
+    }
+
     for (unsigned long index = 0; index < protocol_count_; ++index) {
         if (protocols_[index].protocol == kView.value().protocol) {
             protocols_[index].seat.handle(bytes + kView.value().header_bytes, kPayloadLength,
@@ -84,36 +90,43 @@ bool Ipv4Module::send(const OutboundDatagram& datagram) {
         return false;
     }
 
-    const unsigned long kTotal = kMinIpv4HeaderBytes + datagram.length;
-    outgoing_[0] =
+    unsigned char       outgoing[kMaxDatagramBytes] = {};
+    const unsigned long kTotal                      = kMinIpv4HeaderBytes + datagram.length;
+    outgoing[0] =
         static_cast<unsigned char>((static_cast<unsigned>(kIpv4Version) << 4U) |
                                    static_cast<unsigned>(kMinIpv4HeaderBytes / sizeof(uint32_t)));
-    outgoing_[1] = 0;
-    base::WriteWord16Be(outgoing_, 2, static_cast<uint16_t>(kTotal));
-    base::WriteWord16Be(outgoing_, 4, 0);
-    base::WriteWord16Be(outgoing_, 6, 0);
-    outgoing_[8] = kIpv4TimeToLive;
-    outgoing_[9] = datagram.protocol;
-    base::WriteWord16Be(outgoing_, 10, 0);
-    base::WriteWord32Be(outgoing_, 12, own_address_);
-    base::WriteWord32Be(outgoing_, 16, datagram.destination);
+    outgoing[1] = 0;
+    base::WriteWord16Be(outgoing, 2, static_cast<uint16_t>(kTotal));
+    base::WriteWord16Be(outgoing, 4, 0);
+    base::WriteWord16Be(outgoing, 6, 0);
+    outgoing[8] = kIpv4TimeToLive;
+    outgoing[9] = datagram.protocol;
+    base::WriteWord16Be(outgoing, 10, 0);
+    base::WriteWord32Be(outgoing, 12, own_address_);
+    base::WriteWord32Be(outgoing, 16, datagram.destination);
     for (size_t index = 0; index < datagram.length; ++index) {
-        outgoing_[kMinIpv4HeaderBytes + index] = datagram.payload[index];
+        outgoing[kMinIpv4HeaderBytes + index] = datagram.payload[index];
     }
 
     base::InternetChecksum builder;
-    builder.add(outgoing_, kMinIpv4HeaderBytes);
-    base::WriteWord16Be(outgoing_, 10, builder.value());
+    builder.add(outgoing, kMinIpv4HeaderBytes);
+    base::WriteWord16Be(outgoing, 10, builder.value());
 
     const OutboundDatagram kOutbound = {
         .destination = datagram.destination,
         .protocol    = datagram.protocol,
-        .payload     = outgoing_,
+        .payload     = outgoing,
         .length      = kTotal,
     };
     sink_.send(sink_.context, kOutbound);
     ++stats_.sent;
     return true;
+}
+
+void Ipv4Module::observe(void* context,
+                         void (*receive)(void*, const unsigned char*, size_t, const Ipv4View&)) {
+    observer_context_ = context;
+    observer_         = receive;
 }
 
 const Ipv4Stats& Ipv4Module::stats() const {

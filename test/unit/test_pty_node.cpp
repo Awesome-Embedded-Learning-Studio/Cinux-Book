@@ -142,7 +142,7 @@ void read_nonblock_body() {
         ASSERT_TRUE(kHeld.ok());
         ASSERT_TRUE(kTask->files->adopt(kHeld.value()).ok());
     }
-    auto* const kOpen                     = kTask->files->get(0).value();
+    const auto kOpen                      = kTask->files->get(0).value();
     kOpen->status_flags                   = cinux::syscall::kOpenNonblock;
     unsigned char                heard[8] = {};
     cinux::syscall::SyscallFrame frame{};

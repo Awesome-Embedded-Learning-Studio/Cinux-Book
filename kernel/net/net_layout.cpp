@@ -95,4 +95,16 @@ base::Result<IcmpEchoView, IcmpEchoError> ParseIcmpEcho(const unsigned char* dat
     return view;
 }
 
+base::Result<UdpView, UdpError> ParseUdp(const unsigned char* datagram, size_t length) {
+    if (length < kUdpHeaderBytes) {
+        return UdpError::kDatagramTooShort;
+    }
+    UdpView view{};
+    view.source_port      = base::ReadWord16Be(datagram, 0);
+    view.destination_port = base::ReadWord16Be(datagram, 2);
+    view.length           = base::ReadWord16Be(datagram, 4);
+    view.checksum         = base::ReadWord16Be(datagram, 6);
+    return view;
+}
+
 }  // namespace cinux::net

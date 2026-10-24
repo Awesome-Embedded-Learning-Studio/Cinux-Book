@@ -147,11 +147,13 @@ ShellWorld build_shell_world(std::uint64_t& entry) {
     }
     cinux::base::SetBytes(cinux::base::PtrAt<unsigned char>(mm::DirectMapVirt(kStackFrame.raw)), 0,
                           cinux::arch::page::kSize);
-    const char* const       kShellArgv[2] = {"/bin/sh", nullptr};
-    const char* const       kShellEnvp[2] = {"PATH=/bin:/usr/bin", nullptr};
-    const loader::EntryRuns kShellRuns{.arguments = kShellArgv, .environment = kShellEnvp};
+    const char* const        kShellArgv[2] = {"/bin/sh", nullptr};
+    const char* const        kShellEnvp[2] = {"PATH=/bin:/usr/bin", nullptr};
+    const loader::EntryRuns  kShellRuns{.arguments = kShellArgv, .environment = kShellEnvp};
+    const unsigned long long kEntryRsp =
+        kStackTop - cinux::arch::page::kSize + proc::kUserEntryStackOffset;
     loader::WriteEntryPicture(cinux::base::PtrAt<unsigned char>(mm::DirectMapVirt(kStackFrame.raw)),
-                              kStackTop - proc::kUserEntryStackOffset, kShellRuns, facts);
+                              kEntryRsp, kShellRuns, facts);
     if (!space->map_user(kStackTop - cinux::arch::page::kSize, kStackFrame.raw,
                          cinux::arch::page::UserLeafTerms(true, false))) {
         mm::Pmm::self().free_page(kStackFrame);
@@ -163,7 +165,7 @@ ShellWorld build_shell_world(std::uint64_t& entry) {
     return ShellWorld{
         .space     = std::move(space),
         .vmas      = std::move(vmas),
-        .entry_rsp = kStackTop - proc::kUserEntryStackOffset,
+        .entry_rsp = kEntryRsp,
     };
 }
 
@@ -215,6 +217,7 @@ bool seat_shell_task(proc::Task& parent) {
 void StartInitThread() {
     auto kernel_init = +[] {
         fs::FileWorld::self().init();
+        fs::StartConsoleInputPump();
         base::safety::Check(net::NetWorld::self().start_pump(), "net pump refused its seat");
         {
             const unsigned long kReplies =

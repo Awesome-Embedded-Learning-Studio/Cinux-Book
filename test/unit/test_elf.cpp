@@ -341,8 +341,8 @@ constexpr ExpectedAuxv kSharedFacts[] = {
     {.type = cinux::loader::kAuxGid, .value = 0},
     {.type = cinux::loader::kAuxEgid, .value = 0},
     {.type = cinux::loader::kAuxSecure, .value = 0},
-    {.type = cinux::loader::kAuxExecfn, .value = 0x1010},
-    {.type = cinux::loader::kAuxRandom, .value = 0x1000},
+    {.type = cinux::loader::kAuxExecfn, .value = 0x1FE6},
+    {.type = cinux::loader::kAuxRandom, .value = 0x1FF0},
 };
 
 constexpr ExpectedAuxv kStaticFacts[] = {
@@ -357,14 +357,14 @@ constexpr ExpectedAuxv kStaticFacts[] = {
     {.type = cinux::loader::kAuxGid, .value = 0},
     {.type = cinux::loader::kAuxEgid, .value = 0},
     {.type = cinux::loader::kAuxSecure, .value = 0},
-    {.type = cinux::loader::kAuxExecfn, .value = 0x1000},
+    {.type = cinux::loader::kAuxExecfn, .value = 0x1FF6},
 };
 
 void check_picture_layout(const unsigned char* page) {
     ASSERT_TRUE(picture_word(page, kPictureWordsAt) == 1);
-    ASSERT_TRUE(picture_word(page, kPictureWordsAt + 8) == 0x1010);
+    ASSERT_TRUE(picture_word(page, kPictureWordsAt + 8) == 0x1FE6);
     ASSERT_TRUE(picture_word(page, kPictureWordsAt + 16) == 0);
-    ASSERT_TRUE(picture_word(page, kPictureWordsAt + 24) == 0x101A);
+    ASSERT_TRUE(picture_word(page, kPictureWordsAt + 24) == 0x1FDC);
     ASSERT_TRUE(picture_word(page, kPictureWordsAt + 32) == 0);
 }
 
@@ -380,7 +380,7 @@ void check_picture_run(const unsigned char* page, std::size_t offset, const char
 
 void check_picture_random(const unsigned char* page, const std::uint8_t* source) {
     for (std::size_t index = 0; index < 16; ++index) {
-        ASSERT_TRUE(page[index] == source[index]);
+        ASSERT_TRUE(page[4080 + index] == source[index]);
     }
 }
 
@@ -405,7 +405,7 @@ TEST("elf: the entry picture ends in the facts' auxiliary vector") {
     const unsigned long            kEntryRsp = 0x1000 + kPictureWordsAt;
     ASSERT_TRUE(cinux::loader::WriteEntryPicture(page, kEntryRsp, kRuns, facts) == kEntryRsp);
     check_picture_layout(page);
-    check_picture_run(page, 16, "/bin/prog");
+    check_picture_run(page, 4070, "/bin/prog");
     check_picture_random(page, random_source);
     check_picture_entries(page, kPictureAuxvAt, kSharedFacts, std::size(kSharedFacts));
     ASSERT_TRUE(picture_pairs(page, kPictureAuxvAt) == 13);
@@ -429,6 +429,69 @@ TEST("elf: a static picture omits randomness and keeps the vector closed") {
     unsigned long value = 1;
     ASSERT_TRUE(!picture_find(page, kPictureWordsAt + 32, cinux::loader::kAuxRandom, value));
     ASSERT_TRUE(picture_pairs(page, kPictureWordsAt + 32) == 12);
+}
+
+
+TEST("elf: every entry string lands above the initial stack pointer") {
+    unsigned char             page[kPicturePageBytes] = {};
+    const char* const         kArgv[4] = {"/bin/prog", "-v", "--long-flag=value", nullptr};
+    const char* const         kEnvp[3] = {"PATH=/bin:/usr/bin", "HOME=/root", nullptr};
+    cinux::loader::EntryFacts facts{};
+    facts.program_entry      = 0x401000;
+    facts.program_headers    = 0x400040;
+    facts.header_entry_bytes = 56;
+    facts.header_count       = 4;
+    facts.page_bytes         = 4096;
+    const cinux::loader::EntryRuns kRuns{.arguments = kArgv, .environment = kEnvp};
+    const unsigned long            kEntryRsp = 0x1000 + kPictureWordsAt;
+    ASSERT_TRUE(cinux::loader::WriteEntryPicture(page, kEntryRsp, kRuns, facts) == kEntryRsp);
+
+    const char* const kStrings[5] = {
+        "/bin/prog", "-v", "--long-flag=value", "PATH=/bin:/usr/bin", "HOME=/root",
+    };
+    const std::size_t kSeats[5]   = {8, 16, 24, 40, 48};
+    unsigned long     pointers[5] = {};
+    for (unsigned long which = 0; which < 5; ++which) {
+        pointers[which] = picture_word(page, kPictureWordsAt + kSeats[which]);
+        ASSERT_TRUE(pointers[which] >= kEntryRsp);
+    }
+
+    for (std::size_t index = 0; index < kPictureWordsAt; ++index) {
+        page[index] = 0xAA;
+    }
+    for (unsigned long which = 0; which < 5; ++which) {
+        const auto  kAt  = static_cast<std::size_t>(pointers[which] - 0x1000);
+        std::size_t scan = 0;
+        while (kStrings[which][scan] != '\0') {
+            ASSERT_TRUE(page[kAt + scan] == static_cast<unsigned char>(kStrings[which][scan]));
+            ++scan;
+        }
+        ASSERT_TRUE(page[kAt + scan] == 0);
+    }
+}
+
+TEST("elf: strings exhausting the page are refused loudly") {
+    unsigned char page[kPicturePageBytes] = {};
+    static char   blob[59 * 130]          = {};
+    const char*   argv_list[60]           = {};
+    for (unsigned long index = 0; index < 59; ++index) {
+        for (unsigned long fill = 0; fill < 129; ++fill) {
+            blob[(index * 130) + fill] = static_cast<char>('a' + (index % 26));
+        }
+        blob[(index * 130) + 129] = '\0';
+        argv_list[index]          = blob + (index * 130);
+    }
+    argv_list[59] = nullptr;
+
+    cinux::loader::EntryFacts facts{};
+    facts.program_entry      = 0x401000;
+    facts.program_headers    = 0x400040;
+    facts.header_entry_bytes = 56;
+    facts.header_count       = 4;
+    facts.page_bytes         = 4096;
+    const cinux::loader::EntryRuns kRuns{.arguments = argv_list, .environment = nullptr};
+    const unsigned long            kEntryRsp = 0x1000 + kPictureWordsAt;
+    ASSERT_TRUE(cinux::loader::WriteEntryPicture(page, kEntryRsp, kRuns, facts) == 0);
 }
 
 }  // namespace

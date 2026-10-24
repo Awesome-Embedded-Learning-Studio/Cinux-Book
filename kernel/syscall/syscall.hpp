@@ -35,20 +35,23 @@ namespace cinux::syscall {
  */
 // NOLINTNEXTLINE(performance-enum-size)
 enum class SyscallNr : std::uint16_t {
-    kRead          = 0,    ///< read(fd, buf, count)
-    kWrite         = 1,    ///< write(fd, buf, count)
-    kOpen          = 2,    ///< open(path, flags)
-    kClose         = 3,    ///< close(fd)
-    kStat          = 4,    ///< stat(path, out): one node's metadata
-    kLstat         = 6,    ///< lstat(path, out): the same promise — no links exist to follow
-    kMmap          = 9,    ///< mmap(hint, len, prot, flags, fd, offset)
-    kMprotect      = 10,   ///< mprotect(addr, len, prot)
-    kMunmap        = 11,   ///< munmap(addr, len)
-    kBrk           = 12,   ///< brk(target): returns the break, not an errno
-    kRtSigaction   = 13,   ///< rt_sigaction(sig, act, oact, size): install a handler
-    kRtSigprocmask = 14,   ///< rt_sigprocmask(how, set, oldset, size): move the mask
-    kRtSigreturn   = 15,   ///< rt_sigreturn(): the trampoline's way home
-    kYield         = 24,   ///< cooperative yield to the scheduler
+    kRead          = 0,   ///< read(fd, buf, count)
+    kWrite         = 1,   ///< write(fd, buf, count)
+    kOpen          = 2,   ///< open(path, flags)
+    kClose         = 3,   ///< close(fd)
+    kStat          = 4,   ///< stat(path, out): one node's metadata
+    kLstat         = 6,   ///< lstat(path, out): the same promise — no links exist to follow
+    kMmap          = 9,   ///< mmap(hint, len, prot, flags, fd, offset)
+    kMprotect      = 10,  ///< mprotect(addr, len, prot)
+    kMunmap        = 11,  ///< munmap(addr, len)
+    kBrk           = 12,  ///< brk(target): returns the break, not an errno
+    kRtSigaction   = 13,  ///< rt_sigaction(sig, act, oact, size): install a handler
+    kRtSigprocmask = 14,  ///< rt_sigprocmask(how, set, oldset, size): move the mask
+    kRtSigreturn   = 15,  ///< rt_sigreturn(): the trampoline's way home
+    kYield         = 24,  ///< cooperative yield to the scheduler
+    kGetitimer     = 36,
+    kAlarm         = 37,
+    kSetitimer     = 38,
     kGetpid        = 39,   ///< getpid(): the caller's own identity
     kClone         = 56,   ///< clone(flags, stack, ...): fork with a say in what stays shared
     kFork          = 57,   ///< fork(): one call, two returns
@@ -103,32 +106,77 @@ enum class SyscallNr : std::uint16_t {
     kSysinfo       = 99,   ///< sysinfo(info): the machine's signs in one record.
     kNanosleep     = 35,   ///< nanosleep(asked, remain): park until the clock says.
     kTgkill        = 200,  ///< tgkill(tgid, tid, sig): raise's own spelling.
+    kSocket        = 41,   ///< socket(domain, type, protocol): open a communications end
+    kConnect       = 42,   ///< connect(fd, addr, len): name the far end
+    kAccept        = 43,   ///< accept(fd, addr, len): answer one knocking caller
+    kSendto        = 44,   ///< sendto(fd, buf, len, flags, addr, len): one datagram out
+    kRecvfrom      = 45,   ///< recvfrom(fd, buf, len, flags, addr, len): one datagram in
+    kShutdown      = 48,   ///< shutdown(fd, how): end one or both directions
+    kBind          = 49,   ///< bind(fd, addr, len): seat the socket on an address
+    kListen        = 50,   ///< listen(fd, backlog): offer to answer knocks
+    kGetsockname   = 51,   ///< getsockname(fd, addr, len): the seated address
+    kGetpeername   = 52,   ///< getpeername(fd, addr, len): the named far end
+    kSocketpair    = 53,   ///< socketpair(domain, type, protocol, fds): two ends at once
+    kSetsockopt    = 54,   ///< setsockopt(fd, level, name, val, len): one knob
+    kGetsockopt    = 55,   ///< getsockopt(fd, level, name, val, len): read one knob
+    kAccept4       = 288,  ///< accept4(fd, addr, len, flags): accept with descriptor flags
 };
 
 /// Linux errno values the handlers can produce.
-inline constexpr int kEperm        = 1;   ///< The caller may not do this to the target.
-inline constexpr int kEnoent       = 2;   ///< No such file or directory.
-inline constexpr int kEsrch        = 3;   ///< No such task.
-inline constexpr int kEintr        = 4;   ///< The call was interrupted by a signal.
-inline constexpr int kEio          = 5;   ///< The volume read came back short.
-inline constexpr int kE2big        = 7;   ///< The argument list does not fit the entry page.
-inline constexpr int kEnoexec      = 8;   ///< The image is not one this kernel can run.
-inline constexpr int kEbadf        = 9;   ///< Not a descriptor the kernel serves.
-inline constexpr int kEchild       = 10;  ///< The wait names no child of the caller.
-inline constexpr int kEagain       = 11;  ///< Try again; nothing is ready right now.
-inline constexpr int kEnomem       = 12;  ///< The kernel has no room for this.
-inline constexpr int kEfault       = 14;  ///< The buffer does not live in the user half.
-inline constexpr int kEexist       = 17;  ///< The name already exists.
-inline constexpr int kEnotdir      = 20;  ///< A path component is a file.
-inline constexpr int kEisdir       = 21;  ///< A file-only operation met a directory.
-inline constexpr int kEinval       = 22;  ///< Unusable argument.
-inline constexpr int kEmfile       = 24;  ///< The descriptor table has no room left.
-inline constexpr int kEnotty       = 25;  ///< Not a terminal.
-inline constexpr int kEpipe        = 32;  ///< The pipe's reader is gone.
-inline constexpr int kErange       = 34;  ///< The output buffer is too small.
-inline constexpr int kEnametoolong = 36;  ///< The folded path overflows its buffer.
-inline constexpr int kEnosys       = 38;  ///< No such syscall at this number.
-inline constexpr int kEnotempty    = 39;  ///< The directory still holds entries.
+inline constexpr int kEperm           = 1;    ///< The caller may not do this to the target.
+inline constexpr int kEnoent          = 2;    ///< No such file or directory.
+inline constexpr int kEsrch           = 3;    ///< No such task.
+inline constexpr int kEintr           = 4;    ///< The call was interrupted by a signal.
+inline constexpr int kEio             = 5;    ///< The volume read came back short.
+inline constexpr int kE2big           = 7;    ///< The argument list does not fit the entry page.
+inline constexpr int kEnoexec         = 8;    ///< The image is not one this kernel can run.
+inline constexpr int kEbadf           = 9;    ///< Not a descriptor the kernel serves.
+inline constexpr int kEchild          = 10;   ///< The wait names no child of the caller.
+inline constexpr int kEagain          = 11;   ///< Try again; nothing is ready right now.
+inline constexpr int kEnomem          = 12;   ///< The kernel has no room for this.
+inline constexpr int kEfault          = 14;   ///< The buffer does not live in the user half.
+inline constexpr int kEexist          = 17;   ///< The name already exists.
+inline constexpr int kEnotdir         = 20;   ///< A path component is a file.
+inline constexpr int kEisdir          = 21;   ///< A file-only operation met a directory.
+inline constexpr int kEinval          = 22;   ///< Unusable argument.
+inline constexpr int kEmfile          = 24;   ///< The descriptor table has no room left.
+inline constexpr int kEnodev          = 19;   ///< No such interface exists.
+inline constexpr int kEnotty          = 25;   ///< Not a terminal.
+inline constexpr int kEpipe           = 32;   ///< The pipe's reader is gone.
+inline constexpr int kErange          = 34;   ///< The output buffer is too small.
+inline constexpr int kEnametoolong    = 36;   ///< The folded path overflows its buffer.
+inline constexpr int kEnosys          = 38;   ///< No such syscall at this number.
+inline constexpr int kEnotempty       = 39;   ///< The directory still holds entries.
+inline constexpr int kEnotsock        = 88;   ///< The descriptor names a file, not a socket.
+inline constexpr int kEdestaddrreq    = 89;   ///< The socket has no destination to send to.
+inline constexpr int kEmsgsize        = 90;   ///< The datagram is too large to carry.
+inline constexpr int kEnoprotoopt     = 92;   ///< The option word names nothing served.
+inline constexpr int kEprotonosupport = 93;   ///< The protocol word names nothing served.
+inline constexpr int kEsocktnosupport = 94;   ///< The type word names nothing served.
+inline constexpr int kEopnotsupp      = 95;   ///< The operation is not served here.
+inline constexpr int kEafnosupport    = 97;   ///< The address family names nothing served.
+inline constexpr int kEaddrinuse      = 98;   ///< The address already has an owner.
+inline constexpr int kEaddrnotavail   = 99;   ///< The address is not this host's to give.
+inline constexpr int kEnotconn        = 107;  ///< The socket names no far end yet.
+
+/// The socket-option level that speaks about the socket itself.
+inline constexpr unsigned long long kSolSocket = 1;
+
+/// Socket options the kernel answers under the socket level.
+inline constexpr unsigned long long kSoBroadcast = 6;
+inline constexpr unsigned long long kSoReuseaddr = 2;  ///< Seat again without a wait.
+inline constexpr unsigned long long kSoSndbuf    = 7;  ///< Bytes the send path may hold.
+inline constexpr unsigned long long kSoRcvbuf    = 8;  ///< Bytes the receive ring may hold.
+inline constexpr unsigned long long kSoType      = 3;  ///< The socket's own type word.
+
+/// The internet-protocol option level, IPPROTO_IP.
+inline constexpr unsigned long long kIpProtoIp      = 0;
+/// The ICMP option level, IPPROTO_ICMP.
+inline constexpr unsigned long long kIpProtoIcmp    = 1;
+/// The time-to-live knob under the internet-protocol level.
+inline constexpr unsigned long long kIpTtl          = 2;
+/// The multicast time-to-live knob under the internet-protocol level.
+inline constexpr unsigned long long kIpMulticastTtl = 33;
 
 /// open() flag the kernel serves: create the file when it is missing.
 inline constexpr unsigned long long kOpenCreat = 0x40;

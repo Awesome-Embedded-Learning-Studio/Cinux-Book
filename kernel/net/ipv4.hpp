@@ -245,18 +245,24 @@ public:
      */
     [[nodiscard]] const Ipv4Stats& stats() const;
 
+    /** @brief Observes validated IPv4 datagrams before protocol dispatch; configured at boot. */
+    void observe(void* context,
+                 void (*receive)(void*, const unsigned char*, size_t, const Ipv4View&));
+
+
 private:
     struct SeatedProtocol {
         unsigned char protocol = 0;
         L4Seat        seat;
     };
 
-    DatagramSink   sink_                        = {};
-    uint32_t       own_address_                 = 0;
-    SeatedProtocol protocols_[kMaxL4Seats]      = {};
-    unsigned long  protocol_count_              = 0;
-    Ipv4Stats      stats_                       = {};
-    unsigned char  outgoing_[kMaxDatagramBytes] = {};
+    DatagramSink   sink_                                                    = {};
+    uint32_t       own_address_                                             = 0;
+    SeatedProtocol protocols_[kMaxL4Seats]                                  = {};
+    unsigned long  protocol_count_                                          = 0;
+    Ipv4Stats      stats_                                                   = {};
+    void*          observer_context_                                        = nullptr;
+    void (*observer_)(void*, const unsigned char*, size_t, const Ipv4View&) = nullptr;
 };
 
 }  // namespace cinux::net

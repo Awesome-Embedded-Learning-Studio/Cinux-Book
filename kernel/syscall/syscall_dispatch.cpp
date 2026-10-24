@@ -36,6 +36,7 @@
 #include "kernel/syscall/sys_gettid.hpp"
 #include "kernel/syscall/sys_id.hpp"
 #include "kernel/syscall/sys_ioctl.hpp"
+#include "kernel/syscall/sys_itimer.hpp"
 #include "kernel/syscall/sys_kill.hpp"
 #include "kernel/syscall/sys_mkdir.hpp"
 #include "kernel/syscall/sys_mmap.hpp"
@@ -53,6 +54,7 @@
 #include "kernel/syscall/sys_reboot.hpp"
 #include "kernel/syscall/sys_set_tid_address.hpp"
 #include "kernel/syscall/sys_signal.hpp"
+#include "kernel/syscall/sys_socket.hpp"
 #include "kernel/syscall/sys_stat.hpp"
 #include "kernel/syscall/sys_sysinfo.hpp"
 #include "kernel/syscall/sys_tgkill.hpp"
@@ -73,6 +75,9 @@ struct Row {
 };
 
 constexpr Row kRows[] = {
+    {.number = cinux::syscall::SyscallNr::kGetitimer, .handler = cinux::syscall::HandleGetitimer},
+    {.number = cinux::syscall::SyscallNr::kAlarm, .handler = cinux::syscall::HandleAlarm},
+    {.number = cinux::syscall::SyscallNr::kSetitimer, .handler = cinux::syscall::HandleSetitimer},
     {.number = cinux::syscall::SyscallNr::kRead, .handler = cinux::syscall::HandleRead},
     {.number = cinux::syscall::SyscallNr::kWrite, .handler = cinux::syscall::HandleWrite},
     {.number = cinux::syscall::SyscallNr::kOpen, .handler = cinux::syscall::HandleOpen},
@@ -165,6 +170,26 @@ constexpr Row kRows[] = {
     {.number = cinux::syscall::SyscallNr::kSysinfo, .handler = cinux::syscall::HandleSysinfo},
     {.number = cinux::syscall::SyscallNr::kNanosleep, .handler = cinux::syscall::HandleNanosleep},
     {.number = cinux::syscall::SyscallNr::kTgkill, .handler = cinux::syscall::HandleTgkill},
+    {.number = cinux::syscall::SyscallNr::kSocket, .handler = cinux::syscall::HandleSocket},
+    {.number = cinux::syscall::SyscallNr::kConnect, .handler = cinux::syscall::HandleConnect},
+    {.number = cinux::syscall::SyscallNr::kAccept, .handler = cinux::syscall::HandleAccept},
+    {.number = cinux::syscall::SyscallNr::kSendto, .handler = cinux::syscall::HandleSendto},
+    {.number = cinux::syscall::SyscallNr::kRecvfrom, .handler = cinux::syscall::HandleRecvfrom},
+    {.number = cinux::syscall::SyscallNr::kShutdown, .handler = cinux::syscall::HandleShutdown},
+    {.number = cinux::syscall::SyscallNr::kBind, .handler = cinux::syscall::HandleBind},
+    {.number = cinux::syscall::SyscallNr::kListen, .handler = cinux::syscall::HandleListen},
+    {
+        .number  = cinux::syscall::SyscallNr::kGetsockname,
+        .handler = cinux::syscall::HandleGetsockname,
+    },
+    {
+        .number  = cinux::syscall::SyscallNr::kGetpeername,
+        .handler = cinux::syscall::HandleGetpeername,
+    },
+    {.number = cinux::syscall::SyscallNr::kSocketpair, .handler = cinux::syscall::HandleSocketpair},
+    {.number = cinux::syscall::SyscallNr::kSetsockopt, .handler = cinux::syscall::HandleSetsockopt},
+    {.number = cinux::syscall::SyscallNr::kGetsockopt, .handler = cinux::syscall::HandleGetsockopt},
+    {.number = cinux::syscall::SyscallNr::kAccept4, .handler = cinux::syscall::HandleAccept4},
 };
 
 constexpr auto kHandlers = [] {

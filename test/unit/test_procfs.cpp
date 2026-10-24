@@ -1,6 +1,7 @@
 #include <cstring>
 
 #include "../framework/framework.hpp"
+#include "cinux/memory.hpp"
 #include "cinux/result.hpp"
 #include "cinux/text.hpp"
 #include "kernel/fs/devfs/devfs.hpp"
@@ -73,6 +74,18 @@ void fake_memory(void* /*context*/, unsigned long& free_pages, unsigned long& to
     total_pages = 200;
 }
 
+bool fake_nth_net_iface(void* /*context*/, unsigned long ordinal, char* out) {
+    if (ordinal >= 2) {
+        return false;
+    }
+    const char* const kName = ordinal == 0 ? "lo" : "eth0";
+    for (unsigned long index = 0; kName[index] != '\0'; ++index) {
+        out[index] = kName[index];
+    }
+    out[cinux::base::StrLength(kName, 16)] = '\0';
+    return true;
+}
+
 bool fake_nth_device(void* /*context*/, unsigned long ordinal, cinux::fs::ProcDeviceFacts& into) {
     if (ordinal >= 2) {
         return false;
@@ -90,14 +103,15 @@ bool fake_nth_device(void* /*context*/, unsigned long ordinal, cinux::fs::ProcDe
 }
 
 const cinux::fs::ProcSource kFakeSource{
-    .nth_tgid   = fake_nth_tgid,
-    .snapshot   = fake_snapshot,
-    .exe_path   = fake_exe_path,
-    .exe_bytes  = fake_exe_bytes,
-    .exe_size   = fake_exe_size,
-    .memory     = fake_memory,
-    .nth_device = fake_nth_device,
-    .context    = nullptr,
+    .nth_tgid      = fake_nth_tgid,
+    .snapshot      = fake_snapshot,
+    .exe_path      = fake_exe_path,
+    .exe_bytes     = fake_exe_bytes,
+    .exe_size      = fake_exe_size,
+    .memory        = fake_memory,
+    .nth_device    = fake_nth_device,
+    .nth_net_iface = fake_nth_net_iface,
+    .context       = nullptr,
 };
 
 /// One procfs wired to the fake facts, the shape every case mounts.
@@ -170,6 +184,23 @@ TEST("procfs: devices spells its classes in seating order") {
     text[kGot.value()] = '\0';
     ASSERT_TRUE(std::strstr(text, "character:\n  console 5:1\nblock:\nnetwork:\n  lo\n") !=
                 nullptr);
+}
+
+TEST("procfs: net/dev lists one honest-zero row per interface") {
+    cinux::fs::ProcFs stock;
+    stocked(stock);
+    const cinux::base::Result<cinux::fs::FsNode> kNode = stock.lookup("net/dev");
+    ASSERT_TRUE(kNode.ok());
+    ASSERT_EQ(kNode.value().type, cinux::fs::InodeType::kFile);
+
+    char                                     text[512] = {};
+    const cinux::base::Result<unsigned long> kGot =
+        stock.read(kNode.value(), 0, text, sizeof(text) - 1);
+    ASSERT_TRUE(kGot.ok());
+    text[kGot.value()] = '\0';
+    ASSERT_TRUE(std::strstr(text, " face |bytes") != nullptr);
+    ASSERT_TRUE(std::strstr(text, "    lo: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0") != nullptr);
+    ASSERT_TRUE(std::strstr(text, "  eth0: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0") != nullptr);
 }
 
 TEST("procfs: meminfo answers both counters in kilobytes") {

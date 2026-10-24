@@ -203,7 +203,8 @@ constexpr unsigned long kKeyUsageCount = sizeof(kPlainKeys) - 1;
 static_assert(sizeof(kPlainKeys) == sizeof(kShiftKeys));
 
 /// @brief Both shift modifier bits as one mask.
-constexpr uint8_t kShiftModifiers = 0x22;
+constexpr uint8_t kShiftModifiers   = 0x22;
+constexpr uint8_t kControlModifiers = 0x11;
 
 /// @brief Whether one usage sits inside a report's key slots.
 bool usage_in(const unsigned char* report, uint8_t usage) {
@@ -287,6 +288,14 @@ char HidReportKey(const unsigned char* now, const unsigned char* before) {
             continue;
         }
         const char kGlyph = (kShifted ? kShiftKeys : kPlainKeys)[kUsage - kFirstKeyUsage];
+        if ((now[0] & kControlModifiers) != 0) {
+            if (kGlyph >= 'a' && kGlyph <= 'z') {
+                return static_cast<char>(kGlyph - 'a' + 1);
+            }
+            if (kGlyph >= '@' && kGlyph <= '_') {
+                return static_cast<char>(kGlyph - '@');
+            }
+        }
         if (kGlyph != 0) {
             return kGlyph;
         }

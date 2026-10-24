@@ -13,6 +13,7 @@
 #include "kernel/net/icmp.hpp"
 #include "kernel/net/ipv4.hpp"
 #include "kernel/net/net_config.hpp"
+#include "kernel/net/net_layout.hpp"
 #include "kernel/net/net_stack.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
@@ -51,8 +52,13 @@ void NetWorld::init() {
         .send    = send_to_loopback,
     };
     ipv4_.init(kToWire, kLoopbackAddress);
+    ipv4_.observe(&raw_, [](void* context, const unsigned char* bytes, size_t length,
+                            const Ipv4View& header) {
+        static_cast<RawModule*>(context)->handle(bytes, length, header);
+    });
     const DatagramSink kViaIpv4 = {.context = &ipv4_, .send = send_via_ipv4};
     icmp_.init(kViaIpv4);
+    udp_.init(kViaIpv4, kLoopbackAddress);
     arp_.init();
     arp_entry_ = {this};
 
@@ -60,6 +66,10 @@ void NetWorld::init() {
     icmp_seat.adopt(icmp_);
     base::safety::Check(ipv4_.seat_protocol(kIpv4ProtocolIcmp, icmp_seat),
                         "layer-four table refused icmp");
+    L4Seat udp_seat;
+    udp_seat.adopt(udp_);
+    base::safety::Check(ipv4_.seat_protocol(kIpv4ProtocolUdp, udp_seat),
+                        "layer-four table refused udp");
     ProtocolSeat ipv4_seat;
     ipv4_seat.adopt(ipv4_);
     base::safety::Check(stack_.seat_protocol(kEtherTypeIpv4, ipv4_seat),
@@ -87,6 +97,7 @@ bool NetWorld::start_pump() {
 }
 
 void NetWorld::pump_once() {
+    const proc::PreemptGuard kPin;
     stack_.poll(kPollBudgetFrames);
 }
 
@@ -95,6 +106,8 @@ void NetWorld::attach_wire(driver::net::NetPort& wire) {
     own_address_               = kUserNetworkSelf;
     const DatagramSink kRouted = {.context = this, .send = NetWorld::route_thunk};
     ipv4_.aim(kRouted, kUserNetworkSelf);
+    const DatagramSink kViaIpv4 = {.context = &ipv4_, .send = send_via_ipv4};
+    udp_.aim(kViaIpv4, kUserNetworkSelf);
     base::safety::Check(stack_.attach_port(wire), "port table refused the wire");
 }
 
@@ -103,6 +116,7 @@ void NetWorld::route_thunk(void* context, const OutboundDatagram& datagram) {
 }
 
 void NetWorld::route_send(const OutboundDatagram& datagram) {
+    const auto kRoute = route_gate_.guard();
     if ((datagram.destination & kLoopbackNetMask) == kLoopbackNet || wire_port_ == nullptr) {
         const driver::net::MacAddress kNobody   = {};
         const driver::net::EtherType  kIpv4Type = {kEtherTypeIpv4};
@@ -180,12 +194,28 @@ IcmpModule& NetWorld::icmp() {
     return icmp_;
 }
 
+UdpModule& NetWorld::udp() {
+    return udp_;
+}
+
+RawModule& NetWorld::raw() {
+    return raw_;
+}
+
 ArpCache& NetWorld::arp() {
     return arp_;
 }
 
 bool NetWorld::pump_running() const {
     return pump_running_;
+}
+
+bool NetWorld::wired() const {
+    return wire_port_ != nullptr;
+}
+
+driver::net::NetPort* NetWorld::wire() const {
+    return wire_port_;
 }
 
 void NetWorld::pump_entry() {
@@ -196,6 +226,7 @@ void NetWorld::pump_entry() {
 }
 
 void NetWorld::ArpEntry::handle(const unsigned char* bytes, size_t length) const {
+    const auto kRoute = owner->route_gate_.guard();
     owner->arp_.observe(bytes, length);
 }
 

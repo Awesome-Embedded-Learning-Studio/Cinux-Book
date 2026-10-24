@@ -124,6 +124,6 @@ proc::Task* CurrentTask();
  * @since         0.1.0
  * @ingroup       kernel_syscall
  */
-base::Result<fs::OpenFile*> LiveSlot(Word descriptor);
+base::Result<base::Shared<fs::OpenFile>> LiveSlot(Word descriptor);
 
 }  // namespace cinux::syscall

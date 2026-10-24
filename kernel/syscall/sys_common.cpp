@@ -10,8 +10,12 @@
  * @copyright Copyright (c) 2026
  */
 
+#include <algorithm>
+
 #include "cinux/path.hpp"
 #include "cinux/result.hpp"
+#include "cinux/shared.hpp"
+#include "kernel/arch/x86_64/page.hpp"
 #include "kernel/fs/file_table.hpp"
 #include "kernel/fs/fs_config.hpp"
 #include "kernel/fs/open_file.hpp"
@@ -55,7 +59,9 @@ long long CopyUserPath(unsigned long long source, char* out, unsigned long cap) 
     constexpr unsigned long kChunkBytes = 64;
     unsigned long           done        = 0;
     while (done < cap) {
-        const unsigned long kChunk = done + kChunkBytes < cap ? kChunkBytes : cap - done;
+        const unsigned long kInPage =
+            cinux::arch::page::kSize - ((source + done) % cinux::arch::page::kSize);
+        const unsigned long kChunk = std::min({kChunkBytes, cap - done, kInPage});
         if (!uaccess::CopyFromUser(out + done, source + done, kChunk)) {
             return -kEfault;
         }
@@ -87,11 +93,11 @@ proc::Task* CurrentTask() {
     return proc::Scheduler::self().current();
 }
 
-base::Result<fs::OpenFile*> LiveSlot(unsigned long long descriptor) {
+base::Result<base::Shared<fs::OpenFile>> LiveSlot(unsigned long long descriptor) {
     if (descriptor >= fs::kFileTableMax) {
         return base::KernelError::kInvalidArgument;
     }
-    return CurrentTask()->files->get(descriptor);
+    return CurrentTask()->files->shared(descriptor);
 }
 
 

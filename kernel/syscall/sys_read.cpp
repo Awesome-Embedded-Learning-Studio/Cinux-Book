@@ -5,6 +5,7 @@
 #include "kernel/fs/file_table.hpp"
 #include "kernel/fs/open_file.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/signals.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
@@ -51,7 +52,7 @@ long long HandleRead(const SyscallFrame& frame) {
             return -ErrnoFrom(kGot.error());
         }
         const proc::Task* const kSelf = CurrentTask();
-        if (kSelf->signals.pending.has(~kSelf->signals.blocked)) {
+        if (proc::HasPendingSignal(*kSelf)) {
             return -kEintr;
         }
         proc::Scheduler::self().yield();

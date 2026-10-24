@@ -2,9 +2,9 @@
 
 #include "cinux/math.hpp"
 #include "cinux/result.hpp"
+#include "cinux/shared.hpp"
 #include "kernel/arch/x86_64/page.hpp"
 #include "kernel/fs/open_file.hpp"
-#include "kernel/mm/layout.hpp"
 #include "kernel/mm/vma.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
@@ -31,7 +31,8 @@ long long HandleMmap(const SyscallFrame& frame) {
     if (!kSpot.ok()) {
         return -kEnomem;
     }
-    mm::VmaRegion region{};
+    base::Shared<fs::OpenFile> backing;
+    mm::VmaRegion              region{};
     region.start      = kSpot.value();
     region.end        = kSpot.value() + kBytes;
     region.readable   = (kProt & kProtRead) != 0;
@@ -40,13 +41,14 @@ long long HandleMmap(const SyscallFrame& frame) {
     if ((kFlags & kMapAnonymous) != 0) {
         region.kind = mm::VmaKind::kAnonymous;
     } else {
-        const base::Result<fs::OpenFile*> kSlot = LiveSlot(kFd);
+        const base::Result<base::Shared<fs::OpenFile>> kSlot = LiveSlot(kFd);
         if (!kSlot.ok()) {
             return -ErrnoFrom(kSlot.error());
         }
         if (region.writable) {
             return -kEinval;
         }
+        backing            = kSlot.value();
         region.kind        = mm::VmaKind::kFile;
         region.backing     = kSlot.value()->node;
         region.file_ops    = kSlot.value()->ops;

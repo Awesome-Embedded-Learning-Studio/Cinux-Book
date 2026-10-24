@@ -38,6 +38,7 @@
 #include "kernel/interrupt/irq_config.hpp"
 #include "kernel/proc/fpu_gate.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/syscall/sys_clock.hpp"
 #include "kernel/time/tick.hpp"
 
 namespace {
@@ -57,7 +58,7 @@ __attribute__((interrupt)) void spurious_entry([[maybe_unused]] InterruptFrame* 
 
 void heartbeat() {
     cinux::time::Tick::self().on_interrupt();
-    cinux::proc::Scheduler::self().on_timer_tick();
+    cinux::proc::Scheduler::self().on_timer_tick(cinux::syscall::MonotonicNanoseconds());
 }
 
 template <unsigned int Vector>
@@ -87,7 +88,7 @@ __attribute__((interrupt)) void local_entry([[maybe_unused]] InterruptFrame* fra
     if constexpr (Vector == cinux::arch::smp::kTimerVector) {
         cinux::arch::per_cpu::PerCpu::self().local_timer_interrupts.fetch_add(
             1, std::memory_order_relaxed);
-        cinux::proc::Scheduler::self().on_timer_tick();
+        cinux::proc::Scheduler::self().on_timer_tick(cinux::syscall::MonotonicNanoseconds());
     } else {
         cinux::arch::per_cpu::PerCpu::self().reschedule_interrupts.fetch_add(
             1, std::memory_order_relaxed);

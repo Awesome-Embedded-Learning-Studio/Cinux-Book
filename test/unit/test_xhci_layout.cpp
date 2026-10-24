@@ -205,6 +205,20 @@ TEST("xhci: punctuation keeps its hid usages across the non-us key") {
     ASSERT_EQ(cinux::driver::usb::HidReportKey(kBeyond, kIdle), 0);
 }
 
+TEST("xhci: both control modifiers produce terminal signal bytes") {
+    const unsigned char kIdle[8]{};
+    const unsigned char kLeftC[8]        = {0x01, 0, 0x06};
+    const unsigned char kRightC[8]       = {0x10, 0, 0x06};
+    const unsigned char kShiftC[8]       = {0x03, 0, 0x06};
+    const unsigned char kControlZ[8]     = {0x01, 0, 0x1D};
+    const unsigned char kControlSlash[8] = {0x01, 0, 0x31};
+    ASSERT_EQ(cinux::driver::usb::HidReportKey(kLeftC, kIdle), 3);
+    ASSERT_EQ(cinux::driver::usb::HidReportKey(kRightC, kIdle), 3);
+    ASSERT_EQ(cinux::driver::usb::HidReportKey(kShiftC, kIdle), 3);
+    ASSERT_EQ(cinux::driver::usb::HidReportKey(kControlZ, kIdle), 26);
+    ASSERT_EQ(cinux::driver::usb::HidReportKey(kControlSlash, kIdle), 28);
+}
+
 int main() {
     return cinux::test::RunAll();
 }

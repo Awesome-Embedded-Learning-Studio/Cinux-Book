@@ -87,24 +87,8 @@ long long HandleDup(const SyscallFrame& frame) {
 }
 
 long long HandleDup2(const SyscallFrame& frame) {
-    if (frame.rdi == frame.rsi) {
-        const base::Result<fs::OpenFile*> kSame = LiveSlot(frame.rdi);
-        return kSame.ok() ? static_cast<long long>(frame.rsi) : -kEbadf;
-    }
-    const base::Result<void> kClosed = CurrentTask()->files->free(frame.rsi);
-    if (!kClosed.ok() && kClosed.error() != base::KernelError::kNotFound) {
-        return -kEbadf;
-    }
-    const base::Result<base::Shared<fs::OpenFile>> kHold = CurrentTask()->files->shared(frame.rdi);
-    if (!kHold.ok()) {
-        return -kEbadf;
-    }
-    const base::Result<unsigned long> kCopy =
-        CurrentTask()->files->adopt_at(kHold.value(), frame.rsi);
-    if (!kCopy.ok()) {
-        return -kEmfile;
-    }
-    return static_cast<long long>(frame.rsi);
+    const auto kCopy = CurrentTask()->files->duplicate_at(frame.rdi, frame.rsi);
+    return kCopy.ok() ? static_cast<long long>(kCopy.value()) : -kEbadf;
 }
 
 }  // namespace cinux::syscall

@@ -1,12 +1,10 @@
 #include "kernel/syscall/sys_open.hpp"
 
-#include "cinux/assert.hpp"
 #include "cinux/result.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/fs/file_table.hpp"
 #include "kernel/fs/file_world.hpp"
 #include "kernel/fs/fs_config.hpp"
-#include "kernel/fs/open_file.hpp"
 #include "kernel/fs/vfs.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
@@ -40,17 +38,11 @@ long long HandleOpen(const SyscallFrame& frame) {
     }
 
     const proc::Task* const           kSelf = CurrentTask();
-    const base::Result<unsigned long> kFd =
-        kSelf->files->alloc(kFlat.ops, kFlat.self, node.value());
+    const base::Result<unsigned long> kFd   = kSelf->files->alloc(
+        kFlat.ops, kFlat.self, node.value(),
+        {.status = frame.rsi & kOpenStatusMask, .cloexec = (frame.rsi & kOpenCloexec) != 0});
     if (!kFd.ok()) {
         return -ErrnoFrom(kFd.error());
-    }
-    const base::Result<fs::OpenFile*> kLive = kSelf->files->get(kFd.value());
-    base::safety::Check(kLive.ok(), "the seat allocated a moment ago is gone");
-    kLive.value()->status_flags = frame.rsi & kOpenStatusMask;
-    if ((frame.rsi & kOpenCloexec) != 0) {
-        base::safety::Check(kSelf->files->set_cloexec(kFd.value(), true).ok(),
-                            "close-on-exec refused the seat just handed out");
     }
     return static_cast<long long>(kFd.value());
 }

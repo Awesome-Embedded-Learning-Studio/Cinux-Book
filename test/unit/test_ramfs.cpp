@@ -268,8 +268,8 @@ TEST("ramfs: an unlinked file stays readable through its open descriptor") {
     const auto kFd = table.alloc(&kOps, &ram, kNode).value();
     ASSERT_TRUE(ram.unlink("held").ok());
     ASSERT_FALSE(ram.lookup("held").ok());
-    const auto* const kSlot = table.get(kFd).value();
-    char              bytes[4]{};
+    const auto kSlot = table.get(kFd).value();
+    char       bytes[4]{};
     ASSERT_TRUE(kSlot->ops->read(kSlot->backend, kSlot->node, 0, bytes, 3).value() == 3UL);
     ASSERT_STREQ(bytes, "old");
     ASSERT_TRUE(table.free(kFd).ok());
@@ -282,7 +282,7 @@ TEST("ramfs: an unlinked file stays writable through its open descriptor") {
     const auto           kNode = ram.make_file("held").value();
     const auto           kFd   = table.alloc(&kOps, &ram, kNode).value();
     ASSERT_TRUE(ram.unlink("held").ok());
-    const auto* const kSlot = table.get(kFd).value();
+    const auto kSlot = table.get(kFd).value();
     ASSERT_TRUE(kSlot->ops->write(kSlot->backend, kSlot->node, 0, "new", 3).value() == 3UL);
     char bytes[4]{};
     ASSERT_TRUE(kSlot->ops->read(kSlot->backend, kSlot->node, 0, bytes, 3).value() == 3UL);
@@ -299,8 +299,8 @@ TEST("ramfs: closing one descriptor keeps another reference to an unlinked file 
     const auto kSecond = table.alloc(&kOps, &ram, kNode).value();
     ASSERT_TRUE(ram.unlink("twice").ok());
     ASSERT_TRUE(table.free(kFirst).ok());
-    const auto* const kSlot    = table.get(kSecond).value();
-    char              bytes[4] = {};
+    const auto kSlot    = table.get(kSecond).value();
+    char       bytes[4] = {};
     ASSERT_TRUE(kSlot->ops->read(kSlot->backend, kSlot->node, 0, bytes, 3).value() == 3UL);
     ASSERT_STREQ(bytes, "two");
     ASSERT_TRUE(table.free(kSecond).ok());

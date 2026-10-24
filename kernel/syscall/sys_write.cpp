@@ -1,6 +1,7 @@
 #include "kernel/syscall/sys_write.hpp"
 
 #include "cinux/result.hpp"
+#include "cinux/shared.hpp"
 #include "kernel/fs/file_table.hpp"
 #include "kernel/fs/open_file.hpp"
 #include "kernel/syscall/syscall.hpp"
@@ -26,11 +27,11 @@ long long WriteRun(unsigned long long descriptor, unsigned long long source,
     if (source >= kUserAddressLimit) {
         return -kEfault;
     }
-    const base::Result<fs::OpenFile*> kSlot = LiveSlot(descriptor);
+    const base::Result<base::Shared<fs::OpenFile>> kSlot = LiveSlot(descriptor);
     if (!kSlot.ok()) {
         return -kEbadf;
     }
-    auto* const   kFile = kSlot.value();
+    auto* const   kFile = kSlot.value().get();
     unsigned char stage[kWriteStageBytes];
     const auto    kChunk =
         static_cast<unsigned long>(count < kWriteStageBytes ? count : kWriteStageBytes);

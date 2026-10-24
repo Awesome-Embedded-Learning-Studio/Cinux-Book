@@ -30,6 +30,8 @@ set(CINUX_KERNEL_CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/boot/early/libc.cpp)
 
 set(CINUX_KERNEL_NO_SSE_ISLAND
+    ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_clock.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/driver/hpet/hpet.cpp
     ${CMAKE_SOURCE_DIR}/kernel/lib/mem.cpp
     ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/isr.cpp
     ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/exception.cpp

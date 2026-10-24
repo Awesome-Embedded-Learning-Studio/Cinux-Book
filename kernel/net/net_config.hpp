@@ -160,6 +160,36 @@ inline constexpr unsigned long kMaxProtocolSeats = 4;
 inline constexpr unsigned long kMaxL4Seats = 4;
 
 /**
+ * @brief   Bytes in one UDP header, fixed shape.
+ * @since   0.6.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned long kUdpHeaderBytes = 8;
+
+/**
+ * @brief   Listener seats the UDP module keeps, one per bound port.
+ * @since   0.6.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned long kUdpPortSeats = 8;
+
+/**
+ * @brief   First port the kernel hands out when a caller asks for none.
+ * @note    Linux's own ephemeral range, so traces read the same on both
+ *          sides of the emulator.
+ * @since   0.6.0
+ * @ingroup kernel_net
+ */
+inline constexpr uint16_t kUdpEphemeralFirst = 32768;
+
+/**
+ * @brief   Last port the kernel hands out when a caller asks for none.
+ * @since   0.6.0
+ * @ingroup kernel_net
+ */
+inline constexpr uint16_t kUdpEphemeralLast = 60999;
+
+/**
  * @brief   Frames one poll call may deliver, the re-entry guard.
  * @since   0.6.0
  * @ingroup kernel_net

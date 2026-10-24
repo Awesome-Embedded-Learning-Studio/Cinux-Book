@@ -58,11 +58,11 @@ enum class SignalDisposition : unsigned char {
  */
 struct SignalState {
     cinux::syscall::SigAction actions[cinux::syscall::kSignalCount] =
-        {};                          ///< Per-signal disposition.
-    cinux::syscall::SigSet blocked;  ///< Held back until unblocked.
-    cinux::syscall::SigSet pending;  ///< Sent, awaiting a delivery window.
-    cinux::base::SpinMutex gate;     ///< Serializes every pending rewrite;
-                                     ///< readers may peek unlocked.
+        {};                                  ///< Per-signal disposition.
+    cinux::syscall::SigSet         blocked;  ///< Held back until unblocked.
+    cinux::syscall::SigSet         pending;  ///< Sent, awaiting a delivery window.
+    mutable cinux::base::SpinMutex gate;     ///< Serializes every pending rewrite;
+                                             ///< readers may peek unlocked.
 
     /// Returns the dispositions, the mask and the pending set to their
     /// boot answers while the gate itself goes on living; exec resets
@@ -155,6 +155,9 @@ static_assert(sizeof(SigReturnContext) == 144, "the context is eighteen quadword
  * @ingroup       kernel_proc
  */
 bool SendSignal(Task& target, int number);
+
+/** @brief Reads pending and blocked sets with IRQ-safe exclusion against senders. */
+[[nodiscard]] bool HasPendingSignal(const Task& task);
 
 /**
  * @brief         Sends one signal to every task in a group.

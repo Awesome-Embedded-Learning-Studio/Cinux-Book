@@ -1,5 +1,6 @@
 #include "kernel/syscall/sys_exec.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <string_view>
 #include <utility>
@@ -154,7 +155,9 @@ bool stage_user_run(unsigned long address, char* pool, unsigned long& pool_used,
     constexpr unsigned long kChunkBytes = 64;
     unsigned long           done        = 0;
     while (done < kBudget) {
-        const unsigned long kChunk = done + kChunkBytes < kBudget ? kChunkBytes : kBudget - done;
+        const unsigned long kInPage =
+            cinux::arch::page::kSize - ((address + done) % cinux::arch::page::kSize);
+        const unsigned long kChunk = std::min({kChunkBytes, kBudget - done, kInPage});
         if (!uaccess::CopyFromUser(pool + pool_used + done, address + done, kChunk)) {
             return false;
         }
@@ -325,14 +328,16 @@ long long HandleExecve(const SyscallFrame& frame) {
     kSelf->vmas                               = std::move(ranges);
     kSelf->user_root                          = kSelf->space->root();
     kSelf->space->activate();
-    auto&                   mutable_frame = const_cast<SyscallFrame&>(frame);
-    const loader::EntryRuns kRuns{.arguments = argv_words, .environment = envp_words};
+    auto&                    mutable_frame = const_cast<SyscallFrame&>(frame);
+    const loader::EntryRuns  kRuns{.arguments = argv_words, .environment = envp_words};
+    const unsigned long long kEntryRsp =
+        kStackTop - cinux::arch::page::kSize + proc::kUserEntryStackOffset;
     if (loader::WriteEntryPicture(
-            cinux::base::PtrAt<unsigned char>(mm::DirectMapVirt(kStackFrame.raw)),
-            kStackTop - proc::kUserEntryStackOffset, kRuns, facts) == 0) {
+            cinux::base::PtrAt<unsigned char>(mm::DirectMapVirt(kStackFrame.raw)), kEntryRsp, kRuns,
+            facts) == 0) {
         return -kE2big;
     }
-    mutable_frame.user_rsp = kStackTop - proc::kUserEntryStackOffset;
+    mutable_frame.user_rsp = kEntryRsp;
     mutable_frame.rcx      = kFirstInstruction;
     mutable_frame.r11      = kUserFlags;
     mutable_frame.rax      = 0;

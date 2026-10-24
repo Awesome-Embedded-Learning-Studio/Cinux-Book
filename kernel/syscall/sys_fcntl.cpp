@@ -1,6 +1,5 @@
 #include "kernel/syscall/sys_fcntl.hpp"
 
-#include "cinux/assert.hpp"
 #include "cinux/result.hpp"
 #include "cinux/shared.hpp"
 #include "kernel/fs/file_table.hpp"
@@ -37,14 +36,14 @@ namespace {
 long long fcntl_status(const SyscallFrame& frame, const proc::Task* self,
                        unsigned long long descriptor) {
     if (frame.rsi == kCmdGetFl) {
-        const base::Result<fs::OpenFile*> kLive = self->files->get(descriptor);
+        const base::Result<base::Shared<fs::OpenFile>> kLive = self->files->get(descriptor);
         if (!kLive.ok()) {
             return -kEbadf;
         }
         return static_cast<long long>(kLive.value()->status_flags);
     }
     if (frame.rsi == kCmdSetFl) {
-        const base::Result<fs::OpenFile*> kLive = self->files->get(descriptor);
+        const base::Result<base::Shared<fs::OpenFile>> kLive = self->files->get(descriptor);
         if (!kLive.ok()) {
             return -kEbadf;
         }
@@ -83,13 +82,10 @@ long long fcntl_dup(const SyscallFrame& frame, const proc::Task* self,
     if (!kHeld.ok()) {
         return -kEbadf;
     }
-    const base::Result<unsigned long> kBorn = self->files->adopt_from(kHeld.value(), frame.rdx);
+    const base::Result<unsigned long> kBorn =
+        self->files->adopt_from(kHeld.value(), frame.rdx, frame.rsi == kCmdDupFdCloexec);
     if (!kBorn.ok()) {
         return -kEmfile;
-    }
-    if (frame.rsi == kCmdDupFdCloexec) {
-        base::safety::Check(self->files->set_cloexec(kBorn.value(), true).ok(),
-                            "close-on-exec refused the seat dup just handed out");
     }
     return static_cast<long long>(kBorn.value());
 }

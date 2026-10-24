@@ -160,6 +160,46 @@ unsigned long format_devices(char* out, unsigned long out_cap, const ProcSource&
     return used < out_cap ? used : out_cap;
 }
 
+/// The net/dev node: Linux's two header lines, then one row per
+/// interface with sixteen honest zeros — the family books no traffic
+/// per interface yet, and the node refuses to invent bytes.
+unsigned long format_net_dev(char* out, unsigned long out_cap, const ProcSource& source) {
+    unsigned long     used     = 0;
+    const char* const kHeads[] = {
+        "Inter-|   Receive                            |  Transmit\n",
+        " face |bytes    packets errs drop fifo frame compressed multicast|bytes    "
+        "packets errs drop fifo colls carrier compressed\n",
+    };
+    for (const char* const kHead : kHeads) {
+        const unsigned long kLen = base::StrLength(kHead, out_cap);
+        if (used + kLen >= out_cap) {
+            return out_cap;
+        }
+        base::CopyBytes(out + used, kHead, kLen);
+        used += kLen;
+    }
+    if (source.nth_net_iface == nullptr) {
+        return used;
+    }
+    for (unsigned long ordinal = 0;; ++ordinal) {
+        char name[kProcIfNameMax] = {};
+        if (!source.nth_net_iface(source.context, ordinal, name)) {
+            break;
+        }
+        const base::format::Arg kRow[] = {
+            base::format::Str(name),
+        };
+        base::format::FormatToBuf(out + used, out_cap - used,
+                                  "%6s: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n",
+                                  base::format::ArgsView::of(kRow));
+        used += base::StrLength(out + used, out_cap - used);
+        if (used >= out_cap - 1) {
+            return out_cap;
+        }
+    }
+    return used;
+}
+
 /// The name bytes plus one NUL, the whole cmdline this kernel keeps.
 unsigned long format_cmdline(char* out, unsigned long out_cap, const proc::TaskSnapshot& shot) {
     const base::format::Arg kArgs[] = {
@@ -217,6 +257,10 @@ bool generate(const ProcSource& source, unsigned long ino, char* scratch, unsign
         bytes = format_devices(scratch, scratch_cap, source);
         return true;
     }
+    if (ino == kProcNetDevIno) {
+        bytes = format_net_dev(scratch, scratch_cap, source);
+        return true;
+    }
     if (ino < kProcPidBase) {
         return false;
     }
@@ -250,6 +294,14 @@ base::Result<FsNode> ProcFs::lookup(std::string_view path) {
     }
     if (path == "self/exe") {
         return FsNode{.opaque = nullptr, .type = InodeType::kFile, .ino = kProcExeIno, .size = 0};
+    }
+    if (path == "net/dev") {
+        return FsNode{
+            .opaque = nullptr,
+            .type   = InodeType::kFile,
+            .ino    = kProcNetDevIno,
+            .size   = 0,
+        };
     }
     const unsigned long kSlash = path.find('/');
     if (kSlash == std::string_view::npos) {

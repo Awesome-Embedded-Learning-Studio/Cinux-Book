@@ -16,7 +16,7 @@ if [ "${#inputs[@]}" -eq 0 ]; then
     exit 1
 fi
 
-if clang-tidy --quiet -j "$(nproc)" -p build "${inputs[@]}" 2>&1 \
+if clang-tidy --quiet -p build "${inputs[@]}" 2>&1 \
         | grep -E "^/home/charliechen/Cinux/[^ ]*: (error|warning):" ; then
     exit 1
 fi

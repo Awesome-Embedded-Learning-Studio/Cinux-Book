@@ -1,3 +1,6 @@
+#include <atomic>
+#include <thread>
+
 #include "../framework/framework.hpp"
 #include "cinux/result.hpp"
 #include "kernel/fs/file_table.hpp"
@@ -161,6 +164,101 @@ TEST("file table: closing a cloexec seat clears its flag before ordinary dup reu
     ASSERT_EQ(kReused.value(), 10UL);
     table.close_on_exec();
     ASSERT_TRUE(table.get(10).ok());
+}
+
+TEST("file table: an acquired open survives concurrent close and descriptor reuse") {
+    cinux::test::FileRefs refs;
+    cinux::fs::FileTable  table;
+    ASSERT_TRUE(table.alloc(&cinux::test::FileRefs::kOps, &refs, sample_node(41)).ok());
+    {
+        const auto kHeld = table.get(0);
+        ASSERT_TRUE(table.free(0).ok());
+        ASSERT_EQ(refs.released, 0UL);
+        ASSERT_TRUE(table.alloc(nullptr, nullptr, sample_node(42)).ok());
+        ASSERT_EQ(kHeld.value()->node.ino, 41UL);
+        ASSERT_EQ(table.shared(0).value()->node.ino, 42UL);
+    }
+    ASSERT_EQ(refs.released, 1UL);
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) a body walks one story in order
+TEST("file table: dup2 validates its source before replacing the target") {
+    cinux::fs::FileTable table;
+    ASSERT_TRUE(table.alloc(nullptr, nullptr, sample_node(1)).ok());
+    ASSERT_TRUE(table.alloc(nullptr, nullptr, sample_node(2)).ok());
+    ASSERT_TRUE(table.set_cloexec(1, true).ok());
+    ASSERT_FALSE(table.duplicate_at(9, 1).ok());
+    ASSERT_EQ(table.shared(1).value()->node.ino, 2UL);
+    ASSERT_TRUE(table.cloexec(1));
+    ASSERT_TRUE(table.duplicate_at(0, 1).ok());
+    ASSERT_FALSE(table.cloexec(1));
+    ASSERT_TRUE(table.shared(0).value().get() == table.shared(1).value().get());
+}
+
+TEST("file table: backend release may reenter the table after close") {
+    cinux::fs::FileTable table;
+    cinux::fs::FsOps     ops{};
+    ops.retain  = [](void*, cinux::fs::FsNode) {};
+    ops.release = [](void* backend, cinux::fs::FsNode) {
+        auto& owner = *static_cast<cinux::fs::FileTable*>(backend);
+        ASSERT_TRUE(owner.alloc(nullptr, nullptr, sample_node(19)).ok());
+    };
+    ASSERT_TRUE(table.alloc(&ops, &table, sample_node(1)).ok());
+    ASSERT_TRUE(table.free(0).ok());
+    ASSERT_EQ(table.shared(0).value()->node.ino, 19UL);
+}
+
+TEST("file table: fork snapshots live opens and descriptor flags together") {
+    cinux::fs::FileTable parent;
+    ASSERT_TRUE(parent.alloc(nullptr, nullptr, sample_node(3)).ok());
+    ASSERT_TRUE(parent.set_cloexec(0, true).ok());
+    const auto kChild = parent.clone();
+    ASSERT_TRUE(kChild.holds());
+    ASSERT_TRUE(parent.free(0).ok());
+    ASSERT_EQ(kChild->shared(0).value()->node.ino, 3UL);
+    ASSERT_TRUE(kChild->cloexec(0));
+    kChild->close_on_exec();
+    ASSERT_FALSE(kChild->shared(0).ok());
+}
+
+TEST("file table: two allocators and a lookup reader share slots safely") {
+    cinux::fs::FileTable  table;
+    std::atomic<bool>     start{false};
+    std::atomic<unsigned> done{0};
+    std::atomic<unsigned> errors{0};
+    const auto            kWriter = [&](unsigned long identity) {
+        while (!start.load(std::memory_order_acquire)) {
+        }
+        for (unsigned round = 0; round < 2000; ++round) {
+            const auto kFd = table.alloc(nullptr, nullptr, sample_node(identity));
+            if (!kFd.ok()) {
+                ++errors;
+                continue;
+            }
+            const auto kHeld = table.shared(kFd.value());
+            if (!kHeld.ok() || kHeld.value()->node.ino != identity) {
+                ++errors;
+            }
+            if (!table.free(kFd.value()).ok()) {
+                ++errors;
+            }
+        }
+        done.fetch_add(1, std::memory_order_release);
+    };
+    std::thread one(kWriter, 1UL);
+    std::thread two(kWriter, 2UL);
+    start.store(true, std::memory_order_release);
+    while (done.load(std::memory_order_acquire) != 2) {
+        for (unsigned long fd = 0; fd < cinux::fs::kFileTableMax; ++fd) {
+            const auto kHeld = table.shared(fd);
+            if (kHeld.ok() && (kHeld.value()->node.ino < 1 || kHeld.value()->node.ino > 2)) {
+                ++errors;
+            }
+        }
+    }
+    one.join();
+    two.join();
+    ASSERT_EQ(errors.load(), 0U);
 }
 
 int main() {

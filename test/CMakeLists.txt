@@ -36,6 +36,38 @@ add_cinux_test(net_stack ${CMAKE_SOURCE_DIR}/kernel/net/net_stack.cpp
                             ${CMAKE_SOURCE_DIR}/kernel/net/ipv4.cpp
                             ${CMAKE_SOURCE_DIR}/kernel/net/icmp.cpp
                             ${CMAKE_SOURCE_DIR}/kernel/driver/net/loopback.cpp)
+add_cinux_test(net_udp ${CMAKE_SOURCE_DIR}/kernel/net/udp.cpp
+                        ${CMAKE_SOURCE_DIR}/kernel/net/net_layout.cpp
+                        ${CMAKE_SOURCE_DIR}/kernel/net/ipv4.cpp
+                        ${CMAKE_SOURCE_DIR}/kernel/net/icmp.cpp
+                        ${CMAKE_SOURCE_DIR}/kernel/net/net_stack.cpp
+                        ${CMAKE_SOURCE_DIR}/kernel/driver/net/loopback.cpp)
+add_cinux_test(net_socket ${CMAKE_SOURCE_DIR}/kernel/net/raw.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_itimer.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/net/socket.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/net/udp.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/net/net_layout.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/net/ipv4.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/net/icmp.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/net/arp.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/net/net_stack.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/net/net_world.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/driver/net/loopback.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_socket.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_ioctl.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/net/ifaces.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/driver/tty/tty.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_common.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/proc/sched_class.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/proc/futex.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/proc/signals.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/proc/sync.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/proc/lockdep.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/fs/file_table.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/mm/vma.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/syscall/uaccess.cpp)
 add_cinux_test(gdt)
 add_cinux_test(idt)
 add_cinux_test(layout)
@@ -170,6 +202,7 @@ add_cinux_test(pty_node ${CMAKE_SOURCE_DIR}/kernel/driver/tty/pty.cpp
 add_cinux_test(procfs ${CMAKE_SOURCE_DIR}/kernel/fs/procfs/procfs.cpp
                         ${CMAKE_SOURCE_DIR}/kernel/fs/vfs.cpp)
 add_cinux_test(file_table ${CMAKE_SOURCE_DIR}/kernel/fs/file_table.cpp)
+target_link_libraries(test_file_table PRIVATE Threads::Threads)
 add_cinux_test(ramfs ${CMAKE_SOURCE_DIR}/kernel/fs/ramfs/ramfs.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/fs/vfs.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
@@ -274,7 +307,7 @@ endforeach()
 
 set(CINUX_CTEST_JOBS "$ENV{CINUX_CHECK_JOBS}")
 if(NOT CINUX_CTEST_JOBS)
-    set(CINUX_CTEST_JOBS 4)
+    set(CINUX_CTEST_JOBS 2)
 endif()
 
 add_custom_target(test_host

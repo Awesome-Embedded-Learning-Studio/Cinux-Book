@@ -678,7 +678,8 @@ void inspect_shared_cursor(const cinux::proc::Task& child, const cinux::proc::Ta
     ASSERT_TRUE(child.files->get(first_fd).ok());
     ASSERT_EQ(parent.files->get(first_fd).value()->offset, 128UL);
     ASSERT_EQ(child.files->get(first_fd).value()->offset, 128UL);
-    ASSERT_TRUE(child.files->get(first_fd).value() == parent.files->get(first_fd).value());
+    ASSERT_TRUE(child.files->get(first_fd).value().get() ==
+                parent.files->get(first_fd).value().get());
 }
 
 void inspect_fork_family(const cinux::proc::Task& child, const cinux::proc::Task& parent,

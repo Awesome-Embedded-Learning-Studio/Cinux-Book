@@ -8,6 +8,7 @@
 #include "kernel/fs/procfs/procfs.hpp"
 #include "kernel/fs/vfs.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/net/ifaces.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/proc/task_snapshot.hpp"
@@ -120,18 +121,23 @@ bool source_nth_device(void* /*context*/, unsigned long ordinal, ProcDeviceFacts
     return true;
 }
 
+bool source_nth_net_iface(void* /*context*/, unsigned long ordinal, char* out) {
+    return net::NameInterfaceAt(ordinal, out);
+}
+
 }  // namespace
 
 void WireKernelProcSource(ProcFs& procfs) {
     const ProcSource kSource{
-        .nth_tgid   = source_nth_tgid,
-        .snapshot   = source_snapshot,
-        .exe_path   = source_exe_path,
-        .exe_bytes  = source_exe_bytes,
-        .exe_size   = source_exe_size,
-        .memory     = source_memory,
-        .nth_device = source_nth_device,
-        .context    = nullptr,
+        .nth_tgid      = source_nth_tgid,
+        .snapshot      = source_snapshot,
+        .exe_path      = source_exe_path,
+        .exe_bytes     = source_exe_bytes,
+        .exe_size      = source_exe_size,
+        .memory        = source_memory,
+        .nth_device    = source_nth_device,
+        .nth_net_iface = source_nth_net_iface,
+        .context       = nullptr,
     };
     procfs.set_source(kSource);
 }

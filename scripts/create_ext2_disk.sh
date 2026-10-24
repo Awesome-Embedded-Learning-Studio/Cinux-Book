@@ -54,13 +54,15 @@ debugfs -w -R 'mkdir /proc' "$image" >/dev/null 2>&1
 debugfs -w -R "write ${seed_dir}/motd.txt /etc/motd" "$image" >/dev/null 2>&1
 debugfs -w -R "write ${seed_dir}/hello.txt /hello.txt" "$image" >/dev/null 2>&1
 debugfs -w -R "write ${seed_dir}/smp-stress.sh /etc/smp-stress.sh" "$image" >/dev/null 2>&1
+debugfs -w -R "write ${seed_dir}/resolv.conf /etc/resolv.conf" "$image" >/dev/null 2>&1
+debugfs -w -R "write ${seed_dir}/hosts /etc/hosts" "$image" >/dev/null 2>&1
 if [ -n "$busybox" ]; then
     debugfs -w -R "write ${busybox} /bin/busybox" "$image" >/dev/null 2>&1
     debugfs -w -R "write ${busybox} /bin/sh" "$image" >/dev/null 2>&1
-    for applet in cat ls stty script id uname; do
+    for applet in cat ls stty script id uname ping ifconfig nslookup netstat; do
         debugfs -w -R "ln /bin/busybox /bin/${applet}" "$image" >/dev/null 2>&1
     done
-    debugfs -w -R 'set_inode_field /bin/busybox links_count 7' "$image" >/dev/null 2>&1
+    debugfs -w -R 'set_inode_field /bin/busybox links_count 11' "$image" >/dev/null 2>&1
     echo "[ext2-disk] busybox seated as /bin/sh from ${busybox}"
 elif [ -f "${CINUX_SHELL_ELF:-}" ]; then
     debugfs -w -R "write ${CINUX_SHELL_ELF} /bin/sh" "$image" >/dev/null 2>&1

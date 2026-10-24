@@ -200,7 +200,66 @@ void Scheduler::rotate_from_interrupt() {
     reap_pending();
 }
 
-void Scheduler::on_timer_tick() {
+void Scheduler::real_timer(Task& task, unsigned long long now_ns, RealTimerValue& timer,
+                           bool replace) {
+    const QueueGuard kGuard(*this);
+    Task*            owner = &task;
+    for (Task* scan = tasks_.head(); scan != nullptr; scan = tasks_.after(*scan)) {
+        if (scan->pid == task.tgid) {
+            owner = scan;
+            break;
+        }
+    }
+    unsigned long long old_value = 0;
+    if (owner->real_deadline_ns != 0) {
+        old_value = owner->real_deadline_ns > now_ns ? owner->real_deadline_ns - now_ns : 1;
+    }
+    const auto kOldInterval = owner->real_interval_ns;
+    if (replace) {
+        owner->real_deadline_ns = timer.value_ns == 0 ? 0 : now_ns + timer.value_ns;
+        owner->real_interval_ns = timer.interval_ns;
+        if (owner->real_deadline_ns != 0 &&
+            owner->real_deadline_ns < next_real_deadline_ns_.load(std::memory_order_relaxed)) {
+            next_real_deadline_ns_.store(owner->real_deadline_ns, std::memory_order_release);
+        }
+    }
+    timer = {.value_ns = old_value, .interval_ns = kOldInterval};
+}
+
+void Scheduler::expire_real_timers(unsigned long long now_ns) {
+    const QueueGuard   kGuard(*this);
+    unsigned long long next = ~0ULL;
+    for (Task* scan = tasks_.head(); scan != nullptr; scan = tasks_.after(*scan)) {
+        if (scan->state == TaskState::kDead || scan->state == TaskState::kZombie ||
+            scan->real_deadline_ns == 0) {
+            continue;
+        }
+        if (scan->real_deadline_ns <= now_ns) {
+            if (scan->real_interval_ns == 0) {
+                scan->real_deadline_ns = 0;
+            } else {
+                const auto kTail       = (now_ns - scan->real_deadline_ns) % scan->real_interval_ns;
+                const auto kDelay      = scan->real_interval_ns - kTail;
+                scan->real_deadline_ns = kDelay > ~0ULL - now_ns ? 0 : now_ns + kDelay;
+            }
+            const auto kGate = scan->signals.gate.guard();
+            if (scan->signals.actions[syscall::kSigAlrm - 1].handler != syscall::kSignalIgnore) {
+                scan->signals.pending =
+                    scan->signals.pending |
+                    syscall::SigSet{1ULL << static_cast<unsigned>(syscall::kSigAlrm - 1)};
+            }
+        }
+        if (scan->real_deadline_ns != 0 && scan->real_deadline_ns < next) {
+            next = scan->real_deadline_ns;
+        }
+    }
+    next_real_deadline_ns_.store(next, std::memory_order_release);
+}
+
+void Scheduler::on_timer_tick(unsigned long long now_ns) {
+    if (now_ns >= next_real_deadline_ns_.load(std::memory_order_acquire)) {
+        expire_real_timers(now_ns);
+    }
     if (current() == nullptr || !preemption_.load(std::memory_order_acquire)) {
         return;
     }

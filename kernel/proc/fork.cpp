@@ -7,12 +7,10 @@
 #include "cinux/memory.hpp"
 #include "cinux/own.hpp"
 #include "cinux/ptr.hpp"
-#include "cinux/result.hpp"
 #include "cinux/shared.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/fs/file_table.hpp"
 #include "kernel/fs/fs_config.hpp"
-#include "kernel/fs/open_file.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/cow.hpp"
 #include "kernel/mm/layout.hpp"
@@ -118,21 +116,14 @@ Task* BuildForkChild(unsigned long long frame_address) {
     kBorn->controlling_tty = kParent->controlling_tty;
     cinux::base::CopyBytes(kBorn->comm, kParent->comm, sizeof(kBorn->comm));
     cinux::base::CopyBytes(kBorn->limits, kParent->limits, sizeof(kBorn->limits));
-    kBorn->uid  = kParent->uid;
-    kBorn->euid = kParent->euid;
-    kBorn->gid  = kParent->gid;
-    kBorn->egid = kParent->egid;
-    for (unsigned long descriptor = 0; descriptor < fs::kFileTableMax; ++descriptor) {
-        const base::Result<base::Shared<fs::OpenFile>> kOpen = kParent->files->shared(descriptor);
-        if (!kOpen.ok()) {
-            continue;
-        }
-        const base::Result<unsigned long> kSeated =
-            kBorn->files->adopt_at(kOpen.value(), descriptor);
-        cinux::base::safety::Check(kSeated.ok(), "fork lost a descriptor it meant to inherit");
-        cinux::base::safety::Check(
-            kBorn->files->set_cloexec(descriptor, kParent->files->cloexec(descriptor)).ok(),
-            "fork lost an inherited descriptor flag");
+    kBorn->uid   = kParent->uid;
+    kBorn->euid  = kParent->euid;
+    kBorn->gid   = kParent->gid;
+    kBorn->egid  = kParent->egid;
+    kBorn->files = kParent->files->clone();
+    if (!kBorn->files.holds()) {
+        mm::Pmm::self().free_pages(kStack, kStackOrder);
+        return nullptr;
     }
     return child.release();
 }

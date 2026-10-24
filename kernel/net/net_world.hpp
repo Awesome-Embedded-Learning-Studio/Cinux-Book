@@ -31,6 +31,8 @@
 #include "kernel/net/icmp.hpp"
 #include "kernel/net/ipv4.hpp"
 #include "kernel/net/net_stack.hpp"
+#include "kernel/net/raw.hpp"
+#include "kernel/net/udp.hpp"
 
 namespace cinux::net {
 
@@ -132,6 +134,16 @@ public:
     [[nodiscard]] IcmpModule& icmp();
 
     /**
+     * @brief         The wired UDP module.
+     * @return        Reference to the owned module.
+     * @since         0.7.0
+     * @ingroup       kernel_net
+     */
+    [[nodiscard]] UdpModule& udp();
+    /** @brief The ICMP raw subscription registry. */
+    [[nodiscard]] RawModule& raw();
+
+    /**
      * @brief         The wired address book.
      * @return        Reference to the owned cache.
      * @since         0.6.0
@@ -147,6 +159,22 @@ public:
      */
     [[nodiscard]] bool pump_running() const;
 
+    /**
+     * @brief         Whether a real wire joined the world.
+     * @return        True once attach_wire() ran.
+     * @since         0.7.0
+     * @ingroup       kernel_net
+     */
+    [[nodiscard]] bool wired() const;
+
+    /**
+     * @brief         The joined wire's port, when one exists.
+     * @return        The wire's port, or nullptr before attach_wire().
+     * @since         0.7.0
+     * @ingroup       kernel_net
+     */
+    [[nodiscard]] driver::net::NetPort* wire() const;
+
 private:
     NetWorld() = default;
 
@@ -161,13 +189,16 @@ private:
         void handle(const unsigned char* bytes, size_t length) const;
     };
 
+    proc::Spinlock        route_gate_;
     driver::net::NetPort* wire_port_   = nullptr;
     ArpEntry              arp_entry_   = {};
     uint32_t              own_address_ = 0;
     driver::net::NetPort  loopback_port_;
-    NetStack              stack_        = {};
-    Ipv4Module            ipv4_         = {};
+    NetStack              stack_ = {};
+    Ipv4Module            ipv4_  = {};
+    RawModule             raw_{ipv4_};
     IcmpModule            icmp_         = {};
+    UdpModule             udp_          = {};
     ArpCache              arp_          = {};
     bool                  pump_running_ = false;
 };

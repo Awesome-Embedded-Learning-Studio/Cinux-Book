@@ -27,6 +27,7 @@
 #include "cinux/ref_count.hpp"
 #include "cinux/result.hpp"
 #include "cinux/shared.hpp"
+#include "cinux/spin_mutex.hpp"
 #include "kernel/fs/open_file.hpp"
 #include "kernel/fs/vfs.hpp"
 
@@ -41,6 +42,12 @@ namespace cinux::fs {
  * @ingroup kernel_fs
  */
 inline constexpr unsigned long kFileTableMax = 16;
+
+/** @brief Open metadata initialized before a descriptor becomes visible. */
+struct OpenOptions {
+    unsigned long status  = 0;
+    bool          cloexec = false;
+};
 
 /**
  * @brief   One task's open files: shared opens keyed by descriptor number.
@@ -98,7 +105,8 @@ struct FileTable : cinux::base::RefCount<> {
      * @since         0.1.0
      * @ingroup       kernel_fs
      */
-    [[nodiscard]] base::Result<unsigned long> alloc(const FsOps* ops, void* backend, FsNode node);
+    [[nodiscard]] base::Result<unsigned long> alloc(const FsOps* ops, void* backend, FsNode node,
+                                                    OpenOptions options = {});
 
     /**
      * @brief         Seats one open another table already owns.
@@ -149,18 +157,18 @@ struct FileTable : cinux::base::RefCount<> {
      * @ingroup       kernel_fs
      */
     [[nodiscard]] base::Result<unsigned long> adopt_from(const base::Shared<OpenFile>& file,
-                                                         unsigned long                 floor);
+                                                         unsigned long floor, bool cloexec = false);
 
     /**
-     * @brief         Hands out one open for reading and advancing.
+     * @brief         Acquires an owning hold for reading and advancing.
      *
      * @param[in]     descriptor   The descriptor number.
-     * @return        The open, or kInvalidArgument (out of range),
+     * @return        An owning hold, or kInvalidArgument (out of range),
      *                kNotFound (slot is free).
      * @since         0.1.0
      * @ingroup       kernel_fs
      */
-    [[nodiscard]] base::Result<OpenFile*> get(unsigned long descriptor);
+    [[nodiscard]] base::Result<base::Shared<OpenFile>> get(unsigned long descriptor);
 
     /**
      * @brief         Hands out one owned hold over the open.
@@ -222,7 +230,29 @@ struct FileTable : cinux::base::RefCount<> {
      */
     void close_on_exec();
 
+    /** @brief Copies descriptor ownership and close-on-exec bits in one locked snapshot. */
+    [[nodiscard]] base::Shared<FileTable> clone();
+
+    /**
+     * @brief Atomically replaces a descriptor with another live descriptor's open.
+     * @return The destination descriptor, or a lookup error without changing it.
+     */
+    [[nodiscard]] base::Result<unsigned long> duplicate_at(unsigned long source,
+                                                           unsigned long destination);
+
 private:
+    struct TablePolicy {
+        struct State {
+            const FileTable&   table;
+            unsigned long long irq = 0;
+        };
+        static void enter(State& state);
+        static void exit(State& state);
+    };
+    using TableGuard = base::ScopedGuard<TablePolicy>;
+    [[nodiscard]] base::Result<base::Shared<OpenFile>> shared_locked(unsigned long descriptor);
+    [[nodiscard]] base::Shared<OpenFile>               detach_locked(unsigned long descriptor);
+    mutable base::SpinMutex                            gate_;
     base::container::SlotTable<base::Shared<OpenFile>, kFileTableMax> slots_;
     /// One bit per descriptor number: set means close at exec. The
     /// bitmap owns the words; the array is just the storage it binds.

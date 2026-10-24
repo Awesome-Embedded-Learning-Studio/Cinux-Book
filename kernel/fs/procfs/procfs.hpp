@@ -39,6 +39,12 @@ inline constexpr unsigned long kProcExeIno = 4;
 /// The devices node's own inode number.
 inline constexpr unsigned long kProcDevicesIno = 5;
 
+/// The net/dev node's own inode number.
+inline constexpr unsigned long kProcNetDevIno = 6;
+
+/// The longest interface name the net/dev node prints.
+inline constexpr unsigned long kProcIfNameMax = 16;
+
 /// The character class's name, as the devices node prints it.
 inline constexpr const char* kProcClassCharacter = "character";
 
@@ -96,6 +102,13 @@ struct ProcSource {
 
     /// Names the ordinal-th seated device; false past the last.
     bool (*nth_device)(void* context, unsigned long ordinal, ProcDeviceFacts& into) = nullptr;
+
+    /// Copies the ordinal-th interface's name into a ProcIfNameMax
+    /// buffer; false past the last. The net/dev node answers with a
+    /// header and one all-zero row per name — the family keeps no
+    /// per-interface traffic books yet, and the node says so by
+    /// printing honest zeros rather than invented bytes.
+    bool (*nth_net_iface)(void* context, unsigned long ordinal, char* out) = nullptr;
 
     /// The word every seat receives back.
     void* context = nullptr;

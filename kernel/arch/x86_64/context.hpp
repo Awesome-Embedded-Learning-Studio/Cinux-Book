@@ -147,8 +147,8 @@ void ContextSwitch(cinux::arch::CpuContext* outgoing, const cinux::arch::CpuCont
 /**
  * @brief         First instruction of every freshly built task.
  * @note          Never returns by design: enables interrupts, calls
- *                the entry held in r12, and on its return jumps to
- *                the hook held in r13, so a task that simply returns
+ *                the entry held in r12, and on its return calls
+ *                the nonreturning hook held in r13, so a task that simply returns
  *                still lands in the unified exit path.
  * @since         0.1.0
  * @ingroup       kernel_arch

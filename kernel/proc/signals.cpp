@@ -1,5 +1,6 @@
 #include "kernel/proc/signals.hpp"
 
+#include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/arch/x86_64/page.hpp"
 #include "kernel/mm/layout.hpp"
 #include "kernel/mm/vma.hpp"
@@ -148,13 +149,6 @@ bool frame_handler_entry(SyscallFrame& frame, int number, const SigAction& act,
     return true;
 }
 
-/// Clears one pending bit under the gate; senders on other cores hold
-/// the same gate for their rewrites, so a clear never eats a send.
-void clear_pending_bit(SignalState& state, int number) {
-    const auto kGate = state.gate.guard();
-    state.pending    = state.pending & ~bit_for(number);
-}
-
 }  // namespace
 
 bool SignalCatchable(int number) {
@@ -186,7 +180,8 @@ SignalDisposition DefaultDisposition(int number) {
 }
 
 void SignalState::reset() {
-    const auto kGate = gate.guard();
+    const arch::IrqGuard kIrq;
+    const auto           kGate = gate.guard();
     for (SigAction& act : actions) {
         act = SigAction{};
     }
@@ -202,6 +197,12 @@ void SendToGroup(unsigned long long pgid, int number) {
     });
 }
 
+bool HasPendingSignal(const Task& task) {
+    const arch::IrqGuard kIrq;
+    const auto           kGate = task.signals.gate.guard();
+    return task.signals.pending.has(~task.signals.blocked);
+}
+
 bool SendSignal(Task& target, int number) {
     if (number < 1 || number > kSignalCount) {
         return false;
@@ -209,12 +210,14 @@ bool SendSignal(Task& target, int number) {
     if (target.state == TaskState::kZombie || target.state == TaskState::kDead) {
         return true;
     }
-    const SigAction kAction = target.signals.actions[number - 1];
-    if (kAction.handler == kSignalIgnore) {
-        return true;
-    }
+    SigAction action{};
     {
-        const auto kGate = target.signals.gate.guard();
+        const arch::IrqGuard kIrq;
+        const auto           kGate = target.signals.gate.guard();
+        action                     = target.signals.actions[number - 1];
+        if (action.handler == kSignalIgnore) {
+            return true;
+        }
         if (number == cinux::syscall::kSigCont) {
             target.signals.pending = target.signals.pending & ~stop_class_mask();
         }
@@ -226,7 +229,7 @@ bool SendSignal(Task& target, int number) {
         return true;
     }
     const bool kStopsNow =
-        kAction.handler == kSignalDefault && DefaultDisposition(number) == SignalDisposition::kStop;
+        action.handler == kSignalDefault && DefaultDisposition(number) == SignalDisposition::kStop;
     if (target.state == TaskState::kReady && kStopsNow) {
         Scheduler::self().withdraw(target);
     }
@@ -240,13 +243,25 @@ bool DeliverPendingSignals(SyscallFrame& frame) {
     }
     bool rewrote = false;
     for (;;) {
-        const int kNumber = lowest_runnable(kSelf->signals);
+        int       number = 0;
+        SigAction action{};
+        {
+            const arch::IrqGuard kIrq;
+            const auto           kGate = kSelf->signals.gate.guard();
+            number                     = lowest_runnable(kSelf->signals);
+            if (number != 0) {
+                action                 = kSelf->signals.actions[number - 1];
+                kSelf->signals.pending = kSelf->signals.pending & ~bit_for(number);
+                if ((action.flags & cinux::syscall::kSaResethand) != 0) {
+                    kSelf->signals.actions[number - 1] = SigAction{};
+                }
+            }
+        }
+        const int kNumber = number;
         if (kNumber == 0) {
             break;
         }
-        SigAction& action = kSelf->signals.actions[kNumber - 1];
         if (action.handler == kSignalIgnore) {
-            clear_pending_bit(kSelf->signals, kNumber);
             continue;
         }
         if (action.handler == kSignalDefault) {
@@ -254,7 +269,6 @@ bool DeliverPendingSignals(SyscallFrame& frame) {
                 die_by_signal(kNumber);
                 break;
             }
-            clear_pending_bit(kSelf->signals, kNumber);
             if (DefaultDisposition(kNumber) == SignalDisposition::kStop) {
                 Scheduler::self().stop_current();
                 break;
@@ -263,11 +277,7 @@ bool DeliverPendingSignals(SyscallFrame& frame) {
         }
         if (frame_handler_entry(frame, kNumber, action, kSelf->signals.blocked)) {
             kSelf->signals.blocked = kSelf->signals.blocked | action.mask;
-            if ((action.flags & cinux::syscall::kSaResethand) != 0) {
-                action = SigAction{};
-            }
-            clear_pending_bit(kSelf->signals, kNumber);
-            rewrote = true;
+            rewrote                = true;
         } else {
             die_by_signal(cinux::syscall::kSigSegv);
         }

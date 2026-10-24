@@ -3,6 +3,7 @@
 #include "cinux/math.hpp"
 #include "cinux/memory.hpp"
 #include "cinux/result.hpp"
+#include "cinux/shared.hpp"
 #include "kernel/fs/fs_config.hpp"
 #include "kernel/fs/open_file.hpp"
 #include "kernel/fs/vfs.hpp"
@@ -64,11 +65,11 @@ long long HandleGetdents(const SyscallFrame& frame) {
     if (frame.rdx == 0) {
         return -kEfault;
     }
-    const base::Result<fs::OpenFile*> kSlot = LiveSlot(frame.rdi);
+    const base::Result<base::Shared<fs::OpenFile>> kSlot = LiveSlot(frame.rdi);
     if (!kSlot.ok()) {
         return -kEbadf;
     }
-    auto* const   kDir   = kSlot.value();
+    auto* const   kDir   = kSlot.value().get();
     unsigned long filled = 0;
     fs::FsDirent  entry{};
     for (;;) {

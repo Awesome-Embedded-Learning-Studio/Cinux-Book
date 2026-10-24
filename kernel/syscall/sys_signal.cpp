@@ -1,5 +1,6 @@
 #include "kernel/syscall/sys_signal.hpp"
 
+#include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/mm/vma.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/signals.hpp"
@@ -92,12 +93,19 @@ long long HandleRtSigaction(const SyscallFrame& frame) {
         wanted.mask = strip_uncatchable(wanted.mask);
         install     = true;
     }
-    proc::Task&     self    = *CurrentTask();
-    const SigAction kBefore = self.signals.actions[kNumber - 1];
-    if (frame.rdx != 0 && !uaccess::CopyToUser(frame.rdx, &kBefore, kActionBytes)) {
+    proc::Task& self = *CurrentTask();
+    SigAction   before{};
+    {
+        const arch::IrqGuard kIrq;
+        const auto           kGate = self.signals.gate.guard();
+        before                     = self.signals.actions[kNumber - 1];
+    }
+    if (frame.rdx != 0 && !uaccess::CopyToUser(frame.rdx, &before, kActionBytes)) {
         return -kEfault;
     }
     if (install) {
+        const arch::IrqGuard kIrq;
+        const auto           kGate        = self.signals.gate.guard();
         self.signals.actions[kNumber - 1] = wanted;
     }
     return 0;

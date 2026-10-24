@@ -1,6 +1,7 @@
 #include "kernel/syscall/sys_nanosleep.hpp"
 
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/signals.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/sys_clock.hpp"
 #include "kernel/syscall/syscall.hpp"
@@ -40,7 +41,7 @@ long long HandleNanosleep(const SyscallFrame& frame) {
 
     for (;;) {
         const proc::Task* const kSelf = CurrentTask();
-        if (kSelf->signals.pending.has(~kSelf->signals.blocked)) {
+        if (proc::HasPendingSignal(*kSelf)) {
             if (frame.rsi != 0) {
                 const unsigned long long kLeft =
                     kDeadline > MonotonicNanoseconds() ? kDeadline - MonotonicNanoseconds() : 0;

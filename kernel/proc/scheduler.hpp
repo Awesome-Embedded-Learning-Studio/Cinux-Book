@@ -45,6 +45,21 @@ struct PerCpu;
 
 namespace cinux::proc {
 
+/**
+ * @brief   One process's real timer in two spans.
+ * @note    The value is the remaining one-shot span, the interval the
+ *          period a re-arming timer keeps stepping by; both in
+ *          monotonic nanoseconds, zero disarming.
+ * @since   0.7.0
+ * @ingroup kernel_proc
+ */
+struct RealTimerValue {
+    /// Remaining or initial span before the next SIGALRM.
+    unsigned long long value_ns    = 0;
+    /// Period between further expiries, zero for single-shot.
+    unsigned long long interval_ns = 0;
+};
+
 class Scheduler;
 class SchedulingClass;
 
@@ -201,7 +216,11 @@ public:
      * @since         0.3.0
      * @ingroup       kernel_proc
      */
-    void on_timer_tick();
+    void on_timer_tick(unsigned long long now_ns = 0);
+
+    /** @brief Snapshots and optionally replaces the calling process real timer under the registry
+     * lock. */
+    void real_timer(Task& task, unsigned long long now_ns, RealTimerValue& timer, bool replace);
 
     /**
      * @brief         The interrupt-exit question: rotate now?
@@ -517,8 +536,10 @@ private:
         static void exit(State& state);
     };
     using QueueGuard = base::ScopedGuard<QueuePolicy>;
-    mutable base::SpinMutex       queue_lock_;
-    static arch::per_cpu::PerCpu& local();
+    mutable base::SpinMutex         queue_lock_;
+    std::atomic<unsigned long long> next_real_deadline_ns_{~0ULL};
+    void                            expire_real_timers(unsigned long long now_ns);
+    static arch::per_cpu::PerCpu&   local();
 
 
     [[nodiscard]] bool  sink_ready() const;

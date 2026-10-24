@@ -159,6 +159,9 @@ public:
      */
     bool feed(char key);
 
+    /** @brief Runs a bounded input pass without waiting for a reader; caller serializes access. */
+    void poll_input(unsigned long budget = 64);
+
     /**
      * @brief     Whether a finished line waits for a reader.
      *

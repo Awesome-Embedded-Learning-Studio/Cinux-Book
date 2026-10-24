@@ -154,6 +154,8 @@ struct Task : cinux::base::container::SelfNode<Task> {
     /// the valid fresh-task state, fork copies the first two and exec
     /// resets all three.
     SignalState        signals{};
+    unsigned long long real_deadline_ns{};
+    unsigned long long real_interval_ns{};
     /// User address the task asked the kernel to zero when it dies
     /// (set_tid_address), then futex-wake so a joiner's wait returns.
     /// Zero means the task asked for nothing; clone's CLEARTID flag

@@ -200,4 +200,47 @@ enum class IcmpEchoError : uint8_t {
 base::Result<IcmpEchoView, IcmpEchoError> ParseIcmpEcho(const unsigned char* datagram,
                                                         size_t               length);
 
+/**
+ * @brief   The fields of one UDP header.
+ * @since   0.6.0
+ * @ingroup kernel_net
+ */
+struct UdpView {
+    /// Sender's port, as the wire spells it.
+    uint16_t source_port      = 0;
+    /// Receiver's port.
+    uint16_t destination_port = 0;
+    /// Whole datagram the header announces, header included.
+    uint16_t length           = 0;
+    /// The checksum as it arrived, zero meaning none was sent.
+    uint16_t checksum         = 0;
+};
+
+/**
+ * @brief   Why a UDP header was refused.
+ * @since   0.6.0
+ * @ingroup kernel_net
+ */
+enum class UdpError : uint8_t {
+    /// The datagram ends before the eight header bytes do.
+    kDatagramTooShort,
+    /// The announced length is below the header or past the bytes held.
+    kBadLength,
+};
+
+/**
+ * @brief         Reads one UDP header.
+ *
+ * @param[in]     datagram  First byte of the datagram.
+ * @param[in]     length    Bytes the datagram holds.
+ * @return        The header fields, or the refusal.
+ * @note          The parse judges the header against itself only: the
+ *                announced length versus the bytes that actually arrived
+ *                is the receiving module's question, since a carrier
+ *                may pad past the end of what UDP asked for.
+ * @since         0.6.0
+ * @ingroup kernel_net
+ */
+base::Result<UdpView, UdpError> ParseUdp(const unsigned char* datagram, size_t length);
+
 }  // namespace cinux::net

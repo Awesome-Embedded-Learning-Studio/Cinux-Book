@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "cinux/result.hpp"
+#include "cinux/shared.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/fs/open_file.hpp"
 #include "kernel/fs/vfs.hpp"
@@ -13,8 +14,8 @@
 namespace cinux::syscall {
 
 long long HandleFstat(const SyscallFrame& frame) {
-    const arch::IrqGuard              kGuard;
-    const base::Result<fs::OpenFile*> kSlot = LiveSlot(frame.rdi);
+    const arch::IrqGuard                           kGuard;
+    const base::Result<base::Shared<fs::OpenFile>> kSlot = LiveSlot(frame.rdi);
     if (!kSlot.ok()) {
         return -kEbadf;
     }

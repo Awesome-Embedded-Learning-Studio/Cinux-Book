@@ -208,6 +208,15 @@ TEST("tty: repeated signal keys stay consumed and flush the abandoned line") {
     ASSERT_EQ(heard[0], static_cast<unsigned char>('y'));
 }
 
+TEST("tty: polling input translates a signal without a terminal reader") {
+    reset_seat("abc\x03");
+    cinux::driver::Tty tty(kWiring);
+    tty.poll_input();
+    ASSERT_EQ(tty.take_pending_signal(), 2);
+    ASSERT_FALSE(tty.has_line());
+    ASSERT_EQ(tty.take_pending_signal(), 0);
+}
+
 int main() {
     return cinux::test::RunAll();
 }

@@ -1,5 +1,7 @@
 #include "kernel/fs/devfs/console_node.hpp"
 
+#include <atomic>
+
 #include "cinux/assert.hpp"
 #include "cinux/container/name_table.hpp"
 #include "cinux/memory.hpp"
@@ -11,7 +13,9 @@
 #include "kernel/driver/tty/tty.hpp"
 #include "kernel/driver/tty/tty_config.hpp"
 #include "kernel/fs/devfs/devfs.hpp"
+#include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/signals.hpp"
+#include "kernel/proc/sync.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
@@ -31,7 +35,7 @@ public:
      * @since         0.6.0
      * @ingroup       kernel_fs
      */
-    [[nodiscard]] unsigned long long get() const { return pgid_; }
+    [[nodiscard]] unsigned long long get() const { return pgid_.load(std::memory_order_acquire); }
 
     /**
      * @brief         Hands the console's keys to a group.
@@ -40,26 +44,68 @@ public:
      * @since         0.6.0
      * @ingroup       kernel_fs
      */
-    void adopt(unsigned long long pgid) { pgid_ = pgid; }
+    void adopt(unsigned long long pgid) { pgid_.store(pgid, std::memory_order_release); }
 
 private:
     ConsoleForeground() = default;
 
-    unsigned long long pgid_ = 1;
+    std::atomic<unsigned long long> pgid_{1};
 };
 
-base::Result<unsigned long> console_read(void* /*context*/, void* sink, unsigned long count) {
-    driver::Tty&             tty     = driver::ConsoleTty();
-    const unsigned long      kGot    = tty.read_line(static_cast<unsigned char*>(sink), count);
-    const int                kSignal = tty.take_pending_signal();
-    const unsigned long long kGroup  = ConsoleForeground::self().get();
-    if (kSignal != 0 && kGroup != 0) {
-        proc::SendToGroup(kGroup, kSignal);
+class ConsoleInput : public base::Singleton<ConsoleInput> {
+    friend class base::Singleton<ConsoleInput>;
+
+public:
+    [[nodiscard]] proc::SpinGuard guard() { return gate_.guard(); }
+
+private:
+    ConsoleInput() = default;
+    proc::Spinlock gate_;
+};
+
+void poll_console_input() {
+    int                signal = 0;
+    unsigned long long group  = 0;
+    {
+        const auto kInput = ConsoleInput::self().guard();
+        auto&      tty    = driver::ConsoleTty();
+        tty.poll_input();
+        signal = tty.take_pending_signal();
+        group  = ConsoleForeground::self().get();
     }
-    if (kSignal != 0) {
+    if (signal != 0 && group != 0) {
+        proc::SendToGroup(group, signal);
+    }
+}
+
+void console_pump_entry() {
+    for (;;) {
+        poll_console_input();
+        proc::Scheduler::self().yield();
+    }
+}
+
+base::Result<unsigned long> console_read(void* /*context*/, void* sink, unsigned long count) {
+    unsigned long      got    = 0;
+    int                signal = 0;
+    unsigned long long group  = 0;
+    {
+        const auto kInput = ConsoleInput::self().guard();
+        auto&      tty    = driver::ConsoleTty();
+        got               = tty.read_line(static_cast<unsigned char*>(sink), count, false);
+        signal            = tty.take_pending_signal();
+        group             = ConsoleForeground::self().get();
+    }
+    if (signal != 0 && group != 0) {
+        proc::SendToGroup(group, signal);
+    }
+    if (signal != 0) {
         return base::KernelError::kInterrupted;
     }
-    return kGot;
+    if (count != 0 && got == 0) {
+        return base::KernelError::kWouldBlock;
+    }
+    return got;
 }
 
 base::Result<unsigned long> console_write(void* /*context*/, const void* source,
@@ -72,24 +118,28 @@ base::Result<unsigned long> console_write(void* /*context*/, const void* source,
 }
 
 bool console_has_input(void* /*context*/) {
+    const auto kInput = ConsoleInput::self().guard();
     return driver::ConsoleTty().has_input();
 }
 
 long long answer_termios_get(unsigned long long argument) {
+    const auto  kInput = ConsoleInput::self().guard();
     // NOLINTNEXTLINE(performance-no-int-to-ptr)
-    auto* const kOut = reinterpret_cast<unsigned char*>(argument);
+    auto* const kOut   = reinterpret_cast<unsigned char*>(argument);
     driver::ConsoleTty().copy_termios(kOut);
     return 0;
 }
 
 long long answer_termios_set(unsigned long long argument) {
+    const auto        kInput = ConsoleInput::self().guard();
     // NOLINTNEXTLINE(performance-no-int-to-ptr)
-    auto const* const kOut = reinterpret_cast<const unsigned char*>(argument);
+    auto const* const kOut   = reinterpret_cast<const unsigned char*>(argument);
     driver::ConsoleTty().apply_termios(kOut);
     return 0;
 }
 
 long long answer_window(unsigned long long argument) {
+    const auto              kInput = ConsoleInput::self().guard();
     // NOLINTNEXTLINE(performance-no-int-to-ptr)
     auto* const             kOut   = reinterpret_cast<unsigned char*>(argument);
     const driver::TtyWindow kShape = driver::ConsoleTty().window();
@@ -172,6 +222,17 @@ void RegisterConsoleDevice() {
         .driver_name = "console",
     });
     base::safety::Check(kSeated.ok(), "device model refused the console seat");
+}
+
+void StartConsoleInputPump() {
+    static_cast<void>(driver::ConsoleTty());
+    auto* const kPump = proc::TaskBuilder{}
+                            .set_entry(console_pump_entry)
+                            .set_name("tty_poll")
+                            .set_priority(200)
+                            .build();
+    base::safety::Check(kPump != nullptr, "console input pump failed to build");
+    proc::Scheduler::self().seat(*kPump);
 }
 
 void AdoptConsoleForeground(unsigned long long pgid) {
