@@ -280,6 +280,36 @@
       "note": "三册类面与设备归位、PTY 挂断生命周期、能力链 48 步、武装四步与回读栅栏、TRB 环与 cycle bit、枚举七环、端点号换算、movd 向量化撞模拟器、串口在前屏幕在后——框架打底,不做玩具",
       "status": "open",
       "trail": ["device model", "PCI capabilities", "MSI-X", "xHCI", "USB", "HID keyboard"]
+    },
+    {
+      "id": "28",
+      "slug": "28-safety",
+      "title": "安全:三道闸与一扇门",
+      "titleEn": "Security: Three Gates and a Door",
+      "desc": "客人递进来的指针再不能当真话信了。三道闸按 NX、SMEP、SMAP 的次序逐级开位,每级多要一件东西,先问 CPUID 再动 CR4。拷贝的门起了两回落:首版方向反了五个测试拦不住,重来的门先考试后接线,跨方向往返案上岗。指令学会道歉,例外表配上链接器的新段,坏指针答 EFAULT。栈帧种上金丝雀,栈堆映射三个座位学会挪动,exit 十七的悬案破了五件修法。记号笔画上身份,篱笆的桩留给以后。",
+      "note": "NX 五路落线、CPUID 问话纪律、门的两起两落与客页三迁、例外表二分与修页在前、SMAP 开闸照出两面漏网镜子、canary 换全局哨兵、三把掩码与掷签算术、creds 六号位——三道闸一扇门,修好了再开闸",
+      "status": "open",
+      "trail": ["NX", "SMEP", "SMAP", "accessor", "__ex_table", "ASLR", "canary", "creds"]
+    },
+    {
+      "id": "29",
+      "slug": "29-netstack",
+      "title": "校验与回环栈:长凳、词书与一轮 poll",
+      "titleEn": "Checksums and the Loopback Stack: Bench, Wordbook, and One Poll",
+      "desc": "协议栈整条在开发机的长凳上先立起来,不碰一行内核引导。反码和要折到零,零还有两张脸。线上的字全是大端,写词用 Be 四张脸,词书对坏包具名拒绝,栈按预算排水,预算是重入的缰绳。地址边干边学,miss 不是错误是等待。判两次再落座,应答与记分,一轮 poll 一个来回。坏包死得有计数,六类负测逐类断言丢因,坏路与正路长在同一套代码里。",
+      "note": "RFC 1071 折零、大端写词家法、具名拒因与计数、预算制 poll、ARP 名册环形顶替、构造环的解法、机内两案随第二部进树、零 OS 耦合宿主先验——纯逻辑层的正课,负测是正课",
+      "status": "open",
+      "trail": ["internet checksum", "big-endian", "ARP", "IPv4", "ICMP", "loopback", "negative tests"]
+    },
+    {
+      "id": "30",
+      "slug": "30-e1000",
+      "title": "异步基建与点亮网卡:一具泵、一张卡与第一声 ping",
+      "titleEn": "Async Plumbing and Lighting the NIC: A Pump, a Card, and the First Ping",
+      "desc": "当年的死法按新语义重讲:让位、靠别人叫醒、睡在自家上下文。栈接进开机的世界,泵谁都能摇,线程只是常驻的摇泵人。e1000 按名认卡,复位静音报名字,收环配哨兵,发环配门铃。三桩判例连破:使能位是第一位不是第零位,包零出门寄存器全对;收尾哨兵差一格,回包迟到一秒像假象;读一次 RDH,主循环才肯动。真线挂上路由,ping 四发三答,第一发花在问路,设计之内。",
+      "note": "死法三层重讲、可注入泵与坐泵判例、vendor 表认卡防误绑、EERD 逐词读 MAC、RDT 哨兵纪律、分层取证三件套、SLIRP 迟滞与 1.2s 窗、第一声真线 ping——点亮网卡,四发三答",
+      "status": "open",
+      "trail": ["net_poll", "e1000", "RX/TX rings", "RDT sentinel", "SLIRP", "first ping"]
     }
   ]
 }
