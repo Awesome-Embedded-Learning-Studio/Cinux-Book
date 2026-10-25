@@ -4,7 +4,9 @@
 #include "../framework/framework.hpp"
 #include "cinux/own.hpp"
 #include "cinux/result.hpp"
+#include "cinux/shared.hpp"
 #include "kernel/fs/fs_config.hpp"
+#include "kernel/fs/mount_lease.hpp"
 #include "kernel/fs/vfs.hpp"
 #include "test_assert.hpp"
 
@@ -243,6 +245,39 @@ TEST("vfs: the table runs out at kMountMax and says so") {
     const auto kOverflow = vfs.mount("/one-too-many", backend);
     ASSERT_FALSE(kOverflow.ok());
     ASSERT_EQ(kOverflow.error(), cinux::base::KernelError::kOutOfMemory);
+}
+
+TEST("vfs: unmount takes one prefix back, and the seat reopens") {
+    cinux::fs::Vfs vfs;
+    FakeFs         backend;
+    ASSERT_TRUE(vfs.mount("/", backend).ok());
+    ASSERT_TRUE(vfs.mount("/tmp", backend).ok());
+    ASSERT_TRUE(vfs.unmount("/tmp").ok());
+    ASSERT_TRUE(vfs.mount("/tmp", backend).ok());
+    const auto kAbsent = vfs.unmount("/nowhere");
+    ASSERT_FALSE(kAbsent.ok());
+    ASSERT_EQ(kAbsent.error(), cinux::base::KernelError::kNotFound);
+    const auto kRelative = vfs.unmount("tmp");
+    ASSERT_FALSE(kRelative.ok());
+}
+
+TEST("vfs: resolved views retain a detached backend until their last release") {
+    cinux::fs::Vfs                             vfs;
+    FakeFs                                     backend;
+    bool                                       destroyed = false;
+    cinux::base::Shared<cinux::fs::MountLease> lease(new cinux::fs::MountLease{});
+    lease->backend = &destroyed;
+    lease->destroy = [](void* marker) { *static_cast<bool*>(marker) = true; };
+    ASSERT_TRUE(vfs.mount("/tmp", backend, "tmpfs", lease.get()).ok());
+    {
+        const auto kView = vfs.resolve("/tmp/file");
+        ASSERT_TRUE(kView.ok());
+        ASSERT_TRUE(vfs.unmount("/tmp").ok());
+        lease.reset();
+        ASSERT_FALSE(destroyed);
+        ASSERT_TRUE(kView.value().self == &backend);
+    }
+    ASSERT_TRUE(destroyed);
 }
 
 int main() {

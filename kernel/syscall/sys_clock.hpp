@@ -16,6 +16,9 @@
 
 namespace cinux::syscall {
 
+/** @brief Returns the wall clock in nanoseconds. @return Nanoseconds since the Unix epoch. */
+unsigned long long RealtimeNanoseconds();
+
 /**
  * @brief         time(tloc): seconds since the epoch.
  *

@@ -53,6 +53,7 @@ base::Result<unsigned long> FileTable::alloc(const FsOps* ops, void* backend, Fs
     if (!kFresh.holds()) {
         return base::KernelError::kOutOfMemory;
     }
+    kFresh->lifetime = std::move(options.lifetime);
     if (ops != nullptr) {
         ops->retain(backend, node);
     }

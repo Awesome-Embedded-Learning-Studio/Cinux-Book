@@ -76,8 +76,14 @@ TEST("context: clean fpu image carries default control words") {
     cinux::proc::PrepareTaskContext(ctx, plan_for(stack));
     const auto* const kImage = reinterpret_cast<const unsigned short*>(&ctx.fpu.words[0]);
     ASSERT_TRUE(kImage[0] == 0x037F);
-    const auto* const kMxcsr = reinterpret_cast<const unsigned int*>(&ctx.fpu.words[4]);
-    ASSERT_TRUE(kMxcsr[0] == 0x1F80);
+    cinux::arch::FpuImage saved{};
+    cinux::arch::SaveFpu(saved);
+    unsigned int actual_mxcsr;
+    asm volatile("fxrstor64 %1; stmxcsr %0; fxrstor64 %2"
+                 : "=m"(actual_mxcsr)
+                 : "m"(ctx.fpu), "m"(saved)
+                 : "memory");
+    ASSERT_TRUE(actual_mxcsr == 0x1F80);
     ASSERT_TRUE(ctx.fpu.words[1] == 0);
     ASSERT_TRUE(ctx.fpu.words[63] == 0);
 }

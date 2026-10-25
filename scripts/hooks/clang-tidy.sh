@@ -16,7 +16,10 @@ if [ "${#inputs[@]}" -eq 0 ]; then
     exit 1
 fi
 
-if clang-tidy --quiet -p build "${inputs[@]}" 2>&1 \
+tidy_db="$(mktemp -d /tmp/cinux-tidy-db.XXXXXX)"
+trap 'rm -rf "$tidy_db"' EXIT
+python3 scripts/hooks/tidy_database.py build/compile_commands.json "$tidy_db/compile_commands.json" || exit 1
+if clang-tidy --quiet -p "$tidy_db" "${inputs[@]}" 2>&1 \
         | grep -E "^/home/charliechen/Cinux/[^ ]*: (error|warning):" ; then
     exit 1
 fi

@@ -114,7 +114,7 @@ long long join_by_tid(unsigned long long word_address, unsigned int tid) {
 }  // namespace
 
 // NOLINTNEXTLINE(readability-identifier-naming)
-extern "C" void _start() {
+extern "C" void UserMain() {
     put("[thr] main pid=");
     put_signed(user::Getpid());
     put(" tid=");

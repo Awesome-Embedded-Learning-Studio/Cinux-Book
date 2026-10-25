@@ -111,7 +111,7 @@ void check_exit_eof() {
 }
 }
 
-extern "C" void SmpStressStart() {
+extern "C" void UserMain() {
     check_exit_eof();
     unsigned int seen = 0;
     for (unsigned long round = 1; round <= 96; ++round) {

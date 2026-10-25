@@ -14,6 +14,7 @@
 #include "kernel/mm/layout.hpp"
 #include "kernel/mm/page_walk.hpp"
 #include "kernel/mm/pmm.hpp"
+#include "kernel/mm/vma.hpp"
 #include "kernel/mm/vmm.hpp"
 
 namespace cinux::mm::cow {
@@ -31,7 +32,10 @@ unsigned long long release_share(unsigned long long frame) {
 }
 
 Entry shared_flags(const Entry& original) {
-    Entry flags = cinux::arch::page::kUser | cinux::arch::page::kCow;
+    Entry flags = cinux::arch::page::kCow;
+    if (original.has(cinux::arch::page::kUser)) {
+        flags = flags | cinux::arch::page::kUser;
+    }
     if (original.has(cinux::arch::page::kNoExec)) {
         flags = flags | cinux::arch::page::kNoExec;
     }
@@ -47,16 +51,26 @@ Entry private_flags(const Entry& original, bool writable) {
 }
 
 struct CloneWalk {
-    AddressSpace* child;
-    unsigned long parent_root;
+    AddressSpace*   child;
+    unsigned long   parent_root;
+    const VmaStore* ranges;
 };
 
 void share_leaf(Entry& slot, unsigned long spot, const CloneWalk& context) {
     const unsigned long long kTarget = walk::EntryTarget(slot);
-    const Entry kTerms = cinux::arch::page::UserLeafTerms(slot.has(cinux::arch::page::kWritable),
-                                                          !slot.has(cinux::arch::page::kNoExec));
-    cinux::base::safety::Check(context.child->map_user(spot, kTarget, kTerms),
+    Entry terms = cinux::arch::page::UserLeafTerms(slot.has(cinux::arch::page::kWritable),
+                                                   !slot.has(cinux::arch::page::kNoExec));
+    if (!slot.has(arch::page::kUser)) {
+        terms = terms & ~arch::page::kUser;
+    }
+    cinux::base::safety::Check(context.child->map_user(spot, kTarget, terms),
                                "fork clone refused a map");
+    const VmaRegion* const kRegion =
+        context.ranges != nullptr ? context.ranges->find(spot) : nullptr;
+    if (kRegion != nullptr && kRegion->shared.holds()) {
+        Pmm::self().retain_frame(base::PhysAddr{kTarget});
+        return;
+    }
     cinux::base::safety::Check(MarkPageShared(context.parent_root, spot),
                                "fork clone lost a parent page");
     cinux::base::safety::Check(MarkPageShared(context.child->root(), spot),
@@ -158,7 +172,7 @@ void ReleaseFrame(unsigned long long frame) {
     }
 }
 
-AddressSpace* CloneSharedSpace(const AddressSpace& parent) {
+AddressSpace* CloneSharedSpace(const AddressSpace& parent, const VmaStore* ranges) {
     const unsigned long kParentRoot = parent.root();
     if (kParentRoot == 0) {
         return nullptr;
@@ -170,7 +184,7 @@ AddressSpace* CloneSharedSpace(const AddressSpace& parent) {
     }
     // NOLINTNEXTLINE(misc-const-correctness) the walk rewrites leaf entries
     auto* const     kRoot = cinux::base::PtrAt<Entry>(cinux::mm::DirectMapVirt(kParentRoot));
-    const CloneWalk kContext{.child = kChild, .parent_root = kParentRoot};
+    const CloneWalk kContext{.child = kChild, .parent_root = kParentRoot, .ranges = ranges};
     for (unsigned long slot = 0; slot < walk::kUserHalfSlots; ++slot) {
         Entry& leaf = kRoot[slot];
         if (!leaf.has(cinux::arch::page::kPresent)) {

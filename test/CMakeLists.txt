@@ -50,6 +50,7 @@ add_cinux_test(net_tcp ${CMAKE_SOURCE_DIR}/kernel/net/tcp.cpp
                         ${CMAKE_SOURCE_DIR}/kernel/driver/net/loopback.cpp
                         ${CMAKE_SOURCE_DIR}/kernel/time/timer_table.cpp)
 add_cinux_test(net_socket ${CMAKE_SOURCE_DIR}/kernel/net/raw.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/net/local_socket.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_itimer.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/net/socket.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/net/udp.cpp
@@ -104,11 +105,15 @@ add_cinux_test(path)
 add_cinux_test(text)
 add_cinux_test(rtc)
 add_cinux_test(hpet)
+add_cinux_test(nvme)
 add_cinux_test(madt ${CMAKE_SOURCE_DIR}/kernel/driver/acpi/madt.cpp)
 add_cinux_test(font)
 add_cinux_test(framebuffer)
 add_cinux_test(console)
 add_cinux_test(syscall_face ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_uname.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_mmap.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_pread.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_sigtimedwait.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_prlimit.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_fcntl.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_getrandom.cpp
@@ -330,7 +335,7 @@ add_custom_target(test_host
 )
 
 add_custom_target(test_kernel
-    COMMAND ${CMAKE_CTEST_COMMAND} -j ${CINUX_CTEST_JOBS}
+    COMMAND ${CMAKE_CTEST_COMMAND} -j 1
             --test-dir ${CMAKE_CURRENT_BINARY_DIR}
             -R ^kernel_test_ --output-on-failure
     DEPENDS ${CINUX_KTEST_IMAGE_TARGETS}

@@ -16,6 +16,10 @@
  * @copyright Copyright (c) 2026
  */
 
+#include "cinux/result.hpp"
+#include "cinux/shared.hpp"
+#include "kernel/fs/file_table.hpp"
+#include "kernel/fs/open_file.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
@@ -24,6 +28,13 @@ namespace cinux::syscall {
 
 proc::Task* CurrentTask() {
     return proc::Scheduler::self().current();
+}
+
+base::Result<base::Shared<fs::OpenFile>> LiveSlot(unsigned long long descriptor) {
+    if (descriptor >= fs::kFileTableMax) {
+        return base::KernelError::kInvalidArgument;
+    }
+    return CurrentTask()->files->shared(descriptor);
 }
 
 }  // namespace cinux::syscall

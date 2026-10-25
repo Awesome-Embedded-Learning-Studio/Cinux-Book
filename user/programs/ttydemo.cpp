@@ -45,7 +45,7 @@ void put_word_at(unsigned char* record, unsigned long seat, unsigned int word) {
 }  // namespace
 
 // NOLINTNEXTLINE(readability-identifier-naming)
-extern "C" void _start() {
+extern "C" void UserMain() {
     unsigned char record[kRecordBytes] = {};
     if (fetch_flags(record) != 0) {
         put("ttydemo: TCGETS refused\n");

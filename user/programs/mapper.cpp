@@ -95,7 +95,7 @@ unsigned long long descend(unsigned long long depth, unsigned long long seed) {
 }  // namespace
 
 // NOLINTNEXTLINE(readability-identifier-naming)
-extern "C" void _start() {
+extern "C" void UserMain() {
     const long long kSpot = user::Mmap(0, kAnonPages * kPageSize,
                                        cinux::syscall::kProtRead | cinux::syscall::kProtWrite,
                                        cinux::syscall::kMapAnonymous, 0, 0);

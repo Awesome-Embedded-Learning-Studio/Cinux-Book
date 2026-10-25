@@ -122,19 +122,21 @@ bool console_has_input(void* /*context*/) {
     return driver::ConsoleTty().has_input();
 }
 
+template <unsigned long Bytes = driver::kTermiosBytes>
 long long answer_termios_get(unsigned long long argument) {
     const auto  kInput = ConsoleInput::self().guard();
     // NOLINTNEXTLINE(performance-no-int-to-ptr)
     auto* const kOut   = reinterpret_cast<unsigned char*>(argument);
-    driver::ConsoleTty().copy_termios(kOut);
+    driver::ConsoleTty().copy_termios(kOut, Bytes);
     return 0;
 }
 
+template <unsigned long Bytes = driver::kTermiosBytes>
 long long answer_termios_set(unsigned long long argument) {
     const auto        kInput = ConsoleInput::self().guard();
     // NOLINTNEXTLINE(performance-no-int-to-ptr)
     auto const* const kOut   = reinterpret_cast<const unsigned char*>(argument);
-    driver::ConsoleTty().apply_termios(kOut);
+    driver::ConsoleTty().apply_termios(kOut, Bytes);
     return 0;
 }
 
@@ -182,10 +184,14 @@ struct ConsoleAnswer {
 };
 
 constexpr ConsoleAnswer kConsoleAnswers[] = {
-    {.word = driver::kTtyTcgets, .answer = answer_termios_get},
-    {.word = driver::kTtyTcsets, .answer = answer_termios_set},
-    {.word = driver::kTtyTcsetsw, .answer = answer_termios_set},
-    {.word = driver::kTtyTcsetsf, .answer = answer_termios_set},
+    {.word = driver::kTtyTcgets, .answer = answer_termios_get<>},
+    {.word = driver::kTtyTcsets, .answer = answer_termios_set<>},
+    {.word = driver::kTtyTcsetsw, .answer = answer_termios_set<>},
+    {.word = driver::kTtyTcsetsf, .answer = answer_termios_set<>},
+    {.word = driver::kTtyTcgets2, .answer = answer_termios_get<driver::kTermios2Bytes>},
+    {.word = driver::kTtyTcsets2, .answer = answer_termios_set<driver::kTermios2Bytes>},
+    {.word = driver::kTtyTcsetsw2, .answer = answer_termios_set<driver::kTermios2Bytes>},
+    {.word = driver::kTtyTcsetsf2, .answer = answer_termios_set<driver::kTermios2Bytes>},
     {.word = driver::kTtyTiocgwinsz, .answer = answer_window},
     {.word = driver::kTtyTiocgpgrp, .answer = answer_pgrp_get},
     {.word = driver::kTtyTiocspgrp, .answer = answer_pgrp_set},

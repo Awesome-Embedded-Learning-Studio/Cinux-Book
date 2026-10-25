@@ -146,17 +146,19 @@ long long master_ioctl(void* context, unsigned long long word, unsigned long lon
     return kAnswer->answer(*seat_of(context), argument);
 }
 
+template <unsigned long Bytes = driver::kTermiosBytes>
 long long slave_answer_termios_get(const Seat& seat, unsigned long long argument) {
     // NOLINTNEXTLINE(performance-no-int-to-ptr)
     auto* const kOut = reinterpret_cast<unsigned char*>(argument);
-    seat.pair->slave().copy_termios(kOut);
+    seat.pair->slave().copy_termios(kOut, Bytes);
     return 0;
 }
 
+template <unsigned long Bytes = driver::kTermiosBytes>
 long long slave_answer_termios_set(const Seat& seat, unsigned long long argument) {
     // NOLINTNEXTLINE(performance-no-int-to-ptr)
     auto const* const kOut = reinterpret_cast<const unsigned char*>(argument);
-    seat.pair->slave().apply_termios(kOut);
+    seat.pair->slave().apply_termios(kOut, Bytes);
     return 0;
 }
 
@@ -182,10 +184,14 @@ struct SlaveAnswer {
 };
 
 constexpr SlaveAnswer kSlaveAnswers[] = {
-    {.word = driver::kTtyTcgets, .answer = slave_answer_termios_get},
-    {.word = driver::kTtyTcsets, .answer = slave_answer_termios_set},
-    {.word = driver::kTtyTcsetsw, .answer = slave_answer_termios_set},
-    {.word = driver::kTtyTcsetsf, .answer = slave_answer_termios_set},
+    {.word = driver::kTtyTcgets, .answer = slave_answer_termios_get<>},
+    {.word = driver::kTtyTcsets, .answer = slave_answer_termios_set<>},
+    {.word = driver::kTtyTcsetsw, .answer = slave_answer_termios_set<>},
+    {.word = driver::kTtyTcsetsf, .answer = slave_answer_termios_set<>},
+    {.word = driver::kTtyTcgets2, .answer = slave_answer_termios_get<driver::kTermios2Bytes>},
+    {.word = driver::kTtyTcsets2, .answer = slave_answer_termios_set<driver::kTermios2Bytes>},
+    {.word = driver::kTtyTcsetsw2, .answer = slave_answer_termios_set<driver::kTermios2Bytes>},
+    {.word = driver::kTtyTcsetsf2, .answer = slave_answer_termios_set<driver::kTermios2Bytes>},
     {.word = driver::kTtyTiocgwinsz, .answer = slave_answer_window},
     {.word = driver::kTtyTiocgpgrp, .answer = slave_answer_pgrp_get},
 };

@@ -161,6 +161,10 @@ struct WordSpan {
 };
 
 const WordSpan kWordSpans[] = {
+    {.word = driver::kTtyTcgets2, .bytes = driver::kTermios2Bytes, .caller_gives = false},
+    {.word = driver::kTtyTcsets2, .bytes = driver::kTermios2Bytes, .caller_gives = true},
+    {.word = driver::kTtyTcsetsw2, .bytes = driver::kTermios2Bytes, .caller_gives = true},
+    {.word = driver::kTtyTcsetsf2, .bytes = driver::kTermios2Bytes, .caller_gives = true},
     {.word = driver::kTtyTcgets, .bytes = driver::kTermiosBytes, .caller_gives = false},
     {.word = driver::kTtyTcsets, .bytes = driver::kTermiosBytes, .caller_gives = true},
     {.word = driver::kTtyTcsetsw, .bytes = driver::kTermiosBytes, .caller_gives = true},
@@ -205,7 +209,7 @@ long long HandleIoctl(const SyscallFrame& frame) {
     if (kSpan->bytes == 0) {
         return kFile->ops->ioctl(kFile->backend, kFile->node, frame.rsi, frame.rdx);
     }
-    unsigned char stage[driver::kTermiosBytes];
+    unsigned char stage[driver::kTermios2Bytes];
     cinux::base::SetBytes(stage, 0, sizeof(stage));
     if (kSpan->caller_gives && !uaccess::CopyFromUser(stage, frame.rdx, kSpan->bytes)) {
         return -kEfault;

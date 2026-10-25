@@ -40,6 +40,7 @@
 #include "kernel/syscall/sys_kill.hpp"
 #include "kernel/syscall/sys_mkdir.hpp"
 #include "kernel/syscall/sys_mmap.hpp"
+#include "kernel/syscall/sys_mount.hpp"
 #include "kernel/syscall/sys_mprotect.hpp"
 #include "kernel/syscall/sys_munmap.hpp"
 #include "kernel/syscall/sys_nanosleep.hpp"
@@ -48,12 +49,15 @@
 #include "kernel/syscall/sys_pgrp.hpp"
 #include "kernel/syscall/sys_pipe.hpp"
 #include "kernel/syscall/sys_ppoll.hpp"
+#include "kernel/syscall/sys_pread.hpp"
 #include "kernel/syscall/sys_prlimit.hpp"
 #include "kernel/syscall/sys_read.hpp"
 #include "kernel/syscall/sys_readlink.hpp"
 #include "kernel/syscall/sys_reboot.hpp"
 #include "kernel/syscall/sys_set_tid_address.hpp"
+#include "kernel/syscall/sys_shm.hpp"
 #include "kernel/syscall/sys_signal.hpp"
+#include "kernel/syscall/sys_sigtimedwait.hpp"
 #include "kernel/syscall/sys_socket.hpp"
 #include "kernel/syscall/sys_stat.hpp"
 #include "kernel/syscall/sys_sysinfo.hpp"
@@ -113,6 +117,7 @@ constexpr Row kRows[] = {
     {.number = cinux::syscall::SyscallNr::kSetpgid, .handler = cinux::syscall::HandleSetpgid},
     {.number = cinux::syscall::SyscallNr::kSetsid, .handler = cinux::syscall::HandleSetsid},
     {.number = cinux::syscall::SyscallNr::kGetpgid, .handler = cinux::syscall::HandleGetpgid},
+    {.number = cinux::syscall::SyscallNr::kGetpgrp, .handler = cinux::syscall::HandleGetpgrp},
     {.number = cinux::syscall::SyscallNr::kGetsid, .handler = cinux::syscall::HandleGetsid},
     {.number = cinux::syscall::SyscallNr::kGetppid, .handler = cinux::syscall::HandleGetppid},
     {.number = cinux::syscall::SyscallNr::kGetcwd, .handler = cinux::syscall::HandleGetcwd},
@@ -147,6 +152,8 @@ constexpr Row kRows[] = {
     },
     {.number = cinux::syscall::SyscallNr::kGetuid, .handler = cinux::syscall::HandleGetuid},
     {.number = cinux::syscall::SyscallNr::kGetgid, .handler = cinux::syscall::HandleGetgid},
+    {.number = cinux::syscall::SyscallNr::kGetgroups, .handler = cinux::syscall::HandleGetgroups},
+    {.number = cinux::syscall::SyscallNr::kSetgroups, .handler = cinux::syscall::HandleSetgroups},
     {.number = cinux::syscall::SyscallNr::kSetuid, .handler = cinux::syscall::HandleSetuid},
     {.number = cinux::syscall::SyscallNr::kSetgid, .handler = cinux::syscall::HandleSetgid},
     {.number = cinux::syscall::SyscallNr::kGeteuid, .handler = cinux::syscall::HandleGeteuid},
@@ -166,9 +173,24 @@ constexpr Row kRows[] = {
     },
     {.number = cinux::syscall::SyscallNr::kPpoll, .handler = cinux::syscall::HandlePpoll},
     {.number = cinux::syscall::SyscallNr::kPoll, .handler = cinux::syscall::HandlePoll},
+    {.number = cinux::syscall::SyscallNr::kPread64, .handler = cinux::syscall::HandlePread},
+    {
+        .number  = cinux::syscall::SyscallNr::kRtSigtimedwait,
+        .handler = cinux::syscall::HandleRtSigtimedwait,
+    },
     {.number = cinux::syscall::SyscallNr::kReadlink, .handler = cinux::syscall::HandleReadlink},
+    {.number = cinux::syscall::SyscallNr::kMount, .handler = cinux::syscall::HandleMount},
+    {.number = cinux::syscall::SyscallNr::kShmget, .handler = cinux::syscall::HandleShmget},
+    {.number = cinux::syscall::SyscallNr::kShmat, .handler = cinux::syscall::HandleShmat},
+    {.number = cinux::syscall::SyscallNr::kShmdt, .handler = cinux::syscall::HandleShmdt},
+    {.number = cinux::syscall::SyscallNr::kShmctl, .handler = cinux::syscall::HandleShmctl},
+    {.number = cinux::syscall::SyscallNr::kUmount2, .handler = cinux::syscall::HandleUmount2},
     {.number = cinux::syscall::SyscallNr::kSysinfo, .handler = cinux::syscall::HandleSysinfo},
     {.number = cinux::syscall::SyscallNr::kNanosleep, .handler = cinux::syscall::HandleNanosleep},
+    {
+        .number  = cinux::syscall::SyscallNr::kClockNanosleep,
+        .handler = cinux::syscall::HandleClockNanosleep,
+    },
     {.number = cinux::syscall::SyscallNr::kTgkill, .handler = cinux::syscall::HandleTgkill},
     {.number = cinux::syscall::SyscallNr::kSocket, .handler = cinux::syscall::HandleSocket},
     {.number = cinux::syscall::SyscallNr::kConnect, .handler = cinux::syscall::HandleConnect},

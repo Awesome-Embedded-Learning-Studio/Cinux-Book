@@ -66,13 +66,28 @@ bool FillPage(const AddressSpace& space, const VmaStore& ranges, unsigned long l
         return false;
     }
     const unsigned long kPage = cinux::base::math::AlignDown(address, kSize);
-    if (kRegion->kind == VmaKind::kStack && kPage == kRegion->start) {
+    if (kRegion->kind == VmaKind::kStack && kPage < kRegion->stack_floor) {
         return false;
     }
     KernelTables       world;
     const walk::SlotAt kSlot = walk::FindSlot(world, space.root(), kPage);
     if (kSlot.entry != nullptr && kSlot.entry->has(cinux::arch::page::kPresent)) {
         return false;
+    }
+    if (kRegion->shared.holds()) {
+        const auto& pages  = kRegion->shared->pages;
+        const auto  kIndex = (kPage - kRegion->shared->start) / kSize;
+        if (kIndex >= pages->count) {
+            return false;
+        }
+        const auto kPhysical = pages->frames[kIndex];
+        if (!space.map_user(kPage, kPhysical,
+                            arch::page::UserLeafTerms(kRegion->writable, false))) {
+            return false;
+        }
+        Pmm::self().retain_frame(base::PhysAddr{kPhysical});
+        arch::InvalidatePage(kPage);
+        return true;
     }
     const base::PhysAddr kFrame = Pmm::self().allocate_page();
     if (kFrame == base::PhysAddr{}) {

@@ -43,7 +43,7 @@ void on_usr1(int /*number*/) {
 }  // namespace
 
 // NOLINTNEXTLINE(readability-identifier-naming)
-extern "C" void _start() {
+extern "C" void UserMain() {
     cinux::syscall::SigAction action{};
     action.handler       = reinterpret_cast<unsigned long long>(&on_usr1);
     const long long kSet = user::Sigaction(cinux::syscall::kSigUsr1, &action, nullptr);

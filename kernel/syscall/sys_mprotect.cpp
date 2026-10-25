@@ -20,7 +20,15 @@ long long HandleMprotect(const SyscallFrame& frame) {
     if (kSelf == nullptr || !kSelf->vmas.holds() || !kSelf->space.holds()) {
         return -kEnomem;
     }
-    const unsigned long kStart = cinux::base::math::AlignDown(frame.rdi, cinux::arch::page::kSize);
+    if (frame.rdi % cinux::arch::page::kSize != 0 || frame.rdi >= kUserAddressLimit ||
+        frame.rsi > kUserAddressLimit - frame.rdi ||
+        (frame.rdx & ~(kProtRead | kProtWrite | kProtExec)) != 0) {
+        return -kEinval;
+    }
+    if (frame.rsi == 0) {
+        return 0;
+    }
+    const unsigned long kStart = frame.rdi;
     const unsigned long kEnd =
         cinux::base::math::AlignUp(frame.rdi + frame.rsi, cinux::arch::page::kSize);
     if (kStart >= kEnd) {
@@ -46,9 +54,10 @@ long long HandleMprotect(const SyscallFrame& frame) {
             continue;
         }
         const bool               kShared = kLeaf.has(cinux::arch::page::kCow);
-        cinux::arch::page::Entry bits    = cinux::arch::page::kUser;
-        if (kTerms.writable && !kShared) {
-            bits = bits | cinux::arch::page::kWritable;
+        cinux::arch::page::Entry bits =
+            cinux::arch::page::UserLeafTerms(kTerms.writable && !kShared, kTerms.executable);
+        if (!kTerms.readable && !kTerms.writable && !kTerms.executable) {
+            bits = bits & ~cinux::arch::page::kUser;
         }
         if (kShared) {
             bits = bits | cinux::arch::page::kCow;

@@ -59,6 +59,10 @@ long long HandleSetsid(const SyscallFrame& frame);
  */
 long long HandleGetpgid(const SyscallFrame& frame);
 
+/** @brief Reports the caller's process group. @param[in] frame Unused arguments. @return Group
+ * identity. */
+long long HandleGetpgrp(const SyscallFrame& frame);
+
 /**
  * @brief         Read a task's session id.
  * @param[in]     frame   rdi the target pid (zero means the caller).

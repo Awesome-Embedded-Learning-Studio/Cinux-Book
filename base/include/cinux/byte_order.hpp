@@ -125,6 +125,20 @@ constexpr void WriteWord16Be(unsigned char* data, uint32_t offset, uint16_t valu
 }
 
 /**
+ * @brief Writes one little-endian 64-bit word into a byte blob.
+ * @param[out] data Destination blob.
+ * @param[in] offset Byte offset of the first byte.
+ * @param[in] value Word to encode.
+ * @warning The caller provides eight writable bytes.
+ * @since 0.8.0
+ * @ingroup base_bytes
+ */
+constexpr void WriteWord64(unsigned char* data, uint32_t offset, uint64_t value) {
+    WriteWord32(data, offset, static_cast<uint32_t>(value));
+    WriteWord32(data, offset + sizeof(uint32_t), static_cast<uint32_t>(value >> 32U));
+}
+
+/**
  * @brief         Write one big-endian 32-bit word into a byte blob.
  *
  * @param[out]    data    Blob to write into.

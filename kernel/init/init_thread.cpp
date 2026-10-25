@@ -31,7 +31,9 @@
 #include "kernel/driver/tty/console_tty.hpp"
 #include "kernel/fs/devfs/console_node.hpp"
 #include "kernel/fs/file_world.hpp"
+#include "kernel/fs/fs_config.hpp"
 #include "kernel/fs/vfs.hpp"
+#include "kernel/loader/elf_layout.hpp"
 #include "kernel/loader/loader.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/layout.hpp"
@@ -68,6 +70,8 @@ public:
     /// Where the shell's stack picture landed.
     unsigned long long rsp = 0;
 
+    proc::Task* pending = nullptr;
+
 private:
     ShellSeats() = default;
 };
@@ -97,8 +101,8 @@ ShellWorld build_shell_world(std::uint64_t& entry) {
     unsigned long              program_bytes = 0;
     base::Own<unsigned char[]> program;
     fs::FsView                 view{.ops = nullptr, .self = nullptr, .rest = {}};
-    if (!read_volume_file("/bin/sh", program, program_bytes, view)) {
-        print::Println("[kern] kernel_init: /bin/sh unreadable on the volume");
+    if (!read_volume_file("/sbin/init", program, program_bytes, view)) {
+        print::Println("[kern] kernel_init: /sbin/init unreadable on the volume");
         return {};
     }
     base::Shared<mm::AddressSpace> space(new mm::AddressSpace{});
@@ -111,33 +115,61 @@ ShellWorld build_shell_world(std::uint64_t& entry) {
         return {};
     }
     const loader::LoadWorld kWorld{
-        .space     = *space,
-        .vmas      = *vmas,
-        .file      = kNode.value(),
-        .file_ops  = view.ops,
-        .file_self = view.self,
+        .space         = *space,
+        .vmas          = *vmas,
+        .file          = kNode.value(),
+        .file_ops      = view.ops,
+        .file_self     = view.self,
+        .file_lifetime = view.lifetime,
     };
     loader::EntryFacts facts{};
     if (!loader::LoadElfIntoSpace(program.get(), program_bytes, kWorld, facts)) {
         return {};
     }
-    entry                                       = facts.program_entry;
-    facts.page_bytes                            = cinux::arch::page::kSize;
+    entry                        = facts.program_entry;
+    facts.page_bytes             = cinux::arch::page::kSize;
+    facts.platform               = loader::kPlatformName;
+    unsigned int gnu_stack_flags = 0;
+    const bool   kStackExecutable =
+        loader::ReadGnuStackFlags(program.get(), program_bytes, gnu_stack_flags) &&
+        (gnu_stack_flags & loader::kSegmentExec) != 0;
     constexpr unsigned long long kBrkSlideMask  = 0xFFF'000;
     constexpr unsigned long long kMmapSlideMask = 0x3FFF'FF000;
     vmas->seed_heap(cinux::base::math::AlignUp(vmas->max_end(), cinux::arch::page::kSize) +
                         (arch::RandomWord() & kBrkSlideMask),
                     mm::kUserBrkMmapSplit);
     vmas->set_mmap_ceiling(mm::kUserMmapTop - (arch::RandomWord() & kMmapSlideMask));
+    char        interpreter_path[fs::kFsPathMax]{};
+    const char* interpreter = nullptr;
+    if (loader::ReadInterpreterPath(program.get(), program_bytes, interpreter_path,
+                                    sizeof(interpreter_path))) {
+        interpreter = interpreter_path;
+    }
+    const auto kInterpreter = loader::LoadInterpreter(interpreter, *space, *vmas);
+    if (!kInterpreter.ok()) {
+        return {};
+    }
+    facts.interpreter_base = kInterpreter.value().interpreter_base;
+    if (kInterpreter.value().program_entry != 0) {
+        entry = kInterpreter.value().program_entry;
+    }
+    unsigned char randomness[16]{};
+    const auto    kRandomLow  = arch::RandomWord();
+    const auto    kRandomHigh = arch::RandomWord();
+    base::CopyBytes(randomness, &kRandomLow, sizeof(kRandomLow));
+    base::CopyBytes(randomness + sizeof(kRandomLow), &kRandomHigh, sizeof(kRandomHigh));
+    facts.randomness                             = randomness;
+    facts.random_bytes                           = sizeof(randomness);
     constexpr unsigned long long kStackSlideMask = 0x7FF'000;
     const unsigned long long     kStackTop =
         proc::kUserProgramStackTop - (arch::RandomWord() & kStackSlideMask);
     mm::VmaRegion stack_range{};
-    stack_range.start    = kStackTop - mm::kUserStackBytes - cinux::arch::page::kSize;
-    stack_range.end      = kStackTop;
-    stack_range.kind     = mm::VmaKind::kStack;
-    stack_range.readable = true;
-    stack_range.writable = true;
+    stack_range.start      = kStackTop - mm::kUserStackBytes - cinux::arch::page::kSize;
+    stack_range.end        = kStackTop;
+    stack_range.kind       = mm::VmaKind::kStack;
+    stack_range.readable   = true;
+    stack_range.writable   = true;
+    stack_range.executable = kStackExecutable;
     if (!vmas->register_range(stack_range).ok()) {
         return {};
     }
@@ -147,15 +179,24 @@ ShellWorld build_shell_world(std::uint64_t& entry) {
     }
     cinux::base::SetBytes(cinux::base::PtrAt<unsigned char>(mm::DirectMapVirt(kStackFrame.raw)), 0,
                           cinux::arch::page::kSize);
-    const char* const        kShellArgv[2] = {"/bin/sh", nullptr};
-    const char* const        kShellEnvp[2] = {"PATH=/bin:/usr/bin", nullptr};
+    const char* const kShellArgv[2] = {"/sbin/init", nullptr};
+    const char* const kShellEnvp[]  = {
+        "PATH=/bin:/sbin:/usr/bin:/usr/sbin",
+        "HOME=/root",
+        "TERM=linux",
+        nullptr,
+    };
     const loader::EntryRuns  kShellRuns{.arguments = kShellArgv, .environment = kShellEnvp};
     const unsigned long long kEntryRsp =
         kStackTop - cinux::arch::page::kSize + proc::kUserEntryStackOffset;
-    loader::WriteEntryPicture(cinux::base::PtrAt<unsigned char>(mm::DirectMapVirt(kStackFrame.raw)),
-                              kEntryRsp, kShellRuns, facts);
+    if (loader::WriteEntryPicture(
+            cinux::base::PtrAt<unsigned char>(mm::DirectMapVirt(kStackFrame.raw)), kEntryRsp,
+            kShellRuns, facts) == 0) {
+        mm::Pmm::self().free_page(kStackFrame);
+        return {};
+    }
     if (!space->map_user(kStackTop - cinux::arch::page::kSize, kStackFrame.raw,
-                         cinux::arch::page::UserLeafTerms(true, false))) {
+                         cinux::arch::page::UserLeafTerms(true, kStackExecutable))) {
         mm::Pmm::self().free_page(kStackFrame);
         return {};
     }
@@ -172,43 +213,56 @@ ShellWorld build_shell_world(std::uint64_t& entry) {
 /// Seats one shell task over a freshly built world; the task owns the world
 /// and its range register from here to their reclaim. False when the world
 /// refused to build.
+void enter_initial_process() {
+    const ShellSeats& seats = ShellSeats::self();
+    proc::Task* const kSelf = proc::Scheduler::self().current();
+    kSelf->user_root        = seats.root;
+    asm volatile("cli" : : : "memory");
+    cinux::arch::LoadCr3(seats.root);
+    JumpToRing3(seats.entry, seats.rsp);
+}
+
+proc::Task* prepare_initial_process(proc::Task& parent) {
+    auto* const kTask = proc::TaskBuilder{}
+                            .set_entry(enter_initial_process)
+                            .set_name("init")
+                            .set_parent(parent)
+                            .build();
+    if (kTask != nullptr) {
+        proc::Scheduler::self().seat(*kTask, false, true);
+    }
+    return kTask;
+}
+
 bool seat_shell_task(proc::Task& parent) {
     std::uint64_t entry = 0;
     ShellWorld    world = build_shell_world(entry);
     if (!world.space.holds() || !world.vmas.holds()) {
         return false;
     }
-    ShellSeats::self().entry = entry;
-    ShellSeats::self().root  = world.space->root();
-    ShellSeats::self().rsp   = world.entry_rsp;
-    auto enter_ring3         = +[] {
-        const ShellSeats& seats = ShellSeats::self();
-        proc::Task* const kSelf = proc::Scheduler::self().current();
-        kSelf->user_root        = seats.root;
-        asm volatile("cli" : : : "memory");
-        cinux::arch::LoadCr3(seats.root);
-        JumpToRing3(seats.entry, seats.rsp);
-    };
-    auto* const kShell = proc::TaskBuilder{}
-                             .set_entry(enter_ring3)
-                             .set_name("user_shell")
-                             .set_parent(parent)
-                             .build();
-    if (kShell == nullptr) {
+    ShellSeats::self().entry   = entry;
+    ShellSeats::self().root    = world.space->root();
+    ShellSeats::self().rsp     = world.entry_rsp;
+    proc::Task* shell          = ShellSeats::self().pending;
+    ShellSeats::self().pending = nullptr;
+    if (shell == nullptr) {
+        shell = prepare_initial_process(parent);
+    }
+    if (shell == nullptr) {
         return false;
     }
-    kShell->space = std::move(world.space);
-    kShell->vmas  = std::move(world.vmas);
-    if (!fs::FileWorld::self().seat_console_streams(*kShell->files).ok()) {
+    shell->space = std::move(world.space);
+    shell->vmas  = std::move(world.vmas);
+    if (!fs::FileWorld::self().seat_console_streams(*shell->files).ok()) {
         return false;
     }
-    proc::Scheduler::self().seat(*kShell, false);
-    kShell->pgid            = kShell->pid;
-    kShell->sid             = kShell->pid;
-    kShell->controlling_tty = &driver::ConsoleTty();
-    fs::AdoptConsoleForeground(kShell->pgid);
-    cinux::base::CopyBytes(kShell->exe, "/bin/sh", 8);
-    proc::Scheduler::self().unblock(*kShell);
+    shell->pgid            = shell->pid;
+    shell->sid             = shell->pid;
+    shell->controlling_tty = &driver::ConsoleTty();
+    fs::AdoptConsoleForeground(shell->pgid);
+    cinux::base::CopyBytes(shell->exe, "/sbin/init", sizeof("/sbin/init"));
+    cinux::base::CopyBytes(shell->comm, "init", sizeof("init"));
+    proc::Scheduler::self().unblock(*shell);
     return true;
 }
 
@@ -246,6 +300,8 @@ void StartInitThread() {
     };
     auto* const kInit = proc::TaskBuilder{}.set_entry(kernel_init).set_name("kernel_init").build();
     base::safety::Check(kInit != nullptr, "kernel_init task failed to build");
+    ShellSeats::self().pending = prepare_initial_process(*kInit);
+    base::safety::Check(ShellSeats::self().pending != nullptr, "initial process failed to build");
     proc::Scheduler::self().seat(*kInit, false);
     kInit->pgid = kInit->pid;
     kInit->sid  = kInit->pid;

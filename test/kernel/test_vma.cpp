@@ -117,11 +117,13 @@ TEST("vma: unregister withdraws whole spans inside the stretch") {
     ASSERT_TRUE(store.find(0x1800) == nullptr);
 }
 
-TEST("vma: unregister refuses to split a span") {
+TEST("vma: unregister splits a span and preserves its tail") {
     cinux::mm::VmaStore store;
     ASSERT_TRUE(store.register_range(range_at(0x1000, 0x3000)).ok());
-    ASSERT_TRUE(!store.unregister_range(0x1000, 0x2000).ok());
+    ASSERT_TRUE(store.unregister_range(0x1000, 0x2000).ok());
+    ASSERT_TRUE(store.find(0x1800) == nullptr);
     ASSERT_TRUE(store.find(0x2500) != nullptr);
+    ASSERT_EQ(store.find(0x2500)->start, 0x2000UL);
 }
 
 TEST("vma: unregister empties a wholly withdrawn heap") {

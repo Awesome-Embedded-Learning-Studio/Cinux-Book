@@ -67,13 +67,9 @@ inline constexpr unsigned long kUserProgramStackTop = mm::kUserStackTop;
 /// the call stack to grow into. Laying the strings below the pointer
 /// instead once let any ordinary call overwrite them: argv[0] and PATH
 /// died to returning addresses, and a shell lost its own name mid-
-/// session. The offset's low four bits keep the landing at eight
-/// modulo sixteen — the shape a compiler assumes of a function it
-/// believes was called — so an entry prologue's aligned SSE stores
-/// land aligned. A page-flat offset once broke exactly there
-/// (station 19's lesson, lost again in the station 23 rewrite and
-/// caught by the first demo whose entry picture compiled a movaps).
-inline constexpr unsigned long kUserEntryStackOffset = 0x208;
+/// session. ELF process entry requires a sixteen-byte-aligned stack;
+/// freestanding programs enter C++ through their assembly startup stub.
+inline constexpr unsigned long kUserEntryStackOffset = 0x200;
 
 /// Resource rows prlimit64 can name; the uapi source stops at row 15
 /// (RLIMIT_RTTIME) and one past it closes the table.

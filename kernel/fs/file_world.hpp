@@ -29,6 +29,7 @@
 #include "cinux/singleton.hpp"
 #include "kernel/fs/devfs/devfs.hpp"
 #include "kernel/fs/procfs/procfs.hpp"
+#include "kernel/fs/ramfs/ramfs.hpp"
 #include "kernel/fs/vfs.hpp"
 
 namespace cinux::driver {
@@ -100,6 +101,44 @@ public:
      */
     [[nodiscard]] base::Result<void> seat_console_streams(FileTable& table);
 
+    /**
+     * @brief         Seats a fresh memory volume at a directory.
+     *
+     * @param[in]     target   Absolute mount point, the directory the
+     *                        new volume takes over.
+     * @return        Success, or the shape, occupancy and room errors
+     *                the mount table reports.
+     * @note          The seat belongs to the runtime mount syscall's
+     *                tmpfs face; detached backends retire after their
+     *                last resolved view, open or mapping releases them.
+     * @since         0.4.0
+     * @ingroup       kernel_fs
+     */
+    [[nodiscard]] base::Result<void> mount_tmpfs(std::string_view target);
+
+    /**
+     * @brief         Takes one tmpfs seat back, and only a tmpfs seat.
+     *
+     * @param[in]     target   The mount point to withdraw.
+     * @param[in] lazy Detach while existing users retain the backend.
+     * @return        Success, or kNotFound when nothing pooled sits
+     *                there; the boot's own mounts are not the runtime's
+     *                to take apart.
+     * @since         0.4.0
+     * @ingroup       kernel_fs
+     */
+    [[nodiscard]] base::Result<void> umount_tmpfs(std::string_view target, bool lazy = false);
+
+    /**
+     * @brief Formats the current mount table for procfs.
+     * @param[out] out Text destination.
+     * @param[in] capacity Destination capacity including the terminator.
+     * @return Text bytes written.
+     * @since 0.8.0
+     * @ingroup kernel_fs
+     */
+    [[nodiscard]] unsigned long mounts_text(char* out, unsigned long capacity) const;
+
 private:
     FileWorld() = default;
 
@@ -110,6 +149,23 @@ private:
     driver::BlockQueue* queue_  = nullptr;
     driver::BlockCache* cache_  = nullptr;
     ext2::Ext2*         volume_ = nullptr;
+
+    static constexpr unsigned long kTmpFsSeats = 4;
+
+    /**
+     * @brief   One runtime-mounted memory volume and the prefix it owns.
+     * @since   0.4.0
+     * @ingroup kernel_fs
+     */
+    struct TmpFsSeat {
+        RamFs*        volume = nullptr;
+        MountLease*   lifetime{};  ///< Mount ownership; views and opens retain separate holds.
+        unsigned long prefix_len         = 0;
+        char          prefix[kFsPathMax] = {};
+    };
+
+    TmpFsSeat   tmpfs_seats_[kTmpFsSeats] = {};
+    proc::Mutex mount_gate_;  ///< Serializes runtime mount-seat updates.
 };
 
 }  // namespace cinux::fs

@@ -73,15 +73,16 @@ bool map_segment(const std::uint8_t* data, std::size_t bytes, const LoadWorld& w
                          });
     }
     mm::VmaRegion segment_range{};
-    segment_range.start      = kPageBase;
-    segment_range.end        = kPageBase + (kSpan * kSize);
-    segment_range.kind       = mm::VmaKind::kFile;
-    segment_range.readable   = (segment.flags & kSegmentRead) != 0;
-    segment_range.writable   = (segment.flags & kSegmentWrite) != 0;
-    segment_range.executable = (segment.flags & kSegmentExec) != 0;
-    segment_range.backing    = world.file;
-    segment_range.file_ops   = world.file_ops;
-    segment_range.file_self  = world.file_self;
+    segment_range.start         = kPageBase;
+    segment_range.end           = kPageBase + (kSpan * kSize);
+    segment_range.kind          = mm::VmaKind::kFile;
+    segment_range.readable      = (segment.flags & kSegmentRead) != 0;
+    segment_range.writable      = (segment.flags & kSegmentWrite) != 0;
+    segment_range.executable    = (segment.flags & kSegmentExec) != 0;
+    segment_range.backing       = world.file;
+    segment_range.file_ops      = world.file_ops;
+    segment_range.file_self     = world.file_self;
+    segment_range.file_lifetime = world.file_lifetime;
     return world.vmas.register_range(segment_range).ok();
 }
 

@@ -185,7 +185,9 @@ inline long long Getcwd(char* buffer, unsigned long long size) {
  * @since         0.3.0
  */
 inline long long Reboot() {
-    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kReboot), 0, 0, 0);
+    return Syscall3(static_cast<unsigned long long>(cinux::syscall::SyscallNr::kReboot),
+                    cinux::syscall::kRebootMagic1, cinux::syscall::kRebootMagic2,
+                    cinux::syscall::kRebootPowerOff);
 }
 
 /// exit(code): end this task; never returns.

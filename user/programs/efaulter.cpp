@@ -1,5 +1,7 @@
 #include <api/syscall.hpp>
 
+#include "cinux/ptr.hpp"
+
 namespace {
 
 /// A hole below the user limit with no mapping and no promise; handing
@@ -29,23 +31,23 @@ void put_number(long long value) {
         magnitude /= 10ULL;
     }
     char          out[25] = {};
-    unsigned long at      = 0;
+    unsigned long cursor  = 0;
     if (value < 0) {
-        out[at] = '-';
-        at++;
+        out[cursor] = '-';
+        cursor++;
     }
     for (unsigned long index = 0; index < count; ++index) {
-        out[at + index] = digits[count - 1 - index];
+        out[cursor + index] = digits[count - 1 - index];
     }
-    user::Write(1, out, at + count);
+    user::Write(1, out, cursor + count);
 }
 
 }  // namespace
 
 // NOLINTNEXTLINE(readability-identifier-naming)
-extern "C" void _start() {
+extern "C" void UserMain() {
     put("[efaulter] writing four bytes at the hole address\n");
-    const long long kAnswer = user::Write(1, reinterpret_cast<const void*>(kHoleAddress), 4);
+    const long long kAnswer = user::Write(1, cinux::base::PtrAt<const void>(kHoleAddress), 4);
     put("[efaulter] write answered ");
     put_number(kAnswer);
     put(" (14 is EFAULT, the door apologized)\n");

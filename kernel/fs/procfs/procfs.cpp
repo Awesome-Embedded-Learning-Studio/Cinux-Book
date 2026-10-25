@@ -28,6 +28,9 @@ constexpr unsigned long kMeminfoIno = 2;
 /// The self directory's inode.
 constexpr unsigned long kSelfIno = 3;
 
+constexpr unsigned long kMountsIno = 7;
+constexpr unsigned long kUptimeIno = 8;
+
 /// One pid directory's stride in the inode space.
 constexpr unsigned long kPidStride = 4;
 
@@ -46,6 +49,8 @@ constexpr FixedName kRootNames[] = {
     {.name = "meminfo", .type = InodeType::kFile, .step = kMeminfoIno - kRootIno},
     {.name = "self", .type = InodeType::kDirectory, .step = kSelfIno - kRootIno},
     {.name = "devices", .type = InodeType::kFile, .step = kProcDevicesIno - kRootIno},
+    {.name = "mounts", .type = InodeType::kFile, .step = kMountsIno - kRootIno},
+    {.name = "uptime", .type = InodeType::kFile, .step = kUptimeIno - kRootIno},
 };
 
 /// One process directory's fixed names, stat first, cmdline second.
@@ -249,6 +254,21 @@ bool generate_process(const ProcSource& source, unsigned long tgid, unsigned lon
 // NOLINTNEXTLINE(readability-function-size) the scratch ladder names five
 bool generate(const ProcSource& source, unsigned long ino, char* scratch, unsigned long scratch_cap,
               unsigned long& bytes) {
+    if (ino == kMountsIno) {
+        bytes = source.mounts != nullptr ? source.mounts(source.context, scratch, scratch_cap) : 0;
+        return true;
+    }
+    if (ino == kUptimeIno) {
+        const auto kNow = source.uptime_ns != nullptr ? source.uptime_ns(source.context) : 0;
+        const base::format::Arg kArgs[] = {
+            base::format::NumU(kNow / 1'000'000'000ULL),
+            base::format::NumU((kNow / 10'000'000ULL) % 100ULL),
+        };
+        base::format::FormatToBuf(scratch, scratch_cap, "%llu.%02llu 0.00\n",
+                                  base::format::ArgsView::of(kArgs));
+        bytes = base::StrLength(scratch, scratch_cap);
+        return true;
+    }
     if (ino == kMeminfoIno) {
         bytes = format_meminfo(scratch, scratch_cap, source);
         return true;

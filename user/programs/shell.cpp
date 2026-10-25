@@ -373,8 +373,7 @@ void dispatch(unsigned long      words,
 }  // namespace
 
 // NOLINTNEXTLINE(readability-identifier-naming)
-extern "C" void _start() __attribute__((section(".text.start")));
-extern "C" void _start() {
+extern "C" void UserMain() {
     put_text("cinux shell - type 'help'\n");
     char  line[kMaxLine];
     char* words[kMaxWords];

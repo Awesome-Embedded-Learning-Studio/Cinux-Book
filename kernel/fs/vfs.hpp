@@ -32,7 +32,11 @@
 #include "cinux/memory.hpp"
 #include "cinux/own.hpp"
 #include "cinux/result.hpp"
+#include "cinux/shared.hpp"
+#include "cinux/spin_mutex.hpp"
+#include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/fs/fs_config.hpp"
+#include "kernel/fs/mount_lease.hpp"
 
 namespace cinux::fs {
 
@@ -222,9 +226,10 @@ template <FileSystem Fs>
  * @ingroup kernel_fs
  */
 struct FsView {
-    const FsOps*     ops;   ///< The winning backend's erased face.
-    void*            self;  ///< The winning backend instance.
-    std::string_view rest;  ///< Path past the mount point.
+    const FsOps*             ops;                ///< The winning backend's erased face.
+    void*                    self;               ///< The winning backend instance.
+    std::string_view         rest;               ///< Path past the mount point.
+    base::Shared<MountLease> lifetime{nullptr};  ///< Optional runtime backend ownership.
 };
 
 /**
@@ -275,7 +280,10 @@ public:
      * @ingroup       kernel_fs
      */
     template <FileSystem Fs>
-    base::Result<void> mount(std::string_view prefix, Fs& backend) {
+    base::Result<void> mount(std::string_view prefix, Fs& backend,
+                             const char* type_name = "unknown", MountLease* lifetime = nullptr) {
+        const arch::IrqGuard kIrq;
+        const auto           kGuard = gate_.guard();
         if (prefix.empty() || prefix.front() != '/' || prefix.size() >= kFsPathMax) {
             return base::KernelError::kInvalidArgument;
         }
@@ -290,10 +298,45 @@ public:
             return base::KernelError::kAlreadyExists;
         }
         static constexpr FsOps kErased = EraseFs<Fs>();
-        Slot                   slot{.ops = &kErased, .self = &backend, .prefix_len = prefix.size()};
+        Slot                   slot{
+            .ops        = &kErased,
+            .self       = &backend,
+            .type_name  = type_name,
+            .lifetime   = lifetime,
+            .prefix_len = prefix.size(),
+        };
         base::CopyBytes(slot.prefix, prefix.data(), prefix.size());
         if (slots_.insert(slot) == kMountMax) {
             return base::KernelError::kOutOfMemory;
+        }
+        return {};
+    }
+
+    /**
+     * @brief         Takes one mounted prefix back out of the table.
+     *
+     * @param[in]     prefix   The mount point as it was mounted.
+     * @return        Success, or kInvalidArgument (shape), kNotFound
+     *                (no slot carries that prefix).
+     * @note          The table forgets the row; the backend's own
+     *                lifetime was never the table's to spend.
+     * @since         0.4.0
+     * @ingroup       kernel_fs
+     */
+    base::Result<void> unmount(std::string_view prefix) {
+        const arch::IrqGuard kIrq;
+        const auto           kGuard = gate_.guard();
+        if (prefix.empty() || prefix.front() != '/' || prefix.size() >= kFsPathMax) {
+            return base::KernelError::kInvalidArgument;
+        }
+        if (prefix.size() > 1 && prefix.back() == '/') {
+            return base::KernelError::kInvalidArgument;
+        }
+        const unsigned long kSlot = slots_.find_if([prefix](const Slot& slot) {
+            return std::string_view(slot.prefix, slot.prefix_len) == prefix;
+        });
+        if (kSlot == kMountMax || !slots_.erase(kSlot)) {
+            return base::KernelError::kNotFound;
         }
         return {};
     }
@@ -314,6 +357,16 @@ public:
      */
     [[nodiscard]] base::Result<FsView> resolve(std::string_view path) const;
 
+    /**
+     * @brief Formats the live mount table in proc mounts format.
+     * @param[out] out Destination text buffer.
+     * @param[in] capacity Bytes available, including its terminator.
+     * @return Bytes written, excluding the terminator.
+     * @since 0.8.0
+     * @ingroup kernel_fs
+     */
+    [[nodiscard]] unsigned long mounts_text(char* out, unsigned long capacity) const;
+
 private:
     /**
      * @brief   One table row: a prefix and its erased backend.
@@ -321,13 +374,16 @@ private:
      * @ingroup kernel_fs
      */
     struct Slot {
-        const FsOps*  ops                = nullptr;
-        void*         self               = nullptr;
+        const FsOps*  ops       = nullptr;
+        void*         self      = nullptr;
+        const char*   type_name = "unknown";
+        MountLease*   lifetime{};
         unsigned long prefix_len         = 0;
         char          prefix[kFsPathMax] = {};
     };
 
     base::container::SlotTable<Slot, kMountMax> slots_;
+    mutable base::SpinMutex                     gate_;
 };
 
 }  // namespace cinux::fs

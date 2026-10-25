@@ -1,5 +1,7 @@
 #include <api/syscall.hpp>
 
+#include "cinux/ptr.hpp"
+
 namespace {
 
 /// The kernel's own text base; ring 3 may read nothing there, and with
@@ -18,9 +20,9 @@ void put(const char* text) {
 }  // namespace
 
 // NOLINTNEXTLINE(readability-identifier-naming)
-extern "C" void _start() {
+extern "C" void UserMain() {
     put("[smepdemo] about to call into kernel text\n");
-    reinterpret_cast<void (*)()>(kKernelText)();
+    cinux::base::PtrAt<void()>(kKernelText)();
     put("[smepdemo] the call returned, kernel text ran in ring 3\n");
     user::Exit(0);
 }

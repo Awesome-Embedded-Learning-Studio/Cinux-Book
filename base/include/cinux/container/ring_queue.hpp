@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include <utility>
+
 namespace cinux::base::container {
 
 /**
@@ -48,7 +50,7 @@ public:
         if (kNext == tail_) {
             return false;
         }
-        slots_[head_] = value;
+        slots_[head_] = std::move(value);
         head_         = kNext;
         return true;
     }
@@ -65,8 +67,9 @@ public:
         if (tail_ == head_) {
             return false;
         }
-        value = slots_[tail_];
-        tail_ = advance(tail_);
+        value         = std::move(slots_[tail_]);
+        slots_[tail_] = Element{};
+        tail_         = advance(tail_);
         return true;
     }
 

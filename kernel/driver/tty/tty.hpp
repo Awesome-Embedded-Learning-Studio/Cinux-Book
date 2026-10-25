@@ -188,9 +188,10 @@ public:
     [[nodiscard]] bool has_input() const;
 
     /**
-     * @brief     Copies the governing termios record out, 60 hosted bytes.
+     * @brief     Copies the requested Linux terminal attribute record.
      *
      * @param[out] sink   Where the record lands; kTermiosBytes wide.
+     * @param[in] bytes Wire record size, termios or termios2.
      * @return    None
      * @note      The record answers back exactly what was last applied,
      *              with the three governing flags — ECHO, ICANON, ISIG —
@@ -198,12 +199,13 @@ public:
      * @since     0.5.0
      * @ingroup   kernel_driver
      */
-    void copy_termios(unsigned char* sink) const;
+    void copy_termios(unsigned char* sink, unsigned long bytes = kTermiosBytes) const;
 
     /**
      * @brief     Takes a termios record in as the governing one.
      *
      * @param[in] source   The record to adopt; kTermiosBytes wide.
+     * @param[in] bytes Wire record size, termios or termios2.
      * @return    None
      * @note      The whole record is stored and answers back verbatim;
      *              of its flags, ECHO gates echo, ICANON gates line
@@ -212,7 +214,7 @@ public:
      * @since     0.5.0
      * @ingroup   kernel_driver
      */
-    void apply_termios(const unsigned char* source);
+    void apply_termios(const unsigned char* source, unsigned long bytes = kTermiosBytes);
 
     /**
      * @brief     The terminal's window shape, rows then columns.
@@ -281,7 +283,7 @@ private:
     base::container::RingQueue<unsigned char, kTtyPoolBytes + 1> pool_;
 
     /// The governing termios record, host-shaped, born fully canonical.
-    unsigned char termios_[kTermiosBytes] = {};
+    unsigned char termios_[kTermios2Bytes] = {};
 
     /// The window shape this terminal reports.
     TtyWindow window_{};

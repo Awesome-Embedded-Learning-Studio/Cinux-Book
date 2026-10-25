@@ -48,6 +48,23 @@ using Handler = long long (*)(const SyscallFrame& frame);
 int ErrnoFrom(base::KernelError error);
 
 /**
+ * @brief         Tears one span of a task's world down to unmapped.
+ * @param[in]     self    The task whose range register and space change.
+ * @param[in]     start   First byte of the span, page-aligned.
+ * @param[in]     bytes   Length of the span, page-multiple.
+ * @return        The range register's own verdict; the page sweep runs
+ *                only when it succeeds.
+ * @note          The corridor munmap walks and a fixed mmap borrows:
+ *                overlapping ranges leave the register, and pages still
+ *                standing in the tables come out frame by frame. A task
+ *                without a live space keeps the bookkeeping alone.
+ * @since         0.4.0
+ * @ingroup       kernel_syscall
+ */
+base::Result<void> ReclaimUserSpan(const proc::Task& self, unsigned long start,
+                                   unsigned long bytes);
+
+/**
  * @brief         Copies a path from ring 3 into kernel storage.
  * @param[in]     source   The user address of the path.
  * @param[out]    out      Kernel storage, at least cap bytes.

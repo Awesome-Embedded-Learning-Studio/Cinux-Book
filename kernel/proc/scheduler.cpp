@@ -88,7 +88,7 @@ SchedulingClass* Scheduler::class_at(unsigned int index) const {
     return index < classes_.size() ? classes_.view()[index] : nullptr;
 }
 
-void Scheduler::seat(Task& task, bool runnable) {
+void Scheduler::seat(Task& task, bool runnable, bool initial_process) {
     const QueueGuard kGuard(*this);
     base::safety::Check(sink_ready(), "scheduler has no sink installed");
     base::safety::Check(!classes_.empty(), "no scheduling class installed");
@@ -100,7 +100,17 @@ void Scheduler::seat(Task& task, bool runnable) {
         registered = registered || resident == task.sched_class;
     }
     base::safety::Check(registered, "task points at an unregistered class");
-    task.pid   = next_pid_++;
+    if (initial_process) {
+        for (const Task* scan = tasks_.head(); scan != nullptr; scan = tasks_.after(*scan)) {
+            base::safety::Check(scan->pid != 1, "initial process already seated");
+        }
+        task.pid = 1;
+        if (next_pid_ == 1) {
+            ++next_pid_;
+        }
+    } else {
+        task.pid = next_pid_++;
+    }
     task.tgid  = task.pid;
     task.state = runnable ? TaskState::kReady : TaskState::kBlocked;
     tasks_.push_back(task);
@@ -370,11 +380,33 @@ Task* Scheduler::take_zombie_child(Task& watcher, long long wanted, bool& has_el
     return match;
 }
 
+Task* Scheduler::find_adopter(const Task& dying) {
+    for (Task* task = tasks_.head(); task != nullptr; task = tasks_.after(*task)) {
+        if (task != &dying && task->pid == 1 && task->space.holds() &&
+            task->state != TaskState::kZombie && task->state != TaskState::kDead) {
+            return task;
+        }
+    }
+    return nullptr;
+}
+
 void Scheduler::detach_offspring(Task& dying) {
-    Task* scan = offspring_.head();
+    Task* const kAdopter = find_adopter(dying);
+    Task*       scan     = offspring_.head();
     while (scan != nullptr) {
         Task* const kNext = offspring_.after(*scan);
         if (scan->parent == &dying) {
+            if (kAdopter != nullptr) {
+                scan->parent = kAdopter;
+                if (scan->state == TaskState::kZombie) {
+                    SendSignal(*kAdopter, cinux::syscall::kSigChld);
+                    if (waiters_.remove(*kAdopter)) {
+                        unblock(*kAdopter);
+                    }
+                }
+                scan = kNext;
+                continue;
+            }
             offspring_.remove(*scan);
             scan->parent = nullptr;
             if (scan->state == TaskState::kZombie) {

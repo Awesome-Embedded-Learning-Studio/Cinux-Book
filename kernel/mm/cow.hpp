@@ -27,6 +27,7 @@
 namespace cinux::mm {
 
 class AddressSpace;
+class VmaStore;
 
 namespace cow {
 
@@ -117,7 +118,8 @@ void ReleaseFrame(unsigned long long frame);
  * @since         0.2.0
  * @ingroup       kernel_mm
  */
-[[nodiscard]] AddressSpace* CloneSharedSpace(const AddressSpace& parent);
+[[nodiscard]] AddressSpace* CloneSharedSpace(const AddressSpace& parent,
+                                             const VmaStore*     ranges = nullptr);
 
 }  // namespace cow
 

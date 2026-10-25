@@ -96,7 +96,7 @@ add_custom_target(run
     COMMAND ${CINUX_QEMU_PROGRAM} ${CINUX_QEMU_DEVICE_ARGS}
             -drive format=raw,file=${CMAKE_CURRENT_BINARY_DIR}/cinux.img
             -serial stdio
-    DEPENDS boot_image
+    DEPENDS boot_image ext2_img
 )
 
 add_custom_target(run_debug
@@ -105,7 +105,7 @@ add_custom_target(run_debug
     COMMAND ${CINUX_QEMU_PROGRAM} ${CINUX_QEMU_DEVICE_ARGS}
             -drive format=raw,file=${CMAKE_CURRENT_BINARY_DIR}/cinux.img
             -serial stdio -S -s
-    DEPENDS boot_image
+    DEPENDS boot_image ext2_img
 )
 
 set(CINUX_QEMU_GUI_ARGS ${CINUX_QEMU_DEVICE_ARGS})
@@ -116,5 +116,5 @@ add_custom_target(run_gui
     COMMAND ${CINUX_QEMU_PROGRAM} ${CINUX_QEMU_GUI_ARGS}
             -drive format=raw,file=${CMAKE_CURRENT_BINARY_DIR}/cinux.img
             -serial stdio
-    DEPENDS boot_image
+    DEPENDS boot_image ext2_img
 )

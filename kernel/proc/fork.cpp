@@ -21,6 +21,7 @@
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/signal.hpp"
 #include "kernel/syscall/syscall.hpp"
+#include "kernel/syscall/uaccess.hpp"
 
 extern "C" {
 
@@ -67,7 +68,8 @@ Task* BuildForkChild(unsigned long long frame_address) {
     cinux::base::safety::Check(kParent != nullptr, "fork outside any task");
     guard_spawn_depth(*kParent);
     cinux::base::safety::Check(kParent->space.holds(), "fork of a task without a world");
-    base::Shared<mm::AddressSpace> space(mm::cow::CloneSharedSpace(*kParent->space));
+    base::Shared<mm::AddressSpace> space(
+        mm::cow::CloneSharedSpace(*kParent->space, kParent->vmas.get()));
     if (!space.holds()) {
         return nullptr;
     }
@@ -116,11 +118,14 @@ Task* BuildForkChild(unsigned long long frame_address) {
     kBorn->controlling_tty = kParent->controlling_tty;
     cinux::base::CopyBytes(kBorn->comm, kParent->comm, sizeof(kBorn->comm));
     cinux::base::CopyBytes(kBorn->limits, kParent->limits, sizeof(kBorn->limits));
-    kBorn->uid   = kParent->uid;
-    kBorn->euid  = kParent->euid;
-    kBorn->gid   = kParent->gid;
-    kBorn->egid  = kParent->egid;
-    kBorn->files = kParent->files->clone();
+    kBorn->uid  = kParent->uid;
+    kBorn->euid = kParent->euid;
+    kBorn->gid  = kParent->gid;
+    kBorn->egid = kParent->egid;
+    base::CopyBytes(kBorn->supplementary_groups, kParent->supplementary_groups,
+                    sizeof(kBorn->supplementary_groups));
+    kBorn->supplementary_group_count = kParent->supplementary_group_count;
+    kBorn->files                     = kParent->files->clone();
     if (!kBorn->files.holds()) {
         mm::Pmm::self().free_pages(kStack, kStackOrder);
         return nullptr;
@@ -129,3 +134,14 @@ Task* BuildForkChild(unsigned long long frame_address) {
 }
 
 }  // namespace cinux::proc
+
+extern "C" void FinishForkChild() {
+    auto* const kSelf = cinux::proc::Scheduler::self().current();
+    if (kSelf->set_child_tid != 0) {
+        const auto kTid = static_cast<unsigned int>(kSelf->pid);
+        if (!cinux::syscall::uaccess::CopyToUser(kSelf->set_child_tid, &kTid, sizeof(kTid))) {
+            cinux::proc::Scheduler::self().exit_current(cinux::syscall::kSigSegv);
+        }
+        kSelf->set_child_tid = 0;
+    }
+}

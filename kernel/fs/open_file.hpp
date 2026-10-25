@@ -45,13 +45,14 @@ struct OpenFile : base::RefCount<> {
     OpenFile(const FsOps* face, void* self, FsNode handle)
         : ops(face), backend(self), node(handle) {}
 
-    const FsOps*  ops     = nullptr;  ///< The backend's erased face.
-    void*         backend = nullptr;  ///< The backend instance.
-    FsNode        node{};             ///< Which node of that backend.
-    unsigned long offset       = 0;   ///< Bytes read so far, or the directory entry ordinal.
+    const FsOps*             ops     = nullptr;  ///< The backend's erased face.
+    void*                    backend = nullptr;  ///< The backend instance.
+    FsNode                   node{};             ///< Which node of that backend.
+    unsigned long            offset = 0;  ///< Bytes read so far, or the directory entry ordinal.
     /// The open's own status bits (the O_RDWR/O_APPEND/O_NONBLOCK half
     /// of the open flags): what F_GETFL answers and F_SETFL re-arms.
-    unsigned long status_flags = 0;
+    unsigned long            status_flags = 0;
+    base::Shared<MountLease> lifetime{nullptr};  ///< Keeps a detached runtime backend alive.
 
     /// Drops the node reference this open has carried since birth.
     ~OpenFile() {

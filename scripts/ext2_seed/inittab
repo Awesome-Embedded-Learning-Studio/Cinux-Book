@@ -1,0 +1,2 @@
+::sysinit:/bin/echo Cinux up
+console::respawn:/bin/sh

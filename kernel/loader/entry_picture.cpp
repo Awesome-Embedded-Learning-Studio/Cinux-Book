@@ -62,6 +62,19 @@ unsigned long land_randomness(PicturePlane& plane, const EntryFacts& facts) {
     return plane.page_base + plane.strings_at;
 }
 
+unsigned long land_string(PicturePlane& plane, const char* text) {
+    unsigned long length = 0;
+    while (text[length] != '\0') {
+        ++length;
+    }
+    if (length + 1 + 16 > plane.strings_at - plane.words_at) {
+        return 0;
+    }
+    plane.strings_at -= length + 1;
+    cinux::base::CopyBytes(plane.page + plane.strings_at, text, length + 1);
+    return plane.page_base + plane.strings_at;
+}
+
 bool put_facts(PicturePlane& plane, const EntryFacts& facts, unsigned long first_run_landed,
                unsigned long random_landed) {
     if (!put_pair(plane, kAuxPhdr, static_cast<unsigned long>(facts.program_headers)) ||
@@ -73,6 +86,19 @@ bool put_facts(PicturePlane& plane, const EntryFacts& facts, unsigned long first
         !put_pair(plane, kAuxUid, 0) || !put_pair(plane, kAuxEuid, 0) ||
         !put_pair(plane, kAuxGid, 0) || !put_pair(plane, kAuxEgid, 0) ||
         !put_pair(plane, kAuxSecure, 0)) {
+        return false;
+    }
+    unsigned long platform_landed = 0;
+    if (facts.platform != nullptr) {
+        platform_landed = land_string(plane, facts.platform);
+        if (platform_landed == 0) {
+            return false;
+        }
+    }
+    if (platform_landed != 0 && !put_pair(plane, kAuxPlatform, platform_landed)) {
+        return false;
+    }
+    if (!put_pair(plane, kAuxHwcap, facts.hwcap)) {
         return false;
     }
     if (random_landed != 0 && !put_pair(plane, kAuxRandom, random_landed)) {

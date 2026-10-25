@@ -191,7 +191,19 @@ add_executable(user_smpstress programs/smpstress.cpp
     ${CMAKE_SOURCE_DIR}/base/src/format/radix.cpp)
 target_compile_options(user_smpstress PRIVATE ${USER_COMPILE_FLAGS})
 target_include_directories(user_smpstress PRIVATE ${USER_INCLUDE_DIRS})
-target_link_options(user_smpstress PRIVATE -nostdlib -static -no-pie -Wl,-e,SmpStressStart -lgcc)
+target_link_options(user_smpstress PRIVATE -nostdlib -static -no-pie -Wl,-e,_start -lgcc)
 set_target_properties(user_smpstress PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/user
     OUTPUT_NAME "smpstress.elf")
+
+foreach(program IN ITEMS shell hello mapper sigdemo sigcatch nxdemo efaulter
+        smepdemo aslrdemo tlsdemo threaddemo ttydemo smpstress)
+    target_sources(user_${program} PRIVATE start.S)
+endforeach()
+
+add_executable(user_ecotest rootfs/busybox/ecotest.c)
+target_compile_options(user_ecotest PRIVATE -std=gnu17 -O2 -Wall -Wextra -Werror -fno-pie)
+target_link_options(user_ecotest PRIVATE -no-pie -Wl,-rpath,/lib
+    -Wl,--dynamic-linker=/lib64/ld-linux-x86-64.so.2)
+set_target_properties(user_ecotest PROPERTIES OUTPUT_NAME ecotest
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/glibc)

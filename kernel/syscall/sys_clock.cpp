@@ -41,6 +41,10 @@ unsigned long long MonotonicNanoseconds() {
     return kTicks * 10'000'000ULL;
 }
 
+unsigned long long RealtimeNanoseconds() {
+    return (boot_wall() * 1'000'000'000ULL) + MonotonicNanoseconds();
+}
+
 long long HandleTime(const SyscallFrame& frame) {
     const unsigned long long kNow = boot_wall() + split_ns(MonotonicNanoseconds()).seconds;
     if (frame.rdi != 0 && !uaccess::CopyToUser(frame.rdi, &kNow, sizeof(kNow))) {

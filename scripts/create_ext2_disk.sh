@@ -10,7 +10,7 @@ set -euo pipefail
 image=$1
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 seed_dir="${script_dir}/ext2_seed"
-build_dir="$(cd "${script_dir}/.." && pwd)/build"
+build_dir="${CINUX_BUILD_DIR:-$(cd "${script_dir}/.." && pwd)/build}"
 
 is_elf() {
     [ -f "$1" ] && [ "$(head -c 4 "$1" | od -An -tx1 | tr -d ' \n')" = "7f454c46" ]
@@ -36,33 +36,60 @@ if [ -z "$hello_dyn" ] && [ -n "$ldso" ]; then
 fi
 
 busybox="${CINUX_BUSYBOX:-}"
-if [ -z "$busybox" ]; then
+libc_flavor="${CINUX_LIBC:-glibc}"
+if [ "$libc_flavor" != glibc ] && [ "$libc_flavor" != musl ]; then
+    echo "[ext2-disk] unknown CINUX_LIBC: $libc_flavor" >&2
+    exit 1
+fi
+if [ -z "$busybox" ] && [ "$libc_flavor" = "glibc" ]; then
+    busybox="${build_dir}/busybox-glibc/busybox"
+    if [ ! -f "$busybox" ] && [ -d "${HOME}/.local/src/busybox-1.38.0" ]; then
+        bash "${script_dir}/build-busybox-glibc.sh" "$busybox" >/dev/null || busybox=""
+    fi
+fi
+if [ -z "$busybox" ] && [ "$libc_flavor" != "glibc" ]; then
     busybox="${build_dir}/busybox/busybox"
     if [ ! -f "$busybox" ] && [ -d "${HOME}/.local/src/busybox-1.38.0" ]; then
         bash "${script_dir}/build-busybox.sh" "$busybox" >/dev/null || busybox=""
     fi
 fi
 is_elf "$busybox" || busybox=""
+if [ "$libc_flavor" = glibc ] && [ -z "$busybox" ]; then
+    echo '[ext2-disk] glibc BusyBox missing; run bash user/rootfs/busybox/build.sh build' >&2
+    exit 1
+fi
 
-truncate -s 16M "$image"
+volume_bytes="16M"
+if [ "$libc_flavor" = "glibc" ]; then
+    volume_bytes="64M"
+fi
+truncate -s "$volume_bytes" "$image"
 mkfs.ext2 -q -F -b 1024 -O none -N 512 "$image"
 debugfs -w -R 'mkdir /etc' "$image" >/dev/null 2>&1
 debugfs -w -R 'mkdir /bin' "$image" >/dev/null 2>&1
 debugfs -w -R 'mkdir /dev' "$image" >/dev/null 2>&1
 debugfs -w -R 'mkdir /lib' "$image" >/dev/null 2>&1
 debugfs -w -R 'mkdir /proc' "$image" >/dev/null 2>&1
+debugfs -w -R 'mkdir /root' "$image" >/dev/null 2>&1
+debugfs -w -R 'mkdir /sbin' "$image" >/dev/null 2>&1
+debugfs -w -R 'mkdir /tmp' "$image" >/dev/null 2>&1
+debugfs -w -R 'mkdir /var' "$image" >/dev/null 2>&1
 debugfs -w -R "write ${seed_dir}/motd.txt /etc/motd" "$image" >/dev/null 2>&1
+debugfs -w -R "write ${seed_dir}/passwd /etc/passwd" "$image" >/dev/null 2>&1
+debugfs -w -R "write ${seed_dir}/group /etc/group" "$image" >/dev/null 2>&1
+debugfs -w -R "write ${seed_dir}/inittab /etc/inittab" "$image" >/dev/null 2>&1
 debugfs -w -R "write ${seed_dir}/hello.txt /hello.txt" "$image" >/dev/null 2>&1
 debugfs -w -R "write ${seed_dir}/smp-stress.sh /etc/smp-stress.sh" "$image" >/dev/null 2>&1
 debugfs -w -R "write ${seed_dir}/resolv.conf /etc/resolv.conf" "$image" >/dev/null 2>&1
 debugfs -w -R "write ${seed_dir}/hosts /etc/hosts" "$image" >/dev/null 2>&1
+debugfs -w -R "write ${seed_dir}/fstab /etc/fstab" "$image" >/dev/null 2>&1
 if [ -n "$busybox" ]; then
     debugfs -w -R "write ${busybox} /bin/busybox" "$image" >/dev/null 2>&1
-    debugfs -w -R "write ${busybox} /bin/sh" "$image" >/dev/null 2>&1
-    for applet in cat ls stty script id uname ping ifconfig nslookup netstat; do
+    for applet in cat ls stty script id uname ping ifconfig nslookup netstat echo whoami pwd true false sleep env hostname wc ps free mount umount mkdir sh; do
         debugfs -w -R "ln /bin/busybox /bin/${applet}" "$image" >/dev/null 2>&1
     done
-    debugfs -w -R 'set_inode_field /bin/busybox links_count 11' "$image" >/dev/null 2>&1
+    debugfs -w -R 'ln /bin/busybox /sbin/init' "$image" >/dev/null 2>&1
+    debugfs -w -R 'set_inode_field /bin/busybox links_count 27' "$image" >/dev/null 2>&1
     echo "[ext2-disk] busybox seated as /bin/sh from ${busybox}"
 elif [ -f "${CINUX_SHELL_ELF:-}" ]; then
     debugfs -w -R "write ${CINUX_SHELL_ELF} /bin/sh" "$image" >/dev/null 2>&1
@@ -104,12 +131,46 @@ fi
 if [ -f "${CINUX_SMPSTRESS_ELF:-}" ]; then
     debugfs -w -R "write ${CINUX_SMPSTRESS_ELF} /bin/smpstress" "$image" >/dev/null 2>&1
 fi
-if [ -f "$ldso" ]; then
+if [ -f "$ldso" ] && [ "$libc_flavor" != "glibc" ]; then
     debugfs -w -R "write ${ldso} /lib/ld-musl-x86_64.so.1" "$image" >/dev/null 2>&1
     echo "[ext2-disk] interpreter installed from ${ldso}"
-else
+elif [ "$libc_flavor" != "glibc" ]; then
     echo "[ext2-disk] no musl toolchain found; /lib stays empty (dynamic station needs it)"
 fi
-if [ -f "$hello_dyn" ]; then
+if [ -f "$hello_dyn" ] && [ "$libc_flavor" != "glibc" ]; then
     debugfs -w -R "write ${hello_dyn} /bin/hello-dyn" "$image" >/dev/null 2>&1
+fi
+
+glibc_dir="/usr/lib"
+ldso_glibc="${CINUX_GLIBC_LDSO:-/lib64/ld-linux-x86-64.so.2}"
+libc_glibc="${CINUX_GLIBC_LIBC:-$(gcc -print-file-name=libc.so.6)}"
+hello_glibc="${CINUX_HELLO_GLIBC:-}"
+if [ -z "$hello_glibc" ] && [ -f "$ldso_glibc" ]; then
+    mkdir -p "${build_dir}/glibc"
+    hello_glibc="${build_dir}/glibc/hello-glibc"
+    if [ ! -f "$hello_glibc" ]; then
+        bash "${script_dir}/glibc/build-hello-glibc.sh" "$hello_glibc" >/dev/null
+    fi
+fi
+if [ -f "$ldso_glibc" ]; then
+    ldso_glibc="$(readlink -f "$ldso_glibc")"
+    libc_glibc="$(readlink -f "$libc_glibc")"
+    debugfs -w -R 'mkdir /lib64' "$image" >/dev/null 2>&1
+    debugfs -w -R "write ${ldso_glibc} /lib64/ld-linux-x86-64.so.2" "$image" >/dev/null 2>&1
+    debugfs -w -R "write ${libc_glibc} /lib/libc.so.6" "$image" >/dev/null 2>&1
+    for library in libm.so.6 libresolv.so.2; do
+        library_path="$(gcc -print-file-name="$library")"
+        if ! is_elf "$library_path"; then
+            echo "[ext2-disk] missing runtime library: $library" >&2
+            exit 1
+        fi
+        debugfs -w -R "write ${library_path} /lib/${library}" "$image" >/dev/null 2>&1
+    done
+    echo "[ext2-disk] glibc runtime seated from ${ldso_glibc}"
+fi
+if [ -f "$hello_glibc" ]; then
+    debugfs -w -R "write ${hello_glibc} /bin/hello-glibc" "$image" >/dev/null 2>&1
+fi
+if [ -f "${CINUX_ECOTEST:-${build_dir}/glibc/ecotest}" ]; then
+    debugfs -w -R "write ${CINUX_ECOTEST:-${build_dir}/glibc/ecotest} /bin/ecotest" "$image" >/dev/null 2>&1
 fi

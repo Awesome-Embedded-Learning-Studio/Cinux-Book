@@ -39,15 +39,6 @@ namespace {
 
 constexpr unsigned long long kUserFlags = 0x202;
 
-/// What finishing a dynamic program's world decided for the exec that
-/// asked: go or a negative errno, where the CPU should first run, and
-/// the interpreter's base when there is one.
-struct InterpVerdict {
-    long long          errno_word;
-    unsigned long long instruction;
-    unsigned long long base;
-};
-
 /// Records the program's short and full names on the task that becomes it.
 void note_program_identity(proc::Task& self, const char* path) {
     std::string_view comm_parent = {};
@@ -86,52 +77,6 @@ const std::uint8_t* draw_entry_random(unsigned char (&bytes)[16]) {
         ++drawn;
     }
     return drawn > 0 ? bytes : nullptr;
-}
-
-/// Maps the interpreter a program's PT_INTERP names beside it, in the
-/// same fresh world, and answers where the CPU should first run. A
-/// null path names nobody: nothing changes and the instruction stays
-/// at zero for the caller to fill with the program's own entry.
-InterpVerdict finish_dynamic_world(const char* path, const mm::AddressSpace& space,
-                                   mm::VmaStore& ranges) {
-    InterpVerdict verdict{};
-    if (path == nullptr) {
-        return verdict;
-    }
-    const base::Result<fs::FsView> kView = fs::FileWorld::self().resolve(path);
-    if (!kView.ok()) {
-        verdict.errno_word = -kEnoent;
-        return verdict;
-    }
-    unsigned long              image_size = 0;
-    base::Own<unsigned char[]> image;
-    if (!fs::ReadWholeFile(kView.value(), image, image_size).ok()) {
-        verdict.errno_word = -kEnoent;
-        return verdict;
-    }
-    const base::Result<fs::FsNode> kNode =
-        kView.value().ops->lookup(kView.value().self, kView.value().rest);
-    if (!kNode.ok()) {
-        verdict.errno_word = -kEnoent;
-        return verdict;
-    }
-    const loader::LoadWorld kWorld{
-        .space     = space,
-        .vmas      = ranges,
-        .file      = kNode.value(),
-        .file_ops  = kView.value().ops,
-        .file_self = kView.value().self,
-        .role      = loader::ImageRole::kInterpreter,
-        .base      = mm::kUserInterpreterBase,
-    };
-    loader::EntryFacts interpreter_facts{};
-    if (!loader::LoadElfIntoSpace(image.get(), image_size, kWorld, interpreter_facts)) {
-        verdict.errno_word = -kEnoexec;
-        return verdict;
-    }
-    verdict.base        = mm::kUserInterpreterBase;
-    verdict.instruction = interpreter_facts.program_entry;
-    return verdict;
 }
 
 /// How many argument or environment runs one exec may carry, and how
@@ -250,17 +195,23 @@ long long HandleExecve(const SyscallFrame& frame) {
         envp_words[0] = g_default_path;
     }
     const loader::LoadWorld kWorld{
-        .space     = *fresh,
-        .vmas      = *ranges,
-        .file      = kNode.value(),
-        .file_ops  = kView.value().ops,
-        .file_self = kView.value().self,
+        .space         = *fresh,
+        .vmas          = *ranges,
+        .file          = kNode.value(),
+        .file_ops      = kView.value().ops,
+        .file_self     = kView.value().self,
+        .file_lifetime = kView.value().lifetime,
     };
     loader::EntryFacts facts{};
     if (!loader::LoadElfIntoSpace(program.get(), program_size, kWorld, facts)) {
         return -kEnomem;
     }
-    facts.page_bytes                            = cinux::arch::page::kSize;
+    facts.page_bytes             = cinux::arch::page::kSize;
+    facts.platform               = loader::kPlatformName;
+    unsigned int gnu_stack_flags = 0;
+    const bool   kStackExecutable =
+        loader::ReadGnuStackFlags(program.get(), program_size, gnu_stack_flags) &&
+        (gnu_stack_flags & loader::kSegmentExec) != 0;
     constexpr unsigned long long kBrkSlideMask  = 0xFFF'000;
     constexpr unsigned long long kMmapSlideMask = 0x3FFF'FF000;
     ranges->seed_heap(cinux::base::math::AlignUp(ranges->max_end(), cinux::arch::page::kSize) +
@@ -276,22 +227,23 @@ long long HandleExecve(const SyscallFrame& frame) {
         }
         interpreter = interpreter_path;
     }
-    const InterpVerdict kDyn = finish_dynamic_world(interpreter, *fresh, *ranges);
-    if (kDyn.errno_word != 0) {
-        return kDyn.errno_word;
+    const auto kDyn = loader::LoadInterpreter(interpreter, *fresh, *ranges);
+    if (!kDyn.ok()) {
+        return -ErrnoFrom(kDyn.error());
     }
-    facts.interpreter_base = kDyn.base;
+    facts.interpreter_base = kDyn.value().interpreter_base;
     const unsigned long long kFirstInstruction =
-        kDyn.instruction != 0 ? kDyn.instruction : facts.program_entry;
+        kDyn.value().program_entry != 0 ? kDyn.value().program_entry : facts.program_entry;
     constexpr unsigned long long kStackSlideMask = 0x7FF'000;
     const unsigned long long     kStackTop =
         proc::kUserProgramStackTop - (arch::RandomWord() & kStackSlideMask);
     mm::VmaRegion stack_range{};
-    stack_range.start    = kStackTop - mm::kUserStackBytes - cinux::arch::page::kSize;
-    stack_range.end      = kStackTop;
-    stack_range.kind     = mm::VmaKind::kStack;
-    stack_range.readable = true;
-    stack_range.writable = true;
+    stack_range.start      = kStackTop - mm::kUserStackBytes - cinux::arch::page::kSize;
+    stack_range.end        = kStackTop;
+    stack_range.kind       = mm::VmaKind::kStack;
+    stack_range.readable   = true;
+    stack_range.writable   = true;
+    stack_range.executable = kStackExecutable;
     if (!ranges->register_range(stack_range).ok()) {
         return -kEnomem;
     }
@@ -302,7 +254,7 @@ long long HandleExecve(const SyscallFrame& frame) {
     cinux::base::SetBytes(cinux::base::PtrAt<unsigned char>(mm::DirectMapVirt(kStackFrame.raw)), 0,
                           cinux::arch::page::kSize);
     if (!fresh->map_user(kStackTop - cinux::arch::page::kSize, kStackFrame.raw,
-                         cinux::arch::page::UserLeafTerms(true, false))) {
+                         cinux::arch::page::UserLeafTerms(true, kStackExecutable))) {
         mm::Pmm::self().free_page(kStackFrame);
         return -kEnomem;
     }

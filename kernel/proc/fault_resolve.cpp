@@ -13,7 +13,6 @@
 #include "kernel/proc/fault_resolve.hpp"
 
 #include "kernel/arch/x86_64/isr.hpp"
-#include "kernel/arch/x86_64/page.hpp"
 #include "kernel/mm/cow.hpp"
 #include "kernel/mm/demand.hpp"
 #include "kernel/mm/vma.hpp"
@@ -33,11 +32,11 @@ bool resolve_current_fault(unsigned long long address, unsigned long long error_
     const mm::VmaRegion* const kRegion      = kSelf->vmas->find(address);
     const bool                 kWrite       = (error_code & arch::isr::kFaultWasWrite) != 0;
     const bool                 kInstruction = (error_code & arch::isr::kFaultInstruction) != 0;
-    const bool                 kAllowed =
-        kRegion != nullptr && (error_code & arch::isr::kFaultReserved) == 0 &&
-        (!kWrite || kRegion->writable) && (!kInstruction || kRegion->executable) &&
-        (kWrite || kInstruction || kRegion->readable) &&
-        (kRegion->kind != mm::VmaKind::kStack || address - kRegion->start >= arch::page::kSize);
+    const bool kAllowed = kRegion != nullptr && (error_code & arch::isr::kFaultReserved) == 0 &&
+                          (!kWrite || kRegion->writable) &&
+                          (!kInstruction || kRegion->executable) &&
+                          (kWrite || kInstruction || kRegion->readable) &&
+                          (kRegion->kind != mm::VmaKind::kStack || address >= kRegion->stack_floor);
     if (!kAllowed || (!mm::cow::TryResolvePageFault(address, error_code) &&
                       !mm::demand::FillPage(*kSelf->space, *kSelf->vmas, address, error_code))) {
         if ((error_code & arch::isr::kFaultFromUser) != 0) {

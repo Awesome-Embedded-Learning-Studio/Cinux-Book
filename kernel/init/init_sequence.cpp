@@ -24,7 +24,10 @@
 #include "kernel/driver/keyboard/keyboard.hpp"
 #include "kernel/driver/net/e1000.hpp"
 #include "kernel/driver/net/loopback.hpp"
+#include "kernel/driver/nvme/nvme.hpp"
+#include "kernel/driver/nvme/nvme_config.hpp"
 #include "kernel/driver/pci/pci.hpp"
+#include "kernel/driver/pci/pci_layout.hpp"
 #include "kernel/driver/pit/pit.hpp"
 #include "kernel/driver/serial/serial.hpp"
 #include "kernel/driver/usb/usb_keyboard.hpp"
@@ -201,6 +204,20 @@ constexpr InitStep kInitSteps[] = {
         .run  = +[](const BootInfo* info) -> const BootInfo* {
             if (!driver::Hpet::self().init(driver::acpi::FindRootPointer())) {
                 print::Println("[kern] hpet absent, clocks stay tick-grained");
+            }
+            return info;
+        },
+    },
+    {
+        .name = "nvme",
+        .run  = +[](const BootInfo* info) -> const BootInfo* {
+            if (driver::PciBus::self().find_by_class(driver::PciClassCode::kMassStorage,
+                                                     driver::kNvmeSubclass) != nullptr) {
+                base::safety::Check(driver::Nvme::self().init(), "NVMe refused initialization");
+                if (driver::Nvme::self().scratch_namespace()) {
+                    base::safety::Check(driver::Nvme::self().verify_io(),
+                                        "NVMe I/O verification failed");
+                }
             }
             return info;
         },

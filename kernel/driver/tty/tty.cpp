@@ -193,12 +193,12 @@ unsigned long Tty::read_line(unsigned char* sink, unsigned long count, bool wait
     return handed;
 }
 
-void Tty::copy_termios(unsigned char* sink) const {
-    base::CopyBytes(sink, termios_, kTermiosBytes);
+void Tty::copy_termios(unsigned char* sink, unsigned long bytes) const {
+    base::CopyBytes(sink, termios_, bytes);
 }
 
-void Tty::apply_termios(const unsigned char* source) {
-    base::CopyBytes(termios_, source, kTermiosBytes);
+void Tty::apply_termios(const unsigned char* source, unsigned long bytes) {
+    base::CopyBytes(termios_, source, bytes);
 }
 
 }  // namespace cinux::driver

@@ -148,6 +148,8 @@ public:
     /**
      * @brief         Hand one ready task to the queue.
      * @param[in,out] task   Armed task, state and pid get assigned.
+     * @param[in] runnable Queue immediately when true.
+     * @param[in] initial_process Reserve PID 1 for the user init process.
      * @return        None.
      * @note          The seam tests drive directly: seat a hand-made
      *                task, install a recording sink, and the decision
@@ -159,7 +161,7 @@ public:
      * @since         0.2.0
      * @ingroup       kernel_proc
      */
-    void seat(Task& task, bool runnable = true);
+    void seat(Task& task, bool runnable = true, bool initial_process = false);
 
     /**
      * @brief         Register a scheduling class; pick order follows
@@ -553,6 +555,8 @@ private:
     /// they exit straight to reclaim, and a joiner watches the tid
     /// word instead of waiting.
     Task*               take_zombie_child(Task& watcher, long long wanted, bool& has_eligible);
+    /** @brief Finds a living user init other than the retiring task. */
+    [[nodiscard]] Task* find_adopter(const Task& dying);
     void                detach_offspring(Task& dying);
 
     void (*switch_tasks_)(void*, Task&, Task&) = nullptr;

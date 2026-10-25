@@ -77,6 +77,10 @@ long long HandleSetsid(const SyscallFrame& /*frame*/) {
     return static_cast<long long>(kSelf->pid);
 }
 
+long long HandleGetpgrp([[maybe_unused]] const SyscallFrame& frame) {
+    return static_cast<long long>(CurrentTask()->pgid);
+}
+
 long long HandleGetpgid(const SyscallFrame& frame) {
     return read_identity(frame.rdi, &proc::Task::pgid);
 }

@@ -38,6 +38,17 @@ inline constexpr unsigned long kTtyPoolBytes = kTtyLineMax * 8;
 /// whatever the caller kept beside it.
 inline constexpr unsigned long kTermiosBytes = 36;
 
+/** @brief Extended Linux termios2 record with speed words. */
+inline constexpr unsigned long      kTermios2Bytes = 44;
+/** @brief Extended terminal attribute read. */
+inline constexpr unsigned long long kTtyTcgets2    = 0x802C542A;
+/** @brief Extended terminal attribute write. */
+inline constexpr unsigned long long kTtyTcsets2    = 0x402C542B;
+/** @brief Extended attribute write after drain. */
+inline constexpr unsigned long long kTtyTcsetsw2   = 0x402C542C;
+/** @brief Extended attribute write with input flush. */
+inline constexpr unsigned long long kTtyTcsetsf2   = 0x402C542D;
+
 /// The window-size ioctl record's bytes on the wire.
 inline constexpr unsigned long kTtyWinsizeBytes = 8;
 

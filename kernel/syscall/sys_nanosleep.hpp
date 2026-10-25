@@ -33,4 +33,13 @@ namespace cinux::syscall {
  */
 long long HandleNanosleep(const SyscallFrame& frame);
 
+/**
+ * @brief Sleeps on a selected clock with relative or absolute time.
+ * @param[in] frame Linux clock_nanosleep register arguments.
+ * @return Zero or a negative errno.
+ * @since 0.8.0
+ * @ingroup kernel_syscall
+ */
+long long HandleClockNanosleep(const SyscallFrame& frame);
+
 }  // namespace cinux::syscall

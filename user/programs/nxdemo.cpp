@@ -18,7 +18,7 @@ void put(const char* text) {
 }  // namespace
 
 // NOLINTNEXTLINE(readability-identifier-naming)
-extern "C" void _start() {
+extern "C" void UserMain() {
     put("[nxdemo] about to call into writable data\n");
     reinterpret_cast<void (*)()>(g_payload)();
     put("[nxdemo] the call returned, data pages still execute\n");

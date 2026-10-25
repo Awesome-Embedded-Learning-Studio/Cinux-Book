@@ -1,23 +1,32 @@
 #include <poll.h>
 #include <time.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 
 #include "../framework/framework.hpp"
+#include "cinux/memory.hpp"
 #include "cinux/result.hpp"
+#include "cinux/shared.hpp"
+#include "kernel/fs/vfs.hpp"
+#include "kernel/mm/vma.hpp"
 #include "kernel/proc/sched_class.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/sys_fcntl.hpp"
 #include "kernel/syscall/sys_getrandom.hpp"
+#include "kernel/syscall/sys_mmap.hpp"
 #include "kernel/syscall/sys_open.hpp"
 #include "kernel/syscall/sys_openat.hpp"
+#include "kernel/syscall/sys_pread.hpp"
 #include "kernel/syscall/sys_prlimit.hpp"
+#include "kernel/syscall/sys_sigtimedwait.hpp"
 #include "kernel/syscall/sys_stat.hpp"
 #include "kernel/syscall/sys_uname.hpp"
 #include "kernel/syscall/syscall.hpp"
+#include "kernel/syscall/syscall_internal.hpp"
 #include "test_assert.hpp"
 #include "test_case.hpp"  // NOLINT(misc-include-cleaner) consumed by the TEST() macro body
 
@@ -29,6 +38,13 @@ long long HandleOpen(const SyscallFrame& /*frame*/) {
 }
 long long HandleStat(const SyscallFrame& /*frame*/) {
     return 102;
+}
+int ErrnoFrom([[maybe_unused]] base::KernelError error) {
+    return 5;
+}
+base::Result<void> ReclaimUserSpan(const proc::Task& self, unsigned long start,
+                                   unsigned long bytes) {
+    return self.vmas->unregister_range(start, start + bytes);
 }
 
 }  // namespace cinux::syscall
@@ -43,6 +59,10 @@ static_assert(static_cast<int>(cinux::syscall::SyscallNr::kMmap) == SYS_mmap);
 static_assert(static_cast<int>(cinux::syscall::SyscallNr::kMprotect) == SYS_mprotect);
 static_assert(static_cast<int>(cinux::syscall::SyscallNr::kMunmap) == SYS_munmap);
 static_assert(static_cast<int>(cinux::syscall::SyscallNr::kBrk) == SYS_brk);
+static_assert(static_cast<int>(cinux::syscall::SyscallNr::kPread64) == SYS_pread64);
+static_assert(static_cast<int>(cinux::syscall::SyscallNr::kRtSigtimedwait) == SYS_rt_sigtimedwait);
+static_assert(static_cast<int>(cinux::syscall::SyscallNr::kMount) == SYS_mount);
+static_assert(static_cast<int>(cinux::syscall::SyscallNr::kUmount2) == SYS_umount2);
 static_assert(offsetof(WireStat, dev) == offsetof(struct stat, st_dev));
 static_assert(offsetof(WireStat, ino) == offsetof(struct stat, st_ino));
 static_assert(offsetof(WireStat, links) == offsetof(struct stat, st_nlink));
@@ -306,6 +326,112 @@ TEST("syscall face: getrandom counts the bytes and guards the buffer") {
     frame.rdi = reinterpret_cast<unsigned long long>(seed);
     frame.rsi = 512;
     ASSERT_EQ(cinux::syscall::HandleGetrandom(frame), -22);
+}
+
+struct PreadPool {
+    static const cinux::fs::FsOps kOps;
+};
+
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization) constinit pins it
+constinit const cinux::fs::FsOps PreadPool::kOps = [] noexcept {
+    cinux::fs::FsOps ops{};
+    ops.retain  = [](void*, cinux::fs::FsNode) {};
+    ops.release = [](void*, cinux::fs::FsNode) {};
+    ops.read    = [](void*, cinux::fs::FsNode, unsigned long offset, void* sink,
+                     unsigned long count) -> cinux::base::Result<unsigned long> {
+        static const unsigned char kBytes[8] = {'p', 'r', 'e', 'a', 'd', '6', '4', '!'};
+        if (offset >= sizeof(kBytes)) {
+            return {0UL};
+        }
+        const unsigned long kTake = std::min(count, sizeof(kBytes) - offset);
+        cinux::base::CopyBytes(sink, kBytes + offset, kTake);
+        return {kTake};
+    };
+    return ops;
+}();
+
+unsigned char g_pread_landed[8] = {};
+
+unsigned long pread_cursor(const cinux::proc::Task* self, unsigned long seat) {
+    return self->files->get(seat).value()->offset;
+}
+
+void pread_full_read(cinux::syscall::SyscallFrame& frame, unsigned long seat) {
+    frame.rdi = seat;
+    frame.rsi = reinterpret_cast<unsigned long long>(g_pread_landed);
+    frame.rdx = 8;
+    frame.r10 = 0;
+    ASSERT_EQ(cinux::syscall::HandlePread(frame), 8);
+    ASSERT_TRUE(g_pread_landed[0] == 'p');
+    ASSERT_TRUE(g_pread_landed[7] == '!');
+}
+
+void pread_tail_and_refusals(cinux::syscall::SyscallFrame& frame) {
+    frame.rsi = reinterpret_cast<unsigned long long>(g_pread_landed);
+    frame.r10 = 6;
+    ASSERT_EQ(cinux::syscall::HandlePread(frame), 2);
+    ASSERT_TRUE(g_pread_landed[0] == '4');
+    ASSERT_TRUE(g_pread_landed[1] == '!');
+    frame.r10 = 0xFFFF'FFFF'FFFF'FFFFULL;
+    ASSERT_EQ(cinux::syscall::HandlePread(frame), -22);
+}
+
+void run_pread_body() {
+    cinux::syscall::SyscallFrame             frame = plain_frame();
+    const cinux::proc::Task* const           kSelf = cinux::proc::Scheduler::self().current();
+    const cinux::base::Result<unsigned long> kSeat =
+        kSelf->files->alloc(&PreadPool::kOps, nullptr, {});
+    ASSERT_TRUE(kSeat.ok());
+    kSelf->files->get(kSeat.value()).value()->offset = 4;
+    pread_full_read(frame, kSeat.value());
+    ASSERT_TRUE(pread_cursor(kSelf, kSeat.value()) == 4);
+    pread_tail_and_refusals(frame);
+    ASSERT_TRUE(pread_cursor(kSelf, kSeat.value()) == 4);
+    cinux::proc::Scheduler::self().exit_current();
+}
+
+TEST("syscall face: pread reads at a position and leaves the cursor") {
+    FaceWorld world;
+    world.run(run_pread_body);
+}
+
+void mmap_fixed_refusals(cinux::syscall::SyscallFrame& frame) {
+    frame.rdi = 0x10000001;
+    ASSERT_EQ(cinux::syscall::HandleMmap(frame), -22);
+    frame.rdi = 4096;
+    ASSERT_EQ(cinux::syscall::HandleMmap(frame), -22);
+}
+
+void run_mmap_fixed_body() {
+    cinux::syscall::SyscallFrame frame = plain_frame();
+    cinux::proc::Task* const     kSelf = cinux::proc::Scheduler::self().current();
+    kSelf->vmas = cinux::base::Shared<cinux::mm::VmaStore>(new cinux::mm::VmaStore{});
+    frame.rdx   = 3;
+    frame.r10   = 0x32;
+    frame.rdi   = 0x10000000;
+    frame.rsi   = 8192;
+    ASSERT_EQ(cinux::syscall::HandleMmap(frame), 0x10000000);
+    frame.rsi = 4096;
+    ASSERT_EQ(cinux::syscall::HandleMmap(frame), 0x10000000);
+    ASSERT_TRUE(kSelf->vmas->find(0x10000000) != nullptr);
+    ASSERT_TRUE(kSelf->vmas->find(0x10000000 + 4096) != nullptr);
+    frame.rsi = 0x3000;
+    ASSERT_EQ(cinux::syscall::HandleMmap(frame), 0x10000000);
+    ASSERT_TRUE(kSelf->vmas->find(0x10000000) != nullptr);
+    ASSERT_TRUE(kSelf->vmas->find(0x10000000 + 0x2000) != nullptr);
+    ASSERT_TRUE(kSelf->vmas->find(0x10000000 + 0x3000) == nullptr);
+    mmap_fixed_refusals(frame);
+    cinux::proc::Scheduler::self().exit_current();
+}
+
+TEST("syscall face: fixed mappings replace what sat at the address") {
+    FaceWorld world;
+    world.run(run_mmap_fixed_body);
+}
+
+TEST("syscall face: sigtimedwait answers try-again without parking") {
+    const cinux::syscall::SyscallFrame kFrame = plain_frame();
+    ASSERT_EQ(cinux::syscall::HandleRtSigtimedwait(kFrame), -11);
 }
 
 }  // namespace

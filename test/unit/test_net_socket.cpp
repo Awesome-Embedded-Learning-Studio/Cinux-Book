@@ -1,11 +1,16 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <atomic>
+#include <thread>
+
 #include "../framework/framework.hpp"
 #include "cinux/assert.hpp"
 #include "cinux/byte_order.hpp"
 #include "cinux/memory.hpp"
 #include "cinux/result.hpp"
+#include "cinux/shared.hpp"
+#include "kernel/arch/x86_64/per_cpu.hpp"
 #include "kernel/driver/net/loopback.hpp"
 #include "kernel/driver/net/net_config.hpp"
 #include "kernel/driver/net/net_device.hpp"
@@ -13,6 +18,8 @@
 #include "kernel/fs/vfs.hpp"
 #include "kernel/net/icmp.hpp"
 #include "kernel/net/ipv4.hpp"
+#include "kernel/net/local_config.hpp"
+#include "kernel/net/local_socket.hpp"
 #include "kernel/net/net_config.hpp"
 #include "kernel/net/net_stack.hpp"
 #include "kernel/net/net_world.hpp"
@@ -545,7 +552,7 @@ void run_socket_shapes_body() {
     frame.rdi                          = 0;
     frame.rsi                          = 1;
     frame.rdx                          = 0;
-    ASSERT_EQ(cinux::syscall::HandleSocketpair(frame), -cinux::syscall::kEopnotsupp);
+    ASSERT_EQ(cinux::syscall::HandleSocketpair(frame), -cinux::syscall::kEafnosupport);
 
     frame                    = plain_frame();
     frame.rdi                = cinux::net::kAfInet;
@@ -983,6 +990,107 @@ void run_if_ioctl_body() {
 TEST("socket ioctl: the interface questions answer the loopback roll") {
     SocketWorld world;
     world.run(run_if_ioctl_body);
+}
+
+namespace {
+void check_stream_payload(cinux::net::Socket& sender, cinux::net::Socket& receiver) {
+    char bytes[8]{};
+    ASSERT_EQ(receiver.receive(bytes, 1, nullptr).error(), cinux::base::KernelError::kWouldBlock);
+    ASSERT_TRUE(sender.transmit("hello", 5, {}).value() == 5UL);
+    ASSERT_EQ(receiver.poll_events(1), 1U);
+    ASSERT_TRUE(receiver.receive(bytes, 2, nullptr).value() == 2UL);
+    ASSERT_TRUE(receiver.receive(bytes + 2, 6, nullptr).value() == 3UL);
+    ASSERT_TRUE(cinux::base::EqualBytes(bytes, "hello", 5));
+}
+
+void check_local_binding(cinux::net::Socket& listener, cinux::net::Socket& contender,
+                         const cinux::net::SocketAddress& address) {
+    ASSERT_TRUE(listener.adopt_local(address).ok());
+    ASSERT_EQ(contender.adopt_local(address).error(), cinux::base::KernelError::kAlreadyExists);
+    ASSERT_TRUE(listener.begin_listen(2).ok());
+}
+}
+
+TEST("unix: socketpair keeps stream bytes and a half-close in both directions") {
+    cinux::base::Shared<cinux::net::Socket> pair[2];
+    ASSERT_TRUE(cinux::net::MakeLocalPair(cinux::net::kSockStream, pair).ok());
+    check_stream_payload(*pair[0], *pair[1]);
+    const cinux::net::SocketAddress kUnnamed{};
+    char                            bytes[8]{};
+    ASSERT_TRUE(pair[0]->shutdown_write().ok());
+    ASSERT_TRUE(pair[1]->receive(bytes, 1, nullptr).value() == 0UL);
+    ASSERT_TRUE(pair[1]->transmit("r", 1, kUnnamed).value() == 1UL);
+    ASSERT_TRUE(pair[0]->receive(bytes, 1, nullptr).value() == 1UL);
+    pair[0].reset();
+    ASSERT_TRUE((pair[1]->poll_events(0) & 0x10U) != 0);
+}
+
+TEST("unix: abstract names bind once and accepted endpoints survive their listener") {
+    auto                      listener   = cinux::net::MakeLocalSocket(cinux::net::kSockStream);
+    const auto                kClient    = cinux::net::MakeLocalSocket(cinux::net::kSockStream);
+    const auto                kContender = cinux::net::MakeLocalSocket(cinux::net::kSockStream);
+    cinux::net::SocketAddress address{.family = cinux::net::kAfUnix, .name_bytes = 3};
+    address.name[1] = 'a';
+    address.name[2] = 'b';
+    check_local_binding(*listener, *kContender, address);
+    ASSERT_TRUE(kClient->adopt_peer(address).ok());
+    auto accepted = listener->accept_one();
+    ASSERT_TRUE(accepted.ok());
+    listener.reset();
+    ASSERT_TRUE(kContender->adopt_local(address).ok());
+    ASSERT_TRUE(kClient->transmit("a", 1, {}).value() == 1UL);
+    char byte{};
+    ASSERT_TRUE(accepted.value()->receive(&byte, 1, nullptr).value() == 1UL);
+    ASSERT_EQ(byte, 'a');
+}
+
+TEST("unix: datagram truncation drops one message and preserves the next boundary") {
+    cinux::base::Shared<cinux::net::Socket> pair[2];
+    ASSERT_TRUE(cinux::net::MakeLocalPair(cinux::net::kSockDgram, pair).ok());
+    ASSERT_TRUE(pair[0]->transmit("abc", 3, {}).value() == 3UL);
+    ASSERT_TRUE(pair[0]->transmit("z", 1, {}).value() == 1UL);
+    char byte{};
+    ASSERT_TRUE(pair[1]->receive(&byte, 1, nullptr).value() == 1UL);
+    ASSERT_EQ(byte, 'a');
+    ASSERT_TRUE(pair[1]->receive(&byte, 1, nullptr).value() == 1UL);
+    ASSERT_EQ(byte, 'z');
+    ASSERT_EQ(pair[1]->receive(&byte, 1, nullptr).error(), cinux::base::KernelError::kWouldBlock);
+}
+
+TEST("unix race: two host threads exchange ordered stream bytes under the real socket lock") {
+    cinux::base::Shared<cinux::net::Socket> pair[2];
+    ASSERT_TRUE(cinux::net::MakeLocalPair(cinux::net::kSockStream, pair).ok());
+    std::atomic<bool> failed{false};
+    std::thread       writer([&] {
+        cinux::arch::per_cpu::PerCpu::self().cpu_id = 1;
+        for (unsigned long index = 0; index < 4096; ++index) {
+            const auto kByte = static_cast<unsigned char>(index);
+            const auto kSent = pair[0]->transmit(&kByte, 1, {});
+            if (!kSent.ok() || kSent.value() != 1) {
+                failed.store(true);
+                return;
+            }
+        }
+    });
+    std::thread       reader([&] {
+        cinux::arch::per_cpu::PerCpu::self().cpu_id = 2;
+        for (unsigned long index = 0; index < 4096;) {
+            unsigned char byte{};
+            const auto    kRead = pair[1]->receive(&byte, 1, nullptr);
+            if (!kRead.ok() && kRead.error() == cinux::base::KernelError::kWouldBlock) {
+                std::this_thread::yield();
+                continue;
+            }
+            if (!kRead.ok() || kRead.value() != 1 || byte != static_cast<unsigned char>(index)) {
+                failed.store(true);
+                return;
+            }
+            ++index;
+        }
+    });
+    writer.join();
+    reader.join();
+    ASSERT_FALSE(failed.load());
 }
 
 int main() {

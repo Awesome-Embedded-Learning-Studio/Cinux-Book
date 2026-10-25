@@ -17,13 +17,21 @@
 #include "kernel/fs/vfs.hpp"
 
 #include <string_view>
+#include <utility>
 
+#include "cinux/format.hpp"
+#include "cinux/memory.hpp"
 #include "cinux/own.hpp"
 #include "cinux/result.hpp"
+#include "cinux/shared.hpp"
+#include "kernel/arch/x86_64/irq_guard.hpp"
+#include "kernel/fs/mount_lease.hpp"
 
 namespace cinux::fs {
 
 base::Result<FsView> Vfs::resolve(std::string_view path) const {
+    const arch::IrqGuard kIrq;
+    const auto           kGuard = gate_.guard();
     if (path.empty() || path.front() != '/') {
         return base::KernelError::kInvalidArgument;
     }
@@ -49,9 +57,39 @@ base::Result<FsView> Vfs::resolve(std::string_view path) const {
     if (rest_start < path.size() && path[rest_start] == '/') {
         ++rest_start;
     }
-    return FsView{.ops = best->ops, .self = best->self, .rest = path.substr(rest_start)};
+    base::Shared<MountLease> lifetime;
+    if (best->lifetime != nullptr) {
+        best->lifetime->retain();
+        lifetime = base::Shared<MountLease>(best->lifetime);
+    }
+    return FsView{
+        .ops      = best->ops,
+        .self     = best->self,
+        .rest     = path.substr(rest_start),
+        .lifetime = std::move(lifetime),
+    };
 }
 
+
+unsigned long Vfs::mounts_text(char* out, unsigned long capacity) const {
+    const arch::IrqGuard kIrq;
+    const auto           kGuard = gate_.guard();
+    unsigned long        used   = 0;
+    slots_.for_each([&]([[maybe_unused]] unsigned long index, const Slot& slot) {
+        if (capacity <= used + 1) {
+            return;
+        }
+        const base::format::Arg kArgs[] = {
+            base::format::Str("none"),
+            base::format::Str(slot.prefix),
+            base::format::Str(slot.type_name),
+        };
+        base::format::FormatToBuf(out + used, capacity - used, "%s %s %s rw 0 0\n",
+                                  base::format::ArgsView::of(kArgs));
+        used += base::StrLength(out + used, capacity - used);
+    });
+    return used;
+}
 
 base::Result<void> ReadWholeFile(const FsView& view, base::Own<unsigned char[]>& out,
                                  unsigned long& out_bytes) {

@@ -20,7 +20,7 @@ void put_hex(unsigned long long value) {
 }
 
 unsigned long long stack_pointer() {
-    unsigned long long rsp = 0;
+    unsigned long long rsp;
     asm volatile("mov %%rsp, %0" : "=r"(rsp));
     return rsp;
 }
@@ -28,7 +28,7 @@ unsigned long long stack_pointer() {
 }  // namespace
 
 // NOLINTNEXTLINE(readability-identifier-naming)
-extern "C" void _start() {
+extern "C" void UserMain() {
     const unsigned long long kBreak = user::Brk(0);
     const long long          kPage  = user::Mmap(0, 4096, 3, 0x22, -1, 0);
     put("[aslrdemo] rsp=");

@@ -45,7 +45,7 @@ void put_signed(long long value) {
 }  // namespace
 
 // NOLINTNEXTLINE(readability-identifier-naming)
-extern "C" void _start() {
+extern "C" void UserMain() {
     unsigned long long probe = 0;
 
     put("[tls] tid=");

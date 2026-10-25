@@ -39,6 +39,10 @@ inline constexpr std::uint32_t kProgramLoad = 1;
 /// path reads, never bytes the loader maps.
 inline constexpr std::uint32_t kProgramInterp = 3;
 
+/// Program-header type carrying the stack's requested terms; the exec
+/// path reads it so the stack's promise matches the image's ask.
+inline constexpr std::uint32_t kProgramGnuStack = 0x6474E551;
+
 /// Program-header flag bit: the segment's pages may hold running code.
 inline constexpr std::uint32_t kSegmentExec = 0x1;
 
@@ -149,5 +153,26 @@ struct ElfImage {
  */
 [[nodiscard]] bool ReadInterpreterPath(const std::uint8_t* data, std::size_t bytes, char* path,
                                        std::size_t path_bytes);
+
+/**
+ * @brief         Reads the stack terms a program image asks for, if it
+ *                asks at all.
+ * @param[in]     data    The image bytes.
+ * @param[in]     bytes   How many are readable at data.
+ * @param[out]    flags   Receives the PT_GNU_STACK entry's flag word.
+ * @return        True when the program seat accepts the image and one
+ *                PT_GNU_STACK entry sits inside the header table; false
+ *                for an image that never states stack terms.
+ * @note          Absence is an answer, not an error: an image without
+ *                the entry leaves the caller's default standing. The
+ *                exec bit in the returned word is the one question the
+ *                exec path asks of it.
+ * @warning       None
+ * @throws        None
+ * @since         0.4.0
+ * @ingroup       kernel_loader
+ */
+[[nodiscard]] bool ReadGnuStackFlags(const std::uint8_t* data, std::size_t bytes,
+                                     std::uint32_t& flags);
 
 }  // namespace cinux::loader

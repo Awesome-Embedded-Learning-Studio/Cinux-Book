@@ -154,9 +154,9 @@ TEST("procfs: the root then lists living pids in walk order") {
     const cinux::base::Result<cinux::fs::FsNode> kRoot = stocked(stock).lookup("");
 
     cinux::fs::FsDirent entry;
-    ASSERT_TRUE(stock.read_dir(kRoot.value(), 5, entry).value());
+    ASSERT_TRUE(stock.read_dir(kRoot.value(), 7, entry).value());
     ASSERT_STREQ(entry.name, "1");
-    ASSERT_TRUE(stock.read_dir(kRoot.value(), 6, entry).value());
+    ASSERT_TRUE(stock.read_dir(kRoot.value(), 8, entry).value());
     ASSERT_STREQ(entry.name, "2");
 }
 
@@ -165,9 +165,9 @@ TEST("procfs: the pid walk ends past the last leader") {
     const cinux::base::Result<cinux::fs::FsNode> kRoot = stocked(stock).lookup("");
 
     cinux::fs::FsDirent entry;
-    ASSERT_TRUE(stock.read_dir(kRoot.value(), 8, entry).value());
+    ASSERT_TRUE(stock.read_dir(kRoot.value(), 10, entry).value());
     ASSERT_STREQ(entry.name, "12");
-    ASSERT_FALSE(stock.read_dir(kRoot.value(), 9, entry).value());
+    ASSERT_FALSE(stock.read_dir(kRoot.value(), 11, entry).value());
 }
 
 TEST("procfs: devices spells its classes in seating order") {

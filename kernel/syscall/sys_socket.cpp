@@ -12,6 +12,8 @@
 #include "kernel/fs/file_table.hpp"
 #include "kernel/fs/open_file.hpp"
 #include "kernel/fs/vfs.hpp"
+#include "kernel/net/local_config.hpp"
+#include "kernel/net/local_socket.hpp"
 #include "kernel/net/net_config.hpp"
 #include "kernel/net/net_world.hpp"
 #include "kernel/net/socket.hpp"
@@ -19,6 +21,7 @@
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/signals.hpp"
 #include "kernel/proc/task.hpp"
+#include "kernel/syscall/signal.hpp"
 #include "kernel/syscall/sys_clock.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
@@ -36,6 +39,8 @@ constexpr unsigned long kAddressAt        = 4;
 
 constexpr unsigned long long kSockCloexec  = 0x80000;
 constexpr unsigned long long kSockNonblock = 0x800;
+constexpr Word               kMsgDontwait  = 0x40;
+constexpr Word               kMsgNosignal  = 0x4000;
 
 /// Finds the socket behind a descriptor, or answers why not.
 long long socket_of(Word descriptor, net::Socket** out, base::Shared<fs::OpenFile>& held) {
@@ -54,15 +59,40 @@ long long socket_of(Word descriptor, net::Socket** out, base::Shared<fs::OpenFil
 
 /// Reads one internet address from ring 3, wire byte order and all.
 long long read_sockaddr(Word address, Word length, net::SocketAddress& out) {
-    if (address == 0 || length < kSockaddrMinBytes) {
+    if (address == 0 || length < sizeof(uint16_t)) {
         return -kEinval;
+    }
+    uint16_t family = 0;
+    if (!uaccess::CopyFromUser(&family, address, sizeof(family))) {
+        return -kEfault;
+    }
+    if (family == net::kAfUnix) {
+        if (length > sizeof(family) + net::kLocalNameBytes || length == sizeof(family)) {
+            return -kEinval;
+        }
+        out.family     = net::kAfUnix;
+        out.name_bytes = length - sizeof(family);
+        if (!uaccess::CopyFromUser(out.name, address + sizeof(family), out.name_bytes)) {
+            return -kEfault;
+        }
+        if (out.name[0] != 0) {
+            for (unsigned long index = 0; index < out.name_bytes; ++index) {
+                if (out.name[index] == 0) {
+                    out.name_bytes = index + 1;
+                    break;
+                }
+            }
+        }
+        return 0;
+    }
+    if (family != net::kAfInet || length < kSockaddrMinBytes) {
+        return -kEafnosupport;
     }
     unsigned char record[kSockaddrInBytes] = {};
     const Word    kBytes                   = length < kSockaddrInBytes ? length : kSockaddrInBytes;
     if (!uaccess::CopyFromUser(record, address, kBytes)) {
         return -kEfault;
     }
-    uint16_t family = 0;
     base::CopyBytes(&family, record + kFamilyAt, sizeof(family));
     if (family != net::kAfInet) {
         return -kEafnosupport;
@@ -81,12 +111,18 @@ long long write_sockaddr(Word address, Word length_word, const net::SocketAddres
     if (!uaccess::CopyFromUser(&wanted, length_word, sizeof(wanted))) {
         return -kEfault;
     }
-    unsigned char record[kSockaddrInBytes] = {};
-    const auto    kFamily                  = static_cast<uint16_t>(net::kAfInet);
+    unsigned char record[sizeof(uint16_t) + net::kLocalNameBytes] = {};
+    const auto    kFamily = static_cast<uint16_t>(from.family);
     base::CopyBytes(record + kFamilyAt, &kFamily, sizeof(kFamily));
-    base::WriteWord16Be(record, kPortAt, from.port);
-    base::WriteWord32Be(record, kAddressAt, from.address);
-    const uint32_t kWhole = kSockaddrInBytes;
+    uint32_t whole = kSockaddrInBytes;
+    if (from.family == net::kAfUnix) {
+        whole = static_cast<uint32_t>(sizeof(kFamily) + from.name_bytes);
+        base::CopyBytes(record + sizeof(kFamily), from.name, from.name_bytes);
+    } else {
+        base::WriteWord16Be(record, kPortAt, from.port);
+        base::WriteWord32Be(record, kAddressAt, from.address);
+    }
+    const uint32_t kWhole = whole;
     const auto     kBytes = wanted < kWhole ? wanted : kWhole;
     if (!uaccess::CopyToUser(address, record, kBytes)) {
         return -kEfault;
@@ -119,6 +155,10 @@ long long errno_of_socket(base::KernelError error) {
         return -kEmsgsize;
     case base::KernelError::kNotConnected:
         return -kEnotconn;
+    case base::KernelError::kBrokenPipe:
+        return -kEpipe;
+    case base::KernelError::kConnectionRefused:
+        return -kEconnrefused;
     default:
         return -ErrnoFrom(error);
     }
@@ -128,6 +168,36 @@ long long errno_of_socket(base::KernelError error) {
 bool signal_pending() {
     const proc::Task* const kSelf = CurrentTask();
     return proc::HasPendingSignal(*kSelf);
+}
+
+struct Outgoing {
+    const void*        source{};
+    unsigned long      count{};
+    Word               flags{};
+    net::SocketAddress destination;
+};
+
+long long transmit_wait(net::Socket& socket, const fs::OpenFile& file, const Outgoing& outgoing) {
+    for (;;) {
+        const auto kGiven = socket.transmit(outgoing.source, outgoing.count, outgoing.destination);
+        if (kGiven.ok()) {
+            return static_cast<long long>(kGiven.value());
+        }
+        if (kGiven.error() != base::KernelError::kWouldBlock) {
+            if (kGiven.error() == base::KernelError::kBrokenPipe &&
+                (outgoing.flags & kMsgNosignal) == 0) {
+                proc::SendSignal(*CurrentTask(), kSigPipe);
+            }
+            return errno_of_socket(kGiven.error());
+        }
+        if ((file.status_flags & kOpenNonblock) != 0 || (outgoing.flags & kMsgDontwait) != 0) {
+            return -kEagain;
+        }
+        if (signal_pending()) {
+            return -kEintr;
+        }
+        proc::Scheduler::self().yield();
+    }
 }
 
 /// Seats one accepted socket behind a fresh descriptor, polling while
@@ -186,10 +256,22 @@ long long accept_common(const SyscallFrame& frame, Word extra_flags) {
     return static_cast<long long>(kSeat.value());
 }
 
+long long make_local_socket(Word type, Word protocol, base::Shared<net::Socket>& socket) {
+    if (protocol != 0) {
+        return -kEprotonosupport;
+    }
+    if (type != net::kSockStream && type != net::kSockDgram) {
+        return -kEsocktnosupport;
+    }
+    socket = net::MakeLocalSocket(static_cast<int>(type));
+    return 0;
+}
+
 }  // namespace
 
 long long HandleSocket(const SyscallFrame& frame) {
-    if (frame.rdi != static_cast<Word>(net::kAfInet)) {
+    if (frame.rdi != static_cast<Word>(net::kAfInet) &&
+        frame.rdi != static_cast<Word>(net::kAfUnix)) {
         return -kEafnosupport;
     }
     const Word kRawType   = frame.rsi;
@@ -198,7 +280,12 @@ long long HandleSocket(const SyscallFrame& frame) {
     const auto kProtocol  = static_cast<Word>(frame.rdx);
 
     base::Shared<net::Socket> socket;
-    if (kPlainType == static_cast<Word>(net::kSockStream)) {
+    if (frame.rdi == net::kAfUnix) {
+        const auto kMade = make_local_socket(kPlainType, kProtocol, socket);
+        if (kMade != 0) {
+            return kMade;
+        }
+    } else if (kPlainType == static_cast<Word>(net::kSockStream)) {
         if (kProtocol != 0 && kProtocol != static_cast<Word>(net::kIpv4ProtocolTcp)) {
             return -kEprotonosupport;
         }
@@ -257,7 +344,11 @@ long long HandleBind(const SyscallFrame& frame) {
     if (kRead != 0) {
         return kRead;
     }
-    if (asked.address != 0 && asked.address != net::NetWorld::self().udp().own_address() &&
+    if (asked.family != socket->family()) {
+        return -kEafnosupport;
+    }
+    if (asked.family == net::kAfInet && asked.address != 0 &&
+        asked.address != net::NetWorld::self().udp().own_address() &&
         asked.address != net::kLoopbackAddress) {
         return -kEaddrnotavail;
     }
@@ -279,6 +370,9 @@ long long HandleConnect(const SyscallFrame& frame) {
     const long long    kRead = read_sockaddr(frame.rsi, frame.rdx, named);
     if (kRead != 0) {
         return kRead;
+    }
+    if (named.family != socket->family()) {
+        return -kEafnosupport;
     }
     const auto kNamed = socket->adopt_peer(named);
     if (!kNamed.ok()) {
@@ -305,11 +399,13 @@ long long HandleSendto(const SyscallFrame& frame) {
     if (kFound != 0) {
         return kFound;
     }
-    if (frame.r10 != 0) {
+    if ((frame.r10 & ~(kMsgDontwait | kMsgNosignal)) != 0) {
         return -kEopnotsupp;
     }
-    const auto          kCount = static_cast<unsigned long>(frame.rdx);
     const unsigned long kLimit = send_ceiling_of(socket->type());
+    const auto          kCount = socket->type() == net::kSockStream
+                                     ? std::min(static_cast<unsigned long>(frame.rdx), kLimit)
+                                     : static_cast<unsigned long>(frame.rdx);
     if (kCount > kLimit) {
         return -kEmsgsize;
     }
@@ -329,11 +425,12 @@ long long HandleSendto(const SyscallFrame& frame) {
             return -kEdestaddrreq;
         }
     }
-    const auto kGiven = socket->transmit(payload, kCount, destination);
-    if (!kGiven.ok()) {
-        return errno_of_socket(kGiven.error());
+    if (frame.r8 != 0 && destination.family != socket->family()) {
+        return -kEafnosupport;
     }
-    return static_cast<long long>(kGiven.value());
+    return transmit_wait(
+        *socket, *held,
+        {.source = payload, .count = kCount, .flags = frame.r10, .destination = destination});
 }
 
 long long HandleRecvfrom(const SyscallFrame& frame) {
@@ -343,7 +440,7 @@ long long HandleRecvfrom(const SyscallFrame& frame) {
     if (kFound != 0) {
         return kFound;
     }
-    if (frame.r10 != 0) {
+    if ((frame.r10 & ~kMsgDontwait) != 0) {
         return -kEopnotsupp;
     }
     const auto kCount = static_cast<unsigned long>(frame.rdx);
@@ -370,7 +467,7 @@ long long HandleRecvfrom(const SyscallFrame& frame) {
         if (kTaken.error() != base::KernelError::kWouldBlock) {
             return errno_of_socket(kTaken.error());
         }
-        if ((held->status_flags & kOpenNonblock) != 0) {
+        if ((held->status_flags & kOpenNonblock) != 0 || (frame.r10 & kMsgDontwait) != 0) {
             return -kEagain;
         }
         if (signal_pending()) {
@@ -455,8 +552,47 @@ long long HandleGetpeername(const SyscallFrame& frame) {
     return write_sockaddr(frame.rsi, frame.rdx, peer);
 }
 
-long long HandleSocketpair(const SyscallFrame& /*frame*/) {
-    return -kEopnotsupp;
+long long HandleSocketpair(const SyscallFrame& frame) {
+    if (frame.rdi != net::kAfUnix) {
+        return -kEafnosupport;
+    }
+    const auto kType = frame.rsi & ~(kSockCloexec | kSockNonblock);
+    if (frame.rdx != 0 || (kType != net::kSockStream && kType != net::kSockDgram)) {
+        return -kEinval;
+    }
+    base::Shared<net::Socket> pair[2];
+    if (!net::MakeLocalPair(static_cast<int>(kType), pair).ok()) {
+        return -kEnomem;
+    }
+    int   descriptors[2] = {-1, -1};
+    auto& files          = *CurrentTask()->files;
+    for (unsigned long index = 0; index < 2; ++index) {
+        const fs::FsNode kNode{
+            .opaque = pair[index].get(),
+            .type   = fs::InodeType::kFile,
+            .ino    = pair[index]->identity(),
+            .size   = 0,
+        };
+        const auto kSeat =
+            files.alloc(net::SocketOps(), pair[index].get(), kNode,
+                        {
+                            .status  = (frame.rsi & kSockNonblock) != 0 ? kOpenNonblock : 0,
+                            .cloexec = (frame.rsi & kSockCloexec) != 0,
+                        });
+        if (!kSeat.ok()) {
+            if (descriptors[0] >= 0) {
+                static_cast<void>(files.free(static_cast<unsigned long>(descriptors[0])));
+            }
+            return -kEmfile;
+        }
+        descriptors[index] = static_cast<int>(kSeat.value());
+    }
+    if (!uaccess::CopyToUser(frame.r10, descriptors, sizeof(descriptors))) {
+        static_cast<void>(files.free(static_cast<unsigned long>(descriptors[0])));
+        static_cast<void>(files.free(static_cast<unsigned long>(descriptors[1])));
+        return -kEfault;
+    }
+    return 0;
 }
 
 long long HandleSetsockopt(const SyscallFrame& frame) {

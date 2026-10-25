@@ -30,6 +30,7 @@
 #include "cinux/container/ring_queue.hpp"
 #include "cinux/ref_count.hpp"
 #include "cinux/result.hpp"
+#include "kernel/net/local_config.hpp"
 #include "kernel/net/net_config.hpp"
 #include "kernel/net/raw.hpp"
 #include "kernel/net/tcp.hpp"
@@ -77,9 +78,12 @@ inline constexpr int kSockRaw = 3;
  */
 struct SocketAddress {
     /// Host-order address, 0 meaning any.
-    uint32_t address = 0;
+    uint32_t      address = 0;
     /// Host-order port, 0 meaning none chosen yet.
-    uint16_t port    = 0;
+    uint16_t      port    = 0;
+    int           family  = kAfInet;        ///< Address family selecting the remaining fields.
+    unsigned long name_bytes{};             ///< Significant local name bytes.
+    unsigned char name[kLocalNameBytes]{};  ///< Local name, including an abstract leading zero.
 };
 
 /**
@@ -173,6 +177,13 @@ public:
      */
     [[nodiscard]] virtual bool holds_input() const = 0;
 
+    /** @brief Reports poll readiness including closure. @param[in] events Requested poll bits.
+     * @return Ready poll bits. */
+    [[nodiscard]] virtual unsigned short poll_events(unsigned int events) const;
+
+    /** @brief The socket's address family. @return Linux address family number. */
+    [[nodiscard]] int family() const { return family_; }
+
     /**
      * @brief         Offers to answer knocks on the seated port.
      *
@@ -257,10 +268,11 @@ protected:
      * @since         0.7.0
      * @ingroup       kernel_net
      */
-    explicit Socket(int socket_type);
+    explicit Socket(int socket_type, int family = kAfInet);
 
 private:
     int           type_     = 0;
+    int           family_   = kAfInet;
     unsigned long identity_ = 0;
 };
 

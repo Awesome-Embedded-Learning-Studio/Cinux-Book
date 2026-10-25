@@ -1,8 +1,10 @@
 #include "../framework/framework.hpp"
 #include "cinux/own.hpp"
 #include "cinux/result.hpp"
+#include "cinux/shared.hpp"
 #include "kernel/arch/x86_64/page.hpp"
 #include "kernel/mm/layout.hpp"
+#include "kernel/mm/shared_pages.hpp"
 #include "kernel/mm/vma.hpp"
 #include "test_assert.hpp"
 
@@ -16,6 +18,11 @@ cinux::mm::VmaRegion range_at(unsigned long start, unsigned long end) {
     range.readable = true;
     range.writable = true;
     return range;
+}
+
+void check_writable(const cinux::mm::VmaStore& store, unsigned long address, bool writable) {
+    ASSERT_TRUE(store.find(address) != nullptr);
+    ASSERT_EQ(store.find(address)->writable, writable);
 }
 
 TEST("vma: registered ranges answer find inside, at start, near end") {
@@ -209,11 +216,14 @@ TEST("vma: unregister withdraws whole spans inside the stretch") {
     ASSERT_TRUE(store.find(0x1800) == nullptr);
 }
 
-TEST("vma: unregister refuses to split a span") {
+TEST("vma: unregister splits a clipped span and keeps the tail") {
     cinux::mm::VmaStore store;
     ASSERT_TRUE(store.register_range(range_at(0x1000, 0x3000)).ok());
-    ASSERT_TRUE(!store.unregister_range(0x1000, 0x2000).ok());
-    ASSERT_TRUE(store.find(0x2500) != nullptr);
+    ASSERT_TRUE(store.unregister_range(0x1000, 0x2000).ok());
+    ASSERT_TRUE(store.find(0x0F00) == nullptr);
+    ASSERT_TRUE(store.find(0x1800) == nullptr);
+    ASSERT_TRUE(store.find(0x2800) != nullptr);
+    ASSERT_EQ(store.region_count(), 1UL);
 }
 
 TEST("vma: unregister empties a wholly withdrawn heap") {
@@ -223,6 +233,19 @@ TEST("vma: unregister empties a wholly withdrawn heap") {
     ASSERT_TRUE(store.unregister_range(0x100000, 0x103000).ok());
     ASSERT_EQ(store.heap_end(), 0x100000UL);
     ASSERT_TRUE(store.find(0x101000) == nullptr);
+}
+
+TEST("vma: a hole punched in the heap leaves the tail as its own region") {
+    cinux::mm::VmaStore store;
+    store.seed_heap(0x100000, 0x200000);
+    ASSERT_TRUE(store.move_heap_end(0x108000).ok());
+    ASSERT_TRUE(store.unregister_range(0x102000, 0x104000).ok());
+    ASSERT_EQ(store.heap_end(), 0x102000UL);
+    ASSERT_TRUE(store.find(0x103000) == nullptr);
+    const cinux::mm::VmaRegion* const kTail = store.find(0x105000);
+    ASSERT_TRUE(kTail != nullptr);
+    ASSERT_TRUE(kTail->writable);
+    ASSERT_EQ(store.region_count(), 1UL);
 }
 
 TEST("vma: protect rewrites the terms of spans it wholly owns") {
@@ -242,7 +265,24 @@ TEST("vma: protect accepts a stretch cutting through a span") {
         store.protect(0x1000, 0x2000, {.readable = true, .writable = false});
     ASSERT_TRUE(kCut.ok());
     ASSERT_TRUE(!store.find(0x1800)->writable);
+    ASSERT_TRUE(store.find(0x2800)->writable);
     ASSERT_TRUE(!store.protect(0x8000, 0x9000, {.readable = true}).ok());
+}
+
+TEST("vma: relro protects only its middle pages and preserves file offsets") {
+    cinux::mm::VmaStore store;
+    auto                region = range_at(0x1000, 0x6000);
+    region.kind                = cinux::mm::VmaKind::kFile;
+    region.file_offset         = 0x8000;
+    ASSERT_TRUE(store.register_range(region).ok());
+    ASSERT_TRUE(store.protect(0x2000, 0x4000, {.readable = true}).ok());
+    check_writable(store, 0x1800, true);
+    check_writable(store, 0x2800, false);
+    check_writable(store, 0x4800, true);
+    ASSERT_EQ(store.find(0x2800)->file_offset, 0x9000UL);
+    ASSERT_EQ(store.find(0x4800)->file_offset, 0xB000UL);
+    ASSERT_TRUE(!store.protect(0x3000, 0x7000, {}).ok());
+    check_writable(store, 0x4800, true);
 }
 
 TEST("vma: max_end reports the highest recorded end") {
@@ -256,6 +296,53 @@ TEST("vma: max_end reports the highest recorded end") {
 }
 
 }  // namespace
+
+TEST("vma: split shared attachments count address spaces across fork and teardown") {
+    const cinux::base::Shared<cinux::mm::SharedPages> kPages(new cinux::mm::SharedPages{});
+    cinux::mm::VmaStore                               store;
+    auto                                              region = range_at(0x1000, 0x5000);
+    region.shared = cinux::base::Shared<cinux::mm::SharedAttachment>(
+        new cinux::mm::SharedAttachment(kPages, region.start, region.end));
+    ASSERT_TRUE(store.register_range(region).ok());
+    region.shared.reset();
+    ASSERT_EQ(kPages->attachments.load(), 1UL);
+    ASSERT_TRUE(store.protect(0x2000, 0x3000, {.readable = true}).ok());
+    ASSERT_EQ(kPages->attachments.load(), 1UL);
+    cinux::base::Own<cinux::mm::VmaStore> child(store.clone());
+    ASSERT_TRUE(child.holds());
+    ASSERT_EQ(kPages->attachments.load(), 2UL);
+    store.teardown();
+    ASSERT_EQ(kPages->attachments.load(), 1UL);
+    child.reset();
+    ASSERT_EQ(kPages->attachments.load(), 0UL);
+}
+
+TEST("vma: protecting heap subranges preserves the break and later growth") {
+    cinux::mm::VmaStore store;
+    store.seed_heap(0x100000, 0x200000);
+    ASSERT_TRUE(store.move_heap_end(0x108000).ok());
+    ASSERT_TRUE(store.protect(0x102000, 0x104000, {.readable = true}).ok());
+    ASSERT_EQ(store.heap_end(), 0x108000UL);
+    check_writable(store, 0x101000, true);
+    check_writable(store, 0x103000, false);
+    check_writable(store, 0x105000, true);
+    ASSERT_TRUE(store.move_heap_end(0x10A000).ok());
+    check_writable(store, 0x109000, true);
+    ASSERT_TRUE(store.move_heap_end(0x104000).ok());
+    ASSERT_TRUE(store.find(0x105000) == nullptr);
+    check_writable(store, 0x103000, false);
+}
+
+TEST("vma: splitting stack protection preserves the original guard floor") {
+    cinux::mm::VmaStore store;
+    auto                region = range_at(0x1000, 0x8000);
+    region.kind                = cinux::mm::VmaKind::kStack;
+    ASSERT_TRUE(store.register_range(region).ok());
+    ASSERT_TRUE(store.protect(0x3000, 0x5000, {.readable = true}).ok());
+    ASSERT_TRUE(store.stack_contains(0x5000, 0x1000));
+    ASSERT_FALSE(store.stack_contains(0x1000, 1));
+    ASSERT_FALSE(store.stack_contains(0x3000, 1));
+}
 
 int main() {
     return cinux::test::RunAll();

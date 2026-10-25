@@ -4,6 +4,7 @@
 #include "kernel/proc/clone.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
+#include "kernel/syscall/signal.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
 #include "kernel/syscall/uaccess.hpp"
@@ -16,7 +17,7 @@ namespace {
 /// is refused whole rather than half-served.
 constexpr unsigned long long kServedFlags = kCloneVm | kCloneFiles | kCloneThread | kCloneSetTls |
                                             kCloneParentSetTid | kCloneChildClearTid |
-                                            kCloneChildSetTid;
+                                            kCloneChildSetTid | 0xFFULL;
 
 }  // namespace
 
@@ -25,8 +26,12 @@ long long HandleClone(const SyscallFrame& frame) {
     if ((kFlags & ~kServedFlags) != 0) {
         return -kEinval;
     }
+    const auto kExitSignal = kFlags & 0xFFULL;
+    if (kExitSignal != 0 && (kExitSignal != kSigChld || (kFlags & kCloneThread) != 0)) {
+        return -kEinval;
+    }
     const unsigned long long kStack = frame.rsi;
-    if (kStack == 0 || kStack >= kUserAddressLimit) {
+    if (kStack >= kUserAddressLimit) {
         return -kEinval;
     }
     if ((kFlags & kCloneSetTls) != 0 && !arch::IsCanonicalAddress(frame.r8)) {
@@ -42,12 +47,9 @@ long long HandleClone(const SyscallFrame& frame) {
         !UserRangeWritable(kChildTid, sizeof(unsigned int))) {
         return -kEfault;
     }
-    if ((kFlags & kCloneChildSetTid) != 0 && (kFlags & kCloneVm) == 0) {
-        return -kEinval;
-    }
     const proc::ClonePlan kPlan{
         .flags      = kFlags,
-        .user_stack = kStack,
+        .user_stack = kStack != 0 ? kStack : frame.user_rsp,
         .tls        = frame.r8,
     };
     proc::Task* const kChild =
@@ -67,8 +69,8 @@ long long HandleClone(const SyscallFrame& frame) {
         !uaccess::CopyToUser(kParentTid, &kTid, sizeof(kTid))) {
         return -kEfault;
     }
-    if ((kFlags & kCloneChildSetTid) != 0 && !uaccess::CopyToUser(kChildTid, &kTid, sizeof(kTid))) {
-        return -kEfault;
+    if ((kFlags & kCloneChildSetTid) != 0) {
+        kChild->set_child_tid = kChildTid;
     }
     const auto kPid = static_cast<long long>(kChild->pid);
     proc::Scheduler::self().unblock(*kChild);

@@ -45,8 +45,9 @@ inline constexpr unsigned long kFileTableMax = 16;
 
 /** @brief Open metadata initialized before a descriptor becomes visible. */
 struct OpenOptions {
-    unsigned long status  = 0;
-    bool          cloexec = false;
+    unsigned long            status  = 0;
+    bool                     cloexec = false;
+    base::Shared<MountLease> lifetime{nullptr};  ///< Backend ownership inherited from resolve.
 };
 
 /**

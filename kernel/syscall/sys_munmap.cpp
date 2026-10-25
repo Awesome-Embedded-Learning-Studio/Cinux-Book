@@ -16,6 +16,26 @@
 
 namespace cinux::syscall {
 
+base::Result<void> ReclaimUserSpan(const proc::Task& self, unsigned long start,
+                                   unsigned long bytes) {
+    const base::Result<void> kGone = self.vmas->unregister_range(start, start + bytes);
+    if (!kGone.ok()) {
+        return kGone;
+    }
+    if (!self.space.holds()) {
+        return {};
+    }
+    mm::KernelTables tables;
+    for (unsigned long spot = start; spot < start + bytes; spot += cinux::arch::page::kSize) {
+        const mm::walk::Entry kOld = mm::walk::UnmapPage(tables, self.space->root(), spot);
+        if (kOld.has(cinux::arch::page::kPresent)) {
+            mm::cow::ReleaseFrame(mm::walk::EntryTarget(kOld));
+            cinux::arch::InvalidatePage(spot);
+        }
+    }
+    return {};
+}
+
 long long HandleMunmap(const SyscallFrame& frame) {
     const proc::Task* const kSelf = CurrentTask();
     if (kSelf == nullptr || !kSelf->vmas.holds() || !kSelf->space.holds()) {
@@ -27,17 +47,9 @@ long long HandleMunmap(const SyscallFrame& frame) {
     if (kStart >= kEnd) {
         return -kEinval;
     }
-    const base::Result<void> kGone = kSelf->vmas->unregister_range(kStart, kEnd);
+    const base::Result<void> kGone = ReclaimUserSpan(*kSelf, kStart, kEnd - kStart);
     if (!kGone.ok()) {
         return -ErrnoFrom(kGone.error());
-    }
-    mm::KernelTables tables;
-    for (unsigned long spot = kStart; spot < kEnd; spot += cinux::arch::page::kSize) {
-        const mm::walk::Entry kOld = mm::walk::UnmapPage(tables, kSelf->space->root(), spot);
-        if (kOld.has(cinux::arch::page::kPresent)) {
-            mm::cow::ReleaseFrame(mm::walk::EntryTarget(kOld));
-            cinux::arch::InvalidatePage(spot);
-        }
     }
     return 0;
 }

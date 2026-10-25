@@ -81,6 +81,12 @@ struct ProcDeviceFacts {
  * @ingroup kernel_fs
  */
 struct ProcSource {
+    /// Generates the live mount table in Linux mounts format.
+    unsigned long (*mounts)(void* context, char* out, unsigned long capacity) = nullptr;
+
+    /// Returns elapsed monotonic nanoseconds since boot.
+    unsigned long long (*uptime_ns)(void* context) = nullptr;
+
     /// Names the ordinal-th living process leader; false past the last.
     bool (*nth_tgid)(void* context, unsigned long ordinal, unsigned long& tgid) = nullptr;
 

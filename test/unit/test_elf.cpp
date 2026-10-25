@@ -8,6 +8,7 @@
 #include "cinux/byte_order.hpp"
 #include "kernel/loader/elf_layout.hpp"
 #include "kernel/loader/loader.hpp"
+#include "kernel/proc/proc_config.hpp"
 #include "test_assert.hpp"
 
 namespace {
@@ -16,6 +17,7 @@ static_assert(cinux::loader::kTypeExecutable == ET_EXEC);
 static_assert(cinux::loader::kTypeShared == ET_DYN);
 static_assert(cinux::loader::kProgramLoad == PT_LOAD);
 static_assert(cinux::loader::kProgramInterp == PT_INTERP);
+static_assert(cinux::loader::kProgramGnuStack == PT_GNU_STACK);
 static_assert(cinux::loader::kAuxNull == AT_NULL);
 static_assert(cinux::loader::kAuxPhdr == AT_PHDR);
 static_assert(cinux::loader::kAuxPhent == AT_PHENT);
@@ -30,6 +32,8 @@ static_assert(cinux::loader::kAuxEgid == AT_EGID);
 static_assert(cinux::loader::kAuxSecure == AT_SECURE);
 static_assert(cinux::loader::kAuxRandom == AT_RANDOM);
 static_assert(cinux::loader::kAuxExecfn == AT_EXECFN);
+static_assert(cinux::loader::kAuxPlatform == AT_PLATFORM);
+static_assert(cinux::loader::kAuxHwcap == AT_HWCAP);
 
 constexpr std::size_t kEhdrBytes    = 64;
 constexpr std::size_t kPhdrBytes    = 56;
@@ -282,8 +286,10 @@ TEST("elf: an interpreter path reads out of the program's own bytes") {
 }
 
 constexpr std::size_t kPicturePageBytes = 4096;
-constexpr std::size_t kPictureWordsAt   = kPicturePageBytes - 0x208;
+constexpr std::size_t kPictureWordsAt   = cinux::proc::kUserEntryStackOffset;
 constexpr std::size_t kPictureAuxvAt    = kPictureWordsAt + 40;
+
+static_assert(kPictureWordsAt % 16 == 0);
 
 struct ExpectedAuxv {
     unsigned long type;
@@ -384,6 +390,20 @@ void check_picture_random(const unsigned char* page, const std::uint8_t* source)
     }
 }
 
+void check_picture_platform(const unsigned char* page, std::size_t words_at,
+                            unsigned long entry_rsp) {
+    unsigned long hwcap_word = 1;
+    ASSERT_TRUE(picture_find(page, words_at, cinux::loader::kAuxHwcap, hwcap_word));
+    ASSERT_TRUE(hwcap_word == 0);
+    unsigned long platform_at = 0;
+    ASSERT_TRUE(picture_find(page, words_at, cinux::loader::kAuxPlatform, platform_at));
+    ASSERT_TRUE(platform_at >= entry_rsp);
+    const auto kTextAt = static_cast<std::size_t>(platform_at - 0x1000);
+    ASSERT_TRUE(page[kTextAt] == 'x');
+    ASSERT_TRUE(page[kTextAt + 5] == '4');
+    ASSERT_TRUE(page[kTextAt + 6] == 0);
+}
+
 TEST("elf: the entry picture ends in the facts' auxiliary vector") {
     unsigned char     page[kPicturePageBytes] = {};
     const char* const kArgv[2]                = {"/bin/prog", nullptr};
@@ -401,6 +421,7 @@ TEST("elf: the entry picture ends in the facts' auxiliary vector") {
     facts.page_bytes         = 4096;
     facts.randomness         = random_source;
     facts.random_bytes       = 16;
+    facts.platform           = "x86_64";
     const cinux::loader::EntryRuns kRuns{.arguments = kArgv, .environment = kEnvp};
     const unsigned long            kEntryRsp = 0x1000 + kPictureWordsAt;
     ASSERT_TRUE(cinux::loader::WriteEntryPicture(page, kEntryRsp, kRuns, facts) == kEntryRsp);
@@ -408,8 +429,9 @@ TEST("elf: the entry picture ends in the facts' auxiliary vector") {
     check_picture_run(page, 4070, "/bin/prog");
     check_picture_random(page, random_source);
     check_picture_entries(page, kPictureAuxvAt, kSharedFacts, std::size(kSharedFacts));
-    ASSERT_TRUE(picture_pairs(page, kPictureAuxvAt) == 13);
-    const std::size_t kNullValueAt = kPictureAuxvAt + (std::size_t{13} * 16) + 8;
+    check_picture_platform(page, kPictureAuxvAt, kEntryRsp);
+    ASSERT_TRUE(picture_pairs(page, kPictureAuxvAt) == 15);
+    const std::size_t kNullValueAt = kPictureAuxvAt + (std::size_t{15} * 16) + 8;
     ASSERT_TRUE(picture_word(page, kNullValueAt) == 0);
 }
 
@@ -428,7 +450,10 @@ TEST("elf: a static picture omits randomness and keeps the vector closed") {
     check_picture_entries(page, kPictureWordsAt + 32, kStaticFacts, std::size(kStaticFacts));
     unsigned long value = 1;
     ASSERT_TRUE(!picture_find(page, kPictureWordsAt + 32, cinux::loader::kAuxRandom, value));
-    ASSERT_TRUE(picture_pairs(page, kPictureWordsAt + 32) == 12);
+    ASSERT_TRUE(!picture_find(page, kPictureWordsAt + 32, cinux::loader::kAuxPlatform, value));
+    ASSERT_TRUE(picture_find(page, kPictureWordsAt + 32, cinux::loader::kAuxHwcap, value));
+    ASSERT_TRUE(value == 0);
+    ASSERT_TRUE(picture_pairs(page, kPictureWordsAt + 32) == 13);
 }
 
 
@@ -492,6 +517,30 @@ TEST("elf: strings exhausting the page are refused loudly") {
     const cinux::loader::EntryRuns kRuns{.arguments = argv_list, .environment = nullptr};
     const unsigned long            kEntryRsp = 0x1000 + kPictureWordsAt;
     ASSERT_TRUE(cinux::loader::WriteEntryPicture(page, kEntryRsp, kRuns, facts) == 0);
+}
+
+constexpr TestImage build_gnu_stack_image(std::uint32_t stack_flags) {
+    TestImage image = build_image();
+    put_word(image, 56, 2);
+    put_dword(image, kEhdrBytes + kPhdrBytes, 0x6474E551);
+    put_dword(image, kEhdrBytes + kPhdrBytes + 4, stack_flags);
+    return image;
+}
+
+TEST("elf: the gnu-stack header's flags read back, exec or not") {
+    std::uint32_t flags = 0;
+    ASSERT_TRUE(
+        cinux::loader::ReadGnuStackFlags(build_gnu_stack_image(0x1).bytes, kImageBytes, flags));
+    ASSERT_TRUE(flags == 0x1);
+    ASSERT_TRUE(
+        cinux::loader::ReadGnuStackFlags(build_gnu_stack_image(0x6).bytes, kImageBytes, flags));
+    ASSERT_TRUE(flags == 0x6);
+}
+
+TEST("elf: images without a gnu-stack header answer absent") {
+    std::uint32_t flags = 99;
+    ASSERT_TRUE(!cinux::loader::ReadGnuStackFlags(kGoodImage.bytes, kImageBytes, flags));
+    ASSERT_TRUE(flags == 99);
 }
 
 }  // namespace

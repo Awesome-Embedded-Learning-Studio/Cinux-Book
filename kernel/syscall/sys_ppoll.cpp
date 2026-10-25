@@ -5,6 +5,7 @@
 #include "cinux/shared.hpp"
 #include "kernel/fs/open_file.hpp"
 #include "kernel/fs/pipe.hpp"
+#include "kernel/net/socket.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/signals.hpp"
 #include "kernel/proc/task.hpp"
@@ -38,6 +39,10 @@ unsigned short readiness(unsigned int number, unsigned int events) {
         return static_cast<unsigned short>(kPollNval);
     }
     const fs::OpenFile* const kFile = kOpen.value().get();
+    if (kFile->ops == net::SocketOps()) {
+        return static_cast<net::Socket*>(kFile->backend)
+            ->poll_events(static_cast<unsigned short>(events));
+    }
     if (kFile->ops != fs::PipeOps()) {
         unsigned int answer = events & (kPollIn | kPollOut);
         if ((answer & kPollIn) != 0U && !kFile->ops->readable(kFile->backend, kFile->node)) {

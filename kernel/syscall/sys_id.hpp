@@ -17,6 +17,20 @@
 namespace cinux::syscall {
 
 /**
+ * @brief Reads supplementary group IDs.
+ * @param[in] frame Count and destination address.
+ * @return Group count or negative errno.
+ */
+long long HandleGetgroups(const SyscallFrame& frame);
+
+/**
+ * @brief Sets the caller's supplementary group IDs.
+ * @param[in] frame Count and source address.
+ * @return Zero or negative errno.
+ */
+long long HandleSetgroups(const SyscallFrame& frame);
+
+/**
  * @brief         getuid(): the caller's user id.
  *
  * @return        The fixed id this kernel serves.

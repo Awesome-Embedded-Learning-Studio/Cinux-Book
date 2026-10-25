@@ -26,8 +26,14 @@
 #include "cinux/container/self_list.hpp"
 #include "cinux/ref_count.hpp"
 #include "cinux/result.hpp"
+#include "kernel/fs/open_file.hpp"
 #include "kernel/fs/vfs.hpp"
 #include "kernel/mm/layout.hpp"
+#include "kernel/mm/shared_pages.hpp"
+
+namespace cinux::fs {
+struct OpenFile;
+}
 
 namespace cinux::mm {
 
@@ -58,16 +64,20 @@ enum class VmaKind : unsigned char {
  * @ingroup kernel_mm
  */
 struct VmaRegion : base::container::SelfNode<VmaRegion> {
-    unsigned long      start{};        ///< First byte the promise covers.
-    unsigned long      end{};          ///< One past the last covered byte.
-    VmaKind            kind{};         ///< What stands behind the bytes.
-    bool               readable{};     ///< Loads through this range are promised.
-    bool               writable{};     ///< Stores through this range are promised.
-    bool               executable{};   ///< Running code from this range is promised.
-    fs::FsNode         backing{};      ///< The source node when kind is kFile.
-    const fs::FsOps*   file_ops{};     ///< The backend face that serves backing's bytes.
-    void*              file_self{};    ///< The backend instance behind file_ops.
-    unsigned long long file_offset{};  ///< File byte matching start, when backed.
+    unsigned long    start{};        ///< First byte the promise covers.
+    unsigned long    end{};          ///< One past the last covered byte.
+    VmaKind          kind{};         ///< What stands behind the bytes.
+    unsigned long    stack_floor{};  ///< First usable stack byte, unchanged by splitting.
+    bool             readable{};     ///< Loads through this range are promised.
+    bool             writable{};     ///< Stores through this range are promised.
+    bool             executable{};   ///< Running code from this range is promised.
+    fs::FsNode       backing{};      ///< The source node when kind is kFile.
+    const fs::FsOps* file_ops{};     ///< The backend face that serves backing's bytes.
+    void*            file_self{};    ///< The backend instance behind file_ops.
+    base::Shared<fs::MountLease> file_lifetime{nullptr};  ///< Runtime file backend ownership.
+    base::Shared<fs::OpenFile>   open_file{nullptr};  ///< Pins a file after its descriptor closes.
+    unsigned long long           file_offset{};       ///< File byte matching start, when backed.
+    base::Shared<SharedAttachment> shared;  ///< Shared storage, empty for private regions.
 };
 
 /**
@@ -284,18 +294,19 @@ public:
                                                              unsigned long bytes) const;
 
     /**
-     * @brief         Withdraws every promise fully inside a stretch.
+     * @brief         Withdraws the stretch's pages from every promise.
      *
      * @param[in]     start   First byte of the stretch.
      * @param[in]     end     One past the last byte.
-     * @return        Ok, kInvalidArgument when a recorded span overlaps
-     *                the stretch only partly — Linux answers munmap of a
-     *                partly-mapped stretch with ENOMEM, and so does the
-     *                register.
-     * @note          Chain regions leave the chain; a fully withdrawn
-     *                heap empties its span and the break collapses to its
-     *                base. Which translations still name pages of the
-     *                withdrawn ranges is the caller's separate question.
+     * @return        Ok, kInvalidArgument for an empty stretch; a
+     *                partly-covered promise is no refusal.
+     * @note          A promise the stretch clips keeps its surviving
+     *                head or tail as its own region, the file offset
+     *                walking with the tail. The heap shrinks back to the
+     *                stretch's start when the stretch cuts it, and
+     *                empties when the stretch covers its base. Which
+     *                translations still name pages of the withdrawn
+     *                ranges is the caller's separate question.
      * @warning       None
      * @throws        None
      * @since         0.2.0
@@ -311,12 +322,9 @@ public:
      * @param[in]     terms   The new terms.
      * @return        Ok, kInvalidArgument when a page of the stretch
      *                belongs to no recorded span.
-     * @note          The stretch may cut through a promise: a span's
-     *                words move only when the stretch covers it whole
-     *                or sits inside it, and a straddling cut rewrites
-     *                tables alone (the caller's page walk), leaving
-     *                the span's own words as they were. The register is
-     *                the promise; this changes the promise.
+     * @note          Partial coverage splits a region at both ends,
+     *                preserving outside permissions and backing offsets.
+     *                All replacement nodes are allocated before mutation.
      * @warning       None
      * @throws        None
      * @since         0.2.0
@@ -340,21 +348,6 @@ public:
 
 private:
     /**
-     * @brief         Whether a stretch touches only spans it may wholly own.
-     * @param[in]     start   First byte of the stretch.
-     * @param[in]     end     One past the last byte.
-     * @return        True when no chain region overlaps the stretch
-     *                without sitting fully inside it, and the heap
-     *                answers the same way.
-     * @note          The gate protect and unregister share: both may
-     *                rewrite or withdraw whole spans, and neither may
-     *                split one.
-     * @since         0.2.0
-     * @ingroup       kernel_mm
-     */
-    [[nodiscard]] bool movable_within(unsigned long start, unsigned long end) const;
-
-    /**
      * @brief         Whether every page of a stretch belongs to a span
      *                the register knows.
      * @param[in]     start   First byte of the stretch.
@@ -369,9 +362,10 @@ private:
      */
     [[nodiscard]] bool span_known(unsigned long start, unsigned long end) const;
 
-    base::container::SelfList<VmaRegion> regions_;         ///< The promises, arrival order.
-    VmaRegion                            heap_{};          ///< The brk span, empty until seeded.
-    unsigned long                        heap_max_{};      ///< The break's ceiling from exec.
+    base::container::SelfList<VmaRegion> regions_;     ///< The promises, arrival order.
+    VmaRegion                            heap_{};      ///< The brk span, empty until seeded.
+    unsigned long                        heap_max_{};  ///< The break's ceiling from exec.
+    bool heap_recorded_{};  ///< Partial protection moved heap coverage into ordinary regions.
     unsigned long mmap_ceiling_{cinux::mm::kUserMmapTop};  ///< Where anonymous mmap hunts begin.
 };
 

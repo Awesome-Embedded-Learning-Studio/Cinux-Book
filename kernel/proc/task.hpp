@@ -106,6 +106,8 @@ struct Task : cinux::base::container::SelfNode<Task> {
     std::uint32_t                          euid{};
     std::uint32_t                          gid{};
     std::uint32_t                          egid{};
+    std::uint32_t                          supplementary_groups[16]{};   ///< Extra group IDs.
+    unsigned int                           supplementary_group_count{};  ///< Populated group IDs.
     Task*              parent{};      ///< Who may wait for this task; null when nobody can.
     long long          exit_code{};   ///< What a zombie has to hand its parent.
     const char*        name{};        ///< Label for dumps, caller-owned storage.
@@ -161,6 +163,7 @@ struct Task : cinux::base::container::SelfNode<Task> {
     /// Zero means the task asked for nothing; clone's CLEARTID flag
     /// re-arms it per thread.
     unsigned long long clear_child_tid{};
+    unsigned long long set_child_tid{};  ///< Written in the child's own world before first return.
     /// The exact word this task parks on in the futex table; the
     /// bucket only narrows the search, this key decides the match.
     unsigned long long futex_uaddr{};

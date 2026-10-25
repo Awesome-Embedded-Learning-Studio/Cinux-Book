@@ -12,6 +12,7 @@
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/proc/task_snapshot.hpp"
+#include "kernel/syscall/sys_clock.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
 
 namespace cinux::fs {
@@ -129,6 +130,11 @@ bool source_nth_net_iface(void* /*context*/, unsigned long ordinal, char* out) {
 
 void WireKernelProcSource(ProcFs& procfs) {
     const ProcSource kSource{
+        .mounts =
+            [](auto*, char* out, unsigned long capacity) {
+                return FileWorld::self().mounts_text(out, capacity);
+            },
+        .uptime_ns     = [](auto*) { return syscall::MonotonicNanoseconds(); },
         .nth_tgid      = source_nth_tgid,
         .snapshot      = source_snapshot,
         .exe_path      = source_exe_path,

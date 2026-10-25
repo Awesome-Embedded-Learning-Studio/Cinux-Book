@@ -52,7 +52,7 @@ void spin(unsigned long long rounds) {
 }  // namespace
 
 // NOLINTNEXTLINE(readability-identifier-naming)
-extern "C" void _start() {
+extern "C" void UserMain() {
     const long long kPid = user::Fork();
     if (kPid == 0) {
         child_loop();

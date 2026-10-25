@@ -52,14 +52,15 @@ namespace cinux::loader {
  * @ingroup kernel_loader
  */
 struct LoadWorld {
-    const mm::AddressSpace& space;        ///< The freshly built world pages land in.
-    mm::VmaStore&           vmas;         ///< The range register segments report to.
-    fs::FsNode              file{};       ///< The node the image bytes came from.
-    const fs::FsOps*        file_ops{};   ///< The backend face serving file's bytes.
-    void*                   file_self{};  ///< The backend instance behind file_ops.
-    ImageRole               role{};       ///< Which seat the image fills; the default is the
+    const mm::AddressSpace&      space;        ///< The freshly built world pages land in.
+    mm::VmaStore&                vmas;         ///< The range register segments report to.
+    fs::FsNode                   file{};       ///< The node the image bytes came from.
+    const fs::FsOps*             file_ops{};   ///< The backend face serving file's bytes.
+    void*                        file_self{};  ///< The backend instance behind file_ops.
+    base::Shared<fs::MountLease> file_lifetime{nullptr};  ///< Runtime source backend ownership.
+    ImageRole                    role{};  ///< Which seat the image fills; the default is the
                                           ///< program seat.
-    std::uint64_t           base{};       ///< Where the image lands; the default zero serves the
+    std::uint64_t                base{};  ///< Where the image lands; the default zero serves the
                                           ///< program's absolute addresses, an interpreter brings
                                           ///< its fixed base.
 };
@@ -85,8 +86,10 @@ struct EntryFacts {
     std::uint64_t       interpreter_base{};    ///< AT_BASE: the interpreter's load base, zero when
                                                ///< the program is static.
     std::uint64_t       page_bytes{};          ///< AT_PAGESZ: the machine's page size.
-    const std::uint8_t* randomness{};          ///< AT_RANDOM payload source; null omits the entry.
-    std::size_t         random_bytes{};        ///< Bytes readable at randomness.
+    const char*         platform{};      ///< AT_PLATFORM payload source; null omits the entry.
+    std::uint64_t       hwcap{};         ///< AT_HWCAP word; zero advertises no features.
+    const std::uint8_t* randomness{};    ///< AT_RANDOM payload source; null omits the entry.
+    std::size_t         random_bytes{};  ///< Bytes readable at randomness.
 };
 
 /** @brief End of the auxiliary vector. */
@@ -117,6 +120,13 @@ inline constexpr std::uint64_t kAuxSecure   = 23;
 inline constexpr std::uint64_t kAuxRandom   = 25;
 /** @brief Path of the executed file. */
 inline constexpr std::uint64_t kAuxExecfn   = 31;
+/** @brief Pointer to the platform string; the one machine served. */
+inline constexpr std::uint64_t kAuxPlatform = 15;
+/** @brief Hardware capability bits, zero when none are advertised. */
+inline constexpr std::uint64_t kAuxHwcap    = 16;
+
+/** @brief The string an AT_PLATFORM consumer reads: the one machine served. */
+inline constexpr char kPlatformName[] = "x86_64";
 
 /**
  * @brief    The argument and environment runs a hosted runtime wakes
@@ -158,6 +168,19 @@ struct EntryRuns {
  */
 [[nodiscard]] bool LoadElfIntoSpace(const std::uint8_t* data, std::size_t bytes,
                                     const LoadWorld& world, EntryFacts& facts);
+
+/**
+ * @brief Loads a named interpreter beside the program.
+ * @param[in] path Absolute interpreter path; null returns empty facts.
+ * @param[in] space Address space receiving the interpreter.
+ * @param[in,out] ranges Range register receiving its segments.
+ * @return Interpreter entry and base, or the read and image errors.
+ * @since 0.8.0
+ * @ingroup kernel_loader
+ */
+[[nodiscard]] base::Result<EntryFacts> LoadInterpreter(const char*             path,
+                                                       const mm::AddressSpace& space,
+                                                       mm::VmaStore&           ranges);
 
 /**
  * @brief         Writes the hosted entry picture onto one zeroed stack

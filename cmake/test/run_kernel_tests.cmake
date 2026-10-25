@@ -5,7 +5,8 @@
 
 file(MAKE_DIRECTORY "${TEST_DIR}")
 
-if(NOT EXISTS "/dev/kvm")
+execute_process(COMMAND test -c /dev/kvm -a -w /dev/kvm RESULT_VARIABLE kvm_usable)
+if(NOT kvm_usable EQUAL 0)
     message(FATAL_ERROR
         "/dev/kvm is missing: Cinux runs QEMU with -accel kvm only, no TCG fallback")
 endif()

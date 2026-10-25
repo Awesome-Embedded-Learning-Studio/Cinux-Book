@@ -81,9 +81,16 @@ const fs::FsOps kOps{
 
 }  // namespace
 
-Socket::Socket(int socket_type)
+Socket::Socket(int socket_type, int family)
     : type_(socket_type),
+      family_(family),
       identity_(g_socket_identities.fetch_add(1, std::memory_order_relaxed) + 1) {}
+
+unsigned short Socket::poll_events(unsigned int events) const {
+    constexpr unsigned int kRead  = 1;
+    constexpr unsigned int kWrite = 4;
+    return static_cast<unsigned short>((events & kWrite) | (holds_input() ? events & kRead : 0));
+}
 
 UdpSocket::UdpSocket(UdpModule& module) : Socket(kSockDgram), module_(module) {}
 

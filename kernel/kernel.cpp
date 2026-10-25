@@ -59,7 +59,7 @@ void Main(const cinux::boot::BootInfo& boot_info) {
     Println("[kern] irq on, tick %uHz", cinux::time::kTickHz.value);
     Println("[kern] rtc wall clock %llu", cinux::driver::Rtc::self().now_seconds());
     Println("[kern] keyboard on, type to echo");
-    Println("[kern] boot task (pid 0) parks here, kernel_init (pid 1) takes over");
+    Println("[kern] boot task parks here, kernel_init prepares user init (pid 1)");
     cinux::proc::Scheduler::self().install_class(cinux::proc::DefaultFifoClass());
     cinux::proc::Scheduler::self().install_class(cinux::proc::PriorityClass());
     cinux::proc::InstallKernelSwitchSink();

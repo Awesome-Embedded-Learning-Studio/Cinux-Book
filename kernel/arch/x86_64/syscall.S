@@ -54,6 +54,9 @@ SyscallEntry:
 .global ForkChildEntry
 .type ForkChildEntry, @function
 ForkChildEntry:
+    call EnterFpuGate
+    call FinishForkChild
+    call ExitFpuGate
     movq 32(%rsp), %rdi
     movq 40(%rsp), %rsi
     movq 48(%rsp), %rdx

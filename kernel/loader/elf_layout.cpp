@@ -120,4 +120,23 @@ bool ReadInterpreterPath(const std::uint8_t* data, std::size_t bytes, char* path
     return false;
 }
 
+bool ReadGnuStackFlags(const std::uint8_t* data, std::size_t bytes, std::uint32_t& flags) {
+    const base::Result<ElfImage> kParsed = ParseElf64(data, bytes, ImageRole::kProgram);
+    if (!kParsed.ok()) {
+        return false;
+    }
+    const ElfImage kImage = kParsed.value();
+    for (std::uint16_t index = 0; index < kImage.segment_count; ++index) {
+        const std::uint8_t* const kAt =
+            kImage.segments +
+            (static_cast<std::size_t>(index) * static_cast<std::size_t>(kImage.segment_size));
+        if (base::ReadWord32(kAt, 0) != kProgramGnuStack) {
+            continue;
+        }
+        flags = base::ReadWord32(kAt, 4);
+        return true;
+    }
+    return false;
+}
+
 }  // namespace cinux::loader

@@ -1,6 +1,7 @@
 #include "kernel/syscall/sys_access.hpp"
 
 #include "cinux/result.hpp"
+#include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/fs/file_world.hpp"
 #include "kernel/fs/fs_config.hpp"
 #include "kernel/fs/vfs.hpp"
@@ -18,7 +19,10 @@ long long HandleAccess(const SyscallFrame& frame) {
     if (!kView.ok()) {
         return -ErrnoFrom(kView.error());
     }
-    return 0;
+    const arch::IrqGuard kGuard;
+    const fs::FsView&    flat  = kView.value();
+    const auto           kNode = flat.ops->lookup(flat.self, flat.rest);
+    return kNode.ok() ? 0 : -ErrnoFrom(kNode.error());
 }
 
 }  // namespace cinux::syscall
