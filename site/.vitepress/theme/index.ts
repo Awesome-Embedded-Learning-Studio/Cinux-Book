@@ -27,6 +27,7 @@ import ChapterNav from './components/ChapterNav.vue'
 import ChapterLink from './components/ChapterLink.vue'
 import JourneyRoadmap from './components/JourneyRoadmap.vue'
 import StationPanel from './components/StationPanel.vue'
+import BitFieldViewer from './components/BitFieldViewer.vue'
 // 对齐移植:内容系统
 import DocTags from './components/DocTags.vue'
 import { setupMermaid } from './mermaid-client'
@@ -75,6 +76,7 @@ export default {
     app.component('ChapterLink', ChapterLink)
     app.component('JourneyRoadmap', JourneyRoadmap)
     app.component('StationPanel', StationPanel)
+  app.component('BitFieldViewer', BitFieldViewer)
     app.component('TagExplorer', defineAsyncComponent(() => import('./components/TagExplorer.vue')))
     app.component('ReferenceCard', defineAsyncComponent(() => import('./components/ReferenceCard.vue')))
     app.component('ReferenceItem', defineAsyncComponent(() => import('./components/ReferenceItem.vue')))

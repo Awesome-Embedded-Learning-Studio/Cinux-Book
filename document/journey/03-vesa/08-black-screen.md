@@ -20,7 +20,7 @@ tags:
 cmake -B build && cmake --build build --target run
 ```
 
-这回终端里等着咱们的,是这么几行:
+这回咱们在终端里等来的,是这么几行:
 
 ```text
 [stage2] stack ok

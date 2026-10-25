@@ -1,6 +1,6 @@
 ---
 title: "08 · ash 坐进登录座"
-description: "教学 shell 能启动程序的动词只有 run,每一回实弹都有摩擦,这一卷把登录座换血:kernel_init 仍是 pid 1,盘上 /bin/sh 指到 busybox 的 ash。busybox 安家源树、构建拷临时树、烤盘默认就座。init 直拉不经 exec 的默认铺路,得亲手递 PATH。开机提示符从 cinux> 换成 / #,裸名 hello-dyn 一次验完 PATH 查找与动态链接。动态 busybox 的弃案与 ls 的 not found 如实记。"
+description: "教学 shell 能启动程序的动词只有 run,每一回实弹都有摩擦,这一卷把登录座换血:kernel_init 仍是 pid 1,盘上 /bin/sh 指到 busybox 的 ash。busybox 安家源树、构建拷临时树、烤盘默认就座。init 直拉不经 exec 的默认铺路,得亲手递 PATH。开机提示符从 cinux> 换成 / #,裸名 hello-dyn 一次验完 PATH 查找与动态链接。动态 busybox 的弃案与 ls 的 not found 都记下。"
 chapter: 25
 order: 8
 platform: qemu
@@ -33,8 +33,8 @@ Hello from dynamic musl on Cinux!
 hello from the volume/ #
 ```
 
-画面里还有一处不体面的事,咱们也如实交代。盘上住的名字只有 busybox 一个,ls 不是独立的文件,busybox 的命令联动靠的是符号链接,一个命令一个链接名的对应,而咱们的 ext2 还没有符号链接的形态,认字那一卷立后端的时候没做它。所以裸敲 ls,ash 的答复是 not found,咱们得敲 busybox ls,请 busybox 本人出了场。符号链接这门形态挂到往后的卷,眼下敲全名的时候,是不丢人的。
+画面里还有一处不体面的事,咱们也摆出来。盘上住的名字只有 busybox 一个,ls 不是独立的文件,busybox 的命令联动靠的是符号链接,一个命令一个链接名的对应,而咱们的 ext2 还没有符号链接的形态,认字那一卷立后端的时候没做它。所以裸敲 ls,ash 的答复是 not found,咱们得敲 busybox ls,请 busybox 本人出了场。符号链接这门形态挂到往后的卷,眼下敲全名的时候,是不丢人的。
 
-两笔边角咱们也照实记。头一笔咱们试过把整具 busybox 换成动态链的,这样连 shell 自己都跑在了解释器上,画面是最漂亮的。可它的构建系统一圈下来把链接拐回了宿主的 glibc,驯服它是一门 busybox 工具链的工程,不是这一卷的正菜,咱们弃案,内核侧的画面已经够看。第二笔想提醒的是,想拿键盘验 $? 的各位别急着试,咱们的键盘键位表是英式配列,shift 加 3 出来的是井号不是美元符,如实记在了这儿,键盘表的修缮往后另排。
+两笔边角咱们也记下。头一笔咱们试过把整具 busybox 换成动态链的,这样连 shell 自己都跑在了解释器上,画面是最漂亮的。可它的构建系统一圈下来把链接拐回了宿主的 glibc,驯服它是一门 busybox 工具链的工程,不是这一卷的正菜,咱们弃案,内核侧的画面已经够看。第二笔想提醒的是,想拿键盘验 $? 的各位别急着试,咱们的键盘键位表是英式配列,shift 加 3 出来的是井号不是美元符,记在了这儿,键盘表的修缮往后另排。
 
 合上这一卷的时候,机器的脸已经换了另一副:开机提示符 / #,敲裸名出动态的问候,echo 这样的内建张口就来。咱们的户口还是那个户口,pid 1 的座还是 kernel_init,座上的人换了,这就是咱们这一篇干的事。

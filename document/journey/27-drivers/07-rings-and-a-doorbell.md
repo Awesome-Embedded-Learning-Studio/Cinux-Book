@@ -17,12 +17,84 @@ tags:
 
 # 三只环,一枚门铃
 
-控制器与内核怎么对讲,是这一章的正题。答案说出来其实有点出乎意料:三只环扛起了全部对讲,中断与端口的门路都靠不上。环上的基本单位叫 TRB,传输请求块的名目,一句话的功夫说清:十六个字节,三个字的样子,头一个八字的字装载荷,比如一个地址,中间四字的字装结果,比如装的是长度与完成码,末一个四字的字装控制,类型、方向、槽位号的事全在这字里。通体 volatile 的是 TRB,静态断言把十六字节锁住了。环就是一排 TRB 挨个地排开,再加上一条绕回的章法。三只环各归各的主:命令环,咱们当生产的,控制器当消费的,问它要槽位、叫它配端点的事,都是从这里递的条子。事件环的流向倒过来:控制器当生产的,咱们当消费的,命令的回执、传输的完成,全走的是事件环的路。传输环是每台设备的每个端点一只,真正的数据搬运都在这里排队。生产与消费谁也不碰谁的笔,这是整套机制的骨架。
+控制器与内核怎么对讲,是这一章的正题。答案说出来其实有点出乎意料:三只环扛起了全部对讲,中断与端口的门路都靠不上。环上的基本单位叫 TRB,传输请求块的名目,一句话的功夫说清:十六个字节,三个字的样子。真身咱们摆出来:
 
-环怎么绕,咱们细看,因为这里头藏着 xHCI 全部并发控制的机关。命令环与事件环咱们给十六槽,传输环每端点一只的配法,给的是八槽。拿十六槽的环说事:咱们填到第十五槽,最后一槽不放正经的内容,放的是一枚 Link TRB,载荷写的是环自己的地址,等于往回跳的路标。生产者走到了这里,按路标的意思回零号槽,同时把手里一个叫 cycle 的状态翻个面。控制字的第一位就是 cycle 位,生产者填每一笔的时候,把自己的状态写进去。消费者那头也各存一份同样的状态:你笔下的字,你的状态与字里的位对得上,是正经的新货,对不上的话,是上一圈的老货,不往前追了。一整圈一次的轮换,生产者永远只追消费者的位置,追不上的时候说明环满了。没有锁的方案,没有版本号的包袱,一个 bit 加各自的一份状态,两只独立的执行流在一只环上互不打搅地转。这套握手咱们写成了纯算术,初始化的环、入队的一笔、判断事件的新旧,三个函数不碰任何的端口,宿主的长凳上用一块普通内存就能把整套环协议跑起来验证,这是配置空间的活页那一章立下的注入范式的又一次出场,只是这回连注入都省了,算术本身就是全部的家当。起手要交代的还有一笔:命令环头一次交给控制器,靠的是一条叫 CRCR 的六十四位寄存器,咱们写进去的低半,在环基址上按位或了一个一,这么一个一,是给控制器的消费者种的初始 cycle 状态。咱们自己这一侧,命令环的生产者与事件环的消费者起手也都是一,头一圈的两头才算对上了表。
+```cpp
+struct Trb {
+    volatile uint64_t parameter;  ///< Payload word: an address, a slot id, a type argument.
+    volatile uint32_t status;     ///< Result word: transfer length, completion code.
+    volatile uint32_t control;    ///< Type, cycle bit, direction and the rest.
+};
+
+static_assert(sizeof(Trb) == 16, "one trb keeps its sixteen bytes");
+```
+
+头一个八字节的字装载荷,比如一个地址。中间四字节的字装结果,比如装的是长度与完成码。末一个四字节的字装控制,类型、方向、槽位号的事全在这字里。承重的是通体的 volatile:环是与控制器共享的内存,页表里标的又是不缓存,编译器要是自作主张地少读写了一次,协议就走样了,静态断言顺手把十六字节的身量锁住了。环就是一排 TRB 挨个地排开,再加上一条绕回的章法。三只环的主人有三家:命令环,咱们当生产的,控制器当消费的,问它要槽位、叫它配端点的事,都是从这里递的条子。事件环的流向倒过来:控制器当生产的,咱们当消费的,命令的回执、传输的完成,全走的是事件环的路。传输环是每台设备的每个端点一只,真正的数据搬运都在这里排队。生产与消费谁也不碰谁的笔,这是整套机制的骨架。
+
+环怎么绕,咱们细看,因为这里头藏着 xHCI 全部并发控制的机关。命令环与事件环咱们给十六槽,传输环每端点一只的配法,给的是八槽。拿十六槽的环说事:咱们填到第十五槽,最后一槽不放正经的内容,放的是一枚 Link TRB,载荷写的是环自己的地址,等于往回跳的路标。生产者走到了这里,按路标的意思回零号槽,同时把手里一个叫 cycle 的状态翻个面。控制字的第一位就是 cycle 位,生产者填每一笔的时候,把自己的状态写进去。消费者那头也各存一份同样的状态:读到某一笔的时候,你存的状态与那一笔字里的位对得上,是正经的新货,对不上的话,是上一圈的老货,不往前追了。一整圈一次的轮换,生产者永远只追消费者的位置,追不上的时候说明环满了。没有锁的方案,没有版本号的包袱,一个位加各自的一份状态,两只独立的执行流在一只环上互不打搅地转。
+
+这套握手咱们写成了纯算术,环上干活的函数咱们摆出来,打头的是织环与入队要用的两个小件:
+
+```cpp
+/// @brief The producer cycle state as the control word spells it.
+uint32_t cycle_word(bool cycle) {
+    return cycle ? 1U : 0U;
+}
+
+/// @brief One control word: the type in its field, the cycle in bit zero.
+uint32_t control_word(uint32_t type, bool cycle) {
+    return (type << 10U) | cycle_word(cycle);
+}
+
+/// @brief Places the link TRB that closes one ring at its wrap point.
+void place_link(Trb* ring, unsigned long slots, uint64_t ring_physical, bool cycle) {
+    Trb& link      = ring[slots - 1];
+    link.parameter = ring_physical;
+    link.status    = 0;
+    link.control   = control_word(kTrbLink, cycle) | kToggleCycle.raw;
+}
+
+/// @brief Wraps one ring: link placed, cursor home, cycle flipped.
+void wrap_ring(Trb* ring, unsigned long slots, uint64_t ring_physical, RingState& state) {
+    place_link(ring, slots, ring_physical, state.cycle);
+    state.index = 0;
+    state.cycle = !state.cycle;
+}
+```
+
+咱们再看对外的三个入口,管的是初始化、入队与判新:
+
+```cpp
+void InitRing(Trb* ring, unsigned long slots, uint64_t ring_physical) {
+    base::SetBytes(ring, 0, slots * sizeof(Trb));
+    place_link(ring, slots, ring_physical, true);
+}
+
+// NOLINTNEXTLINE(readability-function-size) fill, advance and wrap name one ring pass
+void EnqueueCommand(Trb* ring, unsigned long slots, RingState& state, uint64_t ring_physical,
+                    uint64_t parameter, uint32_t status, uint32_t control) {
+    Trb& trb      = ring[state.index];
+    trb.parameter = parameter;
+    trb.status    = status;
+    trb.control   = control | cycle_word(state.cycle);
+    ++state.index;
+    if (state.index == slots - 1) {
+        wrap_ring(ring, slots, ring_physical, state);
+    }
+}
+
+bool EventPending(const Trb& event, bool consumer_cycle) {
+    if (cycle_word(consumer_cycle) != (event.control & 1U)) {
+        return false;
+    }
+    return event.parameter != 0 || event.status != 0 || event.control != 0;
+}
+```
+
+咱们拿承重的几行来说:control_word 把类型挪进了第十位起的那一段,cycle 的家安在第零位上,生产者的状态就是这么写进每一笔的。EnqueueCommand 填完了一笔就往前挪一格,挪到最后一格的时候不填正经的内容,交给 wrap_ring 去收尾:Link 摆了进去,游标归了零,cycle 翻了面,绕回的三件事一个函数就办完了。EventPending 是消费者那头的判新:头一步比第零位与自己存的状态,对不上的话是老货,比上了还得再查它不是全零,因为刚清过零、还没人写过的格子第零位天生是零,不查它的话,空格子会被当成新货的。三个函数不碰任何的端口,宿主的长凳上用一块普通内存就能把整套环协议跑起来验证,这是配置空间的活页那一章立下的注入范式的又一次出场,只是这回连注入都省了,算术本身就是全部的家当。起手要交代的还有一笔:命令环头一次交给控制器,靠的是一条叫 CRCR 的六十四位寄存器,咱们写进去的低半,在环基址上按位或了一个一,这么一个一,是给控制器的消费者种的初始 cycle 状态。咱们自己这一侧,命令环的生产者与事件环的消费者起手也都是一,头一圈的两头才算对上了表。
 
 事件环的那头还有一层簿记,而且它跟另外两只环有一个身份上的差别:事件环里没有那枚 Link 的路标,十六槽装的全是正经事件,绕回靠的不是路标,按段的长度数着走,消费侧数满第十六笔的时候自己把 cycle 翻面,生产侧也是一样的理。控制器往环上写的话,咱们怎么知道写没写:段表。一只小小的表,它告诉控制器的是事件环在哪、多长,咱们的一段十六槽。咱们消费完一笔,把出队的指针写回去,顺带置一个事件处理忙的位。咱们置的位一亮,控制器就拿到了消费者来过的凭证,才敢往前再写新的一笔。命令的等待也有讲究:咱们递出一条命令,记下它落在环上的地址,然后有界地自旋,每一圈的开头排空一次事件环,排空里看见了命令完成事件,类型对、载荷里的地址对得上咱们记的那笔、完成码与槽位号一并抄回,命令这才算有了回话。等不到的话,答的是超时,不等它个天荒地老。
 
-门铃是这套机制里最俏皮的一件。它就是窗里偏移 DBOFF 处的一排三十二位数组,一个槽位一格的布局,咱们往格子里写一个数,控制器就知道该去看那个槽位的环了。写什么数?写端点号。命令环的摇铃,写的是零号格零号端点,设备的数据传输摇铃要写那个端点自己的号。编号的讲究咱们留到四道坎那一章,它到时候会出来拦路的。你把整套机制连起来看:咱们往命令环放一笔,摇一下手里的铃,控制器把那一笔收走了,回执留在了事件环上,咱们排空事件环拿到回话。往后的数据传输一模一样,只是环换成了每端点自己的传输环。没有一处轮询端口的旧式对讲,双方隔着共享内存各写各的环,门铃一响就各干各的。
+门铃是这套机制里最俏皮的一件。它就是窗里偏移 DBOFF 处的一排三十二位数组,一个槽位一格的布局,咱们往格子里写一个数,控制器就知道该去看那个槽位的环了。写什么数?写端点号。命令环的摇铃,写的是零号格零号端点,设备的数据传输摇铃要写那个端点自己的号。编号的讲究咱们留到四道坎那一章,它到时候会出来拦路的。你把整套机制连起来看:咱们往命令环放一笔,摇一下手里的铃,控制器把那一笔收走了,回执留在了事件环上,咱们排空事件环拿到回话。往后的数据传输一模一样,只是环换成了每端点自己的传输环。没有一处轮询端口的旧式对讲,双方隔着共享内存各写各的环,门铃一响就回头干自己的活。
 
 还有一件事咱们放在这一章的末尾说清楚:控制器自己,不进名册的座。三本册子收的是设备,而它是总线本身,是修路的,不是路上的车。名册登记的将是过桥的设备,键盘认的是 usb 总线,守桥的它一个座位也不占。当年第一遍的工程线上咱们也犹豫过,重走这一遍想明白了,它不占门房的座。三只环立好了,门铃也接上了,可环上还是空的,连一只设备的影子也没有。下一章咱们去桥那头请头一位住户进门。

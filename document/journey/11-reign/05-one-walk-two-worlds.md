@@ -69,10 +69,28 @@ Entry* EnsureLeafTable(World& world, unsigned long root, unsigned long virtual_a
 }
 ```
 
-三个分支各管一种路上的情况。槽是空的:现场补页——take_page 交货,MakeTableEntry 随手把新页挂进了槽里,下楼梯的脚就踩上了新台阶。槽是大页的:直接回来报拒绝——大页底下没有页表可到,把人家一张 2MiB 拆成 4KiB 不是走查能替人做的主,那是调用方的策略问题,咱们后面翻译大页的时候再细说这个拒绝。槽是正常的表指针:FollowTable 取物理地址,咱们踩下去接着走。MapPage 本身薄得就剩了三行:EnsureLeafTable 拿到页表,写进去的目标项就是一条 MakeTableEntry。参数表上有一个刻意的缺席:标志位。MapPage 眼下写的只有 present 加 writable:消费方没有提出第三种需求之前,咱们不涨这个参数,需求来了再加。接口一次作对的意思是不多做,而不是做全。
+三个分支各管一种路上的情况。槽是空的:现场补页——take_page 交货,MakeTableEntry 随手把新页挂进了槽里,下楼梯的脚就踩上了新台阶。槽是大页的:直接回来报拒绝——大页底下没有页表可到,把人家一张 2MiB 拆成 4KiB 不是走查能替人做的主,那是调用方的策略问题,咱们后面翻译大页的时候再细说这个拒绝。槽是正常的表指针:FollowTable 从这一项里抠出下一张表的物理地址,world 接了过去就换回指针,咱们踩着它接着往下走。
+
+咱们把三层楼下完,EnsureLeafTable 交出来的就是页表本身。本卷的主角 API MapPage 站在这副骨架上,全份家当咱们原样摆出来:
+
+```cpp
+template <TableWorld World>
+bool MapPage(World& world, unsigned long root, unsigned long virtual_address,
+             unsigned long physical) {
+    Entry* const kTable = EnsureLeafTable(world, root, virtual_address);
+    if (kTable == nullptr) {
+        return false;
+    }
+    kTable[SlotIndex(virtual_address, WalkLevel::kPageTable)] =
+        cinux::arch::page::MakeTableEntry(physical, cinux::arch::page::kWritable);
+    return true;
+}
+```
+
+除去开头那道空指针的守卫,承重的就是末尾两行。SlotIndex 拿的是地址里最低的九位,在页表里点到咱们要的目标项,MakeTableEntry 再把物理页连同标志一起压了进去,一条映射就成了。参数表上有一个刻意的缺席:标志位。您看 MakeTableEntry 拿到的第二个参数,写死的就是 kWritable,MapPage 眼下写的只有 present 加 writable:消费方没有提出第三种需求之前,咱们不涨这个参数,需求来了再加。接口一次作对的意思是不多做,而不是做全。
 
 三个分支里最值得停下来看的是补页,而补页的要害在 take_page 的一个形容词上:零页。零字咱们把它立成了出厂纪律,当年的调试现场翻出来,您就知道这纪律的分量。页表页要是带着上一任主人的残留数据上岗,残留里那些最低位恰好是 1 的项,CPU 一查就是映射在——映射到了哪个物理地址?按残留里剩下的位走,得到的就是一个随机数。症状玄得没边:translate 出来一个莫名其妙的地址,或者写这个虚拟地址,改的却是毫不相干的物理内存,等咱们重启一次,那页内存换了残留,症状跟着换了一副面孔。三分靠的是代码,而七分靠运气,病起来是要命的。所以纪律只有一条:凡是新页上岗当表,交接的前提是清成全零。种子柜发的是清过零的页,Pmm 侧的 KernelTables 交货前清零,HostWorld 发页也清了零。三处发页走的是同一道工序,咱们一道都不省。
 
-长凳上的验收,mm 家族这回添的是 vmm 一件六案。咱们点两案说:头一案,一个没映射过的地址走 MapPage,断言 world.taken 涨了四——根一张、PDPT 一张、PD 一张、页表一张,四级下楼缺谁补谁的事,一遍就数清了。咱们再看一案,验的是重映射覆盖:同一个门牌挂过 0x111000 再改挂 0x222000,translate 出来的必须是新页——旧项无条件被顶掉。引用计数的那一套是用户态库的活计,内核的页表不用它,谁家活着谁说了算。
+长凳上的验收,mm 家族这回添的是 vmm 一件六案。咱们点两案说:头一案,一个没映射过的地址走 MapPage,断言 world.taken 涨了四——根一张、PDPT 一张、PD 一张、页表一张,四级下楼缺谁补谁的事,一遍就数清了。咱们再看一案,验的是重映射覆盖:同一个门牌挂过 0x111000 再改挂 0x222000,translate 出来的必须是新页——旧项无条件被顶掉。引用计数的那一套是用户态分配库的活计,像 glibc 的 malloc 那一路,数的是每页还剩几个主人,数到了零才敢把页还回去。内核的页表不用它,谁家活着谁说了算。
 
 走查会下楼了,也该会查数了。下一节咱们讲另外两个动词:拆除,和只读的翻译——顺便把一张走查改完表之后,CPU 那头还蒙在鼓里的大事说了。

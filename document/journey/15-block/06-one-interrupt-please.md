@@ -64,9 +64,11 @@ if (!kEvents.has(kWatched)) {
 }
 ```
 
-头一段,认领。口的 PxIS 里,要是咱们盯的那几位一个都没立,起立走人,一声不吭——线是合用的,室友的中断,咱们既不抢着应答,也不顺手吞掉,后头接手的自然处理。
+头一段,认领。口的 PxIS 里,要是咱们盯的那几位一个都没立,起立走人,一声不吭——线是合用的,室友的中断,咱们既不抢着应答,也不顺手吞掉,后头接手的自然处理。判词的开头,咱们还拍了两张快照:`kIssue` 抄的是 `PxCI`(0x38,03 节认过的门牌,记的是哪些命令槽还压着没跑完),`kTask` 抄的是 `PxTFD`(0x20,报的是盘忙不忙、有没有出错)。判成的后两个条件,查的就是上头两张快照。
 
 ```cpp
+const AhciReg kIssue{port.command_issue};
+const AhciReg kTask{port.task_file_data};
 if (kEvents.has(kFatal)) {
     completion_.finish(false);
 } else if (kEvents.has(kIsDeviceToHost | kIsPioSetup) && !kIssue.has(kSlotZero) &&

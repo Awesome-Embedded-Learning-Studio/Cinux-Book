@@ -18,9 +18,59 @@ tags:
 
 破了三案,链路通了,咱们收官的活是三件:把内核里的裸指针收进伞,把 shell 的身子搬去盘上,让 init 学会等和重拉的手艺。
 
-伞的家规,咱们拍得直白:内核里不许 new 和 delete 裸奔。这一卷里 fork、execve、init 连着写了下来,错误路径一条比一条地深,哪条忘了还,哪条就漏——人是会忘的,类型倒是不会。所以在 base 里立起 Own 一家:Own<T> 持有一个对象,出了界就 delete。Own<T[]> 持有的是一段数组,MakeOwn、MakeOwnArray 是造它们的工厂,转移只有显式的 move 和 release 两路,想悄悄复制的话,编译期就把你拦下。AddressSpace 的析构函数接上 teardown——delete 即回收,世界随着尸身拆了。fork、execve、init、task_runtime 全线换了伞,错误路径从此只剩一句提前的 return,手里的东西自己会还。文档咱们也写得如实:内核堆的 new 耗尽是响而不是返空,MakeOwn 的失败语义按真话讲。同一天进家的还有 Shared 和 Weak 两位,把文件系统节点那套数着引用过日子的纪律写成类型,Weak 替咱们盯着对象,对象没了自动落空,是不会悬垂的。名字系统已经这么活了半程,现在轮到类型替咱们守。
+伞的家规,咱们拍得直白:内核里不许 new 和 delete 裸奔。这一卷里 fork、execve、init 连着写了下来,错误路径一条比一条地深,哪条忘了还,哪条就漏——人是会忘的,类型倒是不会。所以在 base 里立起 Own 一家。家规全写在了类型身上,骨架咱们端出来看:
 
-第二件是 shell 的搬家。下楼开张那一卷收卷的时候咱们交过底:echo 打出来的字是您敲的,help 报的菜名是编进镜像里的,程序自己睡在内核镜像的怀里,盘上什么都没有。认字那一卷把盘立成了根,可 shell 的铺盖还留在镜像里。这一卷请它出门:构建链里 objcopy 抽纯二进制的那道工序,链接输入里的 user_blob.o,内核里的 g_user_shell 那对符号,整段都拆了。shell 改出了 ELF,照 hello 的样子,配上 -nostdlib -static 的参数,造盘脚本把它写进了 /bin/sh。从此机器上剩下的只有一台装载器——kernel_init 起 shell、execve 起程序,走的是同一张脸,跑的是同一套头校验、同一个段循环。kernel_init 的主流程函数 init_thread 重写成分层的四步:读卷上的 /bin/sh 整份进 Own 缓冲,新世界的装载加一页栈,造出的任务下放 ring3,然后咱们 wait。shell 退了,打印了退出码,重新拉一个新的。respawn 的循环,就是 init 的余生。
+```cpp
+    /// Copies are refused: exactly one owner.
+    Own(const Own&)            = delete;
+    Own& operator=(const Own&) = delete;
+
+    /// Moves carry the hold; the source lets go.
+    Own(Own&& other) noexcept : held_(other.held_) { other.held_ = nullptr; }
+
+    Own& operator=(Own&& other) noexcept {
+        if (this != &other) {
+            delete held_;
+            held_       = other.held_;
+            other.held_ = nullptr;
+        }
+        return *this;
+    }
+
+    /// Deletes whatever is held.
+    ~Own() { delete held_; }
+```
+
+Own<T> 持有的是一个对象,出了界就 delete。想复制的话,那两行声明就被 delete 拦死了,想悄悄地复制,编译期就把你拦下。搬家走的只有 move 一路,搬完源头的手里是空的。析构干的就是 delete,出了界,析构函数替咱们还。Own<T[]> 是它的数组兄弟,析构换成了 delete[],其余的一个字都不差。转移的另一路是 release,把持有权永久地交出去:
+
+```cpp
+    /// Hands the hold away permanently.
+    [[nodiscard]] Stuff* release() {
+        Stuff* const kOut = held_;
+        held_             = nullptr;
+        return kOut;
+    }
+```
+
+交了出去,这把伞就两手空空了,再出界也还不出什么了。init_thread 把装好的那方世界交给孩子任务,走的正是这一句 space.release()。工厂的两员咱们也认识一下,它们把 new 也收进了伞里:MakeOwn 造的是单个,MakeOwnArray 造的是数组。
+
+```cpp
+template <typename Stuff, typename... Args>
+[[nodiscard]] Own<Stuff> MakeOwn(Args&&... args) {
+    return Own<Stuff>(new Stuff(std::forward<Args>(args)...));
+}
+```
+
+```cpp
+template <typename Stuff>
+[[nodiscard]] Own<Stuff[]> MakeOwnArray(std::size_t count) {
+    return Own<Stuff[]>(new Stuff[count]{});
+}
+```
+
+AddressSpace 的析构函数接上 teardown——delete 即回收,世界随着尸身拆了。fork、execve、init、task_runtime 全线换了伞,错误路径从此只剩一句提前的 return,手里的东西自己会还。文档咱们也写得如实:内核堆的 new 耗尽是响而不是返空,MakeOwn 的失败语义按真话讲。同一天进家的还有 Shared 和 Weak 两位,把文件系统节点那套数着引用过日子的纪律写成类型,Weak 替咱们盯着对象,对象没了自动落空,是不会悬垂的。名字系统已经这么活了半程,现在轮到类型替咱们守。
+
+第二件是 shell 的搬家。下楼开张那一卷收卷的时候咱们交过底:echo 打出来的字是您敲的,help 报的菜名是编进镜像里的,程序自己睡在内核镜像的怀里,盘上什么都没有。认字那一卷把盘立成了根,可 shell 的铺盖还留在镜像里。这一卷请它出门:构建链里 objcopy 抽纯二进制的那道工序,链接输入里的 user_blob.o,内核里的 g_user_shell 那对符号,整段都拆了。shell 改出了 ELF,照 hello 的样子,配上 -nostdlib -static 的参数,造盘脚本把它写进了 /bin/sh。从此机器上剩下的只有一台装载器——kernel_init 起 shell、execve 起程序,走的是同一张脸,跑的是同一套头校验、同一个段循环。kernel_init 的主流程函数 init_thread 重写成分层的四步:读卷上的 /bin/sh 整份进 Own 缓冲,新世界的装载加一页栈,造出的任务下放 ring3,然后咱们 wait。shell 退了,打印了退出码,重新拉一个新的。
 
 这个循环这么一转,上一卷的一笔旧债就清了。上一卷交底:PID 0 和 PID 1 都是借来的称呼,fork 和 wait 的影子都没有,借的只是姿势。这一卷 fork 有了,wait 有了,PID 1 成了名副其实的一家之主——它的每个孩子退场,真的有一双手收下退出码。您算算机器的 pid 流水:boot 是 0,kernel_init 占的是 1,shell 占的是 2,shell 里 fork 出的头一个孩子是 3。验收的时候,您会在屏幕上亲眼见到这个 3。
 

@@ -22,7 +22,58 @@ tags:
 
 最能救命的是次序:检查失败,头一步把持有链亮了出来,响是第二步的事。死锁这一类案子的现场,就藏在持有链的字里:A 抱着 B 等,B 的持有者是 C,而 C 又在等 A。您要是光让机器响一声停下来,重启之后什么都没有。转储的那一拍在前,响的那一拍在后,串口上留的是案发当时谁拿着什么,咱们拿这一行行当尸检报告。测试两头都按住了:名册自己的套件里,A 在 B 里稳稳地拿着,名册认了,倒过来 B 再 A 的话,名册当场拒了,隔着传递连成的环也拒。转储的路径,宿主的测试装上自己的捕获器去听:拿一把登了名的锁,转储的那一行必须报名字,没登名的报地址,退役的连名带地址一起清。
 
-这一批有三处拦路的,咱们挨个记。头一处是编译世界的事,您听着可能有点绕,咱们慢慢说。锁序的检查,默认的构建里是关着的,开着拖的是速度,教学内核认了默认关。可名册的代码是一个模子:同一次转发,检查开着的世界里交给真的座次图,关着的世界里交给一个空壳。首版的如意算盘,是拿编译期的分支把空壳里的代码划掉,结果碰了壁:if constexpr 这门把式,救得了跟着类型参数走的代码,救不了不依赖谁的普通成员。编译器编译的是您写下的每一行,不是您正跑着的那个世界,关着的世界里,转发体引用的名字一样要存在、要合法。正解是给关着的世界也造一副合法的脸:空操作的镜像,同样的两个入口,什么都不干,但是真的在。两个世界各自编译各自的,都绿了。功能是可以有开关的,代码是没有的,写下的每一行,关着的世界也得养得起。
+这一批有三处拦路的,咱们挨个记。头一处是编译世界的事,您听着可能有点绕,咱们慢慢说。锁序的检查,默认的构建里是关着的,开着拖的是速度,教学内核认了默认关。可名册的代码是一个模子:同一次转发,检查开着的世界里交给真的座次图,关着的世界里交给一副空操作的镜像。首版的如意算盘,是拿编译期的分支把镜像里的代码划掉,结果碰了壁:if constexpr 这门把式,救得了跟着类型参数走的代码,救不了不依赖谁的普通成员。编译器编译的是您写下的每一行,不是您正跑着的那个世界,关着的世界里,转发体引用的名字一样要存在、要合法。正解是给关着的世界也造一副合法的脸。咱们把两张脸并排端出来。头一张是真的,就是座次图的正身:
+
+```cpp
+class LockOrder {
+public:
+    /// Result of an acquisition or release validation.
+    enum class Status : unsigned char {
+        kOk,
+        kCycle,
+        kRecursive,
+        kCapacity,
+        kNotHeld,
+        kOutOfOrder,
+    };
+    /// Maximum distinct live locks and maximum simultaneous nesting.
+    static constexpr unsigned int kLocks = 64;
+    static constexpr unsigned int kDepth = 16;
+
+    /// Record an acquisition only when it preserves an acyclic graph.
+    [[nodiscard]] Status acquire(const void* lock);
+
+    /// Release only the innermost held lock, preserving IRQ restore order.
+    [[nodiscard]] Status release(const void* lock);
+
+    /// Remove a destroyed, unheld lock and every incident edge.
+    [[nodiscard]] bool forget(const void* lock);
+
+    /// Register the human name of a lock ahead of its first acquisition.
+    void name_lock(const void* lock, const char* label);
+
+    /**
+     * @brief   Walk the held chain, one sink call per lock, innermost last.
+     * @since   0.4.0
+     */
+    void dump_held();
+```
+
+真脸的这一头,acquire、release、forget 管的是记图、查环、退名号,转发体天天调的是末尾的两个入口:name_lock 管的是登名号,dump_held 管的是报持有链。再看关着的世界里的另一副,咱们在锁的基类里找到它:
+
+```cpp
+    /// Mirrors the LockOrder faces the ledger forwards to, as no-ops,
+    /// so the forwarding code compiles unchanged in dump-free builds.
+    struct InactiveOrder {
+        void name_lock(const void* /*lock*/, const char* /*label*/) {}
+        void dump_held() {}
+    };
+    using Order = std::conditional_t<kLockdepEnabled, LockOrder, InactiveOrder>;
+    unsigned int                depth_ = 0;
+    [[no_unique_address]] Order order_{};
+```
+
+镜像脸跟真脸是同名同参的,函数体是空的,什么都不干,但是真的在。承重的是 using 那一行,咱们让 std::conditional_t 按开关挑脸:开着的世界拿的是 LockOrder,关着的世界拿的是 InactiveOrder,转发体只认入口的名字,不认脸后面站的是谁,所以同一份转发代码,两个世界各自编译各自的,都绿了。注释里那句 Mirrors the LockOrder faces 把身份讲明白了:它是真脸的镜像,不是真脸的缺席。[[no_unique_address]] 还给它免了房租,关着的世界里这枚脸一个字节都不占。咱们要的就是这个效果:功能是可以有开关的,代码是没有的,写下的每一行,关着的世界也得养得起。
 
 第二处其实不大,但是丢人,咱们照实记。转储报地址的那一行,首版把名册槽位的指针当成了锁的地址报出去。宿主的测试当场抓获:报出来的数对不上任何一把锁的地址。改法是把引用解了再报。抓它的是测试自己:捕获器把报出来的每一行都接进了断言,错了一行就当场红,这一案就是被自己的测试当场按住的。
 

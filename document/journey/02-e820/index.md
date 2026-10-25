@@ -1,6 +1,6 @@
 ---
 title: 02 · stage2 起居:自己的栈、打开的 A20、一张内存图
-description: "MBR 铺平的世界是借来的:栈要搬进自己的家,A20 要请 BIOS 打开,机器有多少内存要问清楚存好。收工的时候,起居序列一口气印出来,七条内存图谱摊在终端里。"
+description: "MBR 铺平的世界是借来的,stage2 这一站给自己置办家业:先把栈搬进自己的地界,再请 BIOS 把 A20 的门打开,末了把内存的家底一条条问出来存好。收工的时候,起居序列一口气印出来,七条内存图谱摊在终端里。"
 chapter: 2
 order: 0
 platform: qemu
@@ -18,7 +18,7 @@ tags:
 
 <StationPanel tag="r02_e820" build="cmake -B build && cmake --build build --target run" />
 
-上一站收工的时候,stage2 交差的只有一句 `[stage2] echo alive`。本站咱们给它置办家业:栈搬进自己的地界,请 BIOS 把 A20 的门打开,机器的内存图谱一条条问出来、存好。收工的时候还是同一道命令,终端上的三行字长成一整串起居序列,中间那七行十六列的地址,就是机器交给咱们的第一份家底。
+上一站收工的时候,stage2 交差的只有一句 `[stage2] echo alive`。本站咱们给它置办家业,把借来的三样一样样换成自己的。收工的时候还是同一道命令,终端上的三行字长成一整串起居序列,中间那七行十六列的地址,就是机器交给咱们的第一份家底。
 
 <ChapterNav variant="sub">
   <ChapterLink num="1" href="01-why-now" desc="MBR 铺平的世界是借来的:栈、地址线、内存家底三样都得变成 stage2 自己的;当年这一切挤在同一天干完,这一遍摊开来消化">回声长成居所</ChapterLink>

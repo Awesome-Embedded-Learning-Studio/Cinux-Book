@@ -1,6 +1,6 @@
 ---
 title: 06 · boot 血统的第二件测试
-description: "能升编译期的全升 static_assert,测试文件只留两个哨兵;MakeSample 工厂为什么收一个非 packed 的样本结构体,test_vesa 首链又欠过谁一个 main。"
+description: "能升编译期的全升 static_assert,测试文件只留两个哨兵;MakeSample 工厂为什么收一个非 packed 的样本结构体,test_vesa 头一回链接又欠过谁一个 main。"
 chapter: 3
 order: 6
 platform: qemu
@@ -78,9 +78,9 @@ TEST("vesa: framebuffer archive is host-constructible") {
 
 您可能留意到头文件里多了个 `ModeSample`,它是个不 packed 的六字段小结构,配了一个 constexpr 的 `MakeSample` 工厂。它们伺候的是谁?是 static_assert 的样例,也是您眼前测试里的同一条。
 
-最早的写法很朴素:给 `MakeSample` 递六个散参数。可其中四个数的类型是 `unsigned short`,宽、高、色深要是给传反了,编译器就一声都不吭了。上一站咱们把栈的落点收拢成 `BootStack`、把区间收拢成 `MemoryRegion`,防的就是同型参数互换的手。这里咱们照方抓药,样本也收拢成了结构体,调用点上咱们用指定初始化器把字段逐个写明白了,`.width = 1024` 明晃晃写在咱们眼前,想传反都没有落笔的位置。
+最早的写法很朴素:给 `MakeSample` 递六个散参数。可其中四个数的类型是 `unsigned short`,宽、高、色深要是给传反了,编译器就一声都不吭了。上一站咱们把栈的落点收拢成 `BootStack`、把区间收拢成 `MemoryRegion`,防的就是同型参数互换的手。这里咱们照着上一站的路数,把样本也收拢成了结构体,调用点上咱们用指定初始化器把字段逐个写明白了,`.width = 1024` 明晃晃写在咱们眼前,想传反都没有落笔的位置。
 
-`MakeSample` 工厂函数里还有一个细节值得咱们说。咱们本来想让指定初始化器直接作用于 `ModeInfoBlock`,可 GCC 的 `-Wextra` 连指定初始化器跳过数组字段都要咬,而咱们的构建把这类告警升成了错误。所以 `MakeSample` 换了个姿势:值初始化 `{}` 把整块缓冲归了零,咱们再逐字段赋值。附带的好处是样本里忘了填哪个字段了,漏掉的那个就停在零上,不会被当成填过的值带进去。
+`MakeSample` 工厂函数里还有一个细节值得咱们说。咱们本来想让指定初始化器直接作用于 `ModeInfoBlock`。可这块结构的身上还挂着好几个数组成员,指定初始化器点不全的时候,没点到的数组整个被跳过,GCC 的 `-Wextra` 专咬这一口,而咱们的构建把这类告警升成了错误。所以 `MakeSample` 换了个姿势:值初始化 `{}` 把整块缓冲归了零,咱们再逐字段赋值。附带的好处是样本里忘了填哪个字段了,漏掉的那个就停在零上,不会被当成填过的值带进去。
 
 测试第一次链接的时候,链接器给咱们递回来一个 `undefined reference to main`。咱们盯着报错愣了半秒才想起来,框架的 `RunAll` 要靠测试文件自带的 `int main`,`test_e820` 尾巴上的那一行,咱们复制过来就绿了。第二件 boot 测试抄第一件的作业,连漏抄哪一行都一模一样了。
 

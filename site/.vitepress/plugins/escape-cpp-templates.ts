@@ -37,6 +37,7 @@ const VUE_COMPONENTS = new Set([
   'DrawioViewer',
   // theme/index.ts enhanceApp 中注册
   'ChapterNav', 'ChapterLink', 'JourneyRoadmap', 'StationPanel',
+  'BitFieldViewer',
   'TagExplorer', 'DocTags',
   'ReferenceCard', 'ReferenceItem', 'RefLink',
   'CheckpointProblem', 'CheckpointList', 'QuizProgressBackup',
