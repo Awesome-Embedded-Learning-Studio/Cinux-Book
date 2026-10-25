@@ -79,6 +79,24 @@ public:
      */
     [[nodiscard]] unsigned int count() const { return (head_ + Capacity - tail_) % Capacity; }
 
+    /**
+     * @brief         Reads one element without taking it.
+     *
+     * @param[in]     index   Offset from the oldest element, zero first.
+     * @param[out]    value   Where the element lands.
+     * @return        True when the offset held an element; false when it
+     *                walked past the waiting count.
+     * @since         0.7.0
+     * @ingroup       base_container
+     */
+    [[nodiscard]] bool peek(unsigned int index, Element& value) const {
+        if (index >= count()) {
+            return false;
+        }
+        value = slots_[(tail_ + index) % Capacity];
+        return true;
+    }
+
 private:
     /**
      * @brief         Step one slot forward, wrapping at the end.

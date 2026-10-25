@@ -18,6 +18,11 @@ endforeach()
 list(SORT CINUX_KERNEL_PORTABLE_SOURCES)
 list(SORT CINUX_KERNEL_ARCH_SOURCES)
 
+# Packet processing nests on a 16 KiB thread stack. Reject accidental
+# connection-control-block temporaries before they corrupt a caller's stack.
+set_source_files_properties(${CMAKE_SOURCE_DIR}/kernel/net/tcp.cpp
+    PROPERTIES COMPILE_OPTIONS "-Wframe-larger-than=4096")
+
 list(REMOVE_ITEM CINUX_KERNEL_PORTABLE_SOURCES ${CMAKE_SOURCE_DIR}/kernel/kernel.cpp)
 
 set(CINUX_KERNEL_CORE_SOURCES

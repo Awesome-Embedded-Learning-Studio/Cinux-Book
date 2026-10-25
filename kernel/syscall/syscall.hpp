@@ -158,6 +158,8 @@ inline constexpr int kEafnosupport    = 97;   ///< The address family names noth
 inline constexpr int kEaddrinuse      = 98;   ///< The address already has an owner.
 inline constexpr int kEaddrnotavail   = 99;   ///< The address is not this host's to give.
 inline constexpr int kEnotconn        = 107;  ///< The socket names no far end yet.
+inline constexpr int kEinprogress     = 115;  ///< The handshake still runs.
+inline constexpr int kEconnrefused    = 111;  ///< The far end refused the open.
 
 /// The socket-option level that speaks about the socket itself.
 inline constexpr unsigned long long kSolSocket = 1;

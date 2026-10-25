@@ -40,6 +40,7 @@ void send_via_ipv4(void* context, const OutboundDatagram& datagram) {
 }  // namespace
 
 void NetWorld::init() {
+    wire_port_ = nullptr;
     driver::net::Loopback::self().init();
     loopback_port_.adopt(driver::net::Loopback::self());
     own_address_ = kLoopbackAddress;
@@ -59,6 +60,7 @@ void NetWorld::init() {
     const DatagramSink kViaIpv4 = {.context = &ipv4_, .send = send_via_ipv4};
     icmp_.init(kViaIpv4);
     udp_.init(kViaIpv4, kLoopbackAddress);
+    tcp_.init(kViaIpv4, kLoopbackAddress);
     arp_.init();
     arp_entry_ = {this};
 
@@ -70,6 +72,10 @@ void NetWorld::init() {
     udp_seat.adopt(udp_);
     base::safety::Check(ipv4_.seat_protocol(kIpv4ProtocolUdp, udp_seat),
                         "layer-four table refused udp");
+    L4Seat tcp_seat;
+    tcp_seat.adopt(tcp_);
+    base::safety::Check(ipv4_.seat_protocol(kIpv4ProtocolTcp, tcp_seat),
+                        "layer-four table refused tcp");
     ProtocolSeat ipv4_seat;
     ipv4_seat.adopt(ipv4_);
     base::safety::Check(stack_.seat_protocol(kEtherTypeIpv4, ipv4_seat),
@@ -99,6 +105,7 @@ bool NetWorld::start_pump() {
 void NetWorld::pump_once() {
     const proc::PreemptGuard kPin;
     stack_.poll(kPollBudgetFrames);
+    tcp_.service(syscall::MonotonicNanoseconds());
 }
 
 void NetWorld::attach_wire(driver::net::NetPort& wire) {
@@ -108,6 +115,7 @@ void NetWorld::attach_wire(driver::net::NetPort& wire) {
     ipv4_.aim(kRouted, kUserNetworkSelf);
     const DatagramSink kViaIpv4 = {.context = &ipv4_, .send = send_via_ipv4};
     udp_.aim(kViaIpv4, kUserNetworkSelf);
+    tcp_.aim(kViaIpv4, kUserNetworkSelf);
     base::safety::Check(stack_.attach_port(wire), "port table refused the wire");
 }
 
@@ -117,7 +125,8 @@ void NetWorld::route_thunk(void* context, const OutboundDatagram& datagram) {
 
 void NetWorld::route_send(const OutboundDatagram& datagram) {
     const auto kRoute = route_gate_.guard();
-    if ((datagram.destination & kLoopbackNetMask) == kLoopbackNet || wire_port_ == nullptr) {
+    if ((datagram.destination & kLoopbackNetMask) == kLoopbackNet ||
+        datagram.destination == own_address_ || wire_port_ == nullptr) {
         const driver::net::MacAddress kNobody   = {};
         const driver::net::EtherType  kIpv4Type = {kEtherTypeIpv4};
         base::safety::Check(driver::net::Loopback::self().send_l3(
@@ -196,6 +205,10 @@ IcmpModule& NetWorld::icmp() {
 
 UdpModule& NetWorld::udp() {
     return udp_;
+}
+
+TcpModule& NetWorld::tcp() {
+    return tcp_;
 }
 
 RawModule& NetWorld::raw() {

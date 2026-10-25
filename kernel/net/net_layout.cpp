@@ -67,7 +67,10 @@ base::Result<Ipv4View, Ipv4Error> ParseIpv4(const unsigned char* packet, size_t 
     if (kHeaderWords < kMinIpv4HeaderBytes / sizeof(uint32_t)) {
         return Ipv4Error::kBadHeaderWords;
     }
-    const auto     kHeaderBytes = static_cast<unsigned char>(kHeaderWords * sizeof(uint32_t));
+    const auto kHeaderBytes = static_cast<unsigned char>(kHeaderWords * sizeof(uint32_t));
+    if (length < kHeaderBytes) {
+        return Ipv4Error::kDatagramTooShort;
+    }
     const uint16_t kTotalLength = base::ReadWord16Be(packet, 2);
     if (kTotalLength < kHeaderBytes) {
         return Ipv4Error::kBadTotalLength;
@@ -104,6 +107,30 @@ base::Result<UdpView, UdpError> ParseUdp(const unsigned char* datagram, size_t l
     view.destination_port = base::ReadWord16Be(datagram, 2);
     view.length           = base::ReadWord16Be(datagram, 4);
     view.checksum         = base::ReadWord16Be(datagram, 6);
+    return view;
+}
+
+base::Result<TcpView, TcpError> ParseTcp(const unsigned char* segment, size_t length) {
+    if (length < kTcpHeaderBytes) {
+        return TcpError::kSegmentTooShort;
+    }
+    const unsigned char kHeaderWords = base::bit::HighNibble(segment[12]);
+    if (kHeaderWords < kTcpHeaderBytes / sizeof(uint32_t)) {
+        return TcpError::kBadDataOffset;
+    }
+    const auto kHeaderBytes = static_cast<unsigned char>(kHeaderWords * sizeof(uint32_t));
+    if (kHeaderBytes > length) {
+        return TcpError::kHeaderPastBytes;
+    }
+    TcpView view{};
+    view.source_port      = base::ReadWord16Be(segment, 0);
+    view.destination_port = base::ReadWord16Be(segment, 2);
+    view.sequence         = base::ReadWord32Be(segment, 4);
+    view.acknowledgement  = base::ReadWord32Be(segment, 8);
+    view.header_bytes     = kHeaderBytes;
+    view.flags            = segment[13];
+    view.window           = base::ReadWord16Be(segment, 14);
+    view.checksum         = base::ReadWord16Be(segment, 16);
     return view;
 }
 

@@ -32,6 +32,23 @@
 namespace cinux::net {
 
 /**
+ * @brief         Picks the source address one outgoing datagram carries.
+ *
+ * @param[in]     own_address   The module's default source address.
+ * @param[in]     destination   Where the datagram goes.
+ * @return        The loopback address for loopback destinations, the
+ *                module's own otherwise.
+ * @note          Keeps loopback's source consistent in the IPv4 header and
+ *                the transport pseudo header, even after attaching a wire
+ *                replaces the module's default source address.
+ * @since         0.7.0
+ * @ingroup       kernel_net
+ */
+constexpr uint32_t SourceAddressFor(uint32_t own_address, uint32_t destination) {
+    return (destination & kLoopbackNetMask) == kLoopbackNet ? kLoopbackAddress : own_address;
+}
+
+/**
  * @brief   One datagram on its way out, all its facts together.
  * @since   0.6.0
  * @ingroup kernel_net

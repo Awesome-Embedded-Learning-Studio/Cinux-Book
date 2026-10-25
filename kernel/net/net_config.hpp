@@ -176,18 +176,167 @@ inline constexpr unsigned long kUdpPortSeats = 8;
 /**
  * @brief   First port the kernel hands out when a caller asks for none.
  * @note    Linux's own ephemeral range, so traces read the same on both
- *          sides of the emulator.
+ *          sides of the emulator. Both connection families draw from it.
  * @since   0.6.0
  * @ingroup kernel_net
  */
-inline constexpr uint16_t kUdpEphemeralFirst = 32768;
+inline constexpr uint16_t kEphemeralPortFirst = 32768;
 
 /**
  * @brief   Last port the kernel hands out when a caller asks for none.
  * @since   0.6.0
  * @ingroup kernel_net
  */
-inline constexpr uint16_t kUdpEphemeralLast = 60999;
+inline constexpr uint16_t kEphemeralPortLast = 60999;
+
+/**
+ * @brief   Bytes in one TCP header, fixed shape without options.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned long kTcpHeaderBytes = 20;
+
+/**
+ * @brief   TCP header flag: the sender has no more to say.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned int kTcpFlagFin = 0x01U;
+
+/**
+ * @brief   TCP header flag: the sequence numbers synchronize.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned int kTcpFlagSyn = 0x02U;
+
+/**
+ * @brief   TCP header flag: the sender asks the connection to die.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned int kTcpFlagRst = 0x04U;
+
+/**
+ * @brief   TCP header flag: the sender presses the bytes onward.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned int kTcpFlagPsh = 0x08U;
+
+/**
+ * @brief   TCP header flag: the acknowledgement word carries a value.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned int kTcpFlagAck = 0x10U;
+
+/**
+ * @brief   Connection seats one TCP module keeps at once.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned long kTcpConnectionSeats = 8;
+
+/**
+ * @brief   Listening ports one TCP module keeps at once.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned long kTcpListenSeats = 4;
+
+/**
+ * @brief   Completed handshakes one listener holds for the taking.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned long kTcpAcceptQueueSeats = 2;
+
+/**
+ * @brief   Received bytes one connection holds for its reader.
+ * @note    The window the connection's headers advertise: a full ring
+ *          says zero, a drained one opens it again.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned long kTcpReceiveWindowBytes = 4096;
+
+/**
+ * @brief   Sent-but-unacknowledged bytes one connection holds.
+ * @note    The send ceiling of a connection that no acknowledgement has
+ *          released yet; a write beyond it waits for the peer to catch
+ *          up.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned long kTcpSendWindowBytes = 4096;
+
+/**
+ * @brief   First retransmission wait of a connection, in nanoseconds.
+ * @note    The classic one-second opener: no round-trip samples exist
+ *          when the first byte leaves, so the wait starts conservative
+ *          and tightens once samples land.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned long long kTcpInitialRtoNanoseconds = 1000ULL * 1000ULL * 1000ULL;
+
+/**
+ * @brief   Longest retransmission wait, in nanoseconds.
+ * @note    The doubling backs off until here and stays; a dead peer
+ *          still costs one deadline per retry, never an infinite spin.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned long long kTcpMaxRtoNanoseconds = 64ULL * 1000ULL * 1000ULL * 1000ULL;
+
+/**
+ * @brief   Retransmissions one connection spends before giving up.
+ * @note    Counted per stretch of silence: an acknowledgement that
+ *          moves the send window resets the count and the wait.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned long kTcpMaxRetransmits = 5;
+
+/**
+ * @brief   Duplicate acknowledgements that trip a fast retransmit.
+ * @note    Three answers naming the same unacknowledged byte mean the
+ *          segment after it was lost, so the oldest unacknowledged
+ *          segment leaves at once instead of waiting out the clock.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned long kTcpFastRetransmitAcks = 3;
+
+/**
+ * @brief   Out-of-order segment seats one connection holds for repair.
+ * @note    A segment naming sequence numbers ahead of the gap waits
+ *          here for the missing bytes; a full table drops the newcomer
+ *          by name, never queues unbounded.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned long kTcpReorderSeats = 4;
+
+/**
+ * @brief   One maximum segment lifetime, in nanoseconds.
+ * @note    The teaching value: real stacks hold a segment thirty
+ *          seconds in the wild, this stack holds one, so a 2MSL wait
+ *          fits inside a live demonstration instead of outliving it.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned long long kTcpMslNanoseconds = 1000ULL * 1000ULL * 1000ULL;
+
+/**
+ * @brief   Clock resolution the round-trip math assumes, in nanoseconds.
+ * @note    The classic granularity guard: the computed wait never dips
+ *          under it, so a fast local peer still gets a real gap.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned long long kTcpRtoGranularityNanoseconds = 100ULL * 1000ULL * 1000ULL;
 
 /**
  * @brief   Frames one poll call may deliver, the re-entry guard.
@@ -202,6 +351,16 @@ inline constexpr unsigned long kPollBudgetFrames = 16;
  * @ingroup kernel_net
  */
 inline constexpr unsigned long kMaxDatagramBytes = 1500;
+
+/**
+ * @brief   Payload bytes one TCP segment the stack builds may carry.
+ * @note    An IPv4 datagram of header, segment, and this payload stays
+ *          inside one Ethernet frame, so no honest segment fragments.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned long kTcpMssBytes =
+    kMaxDatagramBytes - kMinIpv4HeaderBytes - kTcpHeaderBytes;
 
 /**
  * @brief   The loopback address, 127.0.0.1.
@@ -258,6 +417,16 @@ inline constexpr unsigned long kArpCacheEntries = 4;
  * @ingroup kernel_net
  */
 inline constexpr unsigned long kEchoMessageBytes = 12;
+
+/**
+ * @brief   Largest echo message the ICMP module mirrors in one reply.
+ * @note    The reply rides a single honest IPv4 datagram, so the
+ *          mirror ceiling is the datagram budget minus that header;
+ *          a request past it is refused by name, never truncated.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr unsigned long kMaxIcmpEchoBytes = kMaxDatagramBytes - kMinIpv4HeaderBytes;
 
 /**
  * @brief   Nanoseconds one attempt waits before spending itself.

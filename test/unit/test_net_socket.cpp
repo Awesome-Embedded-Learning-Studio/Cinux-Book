@@ -7,6 +7,7 @@
 #include "cinux/memory.hpp"
 #include "cinux/result.hpp"
 #include "kernel/driver/net/loopback.hpp"
+#include "kernel/driver/net/net_config.hpp"
 #include "kernel/driver/net/net_device.hpp"
 #include "kernel/fs/file_table.hpp"
 #include "kernel/fs/vfs.hpp"
@@ -16,6 +17,7 @@
 #include "kernel/net/net_stack.hpp"
 #include "kernel/net/net_world.hpp"
 #include "kernel/net/socket.hpp"
+#include "kernel/net/tcp.hpp"
 #include "kernel/net/udp.hpp"
 #include "kernel/proc/sched_class.hpp"
 #include "kernel/proc/scheduler.hpp"
@@ -32,11 +34,15 @@
 namespace cinux::syscall {
 
 // NOLINTNEXTLINE(misc-use-internal-linkage) the link stub must stay external
-unsigned long long g_test_monotonic_ns = 0;
+unsigned long long g_test_monotonic_ns      = 0;
+// NOLINTNEXTLINE(misc-use-internal-linkage) the link stub must stay external
+unsigned long long g_test_monotonic_step_ns = 0;
 
 // NOLINTNEXTLINE(misc-use-internal-linkage) the link stub must stay external
 unsigned long long MonotonicNanoseconds() {
-    return g_test_monotonic_ns;
+    const auto kNow = g_test_monotonic_ns;
+    g_test_monotonic_ns += g_test_monotonic_step_ns;
+    return kNow;
 }
 
 }  // namespace cinux::syscall
@@ -190,7 +196,180 @@ void fill_sockaddr(unsigned char* record, uint32_t address, uint16_t port) {
     cinux::base::WriteWord32Be(record, 4, address);
 }
 
+struct StreamWiring {
+    cinux::driver::net::NetPort port;
+    cinux::net::NetStack        stack;
+    cinux::net::Ipv4Module      ipv4;
+    cinux::net::TcpModule       tcp;
+
+    StreamWiring() {
+        cinux::driver::net::Loopback::self().init();
+        port.adopt(cinux::driver::net::Loopback::self());
+        stack.init();
+        stack.attach_port(port);
+        const cinux::net::DatagramSink kToWire = {
+            .context = &cinux::driver::net::Loopback::self(),
+            .send    = send_to_loopback,
+        };
+        ipv4.init(kToWire, cinux::net::kLoopbackAddress);
+        const cinux::net::DatagramSink kViaIpv4 = {.context = &ipv4, .send = send_via_ipv4};
+        tcp.init(kViaIpv4, cinux::net::kLoopbackAddress);
+        cinux::net::L4Seat tcp_seat;
+        tcp_seat.adopt(tcp);
+        ipv4.seat_protocol(cinux::net::kIpv4ProtocolTcp, tcp_seat);
+        cinux::net::ProtocolSeat ipv4_seat;
+        ipv4_seat.adopt(ipv4);
+        stack.seat_protocol(cinux::net::kEtherTypeIpv4, ipv4_seat);
+    }
+};
+
+// A second interface is present, but no loopback traffic should reach it.
+struct SilentWire {
+    unsigned long                  sent = 0;
+    bool                           has_mac() { return true; }
+    cinux::driver::net::MacAddress mac() { return {}; }
+    bool                           has_ethernet_header() { return true; }
+    unsigned long                  max_frame() { return cinux::driver::net::kMaxEthernetFrame; }
+    bool                           poll_frame(cinux::driver::net::RxFrame& frame) {
+        static_cast<void>(frame);
+        return false;
+    }
+    bool send_l3(const cinux::driver::net::MacAddress& peer, cinux::driver::net::EtherType type,
+                 const uint8_t* payload, unsigned long length) {
+        static_cast<void>(peer);
+        static_cast<void>(type);
+        static_cast<void>(payload);
+        static_cast<void>(length);
+        ++sent;
+        return true;
+    }
+};
+
 }  // namespace
+
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) a body walks one story in order
+TEST("stream socket: a loopback session flows both ways through accept") {
+    StreamWiring                    wiring;
+    cinux::net::TcpSocket           server(wiring.tcp);
+    const cinux::net::SocketAddress kSeat{
+        .address = cinux::net::kLoopbackAddress,
+        .port    = 4400,
+    };
+    ASSERT_TRUE(server.adopt_local(kSeat).ok());
+    ASSERT_TRUE(server.begin_listen(2).ok());
+
+    cinux::net::TcpSocket client(wiring.tcp);
+    ASSERT_TRUE(client.adopt_peer(kSeat).ok());
+    ASSERT_TRUE(client.handshake_pending());
+    wiring.stack.poll(16);
+    ASSERT_FALSE(client.handshake_pending());
+
+    const auto kBorn = server.accept_one();
+    ASSERT_TRUE(kBorn.ok());
+    const unsigned char kHi[3] = {'h', 'i', '!'};
+    const auto          kSent  = client.transmit(kHi, sizeof(kHi), kSeat);
+    ASSERT_EQ(kSent.value(), sizeof(kHi));
+    wiring.stack.poll(16);
+    unsigned char got[8] = {};
+    const auto    kHeard = kBorn.value()->receive(got, sizeof(got), nullptr);
+    ASSERT_EQ(kHeard.value(), sizeof(kHi));
+    ASSERT_EQ(got[0], static_cast<unsigned char>('h'));
+
+    const unsigned char kYo[2] = {'y', 'o'};
+    const auto          kEcho  = kBorn.value()->transmit(kYo, sizeof(kYo), kSeat);
+    ASSERT_EQ(kEcho.value(), sizeof(kYo));
+    wiring.stack.poll(16);
+    const auto kBack = client.receive(got, sizeof(got), nullptr);
+    ASSERT_EQ(kBack.value(), sizeof(kYo));
+    ASSERT_EQ(got[1], static_cast<unsigned char>('o'));
+    ASSERT_TRUE(kBorn.value()->shutdown_write().ok());
+    wiring.stack.poll(16);
+    // A peer FIN can beat the next connect() poll; CLOSE_WAIT is not
+    // an unfinished handshake.
+    ASSERT_FALSE(client.handshake_pending());
+    ASSERT_FALSE(client.handshake_failed());
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) a body walks one story in order
+TEST("stream socket: attaching Ethernet preserves loopback handshake and payload") {
+    using namespace cinux;
+    auto& world = net::NetWorld::self();
+    world.init();
+    SilentWire           wire;
+    driver::net::NetPort port;
+    port.adopt(wire);
+    world.attach_wire(port);
+    // IPv4 and UDP must agree on the selected source in the pseudo header.
+    net::UdpSocket udp_server(world.udp());
+    net::UdpSocket udp_client(world.udp());
+    ASSERT_TRUE(udp_server.adopt_local({.port = 4413}).ok());
+    const unsigned char kByte = 42;
+    ASSERT_TRUE(
+        udp_client.transmit(&kByte, 1, {.address = net::kLoopbackAddress, .port = 4413}).ok());
+    world.pump_once();
+    unsigned char      byte = 0;
+    net::SocketAddress from;
+    const auto         kUdpRead = udp_server.receive(&byte, 1, &from);
+    ASSERT_TRUE(kUdpRead.ok());
+    ASSERT_EQ(byte, kByte);
+    ASSERT_EQ(from.address, net::kLoopbackAddress);
+    net::TcpSocket server(world.tcp());
+    ASSERT_TRUE(server.adopt_local({.port = 4410}).ok());
+    ASSERT_TRUE(server.begin_listen(2).ok());
+    net::TcpSocket client(world.tcp());
+    // BusyBox nc binds INADDR_ANY:0 before its active open.
+    ASSERT_TRUE(client.adopt_local({}).ok());
+    ASSERT_TRUE(client.adopt_peer({.address = net::kLoopbackAddress, .port = 4410}).ok());
+    world.pump_once();
+    ASSERT_FALSE(client.handshake_pending());
+    ASSERT_FALSE(client.handshake_failed());
+    const auto kBorn = server.accept_one();
+    ASSERT_TRUE(kBorn.ok());
+    ASSERT_EQ(wire.sent, 0UL);
+    if (kBorn.ok()) {
+        const unsigned char kHi[] = {'h', 'i', '\n'};
+        ASSERT_TRUE(client.transmit(kHi, sizeof(kHi), {}).ok());
+        world.pump_once();
+        unsigned char got[8]{};
+        const auto    kRead = kBorn.value()->receive(got, sizeof(got), nullptr);
+        ASSERT_TRUE(kRead.ok());
+        if (kRead.ok()) {
+            ASSERT_EQ(kRead.value(), sizeof(kHi));
+            ASSERT_EQ(got[0], static_cast<unsigned char>('h'));
+        }
+    }
+    ASSERT_EQ(wire.sent, 0UL);
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) a body walks one story in order
+TEST("stream socket: writer exit before accept preserves queued bytes and EOF") {
+    using namespace cinux;
+    StreamWiring             wiring;
+    net::TcpSocket           server(wiring.tcp);
+    const net::SocketAddress kSeat{.address = net::kLoopbackAddress, .port = 4412};
+    ASSERT_TRUE(server.adopt_local(kSeat).ok());
+    ASSERT_TRUE(server.begin_listen(2).ok());
+    {
+        net::TcpSocket client(wiring.tcp);
+        ASSERT_TRUE(client.adopt_peer(kSeat).ok());
+        wiring.stack.poll(16);
+        const unsigned char kHi[] = {'h', 'i', '\n'};
+        ASSERT_TRUE(client.transmit(kHi, sizeof(kHi), {}).ok());
+    }
+    wiring.stack.poll(16);
+    const auto kBorn = server.accept_one();
+    ASSERT_TRUE(kBorn.ok());
+    unsigned char got[8]{};
+    const auto    kRead = kBorn.value()->receive(got, sizeof(got), nullptr);
+    ASSERT_TRUE(kRead.ok());
+    ASSERT_EQ(kRead.value(), 3UL);
+    ASSERT_EQ(got[0], static_cast<unsigned char>('h'));
+    const auto kEof = kBorn.value()->receive(got, sizeof(got), nullptr);
+    ASSERT_TRUE(kEof.ok());
+    ASSERT_EQ(kEof.value(), 0UL);
+    ASSERT_EQ(wiring.tcp.stats().resets_sent, 0UL);
+}
 
 TEST("socket adapter: bind seats a port and getsockname answers it") {
     Wiring                          wiring;
@@ -200,7 +379,7 @@ TEST("socket adapter: bind seats a port and getsockname answers it") {
     ASSERT_TRUE(socket.adopt_local(kAny).ok());
     cinux::net::SocketAddress seated{};
     ASSERT_TRUE(socket.report_local(seated).ok());
-    ASSERT_EQ(seated.port, cinux::net::kUdpEphemeralFirst);
+    ASSERT_EQ(seated.port, cinux::net::kEphemeralPortFirst);
     ASSERT_EQ(seated.address, cinux::net::kLoopbackAddress);
 
     cinux::net::UdpSocket twin(wiring.udp);
@@ -370,12 +549,15 @@ void run_socket_shapes_body() {
 
     frame                    = plain_frame();
     frame.rdi                = cinux::net::kAfInet;
-    frame.rsi                = 1;
+    frame.rsi                = 4;
     const long long kBadType = cinux::syscall::HandleSocket(frame);
     ASSERT_EQ(kBadType, -cinux::syscall::kEsocktnosupport);
-    frame.rsi = cinux::net::kSockDgram;
-    frame.rdx = 6;
+    frame.rsi = cinux::net::kSockStream;
+    frame.rdx = static_cast<unsigned long long>(cinux::net::kIpv4ProtocolUdp);
     ASSERT_EQ(cinux::syscall::HandleSocket(frame), -cinux::syscall::kEprotonosupport);
+    frame.rdx               = static_cast<unsigned long long>(cinux::net::kIpv4ProtocolTcp);
+    const long long kStream = cinux::syscall::HandleSocket(frame);
+    ASSERT_TRUE(kStream >= 0);
 
     frame.rdx           = 0;
     const long long kFd = cinux::syscall::HandleSocket(frame);
@@ -383,9 +565,10 @@ void run_socket_shapes_body() {
 
     frame     = plain_frame();
     frame.rdi = static_cast<Word>(kFd);
-    ASSERT_EQ(cinux::syscall::HandleListen(frame), -cinux::syscall::kEopnotsupp);
+    ASSERT_EQ(cinux::syscall::HandleListen(frame), -cinux::syscall::kEinval);
     ASSERT_EQ(cinux::syscall::HandleAccept(frame), -cinux::syscall::kEopnotsupp);
     ASSERT_EQ(cinux::syscall::HandleAccept4(frame), -cinux::syscall::kEopnotsupp);
+    frame.rsi = 1;
     ASSERT_EQ(cinux::syscall::HandleShutdown(frame), -cinux::syscall::kEnotconn);
 
     frame.rsi           = cinux::syscall::kSolSocket;
@@ -395,7 +578,7 @@ void run_socket_shapes_body() {
     frame.r10           = reinterpret_cast<Word>(&answer);
     frame.r8            = reinterpret_cast<Word>(&length);
     ASSERT_EQ(cinux::syscall::HandleGetsockopt(frame), 0);
-    ASSERT_EQ(answer, static_cast<unsigned int>(cinux::net::kSockDgram));
+    ASSERT_EQ(answer, static_cast<unsigned int>(cinux::net::kSockStream));
 
     frame.rdx = 999;
     ASSERT_EQ(cinux::syscall::HandleGetsockopt(frame), -cinux::syscall::kEnoprotoopt);
@@ -488,6 +671,84 @@ void run_socket_roundtrip_body() {
 TEST("socket syscall: sendto and recvfrom cross the wired world") {
     SocketWorld world;
     world.run(run_socket_roundtrip_body);
+}
+
+namespace {
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) a body walks one story in order
+void run_accept_flags_body() {
+    using namespace cinux;
+    auto frame           = plain_frame();
+    frame.rdi            = net::kAfInet;
+    frame.rsi            = static_cast<Word>(net::kSockStream) | 0x800ULL;
+    const auto kListener = syscall::HandleSocket(frame);
+    ASSERT_TRUE(kListener >= 0);
+    unsigned char address[16]{};
+    fill_sockaddr(address, 0, 4411);
+    frame     = plain_frame();
+    frame.rdi = static_cast<Word>(kListener);
+    frame.rsi = reinterpret_cast<Word>(address);
+    frame.rdx = sizeof(address);
+    ASSERT_EQ(syscall::HandleBind(frame), 0);
+    frame.rsi = 2;
+    ASSERT_EQ(syscall::HandleListen(frame), 0);
+    frame.rsi                         = 0;
+    frame.rdx                         = 0;
+    // Bound the old implementation's erroneous wait, without real time passing.
+    syscall::g_test_monotonic_step_ns = 121'000'000'000ULL;
+    ASSERT_EQ(syscall::HandleAccept(frame), -syscall::kEagain);
+    auto& task = *proc::Scheduler::self().current();
+    task.files->get(static_cast<unsigned long>(kListener)).value()->status_flags = 0;
+    ASSERT_TRUE(proc::SendSignal(task, syscall::kSigInt));
+    ASSERT_EQ(syscall::HandleAccept(frame), -syscall::kEintr);
+    frame.r10 = 0x800;
+    ASSERT_EQ(syscall::HandleAccept4(frame), -syscall::kEintr);
+    frame.r10 = 1;
+    ASSERT_EQ(syscall::HandleAccept4(frame), -syscall::kEinval);
+    syscall::g_test_monotonic_step_ns = 0;
+    syscall::g_test_monotonic_ns      = 0;
+    task.signals.reset();
+
+    auto&                world = net::NetWorld::self();
+    const net::TcpEvents kNoNews{};
+    const auto           kClient = world.tcp().connect(0, net::kLoopbackAddress, 4411, kNoNews, 0);
+    ASSERT_TRUE(kClient.ok());
+    world.pump_once();
+    frame.r10            = 0x80800;  // SOCK_NONBLOCK | SOCK_CLOEXEC on the new socket.
+    const auto kAccepted = syscall::HandleAccept4(frame);
+    ASSERT_TRUE(kAccepted >= 0);
+    ASSERT_EQ(task.files->get(static_cast<unsigned long>(kAccepted)).value()->status_flags,
+              syscall::kOpenNonblock);
+    frame.rdi = static_cast<Word>(kAccepted);
+    frame.rsi = 3;
+    ASSERT_EQ(syscall::HandleShutdown(frame), -syscall::kEinval);
+    frame.rsi = 1;
+    ASSERT_EQ(syscall::HandleShutdown(frame), 0);
+    world.pump_once();
+    unsigned char bytes[8]{};
+    const auto    kEof = world.tcp().receive(kClient.value(), bytes, sizeof(bytes));
+    ASSERT_TRUE(kEof.ok());
+    ASSERT_EQ(kEof.value(), 0UL);
+    // The peer may still send after seeing EOF from this half of the stream.
+    const unsigned char kReply = 17;
+    ASSERT_TRUE(world.tcp().send(kClient.value(), &kReply, 1, 0).ok());
+    world.pump_once();
+    frame.rsi = reinterpret_cast<Word>(bytes);
+    frame.rdx = sizeof(bytes);
+    frame.r10 = 0;
+    ASSERT_EQ(syscall::HandleRecvfrom(frame), 1);
+    ASSERT_EQ(bytes[0], kReply);
+    world.tcp().close(kClient.value());
+    world.pump_once();
+    proc::Scheduler::self().exit_current();
+}
+
+}  // namespace
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) a body walks one story in order
+TEST("socket syscall: accept honors listener flags and signals; accept4 flags belong to child") {
+    SocketWorld world;
+    world.run(run_accept_flags_body);
 }
 
 namespace {

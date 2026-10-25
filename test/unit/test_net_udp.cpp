@@ -240,10 +240,10 @@ TEST("udp: the ephemeral range answers free ports and skips taken ones") {
     Wiring         wiring;
     Collector      sink;
     const uint16_t kFirst = wiring.udp.ephemeral_port();
-    ASSERT_EQ(kFirst, cinux::net::kUdpEphemeralFirst);
+    ASSERT_EQ(kFirst, cinux::net::kEphemeralPortFirst);
     ASSERT_TRUE(wiring.udp.bind(kFirst, &sink, &Collector::take));
     const uint16_t kNext = wiring.udp.ephemeral_port();
-    ASSERT_EQ(kNext, static_cast<uint16_t>(cinux::net::kUdpEphemeralFirst + 1));
+    ASSERT_EQ(kNext, static_cast<uint16_t>(cinux::net::kEphemeralPortFirst + 1));
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) a body walks one story in order

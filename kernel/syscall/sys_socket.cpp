@@ -19,6 +19,7 @@
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/signals.hpp"
 #include "kernel/proc/task.hpp"
+#include "kernel/syscall/sys_clock.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
 #include "kernel/syscall/uaccess.hpp"
@@ -97,6 +98,17 @@ long long write_sockaddr(Word address, Word length_word, const net::SocketAddres
 }
 
 /// Translates the socket family's own refusals into errno words.
+/// One send call's byte ceiling, by the socket's birth type.
+unsigned long send_ceiling_of(int socket_type) {
+    if (socket_type == net::kSockRaw) {
+        return net::kMaxDatagramBytes - net::kMinIpv4HeaderBytes;
+    }
+    if (socket_type == net::kSockStream) {
+        return net::kTcpMssBytes;
+    }
+    return net::kUdpSocketPayloadBytes;
+}
+
 long long errno_of_socket(base::KernelError error) {
     switch (error) {
     case base::KernelError::kAlreadyExists:
@@ -105,6 +117,8 @@ long long errno_of_socket(base::KernelError error) {
         return -kEdestaddrreq;
     case base::KernelError::kNotSupported:
         return -kEmsgsize;
+    case base::KernelError::kNotConnected:
+        return -kEnotconn;
     default:
         return -ErrnoFrom(error);
     }
@@ -114,6 +128,62 @@ long long errno_of_socket(base::KernelError error) {
 bool signal_pending() {
     const proc::Task* const kSelf = CurrentTask();
     return proc::HasPendingSignal(*kSelf);
+}
+
+/// Seats one accepted socket behind a fresh descriptor, polling while
+/// the queue stays empty; the caller's address question is answered
+/// when room for it was named.
+long long accept_common(const SyscallFrame& frame, Word extra_flags) {
+    base::Shared<fs::OpenFile> held;
+    net::Socket*               socket = nullptr;
+    const long long            kFound = socket_of(frame.rdi, &socket, held);
+    if (kFound != 0) {
+        return kFound;
+    }
+    base::Shared<net::Socket> born;
+    for (;;) {
+        const auto kTaken = socket->accept_one();
+        if (kTaken.ok()) {
+            born = kTaken.value();
+            break;
+        }
+        if (kTaken.error() != base::KernelError::kWouldBlock) {
+            return kTaken.error() == base::KernelError::kNotSupported
+                       ? -kEopnotsupp
+                       : errno_of_socket(kTaken.error());
+        }
+        // accept4 flags apply to the new descriptor. Only the listener's
+        // O_NONBLOCK decides whether an empty queue may wait here.
+        if ((held->status_flags & kOpenNonblock) != 0) {
+            return -kEagain;
+        }
+        if (signal_pending()) {
+            return -kEintr;
+        }
+        proc::Scheduler::self().yield();
+    }
+    const fs::FsNode kNode = {
+        .opaque = born.get(),
+        .type   = fs::InodeType::kFile,
+        .ino    = born->identity(),
+        .size   = 0,
+    };
+    const auto kSeat = CurrentTask()->files->alloc(
+        net::SocketOps(), born.get(), kNode,
+        {
+            .status  = (extra_flags & kSockNonblock) != 0 ? kOpenNonblock : 0,
+            .cloexec = (extra_flags & kSockCloexec) != 0,
+        });
+    if (!kSeat.ok()) {
+        return -kEmfile;
+    }
+    if (frame.rsi != 0) {
+        net::SocketAddress peer{};
+        if (born->report_peer(peer).ok()) {
+            write_sockaddr(frame.rsi, frame.rdx, peer);
+        }
+    }
+    return static_cast<long long>(kSeat.value());
 }
 
 }  // namespace
@@ -128,7 +198,12 @@ long long HandleSocket(const SyscallFrame& frame) {
     const auto kProtocol  = static_cast<Word>(frame.rdx);
 
     base::Shared<net::Socket> socket;
-    if (kPlainType == static_cast<Word>(net::kSockDgram)) {
+    if (kPlainType == static_cast<Word>(net::kSockStream)) {
+        if (kProtocol != 0 && kProtocol != static_cast<Word>(net::kIpv4ProtocolTcp)) {
+            return -kEprotonosupport;
+        }
+        socket = base::Shared<net::Socket>{new net::TcpSocket(net::NetWorld::self().tcp())};
+    } else if (kPlainType == static_cast<Word>(net::kSockDgram)) {
         if (kProtocol != 0 && kProtocol != static_cast<Word>(net::kIpv4ProtocolUdp)) {
             return -kEprotonosupport;
         }
@@ -182,7 +257,8 @@ long long HandleBind(const SyscallFrame& frame) {
     if (kRead != 0) {
         return kRead;
     }
-    if (asked.address != 0 && asked.address != net::NetWorld::self().udp().own_address()) {
+    if (asked.address != 0 && asked.address != net::NetWorld::self().udp().own_address() &&
+        asked.address != net::kLoopbackAddress) {
         return -kEaddrnotavail;
     }
     const auto kSeated = socket->adopt_local(asked);
@@ -208,6 +284,17 @@ long long HandleConnect(const SyscallFrame& frame) {
     if (!kNamed.ok()) {
         return errno_of_socket(kNamed.error());
     }
+    const unsigned long long kDeadline =
+        MonotonicNanoseconds() + (75ULL * 1000ULL * 1000ULL * 1000ULL);
+    while (socket->handshake_pending() && MonotonicNanoseconds() < kDeadline) {
+        proc::Scheduler::self().yield();
+    }
+    if (socket->handshake_failed()) {
+        return -kEconnrefused;
+    }
+    if (socket->handshake_pending()) {
+        return -kEinprogress;
+    }
     return 0;
 }
 
@@ -222,9 +309,7 @@ long long HandleSendto(const SyscallFrame& frame) {
         return -kEopnotsupp;
     }
     const auto          kCount = static_cast<unsigned long>(frame.rdx);
-    const unsigned long kLimit = socket->type() == net::kSockRaw
-                                     ? net::kMaxDatagramBytes - net::kMinIpv4HeaderBytes
-                                     : net::kUdpSocketPayloadBytes;
+    const unsigned long kLimit = send_ceiling_of(socket->type());
     if (kCount > kLimit) {
         return -kEmsgsize;
     }
@@ -302,7 +387,14 @@ long long HandleShutdown(const SyscallFrame& frame) {
     if (kFound != 0) {
         return kFound;
     }
-    return -kEnotconn;
+    if (frame.rsi > 2) {
+        return -kEinval;
+    }
+    if (frame.rsi != 1) {
+        return -kEopnotsupp;
+    }
+    const auto kClosed = socket->shutdown_write();
+    return kClosed.ok() ? 0 : errno_of_socket(kClosed.error());
 }
 
 long long HandleListen(const SyscallFrame& frame) {
@@ -312,27 +404,25 @@ long long HandleListen(const SyscallFrame& frame) {
     if (kFound != 0) {
         return kFound;
     }
-    return -kEopnotsupp;
+    const auto kOffered = socket->begin_listen(frame.rsi);
+    if (!kOffered.ok()) {
+        return kOffered.error() == base::KernelError::kNotSupported
+                   ? -kEopnotsupp
+                   : errno_of_socket(kOffered.error());
+    }
+    return 0;
 }
 
+
 long long HandleAccept(const SyscallFrame& frame) {
-    base::Shared<fs::OpenFile> held;
-    net::Socket*               socket = nullptr;
-    const long long            kFound = socket_of(frame.rdi, &socket, held);
-    if (kFound != 0) {
-        return kFound;
-    }
-    return -kEopnotsupp;
+    return accept_common(frame, 0);
 }
 
 long long HandleAccept4(const SyscallFrame& frame) {
-    base::Shared<fs::OpenFile> held;
-    net::Socket*               socket = nullptr;
-    const long long            kFound = socket_of(frame.rdi, &socket, held);
-    if (kFound != 0) {
-        return kFound;
+    if ((frame.r10 & ~(kSockCloexec | kSockNonblock)) != 0) {
+        return -kEinval;
     }
-    return -kEopnotsupp;
+    return accept_common(frame, static_cast<Word>(frame.r10));
 }
 
 long long HandleGetsockname(const SyscallFrame& frame) {

@@ -32,6 +32,7 @@
 #include "kernel/net/ipv4.hpp"
 #include "kernel/net/net_stack.hpp"
 #include "kernel/net/raw.hpp"
+#include "kernel/net/tcp.hpp"
 #include "kernel/net/udp.hpp"
 
 namespace cinux::net {
@@ -140,6 +141,14 @@ public:
      * @ingroup       kernel_net
      */
     [[nodiscard]] UdpModule& udp();
+
+    /**
+     * @brief         The wired TCP module.
+     * @return        Reference to the owned module.
+     * @since         0.7.0
+     * @ingroup       kernel_net
+     */
+    [[nodiscard]] TcpModule& tcp();
     /** @brief The ICMP raw subscription registry. */
     [[nodiscard]] RawModule& raw();
 
@@ -199,6 +208,7 @@ private:
     RawModule             raw_{ipv4_};
     IcmpModule            icmp_         = {};
     UdpModule             udp_          = {};
+    TcpModule             tcp_          = {};
     ArpCache              arp_          = {};
     bool                  pump_running_ = false;
 };

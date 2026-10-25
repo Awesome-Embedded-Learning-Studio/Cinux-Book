@@ -11,6 +11,7 @@
 #include "kernel/net/icmp.hpp"
 #include "kernel/net/ipv4.hpp"
 #include "kernel/net/net_config.hpp"
+#include "kernel/net/net_layout.hpp"
 #include "kernel/net/net_stack.hpp"
 #include "test_assert.hpp"
 
@@ -128,6 +129,32 @@ TEST("stack: a loopback ping round trip drains inside one poll") {
     ASSERT_TRUE(wiring.ipv4.stats().delivered == 2);
     ASSERT_TRUE(wiring.ipv4.stats().sent == 2);
     ASSERT_TRUE(wiring.stack.stats().delivered == 2);
+}
+
+TEST("stack: an echo request past the mirror ceiling is refused by name") {
+    Wiring        wiring;
+    unsigned char request[cinux::net::kMaxIcmpEchoBytes + 4];
+    fill_echo_request(request, sizeof(request));
+    const cinux::net::Ipv4View kView = {
+        .header_bytes = cinux::net::kMinIpv4HeaderBytes,
+        .total_length = static_cast<uint16_t>(sizeof(request)),
+        .protocol     = cinux::net::kIpv4ProtocolIcmp,
+        .source       = cinux::net::kLoopbackAddress,
+        .destination  = cinux::net::kLoopbackAddress,
+    };
+    wiring.icmp.handle(request, sizeof(request), kView);
+    ASSERT_TRUE(wiring.icmp.stats().refused_oversized == 1);
+    ASSERT_TRUE(wiring.icmp.stats().requests_answered == 0);
+}
+
+TEST("stack: a header lying about its own length dies at the ipv4 door") {
+    Wiring        wiring;
+    unsigned char datagram[cinux::net::kMinIpv4HeaderBytes] = {};
+    fill_ipv4_header(datagram, cinux::net::kIpv4ProtocolIcmp, sizeof(datagram));
+    datagram[0] = 0x4F;
+    wiring.ipv4.handle(datagram, sizeof(datagram));
+    ASSERT_TRUE(wiring.ipv4.stats().refused_short == 1);
+    ASSERT_TRUE(wiring.ipv4.stats().refused_checksum == 0);
 }
 
 TEST("stack: the frame budget is the re-entry leash") {

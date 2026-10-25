@@ -243,4 +243,57 @@ enum class UdpError : uint8_t {
  */
 base::Result<UdpView, UdpError> ParseUdp(const unsigned char* datagram, size_t length);
 
+/**
+ * @brief   The fields of one TCP segment header, fixed shape.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+struct TcpView {
+    /// Sender's port, as the wire spells it.
+    uint16_t      source_port      = 0;
+    /// Receiver's port.
+    uint16_t      destination_port = 0;
+    /// First sequence number the segment's bytes occupy.
+    uint32_t      sequence         = 0;
+    /// Next sequence number the sender expects, when the flag says so.
+    uint32_t      acknowledgement  = 0;
+    /// Header size in bytes, always twenty through sixty.
+    unsigned char header_bytes     = 0;
+    /// The flag bits, SYN, ACK, FIN, RST, PSH.
+    unsigned char flags            = 0;
+    /// Bytes of receive space the sender still holds open.
+    uint16_t      window           = 0;
+    /// The checksum as it arrived, for the receiver to verify.
+    uint16_t      checksum         = 0;
+};
+
+/**
+ * @brief   Why a TCP segment header was refused.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+enum class TcpError : uint8_t {
+    /// The segment ends before the smallest header does.
+    kSegmentTooShort,
+    /// The data-offset nibble is below five words.
+    kBadDataOffset,
+    /// The announced header runs past the bytes that arrived.
+    kHeaderPastBytes,
+};
+
+/**
+ * @brief         Reads one TCP segment header.
+ *
+ * @param[in]     segment  First byte of the segment.
+ * @param[in]     length   Bytes the segment holds.
+ * @return        The header fields, or the refusal.
+ * @note          Unlike UDP's announced length, the data offset names
+ *                where the payload starts, so the word book judges it
+ *                against the bytes held and refuses a header that
+ *                swallows its own payload.
+ * @since         0.7.0
+ * @ingroup       kernel_net
+ */
+base::Result<TcpView, TcpError> ParseTcp(const unsigned char* segment, size_t length);
+
 }  // namespace cinux::net

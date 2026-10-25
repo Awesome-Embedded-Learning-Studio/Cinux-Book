@@ -42,10 +42,18 @@ add_cinux_test(net_udp ${CMAKE_SOURCE_DIR}/kernel/net/udp.cpp
                         ${CMAKE_SOURCE_DIR}/kernel/net/icmp.cpp
                         ${CMAKE_SOURCE_DIR}/kernel/net/net_stack.cpp
                         ${CMAKE_SOURCE_DIR}/kernel/driver/net/loopback.cpp)
+add_cinux_test(net_tcp ${CMAKE_SOURCE_DIR}/kernel/net/tcp.cpp
+                        ${CMAKE_SOURCE_DIR}/kernel/net/net_layout.cpp
+                        ${CMAKE_SOURCE_DIR}/kernel/net/ipv4.cpp
+                        ${CMAKE_SOURCE_DIR}/kernel/net/icmp.cpp
+                        ${CMAKE_SOURCE_DIR}/kernel/net/net_stack.cpp
+                        ${CMAKE_SOURCE_DIR}/kernel/driver/net/loopback.cpp
+                        ${CMAKE_SOURCE_DIR}/kernel/time/timer_table.cpp)
 add_cinux_test(net_socket ${CMAKE_SOURCE_DIR}/kernel/net/raw.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_itimer.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/net/socket.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/net/udp.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/net/tcp.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/net/net_layout.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/net/ipv4.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/net/icmp.cpp
@@ -58,6 +66,7 @@ add_cinux_test(net_socket ${CMAKE_SOURCE_DIR}/kernel/net/raw.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/net/ifaces.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/driver/tty/tty.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_common.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/time/timer_table.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/proc/sched_class.cpp
@@ -90,6 +99,7 @@ add_cinux_test(uaccess ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
 add_cinux_test(image)
 add_cinux_test(bitmap)
 add_cinux_test(time)
+add_cinux_test(timer ${CMAKE_SOURCE_DIR}/kernel/time/timer_table.cpp)
 add_cinux_test(path)
 add_cinux_test(text)
 add_cinux_test(rtc)

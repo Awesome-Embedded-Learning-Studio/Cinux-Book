@@ -208,7 +208,7 @@ private:
     mutable base::SpinMutex ports_gate_;
     PortSeat                ports_[kUdpPortSeats] = {};
     unsigned long           port_count_           = 0;
-    unsigned long           ephemeral_cursor_     = kUdpEphemeralFirst;
+    unsigned long           ephemeral_cursor_     = kEphemeralPortFirst;
     UdpStats                stats_                = {};
 };
 

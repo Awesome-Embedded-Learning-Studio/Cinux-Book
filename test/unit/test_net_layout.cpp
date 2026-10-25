@@ -129,6 +129,15 @@ TEST("ipv4: a datagram short of twenty bytes is refused as too short") {
     ASSERT_TRUE(kView.error() == cinux::net::Ipv4Error::kDatagramTooShort);
 }
 
+TEST("ipv4: a header longer than the bytes that arrived is refused") {
+    unsigned char packet[cinux::net::kMinIpv4HeaderBytes] = {};
+    fill_ipv4_header(packet);
+    packet[0]        = 0x4F;
+    const auto kView = cinux::net::ParseIpv4(packet, sizeof(packet));
+    ASSERT_TRUE(!kView.ok());
+    ASSERT_TRUE(kView.error() == cinux::net::Ipv4Error::kDatagramTooShort);
+}
+
 TEST("ipv4: a version other than four is refused by name") {
     unsigned char packet[cinux::net::kMinIpv4HeaderBytes] = {};
     copy_ipv4_header(packet);
@@ -148,7 +157,7 @@ TEST("ipv4: a header under five words is refused by name") {
 }
 
 TEST("ipv4: a total shorter than its own header is refused by name") {
-    unsigned char packet[cinux::net::kMinIpv4HeaderBytes] = {};
+    unsigned char packet[24] = {};
     copy_ipv4_header(packet);
     packet[0]        = 0x46;
     const auto kView = cinux::net::ParseIpv4(packet, sizeof(packet));

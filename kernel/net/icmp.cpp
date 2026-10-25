@@ -22,6 +22,10 @@ void IcmpModule::handle(const unsigned char* bytes, size_t length, const Ipv4Vie
         ++stats_.refused_short;
         return;
     }
+    if (length > kMaxIcmpEchoBytes) {
+        ++stats_.refused_oversized;
+        return;
+    }
 
     base::InternetChecksum verifier;
     verifier.add(bytes, length);

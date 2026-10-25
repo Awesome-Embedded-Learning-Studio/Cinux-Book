@@ -102,7 +102,7 @@ bool Ipv4Module::send(const OutboundDatagram& datagram) {
     outgoing[8] = kIpv4TimeToLive;
     outgoing[9] = datagram.protocol;
     base::WriteWord16Be(outgoing, 10, 0);
-    base::WriteWord32Be(outgoing, 12, own_address_);
+    base::WriteWord32Be(outgoing, 12, SourceAddressFor(own_address_, datagram.destination));
     base::WriteWord32Be(outgoing, 16, datagram.destination);
     for (size_t index = 0; index < datagram.length; ++index) {
         outgoing[kMinIpv4HeaderBytes + index] = datagram.payload[index];

@@ -44,8 +44,8 @@ void Main(const cinux::boot::BootInfo& boot_info) {
                 cinux::console::TextConsole::self().columns(),
                 cinux::console::TextConsole::self().rows());
     }
-    Println("[kern] kernel at %X size %X entry %X", kInfo->kernel_paddr, kInfo->kernel_mem_size,
-            kInfo->kernel_entry);
+    Println("[kern] kernel at 0x%X file %u bytes mem 0x%X bytes entry 0x%X", kInfo->kernel_paddr,
+            kInfo->kernel_file_size, kInfo->kernel_mem_size, kInfo->kernel_entry);
     cinux::base::PhysAddr const kProbe = ledger.allocate_page();
     ledger.free_page(kProbe);
     Println("[kern] pmm: %u pages free (probe %X ok)", ledger.free_page_count(), kProbe.raw);

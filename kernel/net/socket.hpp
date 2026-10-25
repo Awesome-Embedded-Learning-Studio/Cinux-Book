@@ -32,6 +32,7 @@
 #include "cinux/result.hpp"
 #include "kernel/net/net_config.hpp"
 #include "kernel/net/raw.hpp"
+#include "kernel/net/tcp.hpp"
 #include "kernel/net/udp.hpp"
 #include "kernel/proc/sync.hpp"
 
@@ -47,6 +48,13 @@ namespace cinux::net {
  * @ingroup kernel_net
  */
 inline constexpr int kAfInet = 2;
+
+/**
+ * @brief   The stream socket type word, SOCK_STREAM.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+inline constexpr int kSockStream = 1;
 
 /**
  * @brief   The datagram socket type word, SOCK_DGRAM.
@@ -164,6 +172,54 @@ public:
      * @ingroup       kernel_net
      */
     [[nodiscard]] virtual bool holds_input() const = 0;
+
+    /**
+     * @brief         Offers to answer knocks on the seated port.
+     *
+     * @param[in]     backlog   Accepted seats kept waiting; the module's
+     *                          own ceiling wins when this asks for more.
+     * @return        Success, or the refusal.
+     * @note          The stream member's face; datagram members answer
+     *                kNotSupported.
+     * @since         0.7.0
+     * @ingroup       kernel_net
+     */
+    virtual base::Result<void> begin_listen(unsigned long backlog);
+
+    /**
+     * @brief         Takes one completed handshake as its own socket.
+     *
+     * @return        The connected socket, or kWouldBlock when no
+     *                handshake waits, or kNotSupported off a stream.
+     * @since         0.7.0
+     * @ingroup       kernel_net
+     */
+    virtual base::Result<base::Shared<Socket>> accept_one();
+
+    /// Sends EOF while keeping the receiving direction open.
+    virtual base::Result<void> shutdown_write();
+
+    /**
+     * @brief         Whether the opened handshake still runs.
+     * @return        True while the connection sits unestablished.
+     * @note          The blocking connect loop asks this between
+     *                yields; datagram members never run one.
+     * @since         0.7.0
+     * @ingroup       kernel_net
+     */
+    [[nodiscard]] virtual bool handshake_pending() const;
+
+    /**
+     * @brief         Whether the opened handshake died short of open.
+     *
+     * @return        True when the connection gave up or was reset
+     *                before establishing.
+     * @note          The blocking open answers refusal through this;
+     *                datagram members never run one.
+     * @since         0.7.0
+     * @ingroup       kernel_net
+     */
+    [[nodiscard]] virtual bool handshake_failed() const;
 
     /**
      * @brief         The socket type word this member was born with.
@@ -341,6 +397,62 @@ private:
     SocketAddress                                                 peer_{};
     bool                                                          named_  = false;
     bool                                                          seated_ = false;
+};
+
+/**
+ * @brief   The TCP member: one listener seat or one connection ticket.
+ * @note    A fresh socket is bare; adopt_local seats a listener, a
+ *          later accept_one mints connected sockets from its queue,
+ *          while adopt_peer opens a connection actively. The farewell
+ *          callback only raises the dead flag — the reader sees
+ *          end-of-file, the writer sees a refusal.
+ * @since   0.7.0
+ * @ingroup kernel_net
+ */
+class TcpSocket final : public Socket {
+public:
+    /**
+     * @brief         Binds the socket to the module it serves.
+     *
+     * @param[in,out] module   The TCP module whose tables this socket
+     *                         joins.
+     * @since         0.7.0
+     * @ingroup       kernel_net
+     */
+    explicit TcpSocket(TcpModule& module);
+
+    /**
+     * @brief   Returns the seat: listener or connection.
+     * @since   0.7.0
+     * @ingroup kernel_net
+     */
+    ~TcpSocket() override;
+
+    base::Result<unsigned long>        receive(void* sink, unsigned long count,
+                                               SocketAddress* from) override;
+    base::Result<unsigned long>        transmit(const void* source, unsigned long count,
+                                                const SocketAddress& destination) override;
+    base::Result<void>                 adopt_local(const SocketAddress& local) override;
+    base::Result<void>                 adopt_peer(const SocketAddress& peer) override;
+    base::Result<void>                 report_local(SocketAddress& local) const override;
+    base::Result<void>                 report_peer(SocketAddress& peer) const override;
+    [[nodiscard]] bool                 holds_input() const override;
+    base::Result<void>                 begin_listen(unsigned long backlog) override;
+    base::Result<base::Shared<Socket>> accept_one() override;
+    base::Result<void>                 shutdown_write() override;
+    [[nodiscard]] bool                 handshake_pending() const override;
+    [[nodiscard]] bool                 handshake_failed() const override;
+
+private:
+    TcpModule&      module_;
+    SocketAddress   local_{};
+    SocketAddress   peer_{};
+    TcpListenTicket listener_{};
+    TcpTicket       connection_{};
+    bool            bound_     = false;
+    bool            listening_ = false;
+    bool            seated_    = false;
+    bool            opened_    = false;
 };
 
 }  // namespace cinux::net

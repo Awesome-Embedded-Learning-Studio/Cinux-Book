@@ -7,10 +7,12 @@
 
 #include "cinux/memory.hpp"
 #include "cinux/result.hpp"
+#include "cinux/shared.hpp"
 #include "kernel/fs/vfs.hpp"
 #include "kernel/net/net_config.hpp"
 #include "kernel/net/net_layout.hpp"
 #include "kernel/net/raw.hpp"
+#include "kernel/net/tcp.hpp"
 #include "kernel/net/udp.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/sync.hpp"
@@ -299,6 +301,185 @@ void RawSocket::take(void* context, const unsigned char* bytes, size_t length,
     entry.length       = length;
     base::CopyBytes(entry.bytes, bytes, length);
     static_cast<void>(self.waiting_.push(entry));
+}
+
+base::Result<void> Socket::begin_listen(unsigned long /*backlog*/) {
+    return base::KernelError::kNotSupported;
+}
+
+base::Result<base::Shared<Socket>> Socket::accept_one() {
+    return base::KernelError::kNotSupported;
+}
+
+base::Result<void> Socket::shutdown_write() {
+    return base::KernelError::kNotConnected;
+}
+
+bool Socket::handshake_pending() const {
+    return false;
+}
+
+bool Socket::handshake_failed() const {
+    return false;
+}
+
+TcpSocket::TcpSocket(TcpModule& module) : Socket(kSockStream), module_(module) {}
+
+TcpSocket::~TcpSocket() {
+    const proc::PreemptGuard kPin;
+    if (listening_) {
+        module_.unlisten(listener_);
+    } else if (opened_) {
+        module_.close(connection_);
+    }
+}
+
+base::Result<unsigned long> TcpSocket::receive(void* sink, unsigned long count,
+                                               SocketAddress* from) {
+    if (count == 0) {
+        return 0;
+    }
+    if (!opened_) {
+        return base::KernelError::kNotConnected;
+    }
+    const auto kTaken = module_.receive(connection_, static_cast<unsigned char*>(sink), count);
+    if (!kTaken.ok()) {
+        if (kTaken.error() == base::KernelError::kNotFound) {
+            return static_cast<unsigned long>(0);
+        }
+        return kTaken.error();
+    }
+    if (from != nullptr) {
+        *from = peer_;
+    }
+    return kTaken.value();
+}
+
+base::Result<unsigned long> TcpSocket::transmit(const void* source, unsigned long count,
+                                                const SocketAddress& /*destination*/) {
+    const proc::PreemptGuard kPin;
+    if (!opened_) {
+        return base::KernelError::kNotConnected;
+    }
+    const auto kGiven = module_.send(connection_, static_cast<const unsigned char*>(source), count,
+                                     module_.clock());
+    if (!kGiven.ok()) {
+        return kGiven.error();
+    }
+    return kGiven.value();
+}
+
+base::Result<void> TcpSocket::adopt_local(const SocketAddress& local) {
+    const proc::PreemptGuard kPin;
+    if (local.address != 0 && local.address != module_.own_address() &&
+        local.address != kLoopbackAddress) {
+        return base::KernelError::kInvalidArgument;
+    }
+    if (bound_ || opened_) {
+        return base::KernelError::kAlreadyExists;
+    }
+    local_ = local;
+    bound_ = true;
+    return {};
+}
+
+base::Result<void> TcpSocket::adopt_peer(const SocketAddress& peer) {
+    const proc::PreemptGuard kPin;
+    if (listening_) {
+        return base::KernelError::kNotSupported;
+    }
+    if (peer.address == 0 || peer.port == 0) {
+        return base::KernelError::kInvalidArgument;
+    }
+    if (opened_) {
+        return base::KernelError::kAlreadyExists;
+    }
+    const TcpEvents kNoNews{};
+    const auto      kOpened =
+        module_.connect(local_.port, peer.address, peer.port, kNoNews, module_.clock());
+    if (!kOpened.ok()) {
+        return kOpened.error();
+    }
+    peer_       = peer;
+    connection_ = kOpened.value();
+    opened_     = true;
+    return {};
+}
+
+base::Result<void> TcpSocket::report_local(SocketAddress& local) const {
+    local = local_;
+    return {};
+}
+
+base::Result<void> TcpSocket::report_peer(SocketAddress& peer) const {
+    if (!opened_) {
+        return base::KernelError::kNotConnected;
+    }
+    peer = peer_;
+    return {};
+}
+
+bool TcpSocket::holds_input() const {
+    if (!opened_) {
+        return false;
+    }
+    return module_.holds_bytes(connection_);
+}
+
+base::Result<void> TcpSocket::begin_listen(unsigned long /*backlog*/) {
+    const proc::PreemptGuard kPin;
+    if (!bound_ || opened_) {
+        return base::KernelError::kInvalidArgument;
+    }
+    if (listening_) {
+        return {};
+    }
+    const auto kSeat = module_.listen(local_.port, {});
+    if (!kSeat.ok()) {
+        return kSeat.error();
+    }
+    listener_  = kSeat.value();
+    seated_    = true;
+    listening_ = true;
+    return {};
+}
+
+base::Result<base::Shared<Socket>> TcpSocket::accept_one() {
+    if (!seated_) {
+        return base::KernelError::kNotSupported;
+    }
+    const auto kTaken = module_.take_accepted(listener_);
+    if (!kTaken.ok()) {
+        return kTaken.error();
+    }
+    auto*                born = new TcpSocket(module_);
+    base::Shared<Socket> face{born};
+    born->connection_ = kTaken.value();
+    born->opened_     = true;
+    born->local_      = local_;
+    uint32_t address  = 0;
+    uint16_t port     = 0;
+    if (module_.peer_of(kTaken.value(), address, port)) {
+        born->peer_ = SocketAddress{.address = address, .port = port};
+    }
+    return face;
+}
+
+bool TcpSocket::handshake_pending() const {
+    return opened_ && module_.connecting(connection_);
+}
+
+base::Result<void> TcpSocket::shutdown_write() {
+    const proc::PreemptGuard kPin;
+    if (!opened_ || !module_.alive(connection_) || handshake_pending()) {
+        return base::KernelError::kNotConnected;
+    }
+    module_.close(connection_);
+    return {};
+}
+
+bool TcpSocket::handshake_failed() const {
+    return opened_ && !module_.established(connection_) && !module_.alive(connection_);
 }
 
 const fs::FsOps* SocketOps() {

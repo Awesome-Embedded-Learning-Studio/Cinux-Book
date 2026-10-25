@@ -3,11 +3,14 @@
 #include "cinux/byte_order.hpp"
 #include "cinux/checksum.hpp"
 #include "framework_kernel.hpp"
+#include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/driver/net/e1000.hpp"
 #include "kernel/driver/net/loopback.hpp"
 #include "kernel/driver/net/net_device.hpp"
 #include "kernel/net/net_config.hpp"
 #include "kernel/net/net_world.hpp"
+#include "kernel/net/tcp.hpp"
+#include "kernel/syscall/sys_clock.hpp"
 #include "test_assert.hpp"
 #include "test_case.hpp"  // NOLINT(misc-include-cleaner) consumed by the TEST() macro body
 
@@ -36,6 +39,20 @@ void fill_echo_request(unsigned char* message, size_t length) {
     checksum.add(message, length);
     cinux::base::WriteWord16Be(message, 2, checksum.value());
 }
+
+struct TcpNews {
+    unsigned long accepted_hits = 0;
+    unsigned long data_hits     = 0;
+    unsigned long graceful      = 0;
+
+    static void on_accepted(void* context) { ++static_cast<TcpNews*>(context)->accepted_hits; }
+    static void on_data(void* context) { ++static_cast<TcpNews*>(context)->data_hits; }
+    static void on_farewell(void* context, cinux::net::TcpFarewell farewell) {
+        if (farewell == cinux::net::TcpFarewell::kGraceful) {
+            ++static_cast<TcpNews*>(context)->graceful;
+        }
+    }
+};
 
 }  // namespace
 
@@ -87,4 +104,66 @@ TEST("net: a checksum mismatch dies counted in the kernel world") {
     cinux::net::NetWorld::self().pump_once();
     ASSERT_TRUE(cinux::net::NetWorld::self().ipv4().stats().refused_checksum != 0);
     ASSERT_TRUE(cinux::net::NetWorld::self().ipv4().stats().delivered == kDeliveredBefore);
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) a body walks one story in order
+TEST("net: a tcp handshake carries bytes and completes the farewell") {
+    ensure_world();
+    auto& world = cinux::net::NetWorld::self();
+    auto& tcp   = world.tcp();
+
+    TcpNews                     news;
+    const cinux::net::TcpEvents kServerEvents = {
+        .context  = &news,
+        .data     = &TcpNews::on_data,
+        .accepted = &TcpNews::on_accepted,
+        .farewell = &TcpNews::on_farewell,
+    };
+    const auto kListener = tcp.listen(4301, kServerEvents);
+    ASSERT_TRUE(kListener.ok());
+
+    TcpNews                     client_news;
+    const cinux::net::TcpEvents kClientEvents = {
+        .context  = &client_news,
+        .data     = &TcpNews::on_data,
+        .accepted = &TcpNews::on_accepted,
+        .farewell = &TcpNews::on_farewell,
+    };
+    const auto kClient = tcp.connect(0, cinux::net::kLoopbackAddress, 4301, kClientEvents, 0);
+    ASSERT_TRUE(kClient.ok());
+
+    world.pump_once();
+
+    ASSERT_TRUE(tcp.established(kClient.value()));
+    ASSERT_TRUE(news.accepted_hits == 1);
+    const auto kServer = tcp.take_accepted(kListener.value());
+    ASSERT_TRUE(kServer.ok());
+
+    const unsigned char kPing[4] = {'p', 'i', 'n', 'g'};
+    const auto          kGiven   = tcp.send(kClient.value(), kPing, sizeof(kPing), 0);
+    ASSERT_TRUE(kGiven.ok());
+    ASSERT_TRUE(kGiven.value() == sizeof(kPing));
+    world.pump_once();
+    ASSERT_TRUE(news.data_hits == 1);
+    unsigned char inbox[16] = {};
+    const auto    kTaken    = tcp.receive(kServer.value(), inbox, sizeof(inbox));
+    ASSERT_TRUE(kTaken.ok());
+    ASSERT_TRUE(kTaken.value() == sizeof(kPing));
+
+    tcp.close(kClient.value());
+    world.pump_once();
+    const auto kEof = tcp.receive(kServer.value(), inbox, sizeof(inbox));
+    ASSERT_TRUE(kEof.ok());
+    ASSERT_TRUE(kEof.value() == 0);
+
+    tcp.close(kServer.value());
+    world.pump_once();
+    const unsigned long long kDeadline =
+        cinux::syscall::MonotonicNanoseconds() + (4 * cinux::net::kTcpMslNanoseconds);
+    while (client_news.graceful == 0 && cinux::syscall::MonotonicNanoseconds() < kDeadline) {
+        world.pump_once();
+        cinux::arch::EnableIrqAndHalt();
+    }
+    ASSERT_TRUE(client_news.graceful == 1);
+    ASSERT_TRUE(news.graceful == 1);
 }

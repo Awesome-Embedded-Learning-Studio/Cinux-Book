@@ -106,7 +106,8 @@ bool UdpModule::send(uint32_t destination, uint16_t source_port, uint16_t destin
     }
 
     unsigned char pseudo[kPseudoHeaderBytes] = {};
-    build_pseudo_header(pseudo, own_address_, destination, kDatagramBytes);
+    build_pseudo_header(pseudo, SourceAddressFor(own_address_, destination), destination,
+                        kDatagramBytes);
     base::InternetChecksum builder;
     builder.add(pseudo, sizeof(pseudo));
     builder.add(outgoing, kDatagramBytes);
@@ -162,10 +163,10 @@ bool UdpModule::unbind(uint16_t port) {
 
 uint16_t UdpModule::ephemeral_port() const {
     const auto kPorts = ports_gate_.guard();
-    for (uint32_t scan = 0; scan <= kUdpEphemeralLast - kUdpEphemeralFirst; ++scan) {
+    for (uint32_t scan = 0; scan <= kEphemeralPortLast - kEphemeralPortFirst; ++scan) {
         const auto kCandidate = static_cast<uint16_t>(
-            kUdpEphemeralFirst + ((ephemeral_cursor_ - kUdpEphemeralFirst + scan) %
-                                  (kUdpEphemeralLast - kUdpEphemeralFirst + 1)));
+            kEphemeralPortFirst + ((ephemeral_cursor_ - kEphemeralPortFirst + scan) %
+                                   (kEphemeralPortLast - kEphemeralPortFirst + 1)));
         bool taken = false;
         for (unsigned long index = 0; index < port_count_; ++index) {
             if (ports_[index].port == kCandidate) {

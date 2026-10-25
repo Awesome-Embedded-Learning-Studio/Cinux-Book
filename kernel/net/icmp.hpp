@@ -47,6 +47,8 @@ struct IcmpStats {
     unsigned long refused_short     = 0;
     /// Messages whose checksum did not fold to zero.
     unsigned long refused_checksum  = 0;
+    /// Echo requests larger than a reply could mirror.
+    unsigned long refused_oversized = 0;
 };
 
 /**
@@ -88,9 +90,9 @@ public:
     [[nodiscard]] const IcmpStats& stats() const;
 
 private:
-    DatagramSink  reply_sink_                                     = {};
-    IcmpStats     stats_                                          = {};
-    unsigned char reply_[kMaxDatagramBytes - kMinIpv4HeaderBytes] = {};
+    DatagramSink  reply_sink_               = {};
+    IcmpStats     stats_                    = {};
+    unsigned char reply_[kMaxIcmpEchoBytes] = {};
 };
 
 /**
