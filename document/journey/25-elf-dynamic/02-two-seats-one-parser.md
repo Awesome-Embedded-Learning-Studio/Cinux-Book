@@ -23,13 +23,33 @@ tags:
 解析器的改动,咱们只添了一个参数:座位。枚举有了两格,kProgram 坐的就是程序座,kInterpreter 坐的是解释器座。检查单上原本写死的一行是类型必须是 2,如今的改法是程序座收类型 2、解释器座收类型 3。改的就这一行,其余的检查:魔数、位宽、端序、机器、表界,两张座位用的还是同一套。拿错了座位会怎样?拿共享对象坐程序座的拒,拿可执行文件坐解释器座的也拒,拒的形态和拿一个截断的文件来一模一样。咱们要的就是这个一样:座位错比普通的参数错重得多,这具身子根本坐错了地方,越早把它拒了越干净。
 
 ```cpp
-const std::uint16_t kWanted = role == ImageRole::kProgram ? kTypeExecutable : kTypeShared;
+const std::uint16_t kWanted  = role == ImageRole::kProgram ? kTypeExecutable : kTypeShared;
 if (kType != kWanted || kMachine != kMachineX8664) {
     return base::KernelError::kInvalidArgument;
 }
 ```
 
-解释器座位还给解析器派了一门新差:报告程序头表自己的落点。头表住在文件里的某个偏移上,可 musl 要的是头表装进内存之后的虚地址,文件里的偏移帮不上它。这门差的算术咱们端出来看:头表必然住在某个可装载段的字节范围里,所以走一遍段表,找第一条把 e_phoff 盖住的 LOAD 段,拿段自己的虚地址,加上表偏移减去段文件偏移的那点差,答案就是头表的落点。找不到盖住它的段,就没人保证头表进得了内存,答案老老实实地给零。往后摆 auxv 桌的时候它是硬货,咱们记在这儿。
+解释器座位还给解析器派了一门新差:报告程序头表自己的落点。头表住在文件里的某个偏移上,记着它的正是 ELF 头的 e_phoff 字段。可 musl 要的是头表装进内存之后的虚地址,文件里的偏移帮不上它。这门差的算术,咱们把解析器里那段循环原样请出来看:
+
+```cpp
+    std::uint64_t headers_address = 0;
+    for (std::uint16_t index = 0; index < kPhdrCount; ++index) {
+        const std::uint8_t* const kAt =
+            data + (kPhdrOffset +
+                    (static_cast<std::uint64_t>(index) * static_cast<std::uint64_t>(kPhdrSize)));
+        if (base::ReadWord32(kAt, 0) != kProgramLoad) {
+            continue;
+        }
+        const std::uint64_t kOffset = base::ReadWord64(kAt, 8);
+        const std::uint64_t kFiles  = base::ReadWord64(kAt, 32);
+        if (kOffset <= kPhdrOffset && kPhdrOffset < kOffset + kFiles) {
+            headers_address = base::ReadWord64(kAt, 16) + (kPhdrOffset - kOffset);
+            break;
+        }
+    }
+```
+
+循环的第一行就把答案预置成了零,找不到盖住它的段、没人保证头表进得了内存的时候,落的正是这个零:循环走完了也没有人盖住,headers_address 就原封不动地是零。承重的是判据和落点那两行。判据的那一行,咱们问的是 e_phoff(码里叫 kPhdrOffset)有没有被一条 LOAD 的文件字节盖住,盖住的范围是从 kOffset 起到 kOffset+kFiles 止,左端是闭的,右端是开的。落点的那一行,咱们用 ReadWord64 从表项里读出 LOAD 段自己的虚地址,再加上表偏移减去段文件偏移的那点差——文件侧量出的差,原样搬进了虚地址侧,答案就是头表装进了内存之后的落点。break 认的是头一条:头表住的地方只有一个,走在前头把它盖住的 LOAD 就是答案。这个数后来进了 ElfImage 的 headers_address 一格,往后摆 auxv 桌的时候它是硬货,咱们记在这儿。
 
 PT_INTERP 登记的读法也定了。段表里找类型 3 的那一项,装的就是那句路径。这里有个容易混的地方顺手理清:文件类型 3 是 ET_DYN,表项类型 3 对应的是 PT_INTERP,两个 3 各在各的表里,巧了同号。表项的文件偏移和长度圈出一段字节,字节本身装的就是那句路径。咱们 exec 的路,开头就把整个文件读进了 buffer 再装载,所以拷路径这件事不用再进文件系统,直接从手上的 buffer 里抄,连终结符咱们都替链接器把着关:拷到头强制补一个零字节,哪个链接器忘了写 NUL,咱们读出来的也是一句有边界的串。第一遍的旧实现要走 inode 的读接口,咱们这一遍因为整读在前,省掉了一条依赖,这是重走的红利。
 

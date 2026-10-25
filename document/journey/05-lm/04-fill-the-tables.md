@@ -83,4 +83,4 @@ inline constexpr unsigned long kPdPhys = kPml4Phys + 0x2000;
     EnterLongMode();
 ```
 
-两个声明放在文件顶上的 include 区,都挂了 `extern "C"`——跨世界被引用的符号要走 C 的链接约定,而这样的约定,咱们从 MBR 起立到了今天。而上一卷里,笔者把声明塞进过匿名 namespace,也吃过一回它的亏,这一回声明就直接站在了明处。您还注意到,原来那个 `hlt` 循环没有了,因为 `EnterLongMode` 标着的是 `[[noreturn]]`,它是一条没有回程的路,睡下去就没有人再醒了。所以那句 `[pm] 32-bit world alive`,就是 32 位世界说的最后一句话:它后面接的建表和切换,再添的输出一行也没有。
+两个声明放在文件顶上的 include 区,都挂了 `extern "C"`——跨世界被引用的符号要走 C 的链接约定,而这样的约定,咱们从 MBR 起立到了今天。而上一卷里,笔者把声明塞进过匿名 namespace,也吃过一回它的亏(匿名 namespace 圈住的符号是内部链接的,`extern "C"` 的名字被它一裹,别的翻译单元就找不着了),这一回声明就直接站在了明处。您还注意到,原来那个 `hlt` 循环没有了,因为 `EnterLongMode` 标着的是 `[[noreturn]]`:控制流进了它,就不再回到调用方这一头了。所以那句 `[pm] 32-bit world alive`,是 32 位世界往串口上打的最后一行:它后面接的建表和切换,再添的输出一行也没有。

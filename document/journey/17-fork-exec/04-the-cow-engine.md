@@ -1,6 +1,6 @@
 ---
 title: "04 · 写时复制的引擎"
-description: "kCow 坐 bit 9,硬件无视的软件标记。CR0.WP 全程为 0 的真发现:ring0 写穿只读页不响铃,首版测试值对帧数对不上就是这么来的,KernelStart 从此拉起 WP。缺页裁决者坐进异常报告员门前的单座,有伴复制、末位复权。一帧两映射的测试重写教咱们:构造性测试的绿,要能被探针证伪才算数。"
+description: "kCow 坐 bit 9,硬件无视的软件标记。CR0.WP 全程为 0 的真发现:ring0 写穿只读页不响铃,首版测试值对帧数对不上就是这么来的,KernelStart 从此拉起 WP。缺页裁决者坐进异常报告员门前的单座,有伴复制、末位复权。一帧两映射的测试重写,构造性测试的绿要能被探针证伪才算数。"
 chapter: 17
 order: 4
 platform: qemu
@@ -24,25 +24,47 @@ tags:
 
 铃响了,咱们得有人接。缺页走的是 14 号异常,异常报告员面前咱们安了一把单座:ReportFault 在转储、停机之前,把 CR2 和错误码递给坐在座上的裁决者,裁决者说修得了,咱们就返回继续跑,说修不了,照旧走转储的老路,一个字的诊断都不少。错误码也给立了三个词:bit 0 说的是错在哪一层,为零的话整页没映,为一的话页在、错在权限。bit 1 说的是写,bit 2 说的是来自用户——从此裸位从两个文件里退役。产品的那一侧,启动阶梯里多了新的一步:page fault resolver,排在地址空间之后、控制台之前。
 
-裁决者本人的判定链,咱们逐环看:
+裁决者本人的名字是 TryResolvePageFault,InstallResolver 把它安进了那把单座。判定链咱们整段端出来,真码面前一环一环地过:
 
 ```cpp
-if ((error_code & kFaultWasWrite) == 0) {
-    return false;
-}
-// —— 活根上走到叶,缺映射、可写、没带 kCow 的,都不是咱们的案子 ——
-const unsigned long long kCompany = release_share(kTarget);
-if (kCompany == 0) {
-    *kSlot.entry = MakeTableEntry(kTarget, leaf_flags(true));
-    InvalidatePage(address);
+bool TryResolvePageFault(unsigned long long address, unsigned long long error_code) {
+    if ((error_code & cinux::arch::isr::kFaultWasWrite) == 0) {
+        return false;
+    }
+    cinux::mm::KernelTables world;
+    const SlotAt            kSlot = FindSlot(world, cinux::arch::ReadCr3(), address);
+    if (kSlot.entry == nullptr || kSlot.level != walk::WalkLevel::kPageTable) {
+        return false;
+    }
+    const Entry kLeaf = *kSlot.entry;
+    if (!kLeaf.has(cinux::arch::page::kPresent) || kLeaf.has(cinux::arch::page::kWritable) ||
+        !kLeaf.has(cinux::arch::page::kCow)) {
+        return false;
+    }
+    const unsigned long long kTarget  = walk::EntryTarget(kLeaf);
+    const unsigned long long kCompany = release_share(kTarget);
+    if (kCompany == 0) {
+        *kSlot.entry = cinux::arch::page::MakeTableEntry(kTarget, leaf_flags(true));
+        cinux::arch::InvalidatePage(address);
+        return true;
+    }
+    const cinux::base::PhysAddr kCopy = cinux::mm::Pmm::self().allocate_page();
+    cinux::base::safety::Check(kCopy != cinux::base::PhysAddr{}, "cow copy out of frames");
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
+    auto* const       kDestination = reinterpret_cast<void*>(cinux::mm::DirectMapVirt(kCopy.raw));
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
+    const auto* const kSource = reinterpret_cast<const void*>(cinux::mm::DirectMapVirt(kTarget));
+    cinux::base::CopyBytes(kDestination, kSource, cinux::arch::page::kSize);
+    *kSlot.entry = cinux::arch::page::MakeTableEntry(kCopy.raw, leaf_flags(true));
+    cinux::arch::InvalidatePage(address);
     return true;
 }
 ```
 
-您看头一问,问的是写吗?读缺页不归咱们管,那是按需分页的案子,轮不到咱们这一卷。第二问看的是活根上的叶,在吗、只读吗、带 kCow 吗,三个条件里缺了一个,咱们都不受理。过了两问,数伴:这一帧还有别的世界映射着,咱们领一帧新页,字节整个地拷过去,本方的表项改指新帧,计数减的是一,各走各的路。数下来的伴是零,末位了,省去了拷这一步,把这一页的写权限还回去就算完——kCow 位留着不摘,可写与可共享的并存是无害的,往后这一页再要标共享的话,走的还是同一条降级的路。这里有个门道咱们特意想过:裁决者不问缺页来自内核还是用户。您看着像漏,其实是必需——往后 wait4 要替父进程把退出码写进用户栈,内核替客人动手的写,同样是合法的写,同样免不了分家。至于根本没映射的指针,叶上没有 kCow 的标记,天然地不受理,落进转储里响亮地死,不会变成悄悄的错。
+您看头一问,问的是写吗?读缺页不归咱们管,那是按需分页的案子,轮不到咱们这一卷。第二问拿着 CR3 和出错的地址,KernelTables 是走表的拐杖,FindSlot 从活根一路走到叶上的表项,走表落不到叶上的,不是咱们的案子。第三问在叶上验三个词:在吗、只读吗、带 kCow 吗,三个条件里缺了一个,咱们都不受理。过了三问,数伴:release_share 的返回值,就是这一帧还剩下的伴。伴还在的话,咱们领一帧新页,字节整个地拷过去,本方的表项改指新帧,计数减的是一,各走各的路。数下来的伴是零,末位了,省去了拷这一步,把这一页的写权限还回去就算完——kCow 位留着不摘,可写与可共享的并存是无害的,往后这一页再要标共享的话,走的还是同一条降级的路。这里有个门道咱们特意想过:裁决者不问缺页来自内核还是用户。您看着像漏,其实是必需——往后 wait4 要替父进程把退出码写进用户栈,内核替客人动手的写,同样是合法的写,同样免不了分家。至于根本没映射的指针,叶上没有 kCow 的标记,天然地不受理,落进转储里响亮地死,不会变成悄悄的错。
 
-纪律还立了一条,咱们写在引擎的门口:裁决者跑在异常深度,不睡、不拿锁、除了一帧新页不分配。它是机器报丧时刻的急救员,急救员自己是不能再病倒的。
+纪律还立了一条,咱们写在引擎的门口,裁决者跑在异常深度——它的代码是在缺页异常的处理程序里跑的,栈上还叠着故障的现场——不睡、不拿锁、除了一帧新页不分配。它是机器报丧时刻的急救员,急救员自己是不能再病倒的。
 
-测试这边咱们交两桩手艺。头一桩的活是重写。首版的复制用例,咱们自以为造了一帧两映射,实际上是领了两帧、各自映射——两帧互不相干,怎么写都绿,引擎空转也照样是绿的。探针打出了一行:company=0,当场就穿了帮。重写后的用例才是对的形状:一帧,两个地址,各标了共享,然后写 A 地址,断言 A 变了、B 没变,世界的帧数收支相抵。教训咱们升格成一句话:构造性测试的绿,要禁得起探针的证伪,才算作数的。第二桩还是基线的事,这一卷的第二回,一口气来了两次:一回取在 init 之后,差了根表那一页,另一回取在测试把自己的共享帧都标好之后,差了五页。咱们把对错两边摆开一比,取基线的时机跟着要数的东西定——数一个世界的全部家底,取在它的建立之前。数一段操作的净变化,取在布置完了之后。
+测试这边咱们交两桩手艺。头一桩的活是重写。首版的复制用例,咱们自以为造了一帧两映射,实际上是领了两帧、各自映射——两帧互不相干,怎么写都绿,引擎空转也照样是绿的。探针打出了一行:company=0,当场就穿了帮。重写后的用例才是对的形状:一帧,两个地址,各标了共享,然后写 A 地址,断言 A 变了、B 没变,世界的帧数收支相抵。咱们把它升格成一句话:构造性测试的绿,要禁得起探针的证伪,才算作数的。第二桩还是基线的事,这一卷的第二回,一口气来了两次:一回取在 init 之后,差了根表那一页,另一回取在测试把自己的共享帧都标好之后,差了五页。咱们把对错两边摆开一比,取基线的时机跟着要数的东西定——数一个世界的全部家底,取在它的建立之前。数一段操作的净变化,取在布置完了之后。
 
 引擎立完了,四条测试线全都过了,产品镜像在 WP=1 下照常跑到了 shell 提示符,咱们听见的铃都是该响的。下一节咱们请 fork 本体进场,把引擎挂上真正的钩子。

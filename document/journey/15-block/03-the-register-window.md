@@ -16,7 +16,7 @@ tags:
 
 # 推开寄存器的窗
 
-设备醒了,可它的寄存器还隔着一条线。AHCI 控制器的家当——全局寄存器、三十来个口的私有寄存器——全铺在一片物理内存里,具体地址,就是上一节读来的六条 BAR 里第五条报的那个。咱们把窗开进页表:
+设备醒了,可它的寄存器还隔着一条线。AHCI 控制器的寄存器——全局一份,三十来个口还各有一份私有的——全铺在一片物理内存里,具体地址,就是上一节读来的六条 BAR 里第五号报的那个。BAR 的编号从 0 数起,第五号正是六条里的末一条。咱们把窗开进页表:
 
 ```cpp
 const auto kRegisters = static_cast<unsigned long>(BarBase(device->bars, kRegistersBar));
@@ -29,7 +29,7 @@ regs_ = cinux::base::PtrAt<HbaMem>(mm::IoremapVirt(kRegisters));
 
 `MapDeviceWindow` 是给设备铺窗的专用手续:窗开在高半区的 ioremap 一带,按 2 MiB 大页落格,而且每格都带上禁缓存的位。为什么禁缓存这么要紧?您想,普通内存里的数,CPU 拿过一回就存一份抄本,下回读抄本,快。寄存器可不一样——它是对讲机的听筒,您要听的是设备此刻说的话。要是 CPU 把上一回的旧数当回音递过来,咱们对着空气就聊起来了。所以设备窗上的每个页格,都得明明白白告诉 CPU:此处不许缓存,读就真读。
 
-窗推开了,里面的房间怎么认?AHCI 的版式,规范给得死死的:全局寄存器住 0x00 到 0xFF,从 0x100 起,排着 32 个口的私有寄存器,每口不多不少 0x80 字节。按字节对座的家当,咱们拿结构体直描,拿 static_assert 把座位表压进编译期:
+窗推开了,里面的房间怎么认?AHCI 的版式,规范给得死死的:全局寄存器住 0x00 到 0xFF,从 0x100 起,排着 32 个口的私有寄存器,每口不多不少 0x80 字节。按字节对座的排布,咱们拿结构体直描,拿 static_assert 把座位表压进编译期:
 
 ```cpp
 static_assert(sizeof(HbaMem) == 0x100 + (kPortCount * 0x80), "ports begin at 0x100");
@@ -48,7 +48,7 @@ wait_clear_observed(&regs_->global_host_control, kGhcReset, kResetBudgetTicks, "
 regs_->global_host_control = kGhcAhciEnable.raw;
 ```
 
-点亮 AHCI 位,落上复位位,然后等复位位自己清零——复位是控制器自己干的活,干完了它自己把旗放下来。等,是这一卷的新手艺,咱们给它配了个带预算的等法:
+点亮 AHCI 位,落上复位位,然后等复位位自己清零——复位是控制器自己干的活,干完了它自己把旗放下来。您把码数一遍,数出来的是四步:末尾还把 AE 又写了一遍,多的这一步可不是手滑。复位连身份旗 AE 都一并洗掉了,等 HR 自己清了零,咱们读回来的 GHC 里,AE 已经归了零,控制器也跟着退回了出厂的旧角色。咱们得把 AE 重新点亮,后头认门牌、开引擎的活才走得动。等,是这一卷的新手艺,咱们给它配了个带预算的等法:
 
 ```cpp
 while (!observe_once(reg, bits, false)) {
@@ -56,7 +56,21 @@ while (!observe_once(reg, bits, false)) {
 }
 ```
 
-每一圈,咱们关着中断查一回位,没到就睡到下一回中断再来查。预算(复位给 100 拍,合 1 秒——时钟那一卷立的 100 Hz,在这儿正好用上)到点,面板报一声 stuck,句尾还带着 still waiting:预算的职责是诊断,不是放弃。规范担保会来的转变,咱们报了号照样等。真卡死的机器,这行字就是您在串口边能抓到的第一根线头。这一手是跟时钟那一卷学的:等,不空转。空转的机器,连报数的力气都没有。
+每一圈的步法全在 `observe_once` 里,咱们把它的原文请出来:
+
+```cpp
+bool observe_once(const volatile uint32_t* reg, AhciReg bits, bool expect_set) {
+    const unsigned long long kSnapshot = cinux::arch::SaveAndDisableIrq();
+    if (bit_reads(reg, bits, expect_set)) {
+        cinux::arch::RestoreIrq(kSnapshot);
+        return true;
+    }
+    cinux::arch::EnableIrqAndHalt();
+    return false;
+}
+```
+
+咱们关着中断查一回位。查到了,就把中断原样放了回去,这一圈也就过了。没查到的圈里,CPU 睡了下去,一觉睡到了下一回中断,拍醒之后咱们回到循环头再查一遍。为什么查之前要关中断、这一睡又藏着什么讲究,咱们留到讲等待的时候专门拆。预算(复位给 100 拍,合 1 秒——时钟那一卷立的 100 Hz,在这儿正好用上)到点,面板报一声 stuck,句尾还带着 still waiting:预算的职责是诊断,不是放弃。规范担保会来的转变,咱们报了号照样等。真卡死的机器,这行字就是您在串口边能抓到的第一根线头。这一手是跟时钟那一卷学的:等,不空转。空转的机器,连报数的力气都没有。
 
 控制器归位了,接下来挑口。32 个口,哪些真有,`ports_implemented` 寄存器的位图说了算。位图说有,咱们还得看口上真没真插着东西——SSTS 寄存器的低四位是设备探测的结果,读出 `0x3` 才算设备在、链路通。两个条件都满足的头一个口,就是咱们这一卷唯一的盘座:
 
@@ -68,4 +82,4 @@ if (kPresent.raw != 0 && kStatus.extract(kPhyDetect) == kPhyDetectActive) {
 }
 ```
 
-只驱动一个——这是这一卷给自己划的界:教学机器上就这一块盘,剩下三十一个口空着,咱们把界划在这儿。口挑定了,窗内的一切就绪。下一节,咱们把引擎发动起来。
+只驱动一个——这是这一卷给自己划的界:教学机器上就这一块盘,剩下三十一个口空着,咱们把界划在这儿。口挑定了,窗内的一切也就绪了,引擎这就该发动起来了。

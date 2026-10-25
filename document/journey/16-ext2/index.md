@@ -28,7 +28,7 @@ tags:
 <ChapterNav variant="sub">
   <ChapterLink num="1" href="01-why-learn-to-read" desc="命令通道立住了,盘上的字节还只是字节。构建期烤一卷 4 MiB 的真 ext2 当教材:mkfs 定版式,debugfs 放种子,hello 在盘上等着。四件活点名:版式、读、写、换根,外加一串随行的家当">为什么是认字</ChapterLink>
   <ChapterLink num="2" href="02-the-volume-layout" desc="头 1024 字节留给引导块,superblock 坐 2 号扇区。卷切成块组,每组自带两张位图和一张 inode 表,教学卷 4 MiB、1 KiB 块、128 个 inode,整卷就是一组。座位表拿 static_assert 压进编译期:superblock 1024 字节、组描述符 32 字节、inode 128 字节,一格不许差">卷摊开来的样子</ChapterLink>
-  <ChapterLink num="3" href="03-the-mount-gate" desc="mount 六道检查:魔数 0xEF53、形状(只认 1 KiB 块、不认不兼容特性、inode 尺寸下限加整除)、计数彼此咬合、组数至多 32 封顶 256 MiB、二次挂载拒载、根 inode 必须是目录。组描述符表一口气读进内存常驻,坏卷大声拒,不半懂">认卷之门</ChapterLink>
+  <ChapterLink num="3" href="03-the-mount-gate" desc="mount 六道检查:魔数 0xEF53、形状(只认 1 KiB 块、不认不兼容特性、inode 尺寸下限加整除)、计数彼此咬合、组数至多 32 封顶 256 MiB、二次挂载拒载、根 inode 必须是目录。组描述符表一口气读进内存常驻,坏卷进门只有拒载一条路">认卷之门</ChapterLink>
   <ChapterLink num="4" href="04-reading-into-files" desc="lookup 拿 PathCursor 逐组件下爬,同一对纯函数第三回上场。inode 定位是三行算术,hello.txt 的 14 号现场走一遍。找名字和报清单共用一副骨架,rec_len 四道自验,坏卷不硬读。直接十二格、单间到 267、双间到 64 MiB,三重响亮地拒,洞读回来是零">把字节念成文件</ChapterLink>
   <ChapterLink num="5" href="05-writing-to-the-platter" desc="一把睡眠锁罩住全部写面:找位、置位、改计数、写 superblock,得一口气说完。位图收的是盘上的词,adopt 绑进来就用。目录添名字走两条路,死槽复用、活槽缩缝,塞不下就办不成,绝不给目录添新块。删名字只抹号,字还躺在块里,fsck 的路子留给以后的某天">往盘上落笔</ChapterLink>
   <ChapterLink num="6" href="06-write-through-the-cache" desc="ext2 的活压在同几块上,块缓存 8 槽替队列挡下重复的命令。patch 进槽再整槽下盘,写完这一拍槽和盘是同一份,盘拒收槽标死,宁可不答,不伺候假数。门面手艺第三间:这一卷一件转发都不擦,ext2 直接住进链里,编译期一颗 static_assert 盖章">写穿的缓存</ChapterLink>

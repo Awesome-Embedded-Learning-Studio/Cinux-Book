@@ -148,7 +148,20 @@ void release_self() {
 
 所以您看赋值运算符时,别把它读成"复制几个字段"。它真正办的是一次换房手续:`release_self()` 先清场,`is_ok_` 换门牌,最后才让新住户进来。顺序一乱,门牌和屋里的人就对不上了。
 
-咱们看移动构造那边还标着一个条件 `noexcept`:值类型的移动构造不抛,咱们 `Result` 的移动就跟着不抛。咱们将来敢不敢在要紧路径上放心地移动它:看的就是这一行。
+咱们看移动构造那边还标着一个条件 `noexcept`,咱们把真码原样抄来:
+
+```cpp
+Result(Result&& other) noexcept(std::is_nothrow_move_constructible_v<RawResult>)
+    : is_ok_(other.is_ok_) {
+    if (is_ok_) {
+        new (&internal_storage_.value) RawResult(std::move(other.internal_storage_.value));
+    } else {
+        internal_storage_.error = other.internal_storage_.error;
+    }
+}
+```
+
+函数头一行括号里的那句,是请编译器在编译期替咱们把关:`std::is_nothrow_move_constructible_v<RawResult>` 查的就是值类型的移动构造抛不抛,值类型的移动构造不抛,咱们 `Result` 的移动就跟着报不抛。咱们在[七个头,五面旗](02-rules.md)里预告过它的住处:`<type_traits>`。这回它上工了。咱们将来敢不敢在要紧路径上放心地移动它:看的就是这一行。
 
 ## 站到调用方那边去
 

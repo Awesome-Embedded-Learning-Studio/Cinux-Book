@@ -21,13 +21,13 @@ tags:
 
 活分了两拍走。头一拍咱们让 fork 在测试里成立:家族的词汇、死者之家、写时复制的引擎、fork 的本体,全在测试世界立起来跑绿了,ring3 端的一点不知情。第二拍咱们通电:shell 添一个 run 命令,三桩案子连着上门——被覆盖的返回值、一个来历不明的五位数、两条链挤一枚节点——咱们挨个破掉之后,run /bin/hello 的全链真跑,孩子交出了 42,父亲报数收了尸。
 
-路上还有几样真的东西,值得咱们在卷首报数。CR0 的 WP 位从加电起就是零,只读页对内核是从来不管束的,这一卷把它拉了起来,写时复制才有了铃可听。一帧两映射的测试重写教咱们:构造性测试的绿,要禁得起探针的证伪。Floor 的页号语义,同一天教了咱们两遍。当年的 fork 在栈上炸过三幕,后日谈里从凑合修一路讲到了 ret_from_fork,咱们这一遍靠着后见之明直取终态。
+路上还有几样真的东西,值得咱们在卷首报数。CR0 的 WP 位从加电起就是零,只读页对内核是从来不管束的,这一卷把它拉了起来,写时复制才有了铃可听。一帧两映射的测试重写,把构造性测试的门槛立实了:绿,要禁得起探针的证伪。Floor 这个词汇的返回值是页数不是页地址,同一天在两处用错了,错的都是没读它的说明书。当年的 fork 在栈上炸过三幕,后日谈里从凑合修一路讲到了 ret_from_fork,咱们这一遍靠着后见之明直取终态。
 
 <StationPanel tag="r17_fork" build="cmake -B build && cmake --build build --target run" />
 
 <ChapterNav variant="sub">
   <ChapterLink num="1" href="01-why-the-machine-cannot-run-programs" desc="盘上有字,机器只会跑一个烤在镜像里的 shell:装载器一页硬天花板,3657 字节贴着 4096 的顶。要跑程序得有整套手续:fork、execve、wait、僵尸。活分两拍:头一拍测试里成立,第二拍通电真跑">机器还跑不成程序</ChapterLink>
-  <ChapterLink num="2" href="02-family-groundwork" desc="Task 立 pid、parent、exit_code,kZombie 入列,exit 分流:有父变僵尸定向唤醒,无父直通回收。wait_child 阻塞到指定子退场,死者之家安置孙辈。祖母测试拿丢孩子 bug 是问,红路探针证明测试有牙,基线取样三犯教咱们放对尺子">家族的地基</ChapterLink>
+  <ChapterLink num="2" href="02-family-groundwork" desc="Task 立 pid、parent、exit_code,kZombie 入列,exit 分流:有父变僵尸定向唤醒,无父直通回收。wait_child 阻塞到指定子退场,死者之家安置孙辈。祖母测试拿丢孩子 bug 是问,红路探针证明测试有牙,基线取样三犯把尺子放对">家族的地基</ChapterLink>
   <ChapterLink num="3" href="03-what-fork-copies" desc="fork 的知识主菜:映射、现场、fd、cwd 逐件过堂。内核高半区天然共享,分界立在根表中间 256 格。急拷与写时复制摆在桌上,咱们选后者,引用计数一次立对,当年没计数的那版留在纸面当反面教材">复制什么,不复制什么</ChapterLink>
   <ChapterLink num="4" href="04-the-cow-engine" desc="kCow 坐 bit 9 的软件位,MarkPageShared 降级加计数。CR0.WP 全程为零的真发现:ring0 写穿只读页不响铃,KernelStart 从此拉起 WP。缺页裁决者坐进异常报告员的单座,有伴复制、末位复权。一帧两映射的测试重写,构造性测试的绿要能被证伪">写时复制的引擎</ChapterLink>
   <ChapterLink num="5" href="05-fork-itself" desc="被 96 字节帧遗漏的 r12-r15 走 GS 侧四格银行,BuildForkChild 持守卫克隆世界、拷一帧进新栈,ForkChildEntry 镜像返回尾、rax 清零。帧计数升格进 PMM,每帧一字节。克隆测试恒漏一页,自查三回未中,回头再读一眼命中:frame_index 把 Floor 的返回值又除了一次页大小">fork 本体</ChapterLink>
@@ -39,4 +39,4 @@ tags:
   <ChapterLink num="11" href="11-acceptance" desc="面板安静,只改一行:shell 从卷上来,实跑读数 size 49DF00、pmm 31275,kernel.bin 95488 字节。测试 52 走到 56,宿主 44 加机内 12,新套件四份,test_sched 添十案。实弹会话逐字:run /bin/hello,问候贴着 [3] exited with 42,exit 之后 init 重拉 shell。三块砖对数,第一幕收束">验收:会生会收的机器</ChapterLink>
 </ChapterNav>
 
-合卷的时候,机器换的是活法:程序不再生在镜像里,它成了一份文件,从盘上被请了进来,跑完了交一个码,交出的码有人收,退了的场有人重新拉起。生、换、等、收这四件事合起来叫进程的生命周期,第一幕的零件到这儿配齐。下一卷咱们歇一站,回头看看当年为什么要推倒重来一遍,再往后的路,要带着这套家底去按需分页、去装库、去跑别人的程序了。
+合卷的时候,机器换的是活法:程序不再生在镜像里,它成了一份文件,从盘上被请了进来,跑完了交出的码有人收,退了的场有人重新拉起。生、换、等、收这四件事合起来叫进程的生命周期,第一幕的零件到这儿配齐。下一卷咱们歇一站,回头看看当年为什么要推倒重来一遍,再往后的路,要带着这套家底去按需分页、去装库、去跑别人的程序了。

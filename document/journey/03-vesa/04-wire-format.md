@@ -52,6 +52,27 @@ static_assert(__builtin_offsetof(ModeInfoBlock, framebuffer) == 0x28);
 
 这些偏移咱们为什么一条条守死?因为它们全是 BIOS 的落笔位置,咱们写错一个数字,读出来的就是隔壁字段的值,编译器倒是一句怨言都没有。断言的家就在头文件 `vesa.hpp` 里,boot 世界的 -m16 编它一遍,host 世界的 -m64 再编它一遍,两个 ABI 是各站一班岗的。
 
+控制器那块的 `VbeInfoBlock`,也该见一见真身了。它在 0x4F00 的收货区里站着,咱们取的是版本和模式列表的指针,裁法跟上面的一模一样:
+
+```cpp
+struct [[gnu::packed]] VbeInfoBlock {
+    unsigned char  signature[4];       // "VBE2" must be written before the call
+    unsigned short version;            // e.g. 0x0300
+    unsigned char  reserved_06[0x08];  // OEM pointer + capabilities
+    unsigned short mode_list_offset;   // far pointer to uint16 mode numbers ...
+    unsigned short mode_list_segment;  // ... terminated by 0xFFFF
+    unsigned short total_memory;       // in 64 KB units
+    unsigned char  tail[512 - 0x14];
+};
+
+static_assert(sizeof(VbeInfoBlock) == 512);
+static_assert(__builtin_offsetof(VbeInfoBlock, version) == 0x04);
+static_assert(__builtin_offsetof(VbeInfoBlock, mode_list_offset) == 0x0E);
+static_assert(__builtin_offsetof(VbeInfoBlock, total_memory) == 0x12);
+```
+
+咱们挑要紧的说。头四个字节的 `signature`,就是上一节要咱们调用前亲手写上的 `VBE2` 签名,所以它在结构里得占着位。真正要紧的是 `mode_list_offset`、`mode_list_segment` 这一对,模式列表的地址,BIOS 只用一对 16 位的段:偏移交代,下一节咱们要拍平的远指针,拍的就是它们俩。结尾的 `tail` 把结构补满 512,补满的道理跟 ModeInfoBlock 的一样,0x4F00 的约定也是把整块缓冲写满。咱们声明的字段到 `0x14` 收尾,从 `0x14` 到 `0x1FF` 的一大片,咱们一个字段都不往里立,全是 `tail` 的地界。这片地界咱们记下了,下一节 SeaBIOS 交回来的模式列表,落笔就落在它的里头。断言守的还是老几样:version 的落点是 `0x04`,远指针的落点是 `0x0E`。
+
 ## 行距:读字段,别算乘法
 
 pitch 说的是每行像素在显存里占多少字节,真正拿主意的只有 `0x10` 偏移上填的那个数。您可能手痒,想拿宽乘色深再除以 8 自己算了。咱们劝您别这么干:显卡往一行的尾巴上补对齐,那真是家常便饭了。1024 像素宽、32 位色的模式,一行占了 4096 个字节,恰好等于咱们算出来的数,它要是占了 8192,那也完全是合法的。VBE 3.0 的字段表里甚至备了两个行距,banked 的和线性的各一个。本环境里 SeaBIOS 给 `0x10` 和线性行距填上了同样的 4096,所以读 `0x10` 拿到的就是它。咱们读 `0x10` 偏移上 BIOS 填的那个,它填多少咱们就信多少,自己一个乘法都不去做了。收工面板上咱们看到的那个 `pitch 4096`,就是它的原文。
@@ -60,7 +81,7 @@ pitch 说的是每行像素在显存里占多少字节,真正拿主意的只有 
 
 咱们自家的存档 `FrameBufferInfo` 不是线格式,它只有五个字段:排在最前面的物理地址占掉了 8 个字节,后面的行距、宽、高、色深则依次跟上来。上一站 `MemoryMapEntry` 的教训您还记得,`unsigned long` 在两个世界里的宽度不一样,所以咱们禁了它,32 位的字段一律改成 `unsigned int`。这一回咱们把字段类型全挑成了双世界同宽的,按说该太平了。
 
-可动工前那次试写探测的时候,断言还是响了。这回漂的东西换了,不再是字段的宽度,而是整体的对齐,咱们把 `FrameBufferInfo` 在两边的尺寸都量了一遍。量到 `physical` 这个 8 字节的 `unsigned long long` 时,咱们盯的是它要落在几的倍数上。boot 这边是 i386 的 ABI,它只要 4 的倍数就够,到了 host 那边的 LP64,这个数换成了 8。同一个结构体量了两遍,unpacked 的身材就不一样了:boot 世界数出来了 20 个字节,host 世界也被补齐到了 24,而咱们想守住的 sizeof 是 17。咱们给它挂上 packed 之后,两边才都是实打实的 17。
+可动工前那次试写探测的时候,断言还是响了。这回漂的东西换了,不再是字段的宽度,而是整体的对齐,咱们把 `FrameBufferInfo` 在两边的尺寸都量了一遍。量到 `physical` 这个 8 字节的 `unsigned long long` 时,咱们盯的是它要落在几的倍数上。boot 这边是 i386 的 ABI(ABI 是编译目标那套管对齐和调用的约定,i386 是 32 位的目标),它只要 4 的倍数就够,到了 host 那边的 LP64(64 位 Linux 的数据模型,long 和指针占的都是 8 字节),这个数换成了 8。同一个结构体量了两遍,unpacked 的身材就不一样了:boot 世界数出来了 20 个字节,host 世界也被补齐到了 24,而咱们想守住的 sizeof 是 17。咱们给它挂上 packed 之后,两边才都是实打实的 17。
 
 ```cpp
 struct [[gnu::packed]] FrameBufferInfo {

@@ -24,6 +24,68 @@ tags:
 
 两件销完了,按说本节该收了。可这一卷的故事妙就妙在,收官之后还挨了一回马枪,而且马枪瞄的正是本节管的链。咱们把案发经过完整摆出来。收官之后咱们给内核补一道浮点现场的闸门,细节咱们放到下一节讲,验证的那一晚,在真正的机器上跑一个会 fork 的小程序,程序卡死了。症状蹊跷得很:fork 返回倒是正常,孩子打完自己的那行字,退了场,然后全机安静了,提示符不回来了,机器没死:时钟还在一拍一拍地走。孩子退成了僵尸,老子在等待里睡死过去:连个叫醒它的人都没有。挂的是指定 pid 的等待,而 shell 里 run 天天在用的来者不拒的等待,一直好好的。更气人的是,机内测试全数通过了,调度那套用例跑的本就是真实的切换,缺的只是把四代辈分凑齐的拓扑,拓扑不齐的年月里病就一直藏着。咱们把工作树退回没有闸门的旧内核,换上了最小复现程序,真正的机器上照样挂:病是旧的,不是新代码带进来的。
 
-破案靠的是把拓扑凑齐。shell 跑起了程序,程序又 fork 了一层,机器上站的是四代任务:init 等 shell,shell 等的是程序,程序等的是孩子。把最小程序直接顶替 shell 的位置,机器上站着的只有三代,跑的还是同一份代码,真正的机器上实测就过。三代的机器实测能过,四代是必挂的,代码是没差的,差的只是辈分。拿着调试器上四代的机器看现场:当前任务是空,就绪队列是空的,那个 fork 出来的孩子确实是僵尸,等待表的尾巴,还挂着熟睡的程序。咱们再往根上刨,病根露出来了,就是本节的主场:调度器整理孩子名册的时候,有两件临时用的家什,一件挑的是僵尸,一件摘的是孤儿,它们收留孩子的时候,骑的还是任务的老底座。而老底座,正是等待表在用的那一枚。中间代的任务一只脚踩在名册上,另一只脚踩着的是等待表,临时家什把它们搬进搬出的那一拍,等待链悄悄断了。孩子退了场,按家法咱们得把老子从等待表上摘下来叫醒,偏偏摘不到,老子就这么睡了下去。同步三件的链咱们分了,孩子名册的链当年也分了,偏偏这两件自家用的临时家什,咱们谁都没再看一眼。修法是干净的:临时家什跟名册骑同一根线,decltype 的一声,两件全改了。回归用例照的正是病根:四个内核任务连出了四代,一代接着一代地等,真实的内核栈,真实的切换,添的正是四代辈分的拓扑,校验三次收尸的 pid 和退出码,名册的人数和物理页数都得回基线。修前的红来得干脆,修后的绿也来得干脆,调度那套的机内测试,二十一案全部通过了。
+破案靠的是把拓扑凑齐。shell 跑起了程序,程序又 fork 了一层,机器上站的是四代任务:init 等 shell,shell 等的是程序,程序等的是孩子。把最小程序直接顶替 shell 的位置,机器上站着的只有三代,跑的还是同一份代码,真正的机器上实测就过。三代的机器实测能过,四代是必挂的,代码是没差的,差的只是辈分。拿着调试器上四代的机器看现场:当前任务是空,就绪队列是空的,那个 fork 出来的孩子确实是僵尸,等待表的尾巴,还挂着熟睡的程序。咱们再往根上刨,病根露出来了,就是本节的主场:调度器整理孩子名册的时候,有两件临时用的家什,一件挑的是僵尸,一件摘的是孤儿,它们收留孩子的时候,骑的还是任务的老底座。而老底座,正是等待表在用的那一枚。中间代的任务一只脚踩在名册上,另一只脚踩着的是等待表,临时家什把它们搬进搬出的那一拍,等待链悄悄断了。孩子退了场,按家法咱们得把老子从等待表上摘下来叫醒,偏偏摘不到,老子就这么睡了下去。同步三件的链咱们分了,孩子名册的链当年也分了,偏偏这两件自家用的临时家什,咱们谁都没再看一眼。修法是干净的:临时家什跟名册骑同一根线,decltype 的一声,两件全改了。两件家什的原身,咱们端出来看。头一件是挑僵尸的:
+
+```cpp
+Task* Scheduler::take_zombie_child(Task& watcher, long long wanted, bool& has_any_child) {
+    Task*                match = nullptr;
+    decltype(offspring_) keep{};
+    Task*                scan          = nullptr;
+    has_any_child                      = false;
+    const bool               kAnyChild = wanted < 0;
+    const unsigned long long kWantedPid =
+        kAnyChild ? 0ULL : static_cast<unsigned long long>(wanted);
+    while ((scan = offspring_.pop_head()) != nullptr) {
+        if (scan->parent != &watcher) {
+            keep.push_back(*scan);
+            continue;
+        }
+        has_any_child = true;
+        const bool kHit =
+            scan->state == TaskState::kZombie && (kAnyChild || scan->pid == kWantedPid);
+        if (kHit && match == nullptr) {
+            match = scan;
+        } else {
+            keep.push_back(*scan);
+        }
+    }
+    while ((scan = keep.pop_head()) != nullptr) {
+        offspring_.push_back(*scan);
+    }
+    return match;
+}
+```
+
+承重的是第二行 decltype(offspring_) keep{}:临时链 keep 的类型,抄的是孩子名册 offspring_ 本身的类型,骑的从此是名册线上的节点,再不是任务的老底座。咱们靠这个函数把名册整个倒进 keep,倒的时候边倒边挑:别人家的孩子原样回炉,watcher 名下的,挑出头一具对得上号的僵尸交出去,其余的照旧回炉,末了又把 keep 整个倒回了名册。一来一回的走查,名册跟着倒了两回,慢是慢了点,换的是搬进搬出的每一拍都走在自家的线上,等待链再也不会被碰断了。
+
+咱们再看摘孤儿的那件:
+
+```cpp
+void Scheduler::detach_offspring(Task& dying) {
+    decltype(offspring_) keep{};
+    Task*                scan = nullptr;
+    while ((scan = offspring_.pop_head()) != nullptr) {
+        if (scan->parent != &dying) {
+            keep.push_back(*scan);
+            continue;
+        }
+        scan->parent = nullptr;
+        if (scan->state == TaskState::kZombie) {
+            reclaim_(sink_, *scan);
+        }
+        // Nobody can ever wait for a parentless task again, so it
+        // leaves the roll here instead of lingering until its own exit.
+        // A zombie grandchild already left via reclaim above; a live
+        // one simply drops off the list by not re-entering keep.
+    }
+    while ((scan = keep.pop_head()) != nullptr) {
+        offspring_.push_back(*scan);
+    }
+}
+```
+
+摘孤儿的这件,用的也是同一声 decltype,倒法也是相同的,多出来的是注释里交代的那一层:没爹的孩子,往后不会再有谁等它了,活着的当场就摘了名,从此连册也不上了,不必赖到自己的退场。僵尸的当场就 reclaim 了,连册带尸一起清了。咱们看 keep 倒回来的时候,名册上剩下的,全是有人认领的行。
+
+回归用例照的正是病根:四个内核任务连出了四代,一代接着一代地等,真实的内核栈,真实的切换,咱们添的正是四代辈分的拓扑,校验三次收尸的 pid 和退出码,名册的人数和物理页数都得回基线。修前的红来得干脆,修后的绿也来得干脆,调度那套的机内测试,二十一案全部通过了。
 
 这一案咱们多想一层,因为它跟生与收那一卷的旧案是同一门课的两次考试。上一回的病,出在两条正式的链挤一枚节点,家规立了,正式的链各自有节点。这一回的病,出在两件临时用的家什,它们不在任何人的名册上,写的时候顺手拿了默认的,连咱们也没觉得那是链。教训就这么一句,可咱们得念两遍:一链一节点,家什自己也是要守的。凡是要把任务挂上什么的,哪怕只挂三行代码的工夫,问一句骑的是哪枚节点。生与收那一卷咱们说过,有一类毛病的住处不在代码里,偏偏住在组合里,测试的绿挡不住它。四代辈分说的正是那个组合,咱们这一卷拿通电的机器把它凑齐了一回,当场破了。下一节咱们回头讲那道引出这一切的浮点闸门,它自己的故事,比这个引子长了一大截。

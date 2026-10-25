@@ -41,7 +41,7 @@ cinux::proc::Scheduler::self().run_until_done();
 Println("[kern] cooperative tasks drained, back on main");
 ```
 
-咱们只写一个入口函数,两个任务共用:打印自己的 tid 和名字,喊了声 yield,三轮之后就自然返回了,从蹦床走进统一的退场。机器跑下来的串口,咱们原样抄:
+咱们只写一个入口函数,两个任务共用:打印自己的 tid 和名字,喊了声 yield,三轮之后就自然返回了,从蹦床走进统一的退场。开头的那记加号,咱们交代一下,它不是笔误:lambda 自带的类型是编译器现造的闭包类型,每个 lambda 都是独一份的,连个像样的名字都没有,而 TaskBuilder 的 set_entry 要的是 `void (*)()` 这样的普通函数指针,咱们得把它存下来再传出去。一元 + 就是让编译器把无捕获的 lambda 转成函数指针的小习语,`+[]()` 一落地,cooperative_echo 的类型就成了一个普通的函数指针,后头 set_entry 吃的正是它。机器跑下来的串口,咱们原样抄:
 
 ```text
 [task] tid=1 'echo_a' round 0
