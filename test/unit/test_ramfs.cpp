@@ -350,3 +350,39 @@ TEST("ramfs: closing a linked file leaves its directory entry usable") {
 int main() {
     return cinux::test::RunAll();
 }
+
+namespace {
+
+void check_ramfs_append(RamFs& ram, cinux::fs::FsNode node) {
+    const auto kOps = cinux::fs::EraseFs<RamFs>();
+    ASSERT_EQ(kOps.write(&ram, node, 0, "abc", 3).value(), 3UL);
+    unsigned long cursor = 1;
+    ASSERT_EQ(kOps.append(&ram, node, cursor, "de", 2).value(), 2UL);
+    ASSERT_EQ(cursor, 5UL);
+    cursor = 0;
+    ASSERT_EQ(kOps.append(&ram, node, cursor, "f", 1).value(), 1UL);
+    ASSERT_EQ(cursor, 6UL);
+    char bytes[8]{};
+    ASSERT_EQ(ram.read(node, 0, bytes, sizeof(bytes)).value(), 6UL);
+    ASSERT_TRUE(std::string_view(bytes, 6) == "abcdef");
+}
+
+void check_ramfs_truncate(RamFs& ram, cinux::fs::FsNode node) {
+    const auto kOps = cinux::fs::EraseFs<RamFs>();
+    ASSERT_TRUE(kOps.truncate(&ram, node).ok());
+    char bytes[8]{};
+    ASSERT_EQ(ram.read(node, 0, bytes, sizeof(bytes)).value(), 0UL);
+    ASSERT_EQ(ram.write(node, 3, "z", 1).value(), 1UL);
+    ASSERT_EQ(ram.read(node, 0, bytes, sizeof(bytes)).value(), 4UL);
+    ASSERT_TRUE(std::string_view(bytes, 4) == std::string_view("\0\0\0z", 4));
+}
+
+}
+
+TEST("ramfs: append selects the live end and truncate clears existing handles") {
+    RamFs      ram;
+    const auto kNode = ram.make_file("append");
+    ASSERT_TRUE(kNode.ok());
+    check_ramfs_append(ram, kNode.value());
+    check_ramfs_truncate(ram, kNode.value());
+}

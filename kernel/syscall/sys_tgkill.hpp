@@ -22,12 +22,18 @@ namespace cinux::syscall {
  * @param[in]     frame   rdi the thread group id, rsi the thread id,
  *                        rdx the signal number.
  * @return        Zero, or a negative errno.
- * @note          A hosted raise() spells itself this way; with one
- *                task per thread the group id names the target and
- *                the thread id rides along unexamined.
+ * @note          The thread must belong to the supplied thread group.
+ *                Signal zero only checks that the target exists.
  * @since         0.5.0
  * @ingroup       kernel_syscall
  */
 long long HandleTgkill(const SyscallFrame& frame);
+
+/**
+ * @brief Sends a signal to a thread without a thread-group constraint.
+ * @param[in] frame Thread ID in rdi and signal in rsi.
+ * @return Zero or a negative errno.
+ */
+long long HandleTkill(const SyscallFrame& frame);
 
 }  // namespace cinux::syscall

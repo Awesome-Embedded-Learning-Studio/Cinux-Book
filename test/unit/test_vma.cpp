@@ -111,8 +111,8 @@ TEST("vma: clone preserves the randomized ceiling and the heap bounds") {
     ASSERT_EQ(kChild->mmap_ceiling(), store.mmap_ceiling());
     ASSERT_EQ(kChild->heap_end(), 0x900000UL);
     check_heap_target(*kChild, 0xA00000, 0xA00000);
-    check_heap_target(*kChild, 0x1900000, 0x1800000);
-    check_heap_target(*kChild, 0x700000, 0x800000);
+    ASSERT_TRUE(!kChild->move_heap_end(0x1900000).ok());
+    ASSERT_TRUE(!kChild->move_heap_end(0x700000).ok());
     ASSERT_EQ(store.heap_end(), 0x900000UL);
 }
 
@@ -186,18 +186,19 @@ TEST("vma: the seeded heap answers find and moves by brk") {
     const cinux::base::Result<unsigned long> kQueried = store.move_heap_end(0);
     ASSERT_EQ(kQueried.value(), 0x100000UL);
     const cinux::base::Result<unsigned long> kMoved = store.move_heap_end(0x101234);
-    ASSERT_EQ(kMoved.value(), 0x102000UL);
+    ASSERT_EQ(kMoved.value(), 0x101234UL);
     ASSERT_TRUE(store.find(0x101FFF) != nullptr);
     ASSERT_TRUE(store.find(0x102000) == nullptr);
 }
 
-TEST("vma: the break clamps to its floor and ceiling") {
+TEST("vma: the break refuses targets outside its bounds") {
     cinux::mm::VmaStore store;
     store.seed_heap(0x100000, 0x180000);
     const cinux::base::Result<unsigned long> kCapped = store.move_heap_end(0x400000);
-    ASSERT_EQ(kCapped.value(), 0x180000UL);
+    ASSERT_TRUE(!kCapped.ok());
+    ASSERT_EQ(store.heap_end(), 0x100000UL);
     const cinux::base::Result<unsigned long> kFloored = store.move_heap_end(0x100);
-    ASSERT_EQ(kFloored.value(), 0x100000UL);
+    ASSERT_TRUE(!kFloored.ok());
     ASSERT_EQ(store.heap_end(), 0x100000UL);
 }
 
@@ -231,7 +232,7 @@ TEST("vma: unregister empties a wholly withdrawn heap") {
     store.seed_heap(0x100000, 0x200000);
     ASSERT_TRUE(store.move_heap_end(0x102000).ok());
     ASSERT_TRUE(store.unregister_range(0x100000, 0x103000).ok());
-    ASSERT_EQ(store.heap_end(), 0x100000UL);
+    ASSERT_EQ(store.heap_end(), 0x102000UL);
     ASSERT_TRUE(store.find(0x101000) == nullptr);
 }
 
@@ -240,12 +241,12 @@ TEST("vma: a hole punched in the heap leaves the tail as its own region") {
     store.seed_heap(0x100000, 0x200000);
     ASSERT_TRUE(store.move_heap_end(0x108000).ok());
     ASSERT_TRUE(store.unregister_range(0x102000, 0x104000).ok());
-    ASSERT_EQ(store.heap_end(), 0x102000UL);
+    ASSERT_EQ(store.heap_end(), 0x108000UL);
     ASSERT_TRUE(store.find(0x103000) == nullptr);
     const cinux::mm::VmaRegion* const kTail = store.find(0x105000);
     ASSERT_TRUE(kTail != nullptr);
     ASSERT_TRUE(kTail->writable);
-    ASSERT_EQ(store.region_count(), 1UL);
+    ASSERT_EQ(store.region_count(), 2UL);
 }
 
 TEST("vma: protect rewrites the terms of spans it wholly owns") {

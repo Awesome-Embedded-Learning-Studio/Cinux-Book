@@ -315,6 +315,15 @@ public:
     void wait();
 
     /**
+     * @brief Consumes an available unit without parking.
+     * @return True when one unit was acquired.
+     * @since 0.8.0
+     * @ingroup kernel_proc
+     */
+    bool try_wait();
+
+
+    /**
      * @brief     Wake the head waiter or bank a unit.
      * @since     0.1.0
      * @ingroup   kernel_proc
@@ -366,6 +375,14 @@ public:
 
     /// @brief The published verdict; read after finished() turns true.
     [[nodiscard]] bool success() const;
+
+    /**
+     * @brief Releases the completed rendezvous's lock identity.
+     * @return None.
+     * @since 0.8.0
+     * @ingroup kernel_proc
+     */
+    void retire();
 
     /**
      * @brief     Returns a terminal completion to Pending.

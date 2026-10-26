@@ -52,11 +52,12 @@ namespace cinux::loader {
  * @ingroup kernel_loader
  */
 struct LoadWorld {
-    const mm::AddressSpace&      space;        ///< The freshly built world pages land in.
-    mm::VmaStore&                vmas;         ///< The range register segments report to.
-    fs::FsNode                   file{};       ///< The node the image bytes came from.
-    const fs::FsOps*             file_ops{};   ///< The backend face serving file's bytes.
-    void*                        file_self{};  ///< The backend instance behind file_ops.
+    const mm::AddressSpace&      space;         ///< The freshly built world pages land in.
+    mm::VmaStore&                vmas;          ///< The range register segments report to.
+    fs::FsNode                   file{};        ///< The node the image bytes came from.
+    unsigned long long           file_bytes{};  ///< The node's whole size, header prefix and all.
+    const fs::FsOps*             file_ops{};    ///< The backend face serving file's bytes.
+    void*                        file_self{};   ///< The backend instance behind file_ops.
     base::Shared<fs::MountLease> file_lifetime{nullptr};  ///< Runtime source backend ownership.
     ImageRole                    role{};  ///< Which seat the image fills; the default is the
                                           ///< program seat.
@@ -78,6 +79,7 @@ struct LoadWorld {
  * @ingroup  kernel_loader
  */
 struct EntryFacts {
+    const char*         executable{};
     std::uint64_t       program_entry{};       ///< AT_ENTRY: the main program's first instruction.
     std::uint64_t       program_headers{};     ///< AT_PHDR: where the main image's header table
                                                ///< lands; zero when nothing covers it.
@@ -141,6 +143,40 @@ struct EntryRuns {
 };
 
 /**
+ * @brief A contiguous staging span and its final user stack address.
+ * @since 0.8.0
+ * @ingroup kernel_loader
+ */
+struct EntryStack {
+    unsigned char* bytes;
+    unsigned long  base;
+    unsigned long  capacity;
+    unsigned long  rsp;
+};
+
+/**
+ * @brief Measures the full argc/argv/envp/auxv picture and its payloads.
+ * @param[in] runs The staged argument and environment strings.
+ * @param[in] facts The auxiliary vector and optional payloads.
+ * @return Required bytes before the ABI's stack alignment.
+ * @since 0.8.0
+ * @ingroup kernel_loader
+ */
+unsigned long EntryPictureBytes(const EntryRuns& runs, const EntryFacts& facts);
+
+/**
+ * @brief Writes a measured entry picture over an arbitrary staging span.
+ * @param[in] stack The buffer, final address, capacity and aligned stack pointer.
+ * @param[in] runs The staged argument and environment strings.
+ * @param[in] facts The auxiliary vector and optional payloads.
+ * @return The entry stack pointer, or zero when the span is insufficient.
+ * @since 0.8.0
+ * @ingroup kernel_loader
+ */
+unsigned long WriteEntryPicture(const EntryStack& stack, const EntryRuns& runs,
+                                const EntryFacts& facts);
+
+/**
  * @brief         Maps every loadable segment of one image into a world
  *                and reports each to the range register.
  *
@@ -157,10 +193,10 @@ struct EntryRuns {
  * @return        true when the image parsed, every page mapped, and
  *                every segment registered; false when the parser refused
  *                or a segment's range collided with one already recorded.
- * @note          Allocates one frame per page the segments cover and
- *                writes through the direct map, so the live CR3 never
- *                matters here. A segment running past the file stops
- *                the machine loudly rather than mapping garbage.
+ * @note          Full file pages fault in through a pinned backing.
+ *                A partial file tail is read once and zero padded;
+ *                anonymous BSS pages arrive on demand. Invalid segment
+ *                bounds return false before registering the segment.
  * @warning       None
  * @throws        None
  * @since         0.2.0

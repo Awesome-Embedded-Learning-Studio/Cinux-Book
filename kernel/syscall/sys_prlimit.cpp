@@ -1,6 +1,7 @@
 #include "kernel/syscall/sys_prlimit.hpp"
 
 #include "cinux/memory.hpp"
+#include "kernel/fs/file_table.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
@@ -29,32 +30,33 @@ constexpr unsigned long long kCommNameBytes = sizeof(proc::Task::comm) - 1;
 }  // namespace
 
 long long HandlePrlimit64(const SyscallFrame& frame) {
-    if (frame.rdi != 0) {
+    if (frame.rdi != 0 && frame.rdi != CurrentTask()->pid) {
         return -kEperm;
     }
     if (frame.rsi >= proc::kResourceLimitCount) {
         return -kEinval;
     }
-    proc::Task* const kSelf = CurrentTask();
+    proc::Task* const        kSelf   = CurrentTask();
+    const unsigned long long kOld[2] = {kSelf->limits[frame.rsi][0], kSelf->limits[frame.rsi][1]};
     if (frame.rdx != 0) {
         unsigned long long record[2] = {};
         if (!uaccess::CopyFromUser(record, frame.rdx, kLimitRecordBytes)) {
             return -kEfault;
         }
-        if (record[0] > record[1] && record[1] != proc::kResourceLimitInfinity) {
+        if (record[0] > record[1]) {
+            return -kEinval;
+        }
+        if (frame.rsi == 7 && record[1] > fs::kFileTableMax) {
+            return -kEperm;
+        }
+        if (kSelf->euid != 0 && record[1] > kOld[1]) {
             return -kEperm;
         }
         kSelf->limits[frame.rsi][0] = record[0];
         kSelf->limits[frame.rsi][1] = record[1];
     }
-    if (frame.r10 != 0) {
-        const unsigned long long kOld[2] = {
-            kSelf->limits[frame.rsi][0],
-            kSelf->limits[frame.rsi][1],
-        };
-        if (!uaccess::CopyToUser(frame.r10, kOld, kLimitRecordBytes)) {
-            return -kEfault;
-        }
+    if (frame.r10 != 0 && !uaccess::CopyToUser(frame.r10, kOld, kLimitRecordBytes)) {
+        return -kEfault;
     }
     return 0;
 }

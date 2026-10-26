@@ -245,11 +245,10 @@ public:
      *                         current one.
      * @return        The break after the move, or kNotFound when the
      *                world never seeded a heap.
-     * @note          No page is mapped or unmapped here — the cursor and
-     *                the span's end move together, and pages inside the
-     *                span arrive when their faults are fulfilled. The
-     *                target is page-aligned up and clamped into
-     *                [base, max] before anything moves.
+     * @note          The break preserves the requested byte address; the
+     *                coverage ends at the following page boundary. Requests
+     *                outside the seeded bounds fail without changing either.
+     *                The syscall releases resident pages after a shrink.
      * @warning       None
      * @throws        None
      * @since         0.2.0
@@ -266,7 +265,7 @@ public:
      * @since         0.2.0
      * @ingroup       kernel_mm
      */
-    [[nodiscard]] unsigned long heap_end() const { return heap_.end; }
+    [[nodiscard]] unsigned long heap_end() const { return heap_break_; }
 
     /// Where this world's anonymous mmap hunts begin; the boot default
     /// is the compiled-in top until exec lowers it.
@@ -362,9 +361,10 @@ private:
      */
     [[nodiscard]] bool span_known(unsigned long start, unsigned long end) const;
 
-    base::container::SelfList<VmaRegion> regions_;     ///< The promises, arrival order.
-    VmaRegion                            heap_{};      ///< The brk span, empty until seeded.
-    unsigned long                        heap_max_{};  ///< The break's ceiling from exec.
+    base::container::SelfList<VmaRegion> regions_;       ///< The promises, arrival order.
+    VmaRegion                            heap_{};        ///< The brk span, empty until seeded.
+    unsigned long                        heap_break_{};  ///< Exact byte-valued program break.
+    unsigned long                        heap_max_{};    ///< The break's ceiling from exec.
     bool heap_recorded_{};  ///< Partial protection moved heap coverage into ordinary regions.
     unsigned long mmap_ceiling_{cinux::mm::kUserMmapTop};  ///< Where anonymous mmap hunts begin.
 };

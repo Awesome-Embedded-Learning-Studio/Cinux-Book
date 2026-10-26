@@ -16,6 +16,78 @@ is_elf() {
     [ -f "$1" ] && [ "$(head -c 4 "$1" | od -An -tx1 | tr -d ' \n')" = "7f454c46" ]
 }
 
+# The glibc ecosystem volume bakes from one assembled directory tree:
+# seed files, the glibc BusyBox with its hardlinked applets, the teaching
+# ELF set, the glibc runtime pair BusyBox needs beyond the toolchain
+# closure, and the as/ld toolchain staging tree merged on top. mkfs.ext2 -d
+# preserves hardlinks (one busybox inode under every applet name) and
+# SONAME symlinks, which the per-file debugfs road below cannot express at
+# this scale. 192 MiB / 16384 inodes follows the self-host station's volume
+# calibre.
+bake_glibc_volume() {
+    local staging="${CINUX_TOOLCHAIN_STAGING:-${build_dir}/toolchain-staging}"
+    if [ ! -x "${staging}/usr/bin/as" ] || [ ! -x "${staging}/usr/bin/ld" ]; then
+        echo "[ext2-disk] toolchain staging missing at ${staging}; build target toolchain_staging first" >&2
+        exit 1
+    fi
+    local assemble="${build_dir}/rootfs-assemble"
+    rm -rf "$assemble"
+    mkdir -p "$assemble"/bin "$assemble"/sbin "$assemble"/etc "$assemble"/dev \
+             "$assemble"/lib "$assemble"/lib64 "$assemble"/proc "$assemble"/root \
+             "$assemble"/tmp "$assemble"/usr "$assemble"/var
+    install -m 0644 "${seed_dir}/motd.txt"     "$assemble/etc/motd"
+    install -m 0644 "${seed_dir}/passwd"       "$assemble/etc/passwd"
+    install -m 0644 "${seed_dir}/group"        "$assemble/etc/group"
+    install -m 0644 "${seed_dir}/inittab"      "$assemble/etc/inittab"
+    install -m 0644 "${seed_dir}/resolv.conf"  "$assemble/etc/resolv.conf"
+    install -m 0644 "${seed_dir}/hosts"        "$assemble/etc/hosts"
+    install -m 0644 "${seed_dir}/fstab"        "$assemble/etc/fstab"
+    install -m 0755 "${seed_dir}/smp-stress.sh" "$assemble/etc/smp-stress.sh"
+    install -m 0644 "${seed_dir}/hello.txt"    "$assemble/hello.txt"
+    cp "${busybox}" "$assemble/bin/busybox"
+    local applet
+    for applet in cat ls stty script id uname ping ifconfig nslookup netstat \
+                  echo whoami pwd true false sleep env hostname wc ps free \
+                  mount umount mkdir sh; do
+        ln "$assemble/bin/busybox" "$assemble/bin/${applet}"
+    done
+    ln "$assemble/bin/busybox" "$assemble/sbin/init"
+    local seat_pair
+    for seat_pair in "hello:${CINUX_HELLO_ELF:-}" "mapper:${CINUX_MAPPER_ELF:-}" \
+                     "sigdemo:${CINUX_SIGDEMO_ELF:-}" "sigcatch:${CINUX_SIGCATCH_ELF:-}" \
+                     "nxdemo:${CINUX_NXDEMO_ELF:-}" "efaulter:${CINUX_EFAULTER_ELF:-}" \
+                     "smepdemo:${CINUX_SMEPDEMO_ELF:-}" "aslrdemo:${CINUX_ASLRDEMO_ELF:-}" \
+                     "tlsdemo:${CINUX_TLSDEMO_ELF:-}" "threaddemo:${CINUX_THREADDEMO_ELF:-}" \
+                     "ttydemo:${CINUX_TTYDEMO_ELF:-}" "smpstress:${CINUX_SMPSTRESS_ELF:-}"; do
+        local seat_name="${seat_pair%%:*}" seat_src="${seat_pair#*:}"
+        [ -n "$seat_src" ] && [ -f "$seat_src" ] && install -m 0755 "$seat_src" "$assemble/bin/${seat_name}"
+    done
+    local library library_path
+    for library in libm.so.6 libresolv.so.2; do
+        library_path="$(gcc -print-file-name="$library")"
+        if ! is_elf "$library_path"; then
+            echo "[ext2-disk] missing runtime library: $library" >&2
+            exit 1
+        fi
+        cp "$library_path" "$assemble/lib/${library}"
+    done
+    local hello_glibc="${CINUX_HELLO_GLIBC:-}"
+    if [ -z "$hello_glibc" ]; then
+        mkdir -p "${build_dir}/glibc"
+        hello_glibc="${build_dir}/glibc/hello-glibc"
+        if [ ! -f "$hello_glibc" ]; then
+            bash "${script_dir}/glibc/build-hello-glibc.sh" "$hello_glibc" >/dev/null
+        fi
+    fi
+    [ -f "$hello_glibc" ] && install -m 0755 "$hello_glibc" "$assemble/bin/hello-glibc"
+    local ecotest="${CINUX_ECOTEST:-${build_dir}/glibc/ecotest}"
+    [ -f "$ecotest" ] && install -m 0755 "$ecotest" "$assemble/bin/ecotest"
+    cp -a "${staging}/." "$assemble/"
+    truncate -s 192M "$image"
+    mkfs.ext2 -q -F -b 1024 -O none -N 16384 -d "$assemble" "$image"
+    echo "[ext2-disk] glibc volume baked from ${assemble} (busybox + as/ld toolchain, 192M/16384 inodes)"
+}
+
 ldso="${CINUX_LDSO:-}"
 if [ -z "$ldso" ]; then
     for candidate in "${HOME}/.local/musl/lib/libc.so" "/usr/lib/x86_64-linux-musl/libc.so"; do
@@ -59,11 +131,12 @@ if [ "$libc_flavor" = glibc ] && [ -z "$busybox" ]; then
     exit 1
 fi
 
-volume_bytes="16M"
-if [ "$libc_flavor" = "glibc" ]; then
-    volume_bytes="64M"
+if [ "$libc_flavor" = glibc ]; then
+    bake_glibc_volume
+    exit 0
 fi
-truncate -s "$volume_bytes" "$image"
+
+truncate -s 16M "$image"
 mkfs.ext2 -q -F -b 1024 -O none -N 512 "$image"
 debugfs -w -R 'mkdir /etc' "$image" >/dev/null 2>&1
 debugfs -w -R 'mkdir /bin' "$image" >/dev/null 2>&1

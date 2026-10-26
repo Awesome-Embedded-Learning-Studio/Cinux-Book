@@ -18,9 +18,10 @@ inline constexpr Word kFutexWake = 1;
 }  // namespace
 
 long long HandleFutex(const SyscallFrame& frame) {
-    const Word kUaddr = frame.rdi;
-    const Word kOp    = frame.rsi;
-    const Word kVal   = frame.rdx;
+    const Word     kUaddr   = frame.rdi;
+    constexpr Word kPrivate = 128;
+    const Word     kOp      = frame.rsi & ~kPrivate;
+    const Word     kVal     = frame.rdx;
     if ((kUaddr & 3ULL) != 0ULL) {
         return -kEinval;
     }
@@ -28,9 +29,10 @@ long long HandleFutex(const SyscallFrame& frame) {
         if (!UserRangeReadable(kUaddr, sizeof(unsigned int))) {
             return -kEfault;
         }
-        if (cinux::proc::futex::WaitOnUserWord(kUaddr, static_cast<unsigned int>(kVal)) ==
-            base::KernelError::kWouldBlock) {
-            return -kEagain;
+        const auto kWait =
+            cinux::proc::futex::WaitOnUserWord(kUaddr, static_cast<unsigned int>(kVal));
+        if (kWait != base::KernelError::kOk) {
+            return kWait == base::KernelError::kWouldBlock ? -kEagain : -kEfault;
         }
         return 0;
     }

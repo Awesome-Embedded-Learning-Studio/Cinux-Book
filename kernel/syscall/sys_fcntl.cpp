@@ -58,6 +58,9 @@ long long fcntl_status(const SyscallFrame& frame, const proc::Task* self,
 /// through the table itself.
 long long fcntl_seat(const SyscallFrame& frame, const proc::Task* self,
                      unsigned long long descriptor) {
+    if (!self->files->get(descriptor).ok()) {
+        return -kEbadf;
+    }
     if (frame.rsi == kCmdGetFd) {
         return self->files->cloexec(descriptor) ? static_cast<long long>(kFdCloexec) : 0;
     }
@@ -75,15 +78,15 @@ long long fcntl_seat(const SyscallFrame& frame, const proc::Task* self,
 /// close-on-exec bit on the way out.
 long long fcntl_dup(const SyscallFrame& frame, const proc::Task* self,
                     unsigned long long descriptor) {
-    if (frame.rdx >= fs::kFileTableMax) {
+    if (frame.rdx >= FileDescriptorLimit()) {
         return -kEinval;
     }
     const base::Result<base::Shared<fs::OpenFile>> kHeld = self->files->shared(descriptor);
     if (!kHeld.ok()) {
         return -kEbadf;
     }
-    const base::Result<unsigned long> kBorn =
-        self->files->adopt_from(kHeld.value(), frame.rdx, frame.rsi == kCmdDupFdCloexec);
+    const base::Result<unsigned long> kBorn = self->files->adopt_from(
+        kHeld.value(), frame.rdx, frame.rsi == kCmdDupFdCloexec, FileDescriptorLimit());
     if (!kBorn.ok()) {
         return -kEmfile;
     }

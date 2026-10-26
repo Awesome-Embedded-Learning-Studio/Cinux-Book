@@ -26,4 +26,11 @@ namespace cinux::syscall {
  */
 long long HandleClose(const SyscallFrame& frame);
 
+/**
+ * @brief Closes or marks a descriptor interval, optionally unsharing its table.
+ * @param[in] frame First descriptor, last descriptor and flags in rdi/rsi/rdx.
+ * @return Zero, or negative EINVAL or ENOMEM.
+ */
+long long HandleCloseRange(const SyscallFrame& frame);
+
 }  // namespace cinux::syscall

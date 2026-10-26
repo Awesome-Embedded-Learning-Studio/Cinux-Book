@@ -333,6 +333,25 @@ BakedVolume& baked() {
         }
     }
 
+    const std::vector<std::string> kLinks = {
+        "symlink relative small.txt",
+        "symlink absolute /small.txt",
+        "symlink chained relative",
+        "symlink directory /",
+        "symlink broken absent",
+        "symlink cycle cycle",
+        "symlink longlink ././././././././././././././././././././././././././././././small.txt",
+    };
+    for (const auto& command : kLinks) {
+        std::string invocation = "debugfs -w -R '";
+        invocation += command;
+        invocation += "' ";
+        invocation += kImage;
+        if (!run_quietly(invocation)) {
+            return baked_once;
+        }
+    }
+
     std::ifstream file(kImage, std::ios::binary);
     if (!file) {
         return baked_once;
@@ -963,4 +982,186 @@ TEST("ext2: entries around a stretched name still list") {
 
 int main() {
     return cinux::test::RunAll();
+}
+
+TEST("ext2: lookup follows relative absolute chained directory and long symlinks") {
+    auto& bake = baked();
+    ASSERT_TRUE(bake.ok);
+    const auto kFile = bake.volume->lookup("small.txt");
+    ASSERT_TRUE(kFile.ok());
+    for (const auto* path :
+         {"relative", "absolute", "chained", "directory/small.txt", "longlink"}) {
+        const auto kNode = bake.volume->lookup(path);
+        ASSERT_TRUE(kNode.ok());
+        ASSERT_EQ(kNode.value().ino, kFile.value().ino);
+    }
+    ASSERT_FALSE(bake.volume->lookup("broken").ok());
+    ASSERT_FALSE(bake.volume->lookup("cycle").ok());
+}
+
+namespace {
+
+void check_ext2_truncate(cinux::fs::ext2::Ext2& volume, cinux::fs::FsNode node) {
+    ASSERT_TRUE(volume.truncate(node).ok());
+    char bytes[4]{};
+    ASSERT_EQ(volume.read(node, 0, bytes, sizeof(bytes)).value(), 0UL);
+    ASSERT_EQ(volume.write(node, 3, "z", 1).value(), 1UL);
+    ASSERT_EQ(volume.read(node, 0, bytes, sizeof(bytes)).value(), 4UL);
+    ASSERT_TRUE(std::string_view(bytes, 4) == std::string_view("\0\0\0z", 4));
+}
+
+}
+
+TEST("ext2: append uses current size and truncate reclaims indirect blocks") {
+    BakedVolume& bake = baked();
+    ASSERT_TRUE(bake.ok);
+    const auto kNode = bake.volume->make_file("append-truncate");
+    ASSERT_TRUE(kNode.ok());
+    const std::string kBytes(300UL * 1024, 'x');
+    ASSERT_EQ(bake.volume->write(kNode.value(), 0, kBytes.data(), kBytes.size()).value(),
+              kBytes.size());
+    unsigned long cursor = 1;
+    ASSERT_EQ(bake.volume->append(kNode.value(), cursor, "end", 3).value(), 3UL);
+    ASSERT_EQ(cursor, kBytes.size() + 3);
+    char bytes[4]{};
+    ASSERT_EQ(bake.volume->read(kNode.value(), kBytes.size(), bytes, sizeof(bytes)).value(), 3UL);
+    ASSERT_TRUE(std::string_view(bytes, 3) == "end");
+    check_ext2_truncate(*bake.volume, kNode.value());
+    ASSERT_TRUE(bake.cache->flush());
+}
+
+namespace {
+
+void cache_read_tag(cinux::driver::BlockCache& cache, unsigned long page) {
+    unsigned char byte{};
+    ASSERT_TRUE(cache.read(cinux::driver::Lba{.value = page * 8}, &byte, 1));
+    ASSERT_EQ(byte, static_cast<unsigned char>(page));
+}
+
+std::vector<std::uint8_t> tagged_cache_image(unsigned long pages) {
+    std::vector<std::uint8_t> bytes(pages * 4096);
+    for (unsigned long page = 0; page < pages; ++page) {
+        bytes[page * 4096] = static_cast<unsigned char>(page);
+    }
+    return bytes;
+}
+
+void check_dirty_cache_failure(cinux::driver::BlockCache& cache, cinux::test::ImageDisk& disk) {
+    const unsigned char kByte = 77;
+    ASSERT_TRUE(cache.patch(cinux::driver::Lba{.value = 0}, 0, 1, &kByte));
+    disk.fail_writes(true);
+    unsigned char byte{};
+    ASSERT_FALSE(cache.read(cinux::driver::Lba{.value = 8}, &byte, 1));
+    ASSERT_TRUE(cache.read(cinux::driver::Lba{.value = 0}, &byte, 1));
+    ASSERT_EQ(byte, kByte);
+    ASSERT_FALSE(cache.flush());
+    disk.fail_writes(false);
+    ASSERT_TRUE(cache.flush());
+}
+
+std::string growing_directory_file(unsigned long index) {
+    return "grow/" + std::string(230, 'x') + std::to_string(index);
+}
+
+void fill_growing_directory(cinux::fs::ext2::Ext2& volume) {
+    ASSERT_TRUE(volume.make_dir("grow").ok());
+    for (unsigned long index = 0; index < 56; ++index) {
+        ASSERT_TRUE(volume.make_file(growing_directory_file(index)).ok());
+    }
+    ASSERT_TRUE(volume.make_dir(growing_directory_file(56)).ok());
+    ASSERT_TRUE(volume.lookup(growing_directory_file(0)).ok());
+    ASSERT_TRUE(volume.lookup(growing_directory_file(55)).ok());
+    ASSERT_TRUE(volume.lookup(growing_directory_file(56)).ok());
+}
+
+void check_growing_directory(cinux::fs::ext2::Ext2& volume) {
+    const auto kNode = volume.lookup("grow");
+    ASSERT_TRUE(kNode.ok());
+    cinux::fs::FsStat stat{};
+    ASSERT_TRUE(volume.stat(kNode.value(), stat).ok());
+    ASSERT_EQ(stat.size, 15UL * 1024);
+    ASSERT_EQ(stat.links, 3UL);
+    unsigned long       entries = 0;
+    cinux::fs::FsDirent entry{};
+    for (;;) {
+        const auto kEntry = volume.read_dir(kNode.value(), entries, entry);
+        ASSERT_TRUE(kEntry.ok());
+        if (!kEntry.value()) {
+            break;
+        }
+        ++entries;
+    }
+    ASSERT_EQ(entries, 59UL);
+}
+
+}
+
+TEST("block cache: a warm working set larger than eight pages performs no device reads") {
+    cinux::test::ImageDisk    disk(tagged_cache_image(64));
+    cinux::driver::BlockQueue queue(disk);
+    cinux::driver::BlockCache cache(queue, 32);
+    for (unsigned long page = 0; page < 24; ++page) {
+        cache_read_tag(cache, page);
+    }
+    const auto kReads = disk.read_count();
+    for (unsigned long page = 0; page < 24; ++page) {
+        cache_read_tag(cache, page);
+    }
+    ASSERT_EQ(kReads, 24UL);
+    ASSERT_EQ(disk.read_count(), kReads);
+}
+
+TEST("block cache: hash collisions and second-chance eviction retain a reused page") {
+    cinux::test::ImageDisk    disk(tagged_cache_image(16));
+    cinux::driver::BlockQueue queue(disk);
+    cinux::driver::BlockCache cache(queue, 3);
+    for (const unsigned long kPage : {0UL, 7UL, 14UL, 1UL, 7UL, 2UL}) {
+        cache_read_tag(cache, kPage);
+    }
+    const auto kReads = disk.read_count();
+    cache_read_tag(cache, 7);
+    ASSERT_EQ(disk.read_count(), kReads);
+    cache_read_tag(cache, 0);
+    ASSERT_EQ(disk.read_count(), kReads + 1);
+}
+
+TEST("block cache: failed writeback preserves dirty bytes and failed fills retry") {
+    cinux::test::ImageDisk    disk(tagged_cache_image(2));
+    cinux::driver::BlockQueue queue(disk);
+    cinux::driver::BlockCache cache(queue, 1);
+    check_dirty_cache_failure(cache, disk);
+    disk.fail_reads(true);
+    unsigned char byte{};
+    ASSERT_FALSE(cache.read(cinux::driver::Lba{.value = 8}, &byte, 1));
+    disk.fail_reads(false);
+    cache_read_tag(cache, 1);
+    ASSERT_TRUE(cache.read(cinux::driver::Lba{.value = 0}, &byte, 1));
+    ASSERT_EQ(byte, 77);
+}
+
+namespace {
+
+void check_directory_disk_blocks(BakedVolume& bake) {
+    const auto kNode = bake.volume->lookup("grow");
+    ASSERT_TRUE(kNode.ok());
+    const auto kTable     = peek_u32(bake.image, (2 * 1024) + 8);
+    const auto kInodeSize = peek_u16(bake.image, 1024 + 88);
+    const auto kField     = ((kNode.value().ino - 1) * kInodeSize) + offsetof(Inode, i_blocks);
+    ASSERT_EQ(inode_dword_on_disk(*bake.disk, kTable, kField), 32UL);
+}
+
+}
+
+TEST("ext2: file and directory creation grow across direct blocks and persist") {
+    BakedVolume& bake = baked();
+    ASSERT_TRUE(bake.ok);
+    fill_growing_directory(*bake.volume);
+    check_growing_directory(*bake.volume);
+    ASSERT_TRUE(bake.cache->flush());
+    cinux::driver::BlockQueue queue(*bake.disk);
+    cinux::driver::BlockCache cache(queue, 8);
+    cinux::fs::ext2::Ext2     volume(cache);
+    ASSERT_TRUE(volume.mount().ok());
+    check_growing_directory(volume);
+    check_directory_disk_blocks(bake);
 }

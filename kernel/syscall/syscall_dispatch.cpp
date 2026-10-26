@@ -27,6 +27,7 @@
 #include "kernel/syscall/sys_fcntl.hpp"
 #include "kernel/syscall/sys_fork.hpp"
 #include "kernel/syscall/sys_fstat.hpp"
+#include "kernel/syscall/sys_fsync.hpp"
 #include "kernel/syscall/sys_futex.hpp"
 #include "kernel/syscall/sys_getcwd.hpp"
 #include "kernel/syscall/sys_getdents.hpp"
@@ -38,6 +39,7 @@
 #include "kernel/syscall/sys_ioctl.hpp"
 #include "kernel/syscall/sys_itimer.hpp"
 #include "kernel/syscall/sys_kill.hpp"
+#include "kernel/syscall/sys_lseek.hpp"
 #include "kernel/syscall/sys_mkdir.hpp"
 #include "kernel/syscall/sys_mmap.hpp"
 #include "kernel/syscall/sys_mount.hpp"
@@ -51,9 +53,11 @@
 #include "kernel/syscall/sys_ppoll.hpp"
 #include "kernel/syscall/sys_pread.hpp"
 #include "kernel/syscall/sys_prlimit.hpp"
+#include "kernel/syscall/sys_probe.hpp"
 #include "kernel/syscall/sys_read.hpp"
 #include "kernel/syscall/sys_readlink.hpp"
 #include "kernel/syscall/sys_reboot.hpp"
+#include "kernel/syscall/sys_sendfile.hpp"
 #include "kernel/syscall/sys_set_tid_address.hpp"
 #include "kernel/syscall/sys_shm.hpp"
 #include "kernel/syscall/sys_signal.hpp"
@@ -79,11 +83,33 @@ struct Row {
 };
 
 constexpr Row kRows[] = {
+    {.number = cinux::syscall::SyscallNr::kCloseRange, .handler = cinux::syscall::HandleCloseRange},
+    {
+        .number  = cinux::syscall::SyscallNr::kEpollCreate1,
+        .handler = cinux::syscall::HandleUnsupportedProbe,
+    },
+    {
+        .number  = cinux::syscall::SyscallNr::kMremap,
+        .handler = cinux::syscall::HandleUnsupportedProbe,
+    },
+    {.number = cinux::syscall::SyscallNr::kFsync, .handler = cinux::syscall::HandleFsync},
+    {.number = cinux::syscall::SyscallNr::kFdatasync, .handler = cinux::syscall::HandleFsync},
+    {
+        .number  = cinux::syscall::SyscallNr::kSendfile,
+        .handler = cinux::syscall::HandleSendfile,
+    },
+    {
+        .number  = cinux::syscall::SyscallNr::kMadvise,
+        .handler = cinux::syscall::HandleUnsupportedProbe,
+    },
+    {.number = cinux::syscall::SyscallNr::kFaccessat, .handler = cinux::syscall::HandleFaccessat},
+    {.number = cinux::syscall::SyscallNr::kFaccessat2, .handler = cinux::syscall::HandleFaccessat},
     {.number = cinux::syscall::SyscallNr::kGetitimer, .handler = cinux::syscall::HandleGetitimer},
     {.number = cinux::syscall::SyscallNr::kAlarm, .handler = cinux::syscall::HandleAlarm},
     {.number = cinux::syscall::SyscallNr::kSetitimer, .handler = cinux::syscall::HandleSetitimer},
     {.number = cinux::syscall::SyscallNr::kRead, .handler = cinux::syscall::HandleRead},
     {.number = cinux::syscall::SyscallNr::kWrite, .handler = cinux::syscall::HandleWrite},
+    {.number = cinux::syscall::SyscallNr::kLseek, .handler = cinux::syscall::HandleLseek},
     {.number = cinux::syscall::SyscallNr::kOpen, .handler = cinux::syscall::HandleOpen},
     {.number = cinux::syscall::SyscallNr::kClose, .handler = cinux::syscall::HandleClose},
     {.number = cinux::syscall::SyscallNr::kStat, .handler = cinux::syscall::HandleStat},
@@ -112,6 +138,7 @@ constexpr Row kRows[] = {
     {.number = cinux::syscall::SyscallNr::kExecve, .handler = cinux::syscall::HandleExecve},
     {.number = cinux::syscall::SyscallNr::kExit, .handler = cinux::syscall::HandleExit},
     {.number = cinux::syscall::SyscallNr::kExitGroup, .handler = cinux::syscall::HandleExit},
+    {.number = cinux::syscall::SyscallNr::kWaitid, .handler = cinux::syscall::HandleWaitid},
     {.number = cinux::syscall::SyscallNr::kWait4, .handler = cinux::syscall::HandleWait4},
     {.number = cinux::syscall::SyscallNr::kKill, .handler = cinux::syscall::HandleKill},
     {.number = cinux::syscall::SyscallNr::kSetpgid, .handler = cinux::syscall::HandleSetpgid},
@@ -191,6 +218,7 @@ constexpr Row kRows[] = {
         .number  = cinux::syscall::SyscallNr::kClockNanosleep,
         .handler = cinux::syscall::HandleClockNanosleep,
     },
+    {.number = cinux::syscall::SyscallNr::kTkill, .handler = cinux::syscall::HandleTkill},
     {.number = cinux::syscall::SyscallNr::kTgkill, .handler = cinux::syscall::HandleTgkill},
     {.number = cinux::syscall::SyscallNr::kSocket, .handler = cinux::syscall::HandleSocket},
     {.number = cinux::syscall::SyscallNr::kConnect, .handler = cinux::syscall::HandleConnect},
@@ -212,6 +240,30 @@ constexpr Row kRows[] = {
     {.number = cinux::syscall::SyscallNr::kSetsockopt, .handler = cinux::syscall::HandleSetsockopt},
     {.number = cinux::syscall::SyscallNr::kGetsockopt, .handler = cinux::syscall::HandleGetsockopt},
     {.number = cinux::syscall::SyscallNr::kAccept4, .handler = cinux::syscall::HandleAccept4},
+    {
+        .number  = cinux::syscall::SyscallNr::kGetrusage,
+        .handler = cinux::syscall::HandleUnsupportedProbe,
+    },
+    {
+        .number  = cinux::syscall::SyscallNr::kChmod,
+        .handler = cinux::syscall::HandleUnsupportedProbe,
+    },
+    {
+        .number  = cinux::syscall::SyscallNr::kUmask,
+        .handler = cinux::syscall::HandleUnsupportedProbe,
+    },
+    {
+        .number  = cinux::syscall::SyscallNr::kSetRobustList,
+        .handler = cinux::syscall::HandleUnsupportedProbe,
+    },
+    {
+        .number  = cinux::syscall::SyscallNr::kRseq,
+        .handler = cinux::syscall::HandleUnsupportedProbe,
+    },
+    {
+        .number  = cinux::syscall::SyscallNr::kClone3,
+        .handler = cinux::syscall::HandleUnsupportedProbe,
+    },
 };
 
 constexpr auto kHandlers = [] {

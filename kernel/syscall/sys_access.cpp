@@ -1,5 +1,7 @@
 #include "kernel/syscall/sys_access.hpp"
 
+#include <cstdint>
+
 #include "cinux/result.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/fs/file_world.hpp"
@@ -23,6 +25,20 @@ long long HandleAccess(const SyscallFrame& frame) {
     const fs::FsView&    flat  = kView.value();
     const auto           kNode = flat.ops->lookup(flat.self, flat.rest);
     return kNode.ok() ? 0 : -ErrnoFrom(kNode.error());
+}
+
+long long HandleFaccessat(const SyscallFrame& frame) {
+    if (static_cast<std::int32_t>(frame.rdi) != -100) {
+        return -kEnotdir;
+    }
+    if (frame.rax == static_cast<unsigned long long>(SyscallNr::kFaccessat2) &&
+        (frame.r10 & ~0x200ULL) != 0) {
+        return -kEinval;
+    }
+    SyscallFrame flat{};
+    flat.rdi = frame.rsi;
+    flat.rsi = frame.rdx;
+    return HandleAccess(flat);
 }
 
 }  // namespace cinux::syscall

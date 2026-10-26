@@ -243,6 +243,7 @@ long long accept_common(const SyscallFrame& frame, Word extra_flags) {
         {
             .status  = (extra_flags & kSockNonblock) != 0 ? kOpenNonblock : 0,
             .cloexec = (extra_flags & kSockCloexec) != 0,
+            .limit   = FileDescriptorLimit(),
         });
     if (!kSeat.ok()) {
         return -kEmfile;
@@ -325,6 +326,7 @@ long long HandleSocket(const SyscallFrame& frame) {
                                     {
                                         .status = (kFlags & kSockNonblock) != 0 ? kOpenNonblock : 0,
                                         .cloexec = (kFlags & kSockCloexec) != 0,
+                                        .limit   = FileDescriptorLimit(),
                                     });
     if (!kSeat.ok()) {
         return -kEmfile;

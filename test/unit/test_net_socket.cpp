@@ -26,6 +26,7 @@
 #include "kernel/net/socket.hpp"
 #include "kernel/net/tcp.hpp"
 #include "kernel/net/udp.hpp"
+#include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/sched_class.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/signals.hpp"
@@ -145,6 +146,8 @@ public:
         runner.name       = "face";
         runner.stack_base = 0x1000ULL * 0x40;
         runner.parent     = &kin;
+        cinux::base::CopyBytes(runner.limits, cinux::proc::kDefaultResourceLimits,
+                               sizeof(runner.limits));
         cinux::proc::Scheduler::self().init(sink);
         cinux::proc::Scheduler::self().install_class(cinux::proc::DefaultFifoClass());
         cinux::proc::Scheduler::self().seat(runner);

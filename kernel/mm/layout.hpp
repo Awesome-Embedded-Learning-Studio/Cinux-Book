@@ -68,6 +68,10 @@ inline constexpr unsigned long kUserNullTop         = 64_KiB;
 /** @brief Fixed load base for the dynamic interpreter a PT_INTERP names;
            deterministic on purpose, ASLR is a later station's question. */
 inline constexpr unsigned long kUserInterpreterBase = 256_MiB;
+/** @brief Floor for a position-independent main image's load bias; the
+           per-exec slide stays inside one mebibyte above it, keeping the
+           seat clear of the interpreter's base below. */
+inline constexpr unsigned long kUserExecImageBase   = 512_MiB;
 /** @brief Default boundary between the program-plus-brk area and the mmap area. */
 inline constexpr unsigned long kUserBrkMmapSplit    = 0x0000400000000000UL;
 /** @brief Default top of the mmap area; allocations grow down from here. */

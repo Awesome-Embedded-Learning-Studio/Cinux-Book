@@ -100,7 +100,7 @@ base::Result<FsNode> Ext2::make_file(std::string_view path) {
     if (!IsDirectoryMode(kParentRead.value().i_mode)) {
         return base::KernelError::kNotADirectory;
     }
-    const Inode& parent_inode = kParentRead.value();
+    Inode parent_inode = kParentRead.value();
     static_cast<void>(kHadSlash);
 
     const base::Result<unsigned long> kExisting = lookup_in_dir(parent_inode, leaf);
@@ -141,7 +141,7 @@ base::Result<FsNode> Ext2::make_file(std::string_view path) {
         free_inode(kIno.value());
         return base::KernelError::kIOError;
     }
-    if (!add_dir_entry(parent_inode, kIno.value(), leaf)) {
+    if (!add_dir_entry(parent_inode, kParentNode.value().ino, kIno.value(), leaf)) {
         free_inode(kIno.value());
         return base::KernelError::kIOError;
     }
@@ -171,7 +171,7 @@ base::Result<FsNode> Ext2::make_dir(std::string_view path) {
     if (!IsDirectoryMode(kParentRead.value().i_mode)) {
         return base::KernelError::kNotADirectory;
     }
-    const Inode&                      parent_inode = kParentRead.value();
+    Inode                             parent_inode = kParentRead.value();
     const base::Result<unsigned long> kExisting    = lookup_in_dir(parent_inode, leaf);
     if (kExisting.ok()) {
         return base::KernelError::kAlreadyExists;
@@ -224,13 +224,13 @@ base::Result<FsNode> Ext2::make_dir(std::string_view path) {
     const driver::Lba kBlockLba{.value = kBlock.value() * kBlockSectors};
     if (!cache_.patch(kBlockLba, 0, kDotRec, dot) ||
         !cache_.patch(kBlockLba, kDotRec, sizeof(dotdot), dotdot) ||
-        !add_dir_entry(parent_inode, kIno.value(), leaf)) {
+        !add_dir_entry(parent_inode, kParentNode.value().ino, kIno.value(), leaf)) {
         free_block(kBlock.value());
         free_inode(kIno.value());
         return base::KernelError::kIOError;
     }
 
-    Inode linked         = kParentRead.value();
+    Inode linked         = parent_inode;
     linked.i_links_count = static_cast<std::uint16_t>(linked.i_links_count + 1U);
     if (!write_inode(kParentNode.value().ino, linked)) {
         free_block(kBlock.value());
@@ -306,7 +306,7 @@ base::Result<void> Ext2::unlink(std::string_view path) {
         free_inode(kIno.value());
     }
     if (IsDirectoryMode(victim_inode.i_mode)) {
-        Inode linked         = kParentRead.value();
+        Inode linked         = parent_inode;
         linked.i_links_count = static_cast<std::uint16_t>(linked.i_links_count - 1U);
         if (!write_inode(kParentNode.value().ino, linked)) {
             return base::KernelError::kIOError;
@@ -321,6 +321,51 @@ base::Result<void> Ext2::unlink(std::string_view path) {
 base::Result<unsigned long> Ext2::write(FsNode node, unsigned long offset, const void* source,
                                         unsigned long count) {
     const proc::MutexGuard kGate(write_gate_);
+    return write_locked(node, offset, source, count);
+}
+
+base::Result<unsigned long> Ext2::append(FsNode node, unsigned long& offset, const void* source,
+                                         unsigned long count) {
+    const proc::MutexGuard kGate(write_gate_);
+    const auto             kInode = read_inode(node.ino);
+    if (!kInode.ok()) {
+        return kInode.error();
+    }
+    const unsigned long kEnd = kInode.value().i_size;
+    const auto          kPut = write_locked(node, kEnd, source, count);
+    if (kPut.ok()) {
+        offset = kEnd + kPut.value();
+    }
+    return kPut;
+}
+
+base::Result<void> Ext2::truncate(FsNode node) {
+    const proc::MutexGuard kGate(write_gate_);
+    if (!mounted_) {
+        return base::KernelError::kIOError;
+    }
+    if (node.type != InodeType::kFile) {
+        return base::KernelError::kIsADirectory;
+    }
+    const auto kRead = read_inode(node.ino);
+    if (!kRead.ok()) {
+        return kRead.error();
+    }
+    Inode emptied = kRead.value();
+    free_data_blocks(emptied);
+    base::SetBytes(emptied.i_block, 0, sizeof(emptied.i_block));
+    emptied.i_size   = 0;
+    emptied.i_blocks = 0;
+    emptied.i_mtime  = now_stamp();
+    emptied.i_ctime  = emptied.i_mtime;
+    if (!write_inode(node.ino, emptied)) {
+        return base::KernelError::kIOError;
+    }
+    return {};
+}
+
+base::Result<unsigned long> Ext2::write_locked(FsNode node, unsigned long offset,
+                                               const void* source, unsigned long count) {
     if (!mounted_) {
         return base::KernelError::kIOError;
     }
@@ -656,6 +701,7 @@ base::Result<unsigned long> Ext2::ensure_double_block(Inode& node, unsigned long
             return inner_table;
         }
         outer_words[outer] = static_cast<std::uint32_t>(inner_table.value());
+        node.i_blocks      = static_cast<std::uint32_t>(node.i_blocks + kBlockSectors);
         if (!cache_.patch(kOuterLba, outer * sizeof(std::uint32_t), sizeof(std::uint32_t),
                           &outer_words[outer])) {
             return base::KernelError::kIOError;
@@ -732,7 +778,8 @@ bool Ext2::shrink_live_entry(const DirInsert& slot) {
     return cache_.patch(kWhere, slot.cursor + kEntryMin + 4, sizeof(std::uint16_t), &kRemain);
 }
 
-bool Ext2::add_dir_entry(const Inode& parent_dir, unsigned long child_ino, std::string_view name) {
+bool Ext2::add_dir_entry(Inode& parent_dir, unsigned long parent_ino, unsigned long child_ino,
+                         std::string_view name) {
     const unsigned long kNeed = DirEntryLength(name.size());
     const unsigned long kSpan = base::math::Ceil(parent_dir.i_size, kVolumeBlockBytes);
     std::uint32_t       block[kBlockWords];
@@ -772,7 +819,20 @@ bool Ext2::add_dir_entry(const Inode& parent_dir, unsigned long child_ino, std::
             cursor += entry.rec_len;
         }
     }
-    return false;
+    const auto kDisk = ensure_data_block(parent_dir, kSpan);
+    if (!kDisk.ok()) {
+        return false;
+    }
+    std::uint8_t fresh[kDirEntryHeadBytes + kFsNameMax]{};
+    entry_bytes(fresh, child_ino, name);
+    base::WriteWord16(fresh, 4, static_cast<std::uint16_t>(kVolumeBlockBytes));
+    if (!cache_.patch(driver::Lba{.value = kDisk.value() * kBlockSectors}, 0, kNeed, fresh)) {
+        return false;
+    }
+    parent_dir.i_size  = static_cast<std::uint32_t>((kSpan + 1) * kVolumeBlockBytes);
+    parent_dir.i_mtime = now_stamp();
+    parent_dir.i_ctime = parent_dir.i_mtime;
+    return write_inode(parent_ino, parent_dir);
 }
 
 bool Ext2::remove_dir_entry(const Inode& parent_dir, std::string_view name) {

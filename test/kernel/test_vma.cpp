@@ -93,18 +93,19 @@ TEST("vma: the seeded heap answers find and moves by brk") {
     const cinux::base::Result<unsigned long> kQueried = store.move_heap_end(0);
     ASSERT_EQ(kQueried.value(), 0x100000UL);
     const cinux::base::Result<unsigned long> kMoved = store.move_heap_end(0x101234);
-    ASSERT_EQ(kMoved.value(), 0x102000UL);
+    ASSERT_EQ(kMoved.value(), 0x101234UL);
     ASSERT_TRUE(store.find(0x101FFF) != nullptr);
     ASSERT_TRUE(store.find(0x102000) == nullptr);
 }
 
-TEST("vma: the break clamps to its floor and ceiling") {
+TEST("vma: the break refuses targets outside its bounds") {
     cinux::mm::VmaStore store;
     store.seed_heap(0x100000, 0x180000);
     const cinux::base::Result<unsigned long> kCapped = store.move_heap_end(0x400000);
-    ASSERT_EQ(kCapped.value(), 0x180000UL);
+    ASSERT_TRUE(!kCapped.ok());
+    ASSERT_EQ(store.heap_end(), 0x100000UL);
     const cinux::base::Result<unsigned long> kFloored = store.move_heap_end(0x100);
-    ASSERT_EQ(kFloored.value(), 0x100000UL);
+    ASSERT_TRUE(!kFloored.ok());
     ASSERT_EQ(store.heap_end(), 0x100000UL);
 }
 
@@ -131,7 +132,7 @@ TEST("vma: unregister empties a wholly withdrawn heap") {
     store.seed_heap(0x100000, 0x200000);
     ASSERT_TRUE(store.move_heap_end(0x102000).ok());
     ASSERT_TRUE(store.unregister_range(0x100000, 0x103000).ok());
-    ASSERT_EQ(store.heap_end(), 0x100000UL);
+    ASSERT_EQ(store.heap_end(), 0x102000UL);
     ASSERT_TRUE(store.find(0x101000) == nullptr);
 }
 

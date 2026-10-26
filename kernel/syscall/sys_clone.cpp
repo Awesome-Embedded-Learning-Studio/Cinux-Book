@@ -3,6 +3,7 @@
 #include "kernel/arch/x86_64/context.hpp"
 #include "kernel/proc/clone.hpp"
 #include "kernel/proc/scheduler.hpp"
+#include "kernel/proc/sync.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/signal.hpp"
 #include "kernel/syscall/syscall.hpp"
@@ -15,9 +16,9 @@ namespace {
 
 /// Every flag bit this handler understands; anything outside the mask
 /// is refused whole rather than half-served.
-constexpr unsigned long long kServedFlags = kCloneVm | kCloneFiles | kCloneThread | kCloneSetTls |
-                                            kCloneParentSetTid | kCloneChildClearTid |
-                                            kCloneChildSetTid | 0xFFULL;
+constexpr unsigned long long kServedFlags = kCloneVfork | kCloneVm | kCloneFiles | kCloneThread |
+                                            kCloneSetTls | kCloneParentSetTid |
+                                            kCloneChildClearTid | kCloneChildSetTid | 0xFFULL;
 
 }  // namespace
 
@@ -72,8 +73,16 @@ long long HandleClone(const SyscallFrame& frame) {
     if ((kFlags & kCloneChildSetTid) != 0) {
         kChild->set_child_tid = kChildTid;
     }
-    const auto kPid = static_cast<long long>(kChild->pid);
+    const auto       kPid = static_cast<long long>(kChild->pid);
+    proc::Completion done;
+    if ((kFlags & kCloneVfork) != 0) {
+        kChild->vfork_done = &done;
+    }
     proc::Scheduler::self().unblock(*kChild);
+    if ((kFlags & kCloneVfork) != 0) {
+        done.wait();
+    }
+    done.retire();
     return kPid;
 }
 

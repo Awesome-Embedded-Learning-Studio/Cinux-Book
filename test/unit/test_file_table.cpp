@@ -40,12 +40,12 @@ TEST("file table: consecutive allocations climb, freed numbers are reused lowest
 
 TEST("file table: a full table reports it has no room") {
     cinux::fs::FileTable table;
-    for (unsigned long fd = 0; fd < cinux::fs::kFileTableMax; ++fd) {
-        ASSERT_TRUE(table.alloc(nullptr, nullptr, sample_node(fd)).ok());
+    for (unsigned long fd = 0; fd < 128UL; ++fd) {
+        ASSERT_TRUE(table.alloc(nullptr, nullptr, sample_node(fd), {.limit = 128}).ok());
     }
-    const auto kOverflow = table.alloc(nullptr, nullptr, sample_node(99));
+    const auto kOverflow = table.alloc(nullptr, nullptr, sample_node(99), {.limit = 128});
     ASSERT_FALSE(kOverflow.ok());
-    ASSERT_EQ(kOverflow.error(), cinux::base::KernelError::kOutOfMemory);
+    ASSERT_EQ(kOverflow.error(), cinux::base::KernelError::kTooManyOpenFiles);
 }
 
 TEST("file table: out-of-range and free slots are refused") {
@@ -88,12 +88,14 @@ TEST("file table: closing a descriptor releases its reference exactly once") {
 TEST("file table: allocation failure does not retain or release a node") {
     cinux::test::FileRefs refs;
     cinux::fs::FileTable  table;
-    for (unsigned long fd = 0; fd < cinux::fs::kFileTableMax; ++fd) {
-        ASSERT_TRUE(table.alloc(&cinux::test::FileRefs::kOps, &refs, sample_node(fd)).ok());
+    for (unsigned long fd = 0; fd < 128UL; ++fd) {
+        ASSERT_TRUE(
+            table.alloc(&cinux::test::FileRefs::kOps, &refs, sample_node(fd), {.limit = 128}).ok());
     }
     const auto kBefore   = refs.retained;
     const auto kReleased = refs.released;
-    ASSERT_FALSE(table.alloc(&cinux::test::FileRefs::kOps, &refs, sample_node(99)).ok());
+    ASSERT_FALSE(
+        table.alloc(&cinux::test::FileRefs::kOps, &refs, sample_node(99), {.limit = 128}).ok());
     ASSERT_EQ(refs.retained, kBefore);
     ASSERT_EQ(refs.released, kReleased);
 }
@@ -249,7 +251,7 @@ TEST("file table: two allocators and a lookup reader share slots safely") {
     std::thread two(kWriter, 2UL);
     start.store(true, std::memory_order_release);
     while (done.load(std::memory_order_acquire) != 2) {
-        for (unsigned long fd = 0; fd < cinux::fs::kFileTableMax; ++fd) {
+        for (unsigned long fd = 0; fd < table.capacity(); ++fd) {
             const auto kHeld = table.shared(fd);
             if (kHeld.ok() && (kHeld.value()->node.ino < 1 || kHeld.value()->node.ino > 2)) {
                 ++errors;
@@ -259,6 +261,41 @@ TEST("file table: two allocators and a lookup reader share slots safely") {
     one.join();
     two.join();
     ASSERT_EQ(errors.load(), 0U);
+}
+
+namespace {
+
+void fill_dynamic_descriptors(cinux::fs::FileTable& table) {
+    for (unsigned long descriptor = 0; descriptor < 300; ++descriptor) {
+        const auto kFd = table.alloc(nullptr, nullptr, sample_node(descriptor), {.limit = 300});
+        ASSERT_TRUE(kFd.ok());
+        ASSERT_EQ(kFd.value(), descriptor);
+    }
+}
+
+}
+
+TEST("file table: dynamic growth and lowered limits preserve existing high descriptors") {
+    cinux::fs::FileTable table;
+    fill_dynamic_descriptors(table);
+    ASSERT_TRUE(table.capacity() >= 300);
+    ASSERT_TRUE(!table.alloc(nullptr, nullptr, sample_node(1), {.limit = 64}).ok());
+    ASSERT_TRUE(table.get(299).ok());
+    ASSERT_TRUE(table.free(37).ok());
+    ASSERT_EQ(table.alloc(nullptr, nullptr, sample_node(1), {.limit = 64}).value(), 37UL);
+}
+
+TEST("file table: sparse high descriptors survive clone and close-on-exec independently") {
+    cinux::fs::FileTable parent;
+    ASSERT_TRUE(parent.alloc(nullptr, nullptr, sample_node(7)).ok());
+    ASSERT_TRUE(parent.duplicate_at(0, 8000).ok());
+    ASSERT_TRUE(parent.set_cloexec(8000, true).ok());
+    const auto kChild = parent.clone();
+    ASSERT_TRUE(kChild.holds());
+    kChild->close_on_exec();
+    ASSERT_TRUE(!kChild->get(8000).ok());
+    ASSERT_TRUE(parent.get(8000).ok());
+    ASSERT_TRUE(kChild->get(0).ok());
 }
 
 int main() {

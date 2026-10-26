@@ -39,6 +39,10 @@ public:
     explicit ImageDisk(std::vector<std::uint8_t> image) : image_(std::move(image)) {}
 
     bool read_blocks(cinux::driver::Lba first, cinux::driver::BlockSpan span, uint8_t* sink) {
+        ++reads_;
+        if (fail_reads_) {
+            return false;
+        }
         const unsigned long kFirst = first.value * kImageSector;
         const unsigned long kBytes = span.value * kImageSector;
         if (kFirst + kBytes > image_.size()) {
@@ -50,6 +54,10 @@ public:
 
     bool write_blocks(cinux::driver::Lba first, cinux::driver::BlockSpan span,
                       const uint8_t* source) {
+        ++writes_;
+        if (fail_writes_) {
+            return false;
+        }
         const unsigned long kFirst = first.value * kImageSector;
         const unsigned long kBytes = span.value * kImageSector;
         if (kFirst + kBytes > image_.size()) {
@@ -65,8 +73,21 @@ public:
 
     bool flush() { return true; }
 
+    /// @brief Read requests reaching the device, including injected failures.
+    [[nodiscard]] unsigned long read_count() const { return reads_; }
+    /// @brief Write requests reaching the device, including injected failures.
+    [[nodiscard]] unsigned long write_count() const { return writes_; }
+    /// @brief Controls read failure injection.
+    void                        fail_reads(bool fail) { fail_reads_ = fail; }
+    /// @brief Controls write failure injection.
+    void                        fail_writes(bool fail) { fail_writes_ = fail; }
+
 private:
     std::vector<std::uint8_t> image_;
+    unsigned long             reads_       = 0;
+    unsigned long             writes_      = 0;
+    bool                      fail_reads_  = false;
+    bool                      fail_writes_ = false;
 };
 
 static_assert(cinux::driver::BlockDevice<ImageDisk>, "the image disk satisfies the face");

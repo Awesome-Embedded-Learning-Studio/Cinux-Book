@@ -14,6 +14,8 @@
 
 #include <stdint.h>
 
+#include "cinux/literal_types.hpp"
+
 namespace cinux::driver {
 
 /// @brief Bytes in one disk sector, this machine's block-transfer unit.
@@ -22,8 +24,11 @@ inline constexpr unsigned long kSectorBytes = 512;
 /// @brief Requests the queue keeps room for; the rest wait on the lock.
 inline constexpr uint16_t kBlockQueueDepth = 16;
 
-/// @brief Slots the block cache keeps at most.
-inline constexpr unsigned long kBlockCacheSlots = 8;
+/** @brief Upper bound for resident block-cache data. */
+inline constexpr unsigned long kBlockCacheMaxBytes = base::operator""_MiB(64);
+
+/** @brief Fraction of available RAM budgeted for the persistent root cache. */
+inline constexpr unsigned long kBlockCacheMemoryDivisor = 32;
 
 /// @brief Sectors one cache slot covers: one 4 KiB page of the platter.
 inline constexpr unsigned long kCachePageSectors = 8;

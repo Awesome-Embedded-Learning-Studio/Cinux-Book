@@ -15,9 +15,11 @@
 #include <string_view>
 
 #include "cinux/assert.hpp"
+#include "cinux/math.hpp"
 #include "cinux/memory.hpp"
 #include "cinux/result.hpp"
 #include "cinux/shared.hpp"
+#include "kernel/arch/x86_64/page.hpp"
 #include "kernel/driver/ahci/ahci.hpp"
 #include "kernel/driver/block/block_cache.hpp"
 #include "kernel/driver/block/block_config.hpp"
@@ -37,6 +39,7 @@
 #include "kernel/fs/procfs/procfs_init.hpp"
 #include "kernel/fs/ramfs/ramfs.hpp"
 #include "kernel/fs/vfs.hpp"
+#include "kernel/mm/pmm.hpp"
 
 namespace cinux::fs {
 
@@ -48,10 +51,18 @@ unsigned long long wall_clock() {
 
 }  // namespace
 
+bool FileWorld::sync() {
+    return cache_ == nullptr || (cache_->flush() && queue_->flush());
+}
+
 void FileWorld::init() {
-    queue_  = new driver::BlockQueue(driver::Ahci::self());
-    cache_  = new driver::BlockCache(*queue_, driver::kBlockCacheSlots);
-    volume_ = new ext2::Ext2(*cache_, wall_clock);
+    queue_                = new driver::BlockQueue(driver::Ahci::self());
+    const auto kAvailable = mm::Pmm::self().free_page_count() * arch::page::kSize;
+    const auto kBudget =
+        base::math::Min(kAvailable / driver::kBlockCacheMemoryDivisor, driver::kBlockCacheMaxBytes);
+    const auto kSlotBytes = driver::kCachePageSectors * driver::kSectorBytes;
+    cache_                = new driver::BlockCache(*queue_, kBudget / kSlotBytes);
+    volume_               = new ext2::Ext2(*cache_, wall_clock);
 
     const base::Result<void> kMounted = volume_->mount();
     base::safety::Check(kMounted.ok(), "ext2 volume refused to mount");

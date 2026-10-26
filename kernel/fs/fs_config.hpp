@@ -28,14 +28,22 @@ namespace cinux::fs {
  * @since   0.1.0
  * @ingroup kernel_fs
  */
-inline constexpr unsigned long kFsNameMax = 32;
+inline constexpr unsigned long kFsNameMax = 256;
 
 /**
  * @brief   Longest path and mount prefix the layer carries, NUL included.
+ * @note    Two hundred fifty-six: the compiler's built-in specs name
+ *          their files through four parent-directory hops, and the
+ *          unfolded spelling of those seats runs past a hundred bytes,
+ *          so the folded form needs headroom a teaching limit of 96
+ *          denied as EINVAL before normalization could shrink it.
  * @since   0.1.0
  * @ingroup kernel_fs
  */
-inline constexpr unsigned long kFsPathMax = 96;
+inline constexpr unsigned long kFsPathMax = 256;
+
+/** @brief Linux PATH_MAX for a user-supplied path before normalization. */
+inline constexpr unsigned long kUserPathMax = 4096;
 
 /**
  * @brief   How many mount points the table holds at once.

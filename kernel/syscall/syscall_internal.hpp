@@ -102,6 +102,13 @@ long long FoldUserPath(Word source, char* out, unsigned long cap);
 proc::Task* CurrentTask();
 
 /**
+ * @brief Current RLIMIT_NOFILE soft limit, bounded by the nr_open ceiling.
+ * @return Exclusive descriptor ceiling for new allocations.
+ */
+unsigned long FileDescriptorLimit();
+
+
+/**
  * @brief         Whether a user stretch may be read through.
  * @param[in]     start   First byte of the stretch, as ring 3 offered it.
  * @param[in]     bytes   How many bytes the access touches.

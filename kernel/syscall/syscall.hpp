@@ -35,25 +35,29 @@ namespace cinux::syscall {
  */
 // NOLINTNEXTLINE(performance-enum-size)
 enum class SyscallNr : std::uint16_t {
-    kRead           = 0,   ///< read(fd, buf, count)
-    kWrite          = 1,   ///< write(fd, buf, count)
-    kOpen           = 2,   ///< open(path, flags)
-    kClose          = 3,   ///< close(fd)
-    kStat           = 4,   ///< stat(path, out): one node's metadata
-    kLstat          = 6,   ///< lstat(path, out): the same promise — no links exist to follow
-    kMmap           = 9,   ///< mmap(hint, len, prot, flags, fd, offset)
-    kMprotect       = 10,  ///< mprotect(addr, len, prot)
-    kMunmap         = 11,  ///< munmap(addr, len)
-    kBrk            = 12,  ///< brk(target): returns the break, not an errno
-    kRtSigaction    = 13,  ///< rt_sigaction(sig, act, oact, size): install a handler
-    kRtSigprocmask  = 14,  ///< rt_sigprocmask(how, set, oldset, size): move the mask
-    kRtSigreturn    = 15,  ///< rt_sigreturn(): the trampoline's way home
-    kPread64        = 17,  ///< pread64(fd, buf, count, offset): read at a position, cursor still
-    kYield          = 24,  ///< cooperative yield to the scheduler
-    kShmget         = 29,  ///< Creates or finds a shared segment.
-    kShmat          = 30,  ///< Attaches shared pages.
-    kShmctl         = 31,  ///< Removes or inspects a shared segment.
-    kShmdt          = 67,  ///< Detaches a shared segment.
+    kRead           = 0,    ///< read(fd, buf, count)
+    kWrite          = 1,    ///< write(fd, buf, count)
+    kFsync          = 74,   ///< Flush a file and its filesystem metadata.
+    kFdatasync      = 75,   ///< Flush file data.
+    kOpen           = 2,    ///< open(path, flags)
+    kCloseRange     = 436,  ///< close_range(first, last, flags).
+    kClose          = 3,    ///< close(fd)
+    kStat           = 4,    ///< stat(path, out): one node's metadata
+    kLstat          = 6,    ///< lstat(path, out): the same promise — no links exist to follow
+    kLseek          = 8,    ///< lseek(fd, offset, whence): move one open's shared cursor
+    kMmap           = 9,    ///< mmap(hint, len, prot, flags, fd, offset)
+    kMprotect       = 10,   ///< mprotect(addr, len, prot)
+    kMunmap         = 11,   ///< munmap(addr, len)
+    kBrk            = 12,   ///< brk(target): returns the break, not an errno
+    kRtSigaction    = 13,   ///< rt_sigaction(sig, act, oact, size): install a handler
+    kRtSigprocmask  = 14,   ///< rt_sigprocmask(how, set, oldset, size): move the mask
+    kRtSigreturn    = 15,   ///< rt_sigreturn(): the trampoline's way home
+    kPread64        = 17,   ///< pread64(fd, buf, count, offset): read at a position, cursor still
+    kYield          = 24,   ///< cooperative yield to the scheduler
+    kShmget         = 29,   ///< Creates or finds a shared segment.
+    kShmat          = 30,   ///< Attaches shared pages.
+    kShmctl         = 31,   ///< Removes or inspects a shared segment.
+    kShmdt          = 67,   ///< Detaches a shared segment.
     kGetitimer      = 36,
     kAlarm          = 37,
     kSetitimer      = 38,
@@ -64,6 +68,7 @@ enum class SyscallNr : std::uint16_t {
     kExecve         = 59,   ///< execve(path): replace this world with a program
     kExit           = 60,   ///< exit(code), never returns
     kExitGroup      = 231,  ///< exit_group(code): the whole task group leaves at once
+    kWaitid         = 247,
     kWait4          = 61,   ///< wait4(pid, status): block for one child
     kKill           = 62,   ///< kill(pid, sig): deliver a signal to one task
     kSetpgid        = 109,  ///< setpgid(pid, pgid): move a task into a group
@@ -91,7 +96,7 @@ enum class SyscallNr : std::uint16_t {
     kPipe           = 22,   ///< pipe(fds): one ring, read end first
     kDup            = 32,   ///< dup(fd): the same open, lowest free number
     kDup2           = 33,   ///< dup2(fd, target): the same open at target
-    kPipe2          = 293,  ///< pipe2(fds, flags): the ring, zero flags only
+    kPipe2          = 293,  ///< pipe2(fds, flags): optional close-on-exec ends
     kUname          = 63,   ///< uname(buf): name the system to the caller
     kFcntl          = 72,   ///< fcntl(fd, cmd, arg): descriptor knobs
     kGettimeofday   = 96,   ///< gettimeofday(tv, tz): wall clock, coarse
@@ -106,6 +111,18 @@ enum class SyscallNr : std::uint16_t {
     kClockGettime   = 228,  ///< clock_gettime(clk, tp): seconds and nanoseconds
     kClockNanosleep = 230,  ///< Relative or absolute sleep on a selected clock.
     kPrlimit64      = 302,  ///< prlimit64(pid, res, new, old): resource ceilings
+    kSendfile       = 40,
+    kEpollCreate1   = 291,  ///< Optional readiness facility.
+    kMremap         = 25,   ///< Optional remapping; callers may copy instead.
+    kMadvise        = 28,
+    kGetrusage      = 98,
+    kChmod          = 90,
+    kUmask          = 95,
+    kSetRobustList  = 273,
+    kRseq           = 334,
+    kClone3         = 435,
+    kFaccessat      = 269,
+    kFaccessat2     = 439,
     kGetrandom      = 318,  ///< getrandom(buf, len, flags): bytes no one can predict
     kOpenat         = 257,  ///< openat(dirfd, path, flags): open, relative to a descriptor
     kNewfstatat     = 262,  ///< newfstatat(dirfd, path, out): stat, relative to a descriptor
@@ -114,7 +131,8 @@ enum class SyscallNr : std::uint16_t {
     kReadlink       = 89,   ///< readlink(path, buf, size): what the one link stands for.
     kSysinfo        = 99,   ///< sysinfo(info): the machine's signs in one record.
     kNanosleep      = 35,   ///< nanosleep(asked, remain): park until the clock says.
-    kTgkill         = 200,  ///< tgkill(tgid, tid, sig): raise's own spelling.
+    kTkill          = 200,  ///< tkill(tid, sig).
+    kTgkill         = 234,  ///< tgkill(tgid, tid, sig): raise's own spelling.
     kRtSigtimedwait = 128,  ///< rt_sigtimedwait: answered try-again, never parked
     kMount          = 165,  ///< mount(source, target, type): seat a fresh tmpfs
     kUmount2        = 166,  ///< umount2(target, flags): take one runtime seat back
@@ -135,26 +153,28 @@ enum class SyscallNr : std::uint16_t {
 };
 
 /// Linux errno values the handlers can produce.
-inline constexpr int kEperm           = 1;    ///< The caller may not do this to the target.
-inline constexpr int kEnoent          = 2;    ///< No such file or directory.
-inline constexpr int kEsrch           = 3;    ///< No such task.
-inline constexpr int kEintr           = 4;    ///< The call was interrupted by a signal.
-inline constexpr int kEio             = 5;    ///< The volume read came back short.
-inline constexpr int kE2big           = 7;    ///< The argument list does not fit the entry page.
-inline constexpr int kEnoexec         = 8;    ///< The image is not one this kernel can run.
-inline constexpr int kEbadf           = 9;    ///< Not a descriptor the kernel serves.
-inline constexpr int kEchild          = 10;   ///< The wait names no child of the caller.
-inline constexpr int kEagain          = 11;   ///< Try again; nothing is ready right now.
-inline constexpr int kEnomem          = 12;   ///< The kernel has no room for this.
-inline constexpr int kEfault          = 14;   ///< The buffer does not live in the user half.
-inline constexpr int kEbusy           = 16;   ///< The resource still has active users.
-inline constexpr int kEexist          = 17;   ///< The name already exists.
-inline constexpr int kEnotdir         = 20;   ///< A path component is a file.
-inline constexpr int kEisdir          = 21;   ///< A file-only operation met a directory.
-inline constexpr int kEinval          = 22;   ///< Unusable argument.
-inline constexpr int kEmfile          = 24;   ///< The descriptor table has no room left.
-inline constexpr int kEnodev          = 19;   ///< No such interface exists.
-inline constexpr int kEnotty          = 25;   ///< Not a terminal.
+inline constexpr int kEperm           = 1;   ///< The caller may not do this to the target.
+inline constexpr int kEnoent          = 2;   ///< No such file or directory.
+inline constexpr int kEsrch           = 3;   ///< No such task.
+inline constexpr int kEintr           = 4;   ///< The call was interrupted by a signal.
+inline constexpr int kEio             = 5;   ///< The volume read came back short.
+inline constexpr int kE2big           = 7;   ///< The argument list does not fit the entry page.
+inline constexpr int kEnoexec         = 8;   ///< The image is not one this kernel can run.
+inline constexpr int kEbadf           = 9;   ///< Not a descriptor the kernel serves.
+inline constexpr int kEchild          = 10;  ///< The wait names no child of the caller.
+inline constexpr int kEagain          = 11;  ///< Try again; nothing is ready right now.
+inline constexpr int kEnomem          = 12;  ///< The kernel has no room for this.
+inline constexpr int kEfault          = 14;  ///< The buffer does not live in the user half.
+inline constexpr int kEbusy           = 16;  ///< The resource still has active users.
+inline constexpr int kEexist          = 17;  ///< The name already exists.
+inline constexpr int kEnotdir         = 20;  ///< A path component is a file.
+inline constexpr int kEisdir          = 21;  ///< A file-only operation met a directory.
+inline constexpr int kEinval          = 22;  ///< Unusable argument.
+inline constexpr int kEmfile          = 24;  ///< The descriptor table has no room left.
+inline constexpr int kEnodev          = 19;  ///< No such interface exists.
+inline constexpr int kEnotty          = 25;  ///< Not a terminal.
+inline constexpr int kEoverflow       = 75;
+inline constexpr int kEspipe          = 29;   ///< The open is a stream; it has no cursor to move.
 inline constexpr int kEpipe           = 32;   ///< The pipe's reader is gone.
 inline constexpr int kErange          = 34;   ///< The output buffer is too small.
 inline constexpr int kEnametoolong    = 36;   ///< The folded path overflows its buffer.
@@ -201,6 +221,7 @@ inline constexpr unsigned long long kOpenCreat = 0x40;
 /// rest ride the open for its whole life.
 inline constexpr unsigned long long kOpenAccMode   = 0x3;
 inline constexpr unsigned long long kOpenReadWrite = 2;
+inline constexpr unsigned long long kOpenWriteOnly = 1;
 inline constexpr unsigned long long kOpenAppend    = 0x400;
 inline constexpr unsigned long long kOpenNonblock  = 0x800;
 inline constexpr unsigned long long kOpenDirect    = 0x4000;
@@ -218,6 +239,7 @@ inline constexpr unsigned long long kOpenStatusMask =
 /// clone() flags, Linux-shaped. The served four overlay the fork
 /// child; the tid-word trio arms the join handshake the death side
 /// of futex answers.
+inline constexpr unsigned long long kCloneVfork  = 0x4000;
 inline constexpr unsigned long long kCloneVm     = 0x100;    ///< Share the address space.
 inline constexpr unsigned long long kCloneFiles  = 0x400;    ///< Share the descriptor table.
 inline constexpr unsigned long long kCloneThread = 0x10000;  ///< Join the maker's thread group.
@@ -251,7 +273,7 @@ inline constexpr unsigned long long kRebootMagic2   = 672274793;
 inline constexpr unsigned long long kRebootPowerOff = 0x4321FEDC;
 
 /// One past the highest served number; the dispatch table spans it.
-constexpr unsigned long long kSyscallCount = 319;
+constexpr unsigned long long kSyscallCount = 440;
 
 /// The lowest address that is none of ring 3's business.
 constexpr unsigned long long kUserAddressLimit = 0x0000800000000000ULL;

@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <string_view>
 
+#include "cinux/bit_ops/bitmask.hpp"
 #include "cinux/math.hpp"
 #include "cinux/memory.hpp"
 #include "cinux/path.hpp"
@@ -102,39 +103,111 @@ base::Result<void> Ext2::mount() {
     return {};
 }
 
+struct Ext2::SymlinkPlan {
+    std::string_view path;
+    unsigned long    parent_bytes;
+    std::string_view rest;
+    char*            pending;
+};
+
+base::Result<void> Ext2::expand_symlink(const Inode& inode, unsigned long ino,
+                                        const SymlinkPlan& plan) {
+    char       target[kFsPathMax]{};
+    const auto kBytes = inode.i_size;
+    if (kBytes == 0 || kBytes >= sizeof(target)) {
+        return base::KernelError::kInvalidArgument;
+    }
+    if (kBytes <= sizeof(inode.i_block) && inode.i_blocks == 0) {
+        base::CopyBytes(target, inode.i_block, kBytes);
+    } else {
+        const FsNode kLink{
+            .opaque = nullptr,
+            .type   = InodeType::kFile,
+            .ino    = ino,
+            .size   = kBytes,
+        };
+        const auto kRead = read(kLink, 0, target, kBytes);
+        if (!kRead.ok() || kRead.value() != kBytes) {
+            return base::KernelError::kIOError;
+        }
+    }
+    char                   expanded[kFsPathMax]{};
+    const std::string_view kParent = plan.path.substr(0, plan.parent_bytes);
+    const auto             kFold = base::FoldOntoPath(kParent, target, expanded, sizeof(expanded));
+    if (!kFold.ok || kFold.length + plan.rest.size() >= kFsPathMax) {
+        return base::KernelError::kInvalidArgument;
+    }
+    base::CopyBytes(expanded + kFold.length, plan.rest.data(), plan.rest.size());
+    base::CopyBytes(plan.pending, expanded, kFold.length + plan.rest.size());
+    plan.pending[kFold.length + plan.rest.size()] = '\0';
+    return {};
+}
+
+base::Result<Inode> Ext2::read_child(const Inode& parent, std::string_view name,
+                                     unsigned long& ino) {
+    const auto kChild = lookup_in_dir(parent, name);
+    if (!kChild.ok()) {
+        return kChild.error();
+    }
+    ino = kChild.value();
+    return read_inode(ino);
+}
+
 base::Result<FsNode> Ext2::lookup(std::string_view path) {
     if (!mounted_) {
         return base::KernelError::kIOError;
     }
 
-    unsigned long       current_ino = kRootInode;
-    base::Result<Inode> current     = read_inode(current_ino);
-    if (!current.ok()) {
-        return current.error();
+    char pending[kFsPathMax]{};
+    if (path.size() >= sizeof(pending)) {
+        return base::KernelError::kInvalidArgument;
     }
-
-    base::PathCursor walk{path};
-    std::string_view part;
-    while (base::NextComponent(walk, part)) {
-        const base::Result<unsigned long> kChild = lookup_in_dir(current.value(), part);
-        if (!kChild.ok()) {
-            return kChild.error();
-        }
-        current_ino = kChild.value();
-        current     = read_inode(current_ino);
+    base::CopyBytes(pending, path.data(), path.size());
+    for (unsigned int followed = 0; followed <= 40; ++followed) {
+        unsigned long current_ino = kRootInode;
+        auto          current     = read_inode(current_ino);
         if (!current.ok()) {
             return current.error();
         }
+        const std::string_view kPath{pending};
+        base::PathCursor       walk{kPath};
+        std::string_view       part;
+        bool                   redirected = false;
+        while (base::NextComponent(walk, part)) {
+            current = read_child(current.value(), part, current_ino);
+            if (!current.ok()) {
+                return current.error();
+            }
+            const base::bit::BitMask<std::uint32_t> kMode{current.value().i_mode};
+            constexpr base::bit::BitRange           kType{.low = 12, .width = 4};
+            if (kMode.extract(kType) != 0xA) {
+                continue;
+            }
+            const auto kParentBytes = static_cast<unsigned long>(part.data() - kPath.data());
+            const auto kExpanded    = expand_symlink(current.value(), current_ino,
+                                                     {
+                                                         .path         = kPath,
+                                                         .parent_bytes = kParentBytes,
+                                                         .rest         = walk.rest,
+                                                         .pending      = pending,
+                                                     });
+            if (!kExpanded.ok()) {
+                return kExpanded.error();
+            }
+            redirected = true;
+            break;
+        }
+        if (!redirected) {
+            const bool kDirectory = IsDirectoryMode(current.value().i_mode);
+            return FsNode{
+                .opaque = nullptr,
+                .type   = kDirectory ? InodeType::kDirectory : InodeType::kFile,
+                .ino    = current_ino,
+                .size   = kDirectory ? 0 : current.value().i_size,
+            };
+        }
     }
-
-    const Inode& node = current.value();
-    const bool   kDir = IsDirectoryMode(node.i_mode);
-    return FsNode{
-        .opaque = nullptr,
-        .type   = kDir ? InodeType::kDirectory : InodeType::kFile,
-        .ino    = current_ino,
-        .size   = kDir ? 0 : node.i_size,
-    };
+    return base::KernelError::kInvalidArgument;
 }
 
 base::Result<unsigned long> Ext2::read(FsNode node, unsigned long offset, void* sink,

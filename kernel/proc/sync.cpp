@@ -203,6 +203,15 @@ void Semaphore::wait() {
     Scheduler::self().schedule_blocked();
 }
 
+bool Semaphore::try_wait() {
+    const SpinGuard kGuard(spin_);
+    if (count_ == 0) {
+        return false;
+    }
+    --count_;
+    return true;
+}
+
 void Semaphore::post() {
     const SpinGuard kGuard(spin_);
     Task* const     kNext = waiters_.pop_head();
@@ -252,6 +261,11 @@ bool Completion::finished() const {
 bool Completion::success() const {
     const SpinGuard kGuard(spin_);
     return state_ == State::kSuccess;
+}
+
+void Completion::retire() {
+    cinux::base::safety::Check(waiters_.empty(), "retired completion still has waiters");
+    spin_.retire();
 }
 
 void Completion::rearm() {

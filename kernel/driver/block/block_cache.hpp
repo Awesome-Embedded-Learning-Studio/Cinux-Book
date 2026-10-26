@@ -39,7 +39,7 @@
 
 #include <stdint.h>
 
-#include "cinux/container/slot_table.hpp"
+#include "cinux/own.hpp"
 #include "kernel/driver/block/block_config.hpp"
 #include "kernel/driver/block/block_device_concept.hpp"
 #include "kernel/proc/sync.hpp"
@@ -54,10 +54,9 @@ class BlockQueue;
  *          page — and the slot's key is that page's number, the
  *          sector count divided down; sector asks and page keys are
  *          two names for one platter fact, so the translation is
- *          lossless in both directions. Replacement is a plain round
- *          robin — a teaching kernel favours obvious over clever,
- *          and the real thing's LRU is one station's text, not its
- *          code.
+ *          lossless in both directions. A hash index locates resident
+ *          pages; second-chance replacement preserves recently used pages.
+ *          Data buffers are allocated on demand within the memory budget.
  * @since   0.1.0
  * @ingroup kernel_driver
  */
@@ -69,7 +68,7 @@ public:
      * @param[in,out] queue   The queue serving the device; task
      *                        contexts only, per the queue's contract.
      * @param[in]     slot_count     Slots to keep, capped at
-     *                                kBlockCacheSlots; zero makes
+     *                                kBlockCacheMaxBytes; zero makes
      *                                every ask refuse.
      * @since         0.3.0
      * @ingroup       kernel_driver
@@ -159,13 +158,18 @@ private:
      * @ingroup kernel_driver
      */
     struct Slot {
-        unsigned long page{};           ///< The platter page these bytes hold.
-        bool          live  = false;    ///< Whether the bytes are filled.
-        bool          dirty = false;    ///< Whether the platter runs behind these bytes.
-        uint8_t*      bytes = nullptr;  ///< The page's bytes.
+        unsigned long page{};                ///< The platter page these bytes hold.
+        bool          live       = false;    ///< Whether the bytes are filled.
+        bool          dirty      = false;    ///< Whether the platter runs behind these bytes.
+        uint8_t*      bytes      = nullptr;  ///< The page's bytes.
+        unsigned long next_hash  = ~0UL;     ///< Next slot in this hash chain.
+        bool          referenced = false;    ///< Accessed since the replacement hand passed.
     };
 
-    [[nodiscard]] Slot* claim_slot(unsigned long page);
+    [[nodiscard]] Slot*         claim_slot(unsigned long page);
+    [[nodiscard]] unsigned long find_slot(unsigned long page) const;
+    [[nodiscard]] unsigned long choose_victim();
+    void                        remove_index(unsigned long index);
 
     /**
      * @brief         Writes one live slot's bytes to its page.
@@ -182,8 +186,10 @@ private:
     unsigned long slot_bytes_ = 0;
     unsigned long slot_total_ = 0;
 
-    base::container::SlotTable<Slot, kBlockCacheSlots> slots_;
-    unsigned long                                      next_ = 0;
+    base::Own<Slot[]>          slots_;
+    base::Own<unsigned long[]> buckets_;
+    unsigned long              bucket_count_ = 0;
+    unsigned long              next_         = 0;
 
     proc::Mutex gate_;
 };

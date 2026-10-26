@@ -1,10 +1,12 @@
 #include "kernel/syscall/sys_exec.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <string_view>
 #include <utility>
 
+#include "cinux/literal_types.hpp"
 #include "cinux/math.hpp"
 #include "cinux/memory.hpp"
 #include "cinux/own.hpp"
@@ -21,6 +23,7 @@
 #include "kernel/fs/fs_config.hpp"
 #include "kernel/fs/vfs.hpp"
 #include "kernel/loader/elf_layout.hpp"
+#include "kernel/loader/exec_arguments.hpp"
 #include "kernel/loader/loader.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/layout.hpp"
@@ -28,6 +31,7 @@
 #include "kernel/mm/vma.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/signals.hpp"
+#include "kernel/proc/sync.hpp"
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
@@ -36,6 +40,8 @@
 namespace cinux::syscall {
 
 namespace {
+
+using base::operator""_KiB;
 
 constexpr unsigned long long kUserFlags = 0x202;
 
@@ -79,74 +85,157 @@ const std::uint8_t* draw_entry_random(unsigned char (&bytes)[16]) {
     return drawn > 0 ? bytes : nullptr;
 }
 
-/// How many argument or environment runs one exec may carry, and how
-/// many bytes of their strings; the entry picture lives in one page and
-/// the words alone claim a tenth of it, so the budgets stay loud.
-constexpr unsigned long kMaxEntryWords  = 16;
-constexpr unsigned long kEntryTextBytes = 512;
-
-/// The one environment run a caller with no environment still gets:
-/// where PATH searches look, so a hosted shell finds /bin without
-/// falling back on its compiled-in guess.
-char g_default_path[] = "PATH=/bin:/usr/bin";
-
-/// Copies one null-terminated user run into the staging pool; false
-/// when the run walks out of the user half or out of budget.
-bool stage_user_run(unsigned long address, char* pool, unsigned long& pool_used, char*& landed) {
-    if (address == 0 || address >= kUserAddressLimit) {
-        return false;
+/// One load bias for the seat the program image takes: zero serves the
+/// fixed-base shape whose link addresses already place it, the floor
+/// plus a page-aligned slide serves the relocatable shape whose link
+/// addresses start at zero.
+unsigned long long image_load_bias(const unsigned char* program, std::size_t program_size) {
+    if (!loader::ProgramNeedsLoadBias(program, program_size)) {
+        return 0;
     }
-    const unsigned long     kBudget     = kEntryTextBytes - pool_used;
-    constexpr unsigned long kChunkBytes = 64;
-    unsigned long           done        = 0;
+    constexpr unsigned long long kExecSlideMask = 0xFF'000;
+    return mm::kUserExecImageBase + (arch::RandomWord() & kExecSlideMask);
+}
+
+struct EntryStaging {
+    base::Own<char[]>        text;
+    base::Own<const char*[]> arguments;
+    base::Own<const char*[]> environment;
+    unsigned long            used{};
+    unsigned long            capacity{};
+};
+
+long long count_user_vector(unsigned long address, unsigned long budget, unsigned long& count) {
+    count = 0;
+    if (address == 0) {
+        return 0;
+    }
+    for (;;) {
+        unsigned long word = 0;
+        if (address >= kUserAddressLimit || count > (kUserAddressLimit - address) / sizeof(word) ||
+            !uaccess::CopyFromUser(&word, address + (count * sizeof(word)), sizeof(word))) {
+            return -kEfault;
+        }
+        if (word == 0) {
+            return 0;
+        }
+        if (count >= loader::kMaxArgumentStrings || count >= budget / sizeof(word)) {
+            return -kE2big;
+        }
+        ++count;
+    }
+}
+
+long long stage_user_string(unsigned long address, EntryStaging& staged, const char*& landed) {
+    const auto kBudget =
+        base::math::Min(staged.capacity - staged.used, loader::kMaxArgumentStringBytes);
+    unsigned long done = 0;
     while (done < kBudget) {
-        const unsigned long kInPage =
-            cinux::arch::page::kSize - ((address + done) % cinux::arch::page::kSize);
-        const unsigned long kChunk = std::min({kChunkBytes, kBudget - done, kInPage});
-        if (!uaccess::CopyFromUser(pool + pool_used + done, address + done, kChunk)) {
-            return false;
+        constexpr unsigned long kCopyChunk = 64;
+        if (address >= kUserAddressLimit || done >= kUserAddressLimit - address) {
+            return -kEfault;
+        }
+        const auto kInPage = arch::page::kSize - ((address + done) % arch::page::kSize);
+        const auto kChunk  = std::min({kCopyChunk, kBudget - done, kInPage});
+        if (!uaccess::CopyFromUser(staged.text.get() + staged.used + done, address + done,
+                                   kChunk)) {
+            return -kEfault;
         }
         for (unsigned long index = done; index < done + kChunk; ++index) {
-            if (pool[pool_used + index] == '\0') {
-                landed = pool + pool_used;
-                pool_used += index + 1;
-                return true;
+            if (staged.text[staged.used + index] == '\0') {
+                landed = staged.text.get() + staged.used;
+                staged.used += index + 1;
+                return 0;
             }
         }
         done += kChunk;
     }
-    return false;
+    return -kE2big;
 }
 
-/// Stages one user pointer array into kernel terms; counts the run
-/// first, then copies, refusing arrays longer than the budget.
-bool stage_user_vector(unsigned long user_words, char* pool, unsigned long& pool_used,
-                       char** staged) {
-    if (user_words == 0) {
-        return true;
-    }
-    unsigned long long words[kMaxEntryWords + 1] = {};
-    unsigned long      total                     = 0;
-    for (unsigned long index = 0; index <= kMaxEntryWords; ++index) {
-        if (!uaccess::CopyFromUser(&words[index], user_words + (index * sizeof(words[0])),
-                                   sizeof(words[0]))) {
-            return false;
+long long stage_user_vector(unsigned long address, unsigned long count, EntryStaging& staged,
+                            const char** vector) {
+    for (unsigned long index = 0; index < count; ++index) {
+        unsigned long word = 0;
+        if (!uaccess::CopyFromUser(&word, address + (index * sizeof(word)), sizeof(word)) ||
+            word == 0) {
+            return -kEfault;
         }
-        if (words[index] == 0) {
-            total = index;
-            break;
+        const auto kResult = stage_user_string(word, staged, vector[index]);
+        if (kResult < 0) {
+            return kResult;
         }
     }
-    if (words[total] != 0) {
-        return false;
+    return 0;
+}
+
+long long stage_arguments(const SyscallFrame& frame, const char* path, EntryStaging& staged) {
+    const auto    kStackLimit = CurrentTask()->limits[proc::kResourceStack][0];
+    const auto    kTotal      = loader::ArgumentStringBudget(kStackLimit, 0, 0);
+    unsigned long argc        = 0;
+    unsigned long envc        = 0;
+    auto          result      = count_user_vector(frame.rsi, kTotal.value(), argc);
+    if (result < 0) {
+        return result;
     }
-    for (unsigned long index = 0; index < total; ++index) {
-        const auto kRun = static_cast<unsigned long>(words[index]);
-        if (!stage_user_run(kRun, pool, pool_used, staged[index])) {
-            return false;
+    result = count_user_vector(frame.rdx, kTotal.value(), envc);
+    if (result < 0) {
+        return result;
+    }
+    const auto kBudget = loader::ArgumentStringBudget(kStackLimit, argc, envc);
+    if (!kBudget.ok()) {
+        return -kE2big;
+    }
+    staged.capacity = kBudget.value();
+    staged.text.reset(new char[staged.capacity]);
+    staged.arguments.reset(new const char*[base::math::Max(argc, 1UL) + 1]{});
+    staged.environment.reset(new const char*[envc + 1]{});
+    if (!staged.text.holds() || !staged.arguments.holds() || !staged.environment.holds()) {
+        return -kEnomem;
+    }
+    unsigned long path_bytes = 0;
+    while (path[path_bytes] != '\0') {
+        ++path_bytes;
+    }
+    if (path_bytes + 1 > staged.capacity) {
+        return -kE2big;
+    }
+    base::CopyBytes(staged.text.get(), path, path_bytes + 1);
+    staged.used = path_bytes + 1;
+    result      = stage_user_vector(frame.rsi, argc, staged, staged.arguments.get());
+    if (result < 0) {
+        return result;
+    }
+    if (argc == 0) {
+        if (staged.used == staged.capacity) {
+            return -kE2big;
+        }
+        staged.arguments[0]        = staged.text.get() + staged.used;
+        staged.text[staged.used++] = '\0';
+    }
+    return stage_user_vector(frame.rdx, envc, staged, staged.environment.get());
+}
+
+long long map_entry_stack(const mm::AddressSpace& space, const loader::EntryStack& stack,
+                          bool executable) {
+    const auto kStart = base::math::AlignDown(stack.base, arch::page::kSize);
+    const auto kEnd   = stack.base + stack.capacity;
+    for (auto page = kStart; page < kEnd; page += arch::page::kSize) {
+        const auto kFrame = mm::Pmm::self().allocate_page();
+        if (kFrame == mm::Pmm::PhysAddr{}) {
+            return -kEnomem;
+        }
+        auto* const kBytes = base::PtrAt<unsigned char>(mm::DirectMapVirt(kFrame.raw));
+        base::SetBytes(kBytes, 0, arch::page::kSize);
+        const auto kFrom  = base::math::Max(page, stack.base);
+        const auto kUntil = base::math::Min(page + arch::page::kSize, kEnd);
+        base::CopyBytes(kBytes + kFrom - page, stack.bytes + kFrom - stack.base, kUntil - kFrom);
+        if (!space.map_user(page, kFrame.raw, arch::page::UserLeafTerms(true, executable))) {
+            mm::Pmm::self().free_page(kFrame);
+            return -kEnomem;
         }
     }
-    return true;
+    return 0;
 }
 
 }  // namespace
@@ -161,46 +250,40 @@ long long HandleExecve(const SyscallFrame& frame) {
     if (!kView.ok()) {
         return -kEnoent;
     }
-    unsigned long              program_size = 0;
-    base::Own<unsigned char[]> program;
-    const base::Result<void>   kRead = fs::ReadWholeFile(kView.value(), program, program_size);
-    if (!kRead.ok()) {
-        return -ErrnoFrom(kRead.error());
-    }
-    proc::Task* const              kSelf = CurrentTask();
     const base::Result<fs::FsNode> kNode =
         kView.value().ops->lookup(kView.value().self, kView.value().rest);
     if (!kNode.ok()) {
         return -kEnoent;
     }
+    fs::FsStat                 probed{};
+    unsigned long              program_size = 0;
+    base::Own<unsigned char[]> program;
+    if (kView.value().ops->stat == nullptr ||
+        !kView.value().ops->stat(kView.value().self, kNode.value(), probed).ok() ||
+        !fs::ReadFilePrefix(kView.value(), 64_KiB, program, program_size).ok()) {
+        return -kEio;
+    }
+    proc::Task* const              kSelf = CurrentTask();
     base::Shared<mm::AddressSpace> fresh(new mm::AddressSpace{});
     base::Shared<mm::VmaStore>     ranges(new mm::VmaStore{});
     if (!fresh.holds() || !ranges.holds() || !fresh->init()) {
         return -kEnomem;
     }
-    char          argument_pool[kEntryTextBytes] = {};
-    char*         argv_words[kMaxEntryWords + 1] = {};
-    char*         envp_words[kMaxEntryWords + 1] = {};
-    unsigned long pool_used                      = 0;
-    if (frame.rsi == 0) {
-        argv_words[0] = path;
-    } else if (!stage_user_vector(frame.rsi, argument_pool, pool_used, argv_words)) {
-        return -kE2big;
+    EntryStaging staged;
+    const auto   kStaged = stage_arguments(frame, path, staged);
+    if (kStaged < 0) {
+        return kStaged;
     }
-    if (frame.rdx != 0) {
-        if (!stage_user_vector(frame.rdx, argument_pool, pool_used, envp_words)) {
-            return -kE2big;
-        }
-    } else {
-        envp_words[0] = g_default_path;
-    }
-    const loader::LoadWorld kWorld{
+    const unsigned long long kImageBias = image_load_bias(program.get(), program_size);
+    const loader::LoadWorld  kWorld{
         .space         = *fresh,
         .vmas          = *ranges,
         .file          = kNode.value(),
+        .file_bytes    = probed.size,
         .file_ops      = kView.value().ops,
         .file_self     = kView.value().self,
         .file_lifetime = kView.value().lifetime,
+        .base          = kImageBias,
     };
     loader::EntryFacts facts{};
     if (!loader::LoadElfIntoSpace(program.get(), program_size, kWorld, facts)) {
@@ -237,8 +320,33 @@ long long HandleExecve(const SyscallFrame& frame) {
     constexpr unsigned long long kStackSlideMask = 0x7FF'000;
     const unsigned long long     kStackTop =
         proc::kUserProgramStackTop - (arch::RandomWord() & kStackSlideMask);
+    if (!proc::MapSignalTrampoline(*fresh, *ranges)) {
+        return -kEnomem;
+    }
+    unsigned char entry_random[16] = {};
+    facts.randomness               = draw_entry_random(entry_random);
+    if (facts.randomness != nullptr) {
+        facts.random_bytes = sizeof(entry_random);
+    }
+    facts.executable = staged.text.get();
+    const loader::EntryRuns kRuns{
+        .arguments   = staged.arguments.get(),
+        .environment = staged.environment.get(),
+    };
+    const auto kPictureBytes = base::math::AlignUp(loader::EntryPictureBytes(kRuns, facts), 16UL);
+    const auto kStackRegionFloor = proc::SignalTrampolineAddress() + arch::page::kSize;
+    const auto kAvailableStack   = kStackTop - kStackRegionFloor - arch::page::kSize;
+    if (kPictureBytes > kAvailableStack) {
+        return -kE2big;
+    }
     mm::VmaRegion stack_range{};
-    stack_range.start      = kStackTop - mm::kUserStackBytes - cinux::arch::page::kSize;
+    const auto    kStackLimit = kSelf->limits[proc::kResourceStack][0];
+    const auto    kStackSpan  = base::math::Max(
+        base::math::AlignDown(
+            base::math::Min(static_cast<unsigned long>(kStackLimit), kAvailableStack),
+            arch::page::kSize),
+        base::math::AlignUp(kPictureBytes, arch::page::kSize));
+    stack_range.start      = kStackTop - kStackSpan - cinux::arch::page::kSize;
     stack_range.end        = kStackTop;
     stack_range.kind       = mm::VmaKind::kStack;
     stack_range.readable   = true;
@@ -247,29 +355,28 @@ long long HandleExecve(const SyscallFrame& frame) {
     if (!ranges->register_range(stack_range).ok()) {
         return -kEnomem;
     }
-    const mm::Pmm::PhysAddr kStackFrame = mm::Pmm::self().allocate_page();
-    if (kStackFrame == mm::Pmm::PhysAddr{}) {
+    const base::Own<unsigned char[]> kStackBytes(new unsigned char[kPictureBytes]{});
+    if (!kStackBytes.holds()) {
         return -kEnomem;
     }
-    cinux::base::SetBytes(cinux::base::PtrAt<unsigned char>(mm::DirectMapVirt(kStackFrame.raw)), 0,
-                          cinux::arch::page::kSize);
-    if (!fresh->map_user(kStackTop - cinux::arch::page::kSize, kStackFrame.raw,
-                         cinux::arch::page::UserLeafTerms(true, kStackExecutable))) {
-        mm::Pmm::self().free_page(kStackFrame);
-        return -kEnomem;
+    const auto               kEntryRsp = kStackTop - kPictureBytes;
+    const loader::EntryStack kStack{
+        .bytes    = kStackBytes.get(),
+        .base     = kEntryRsp,
+        .capacity = kPictureBytes,
+        .rsp      = kEntryRsp,
+    };
+    if (loader::WriteEntryPicture(kStack, kRuns, facts) == 0) {
+        return -kE2big;
     }
-    if (!proc::MapSignalTrampoline(*fresh, *ranges)) {
-        return -kEnomem;
+    const auto kMapped = map_entry_stack(*fresh, kStack, kStackExecutable);
+    if (kMapped < 0) {
+        return kMapped;
     }
     kSelf->signals.reset();
     kSelf->clear_child_tid = 0;
     kSelf->files->close_on_exec();
     note_program_identity(*kSelf, path);
-    unsigned char entry_random[16] = {};
-    facts.randomness               = draw_entry_random(entry_random);
-    if (facts.randomness != nullptr) {
-        facts.random_bytes = sizeof(entry_random);
-    }
     // The dying worlds must not come apart while CR3 still walks them:
     // park the old holds aside, switch, and let them go at scope end.
     // NOLINTNEXTLINE(misc-const-correctness) the dying worlds go at scope end
@@ -280,19 +387,16 @@ long long HandleExecve(const SyscallFrame& frame) {
     kSelf->vmas                               = std::move(ranges);
     kSelf->user_root                          = kSelf->space->root();
     kSelf->space->activate();
-    auto&                    mutable_frame = const_cast<SyscallFrame&>(frame);
-    const loader::EntryRuns  kRuns{.arguments = argv_words, .environment = envp_words};
-    const unsigned long long kEntryRsp =
-        kStackTop - cinux::arch::page::kSize + proc::kUserEntryStackOffset;
-    if (loader::WriteEntryPicture(
-            cinux::base::PtrAt<unsigned char>(mm::DirectMapVirt(kStackFrame.raw)), kEntryRsp, kRuns,
-            facts) == 0) {
-        return -kE2big;
-    }
+    auto& mutable_frame    = const_cast<SyscallFrame&>(frame);
     mutable_frame.user_rsp = kEntryRsp;
     mutable_frame.rcx      = kFirstInstruction;
     mutable_frame.r11      = kUserFlags;
     mutable_frame.rax      = 0;
+    if (kSelf->vfork_done != nullptr) {
+        auto* const kDone = kSelf->vfork_done;
+        kSelf->vfork_done = nullptr;
+        kDone->finish(true);
+    }
     return 0;
 }
 

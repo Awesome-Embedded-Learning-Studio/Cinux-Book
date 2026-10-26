@@ -75,6 +75,9 @@ inline constexpr unsigned long kUserEntryStackOffset = 0x200;
 /// (RLIMIT_RTTIME) and one past it closes the table.
 inline constexpr unsigned int kResourceLimitCount = 16;
 
+/** @brief Linux RLIMIT_STACK resource index. */
+inline constexpr unsigned int kResourceStack = 3;
+
 /// The ceiling word that answers "no ceiling": RLIM_INFINITY in the
 /// same uapi table.
 inline constexpr unsigned long long kResourceLimitInfinity = ~0ULL;

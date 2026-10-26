@@ -73,6 +73,21 @@ public:
      */
     void add_writer();
 
+    /** @brief Records one open read description. */
+    void                        add_reader();
+    /** @brief Records a read description's final release. */
+    void                        drop_reader();
+    /**
+     * @brief Writes available pipe bytes without parking.
+     * @param[in] source Kernel-side source bytes.
+     * @param[in] count Requested byte count.
+     * @return Bytes written, kWouldBlock on a full pipe, or kBrokenPipe.
+     * @since 0.8.0
+     * @ingroup kernel_fs
+     */
+    base::Result<unsigned long> try_push(const void* source, unsigned long count);
+
+
     /**
      * @brief     Records one writer leaving; the last one wakes every
      *            reader.
@@ -87,11 +102,20 @@ public:
     [[nodiscard]] bool has_room() const;
 
 private:
+    /**
+     * @brief Reserves room and publishes one byte without parking.
+     * @param[in] byte The byte to append.
+     * @return Ok, WouldBlock, BrokenPipe, or an internal I/O error.
+     * @since 0.8.0
+     * @ingroup kernel_fs
+     */
+    base::KernelError                                         push_available(unsigned char byte);
     base::container::RingQueue<unsigned char, kPipeBytes + 1> ring_;
     mutable proc::Spinlock                                    ring_gate_;
     proc::Semaphore                                           readable_;
     proc::Semaphore                                           writable_;
     unsigned long                                             writers_  = 0;
+    unsigned long                                             readers_  = 0;
     unsigned long                                             identity_ = 0;
 };
 

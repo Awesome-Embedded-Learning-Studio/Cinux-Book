@@ -85,7 +85,7 @@ bool read_volume_file(const char* path, base::Own<unsigned char[]>& out, unsigne
         return false;
     }
     view = kView.value();
-    return fs::ReadWholeFile(view, out, out_bytes).ok();
+    return fs::ReadFilePrefix(view, 65536, out, out_bytes).ok();
 }
 
 /// One built shell world: the space and its range register, seat-ready.
@@ -114,10 +114,15 @@ ShellWorld build_shell_world(std::uint64_t& entry) {
     if (!kNode.ok()) {
         return {};
     }
+    fs::FsStat probed{};
+    if (view.ops->stat == nullptr || !view.ops->stat(view.self, kNode.value(), probed).ok()) {
+        return {};
+    }
     const loader::LoadWorld kWorld{
         .space         = *space,
         .vmas          = *vmas,
         .file          = kNode.value(),
+        .file_bytes    = probed.size,
         .file_ops      = view.ops,
         .file_self     = view.self,
         .file_lifetime = view.lifetime,

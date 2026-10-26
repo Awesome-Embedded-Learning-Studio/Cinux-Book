@@ -63,11 +63,13 @@ inline constexpr std::uint16_t kTypeShared = 3;
 /// The one machine served: x86-64.
 inline constexpr std::uint16_t kMachineX8664 = 0x3E;
 
-/// Which seat an image is parsed for. The seats differ in one fact —
-/// the file type they accept — and that fact decides which images
-/// parse and which refuse.
+/// Which seat an image is parsed for. The interpreter seat takes one
+/// shape, the shared object; the program seat takes two — the
+/// fixed-base executable, whose link addresses already place it, and
+/// the position-independent executable, whose link addresses start at
+/// zero and therefore need a load bias.
 enum class ImageRole : std::uint8_t {
-    kProgram,      ///< The exec path's main image: fixed-base executable.
+    kProgram,      ///< The exec path's main image: ET_EXEC or ET_DYN.
     kInterpreter,  ///< The image a PT_INTERP names: shared object.
 };
 
@@ -174,5 +176,24 @@ struct ElfImage {
  */
 [[nodiscard]] bool ReadGnuStackFlags(const std::uint8_t* data, std::size_t bytes,
                                      std::uint32_t& flags);
+
+/**
+ * @brief         Asks whether a program image needs a load bias to land.
+ * @param[in]     data    The image bytes.
+ * @param[in]     bytes   How many are readable at data.
+ * @return        True when the program seat accepts the image and its
+ *                file type is the shared-object type, the shape a
+ *                position-independent executable carries; false for a
+ *                fixed-base image or one the seat refuses.
+ * @note          The question separates the two shapes the program seat
+ *                takes: the fixed-base image lands where its link
+ *                addresses say, the relocatable one needs the exec path
+ *                to choose a base.
+ * @warning       None
+ * @throws        None
+ * @since         0.4.0
+ * @ingroup       kernel_loader
+ */
+[[nodiscard]] bool ProgramNeedsLoadBias(const std::uint8_t* data, std::size_t bytes);
 
 }  // namespace cinux::loader

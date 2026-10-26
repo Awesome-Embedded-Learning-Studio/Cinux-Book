@@ -125,6 +125,7 @@ VmaStore* VmaStore::clone() const {
     }
     copy->heap_          = heap_;
     copy->heap_max_      = heap_max_;
+    copy->heap_break_    = heap_break_;
     copy->heap_recorded_ = heap_recorded_;
     copy->mmap_ceiling_  = mmap_ceiling_;
     for (const VmaRegion* scan = regions_.head(); scan != nullptr; scan = regions_.after(*scan)) {
@@ -170,6 +171,7 @@ void VmaStore::seed_heap(unsigned long base, unsigned long max) {
     heap_.executable  = false;
     heap_.backing     = {};
     heap_.file_offset = 0;
+    heap_break_       = base;
     heap_max_         = max;
     heap_recorded_    = false;
 }
@@ -179,10 +181,12 @@ base::Result<unsigned long> VmaStore::move_heap_end(unsigned long target) {
         return base::KernelError::kNotFound;
     }
     if (target == 0) {
-        return heap_.end;
+        return heap_break_;
     }
-    const unsigned long kWanted =
-        cinux::base::math::Clamp(cinux::base::math::AlignUp(target, kSize), heap_.start, heap_max_);
+    if (target < heap_.start || target > heap_max_) {
+        return base::KernelError::kInvalidArgument;
+    }
+    const unsigned long kWanted = cinux::base::math::AlignUp(target, kSize);
     if (kWanted > heap_.end) {
         for (const VmaRegion* scan = regions_.head(); scan != nullptr;
              scan                  = regions_.after(*scan)) {
@@ -208,8 +212,9 @@ base::Result<unsigned long> VmaStore::move_heap_end(unsigned long target) {
             return kRemoved.error();
         }
     }
-    heap_.end = kWanted;
-    return kWanted;
+    heap_.end   = kWanted;
+    heap_break_ = target;
+    return target;
 }
 
 base::Result<unsigned long> VmaStore::find_free_spot(unsigned long ceiling,
@@ -243,24 +248,12 @@ base::Result<void> VmaStore::unregister_range(unsigned long start, unsigned long
         return base::KernelError::kInvalidArgument;
     }
     if (!heap_recorded_ && heap_.start < heap_.end && overlaps_span(heap_, start, end)) {
-        if (end < heap_.end) {
-            auto* const kTail = new VmaRegion{};
-            if (kTail == nullptr) {
-                return base::KernelError::kOutOfMemory;
-            }
-            kTail->start      = end;
-            kTail->end        = heap_.end;
-            kTail->kind       = VmaKind::kAnonymous;
-            kTail->readable   = heap_.readable;
-            kTail->writable   = heap_.writable;
-            kTail->executable = heap_.executable;
-            regions_.push_back(*kTail);
+        auto* const kExisting = new VmaRegion(heap_);
+        if (kExisting == nullptr) {
+            return base::KernelError::kOutOfMemory;
         }
-        if (start <= heap_.start) {
-            heap_.end = heap_.start;
-        } else {
-            heap_.end = start;
-        }
+        regions_.push_back(*kExisting);
+        heap_recorded_ = true;
     }
     for (VmaRegion* scan = regions_.head(); scan != nullptr;) {
         VmaRegion* const kNext = regions_.after(*scan);

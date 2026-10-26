@@ -24,3 +24,17 @@ lockdep 沿用 legacy 的锁顺序图思路，适配当前单核、关中断的 
 锁身份按地址记录。默认账本中的临时锁在存储回收前必须调用 `Spinlock::retire()`，或使用随测试世界一起销毁的独立 SpinLedger；RamFs 析构已接入 retire。常驻内核锁保持平凡析构，以满足常量初始化单例的约束。图最多记录 64 把锁、16 层同时持有，达到上限会失败，不能静默丢弃边。
 
 当前 lockdep 覆盖自旋锁获取顺序，不代表完整 Mutex 持有顺序验证或 SMP 检查。Host TSan 也不检测真实 IRQ/汇编上下文切换。这些边界必须与结果一起说明；后续真实并发逻辑应新增相应并发用例。
+
+站 34 的完整内核自编译实弹使用独立磁盘，先组装源码卷，再启动 KVM：
+
+```sh
+cmake -S . -B build
+cmake --build build --parallel 4 --target kernel_selfhost_volume
+python3 scripts/test_station34_kernel_selfhost.py
+```
+
+宿主导出当前 CMake 配置的编译、链接命令，准备 GCC/G++、binutils、Python 运行环境、源码、生成配置和引导器。源码卷不携带内核对象或已链接内核。Cinux 从空输出目录编译全部内核源文件，在机内生成资源对象和 kallsyms、完成两轮链接、核验镜像头并封装启动盘，经 `fsync` 落盘。验收脚本关闭 QEMU 后提取产物，核对机内 SHA-256，再用这个产物启动，并重新编译、运行 hello。
+
+产物是 `build/boot/cinux-selfhost.img` 和 `build/kernel/cinux_kernel_selfhost`；编译及重启日志分别为 `build/station34-kernel-selfhost.serial.log`、`build/station34-kernel-selfhost-reboot.serial.log`。源码卷为 256 MiB，guest 内存为 512 MiB。该步骤编译完整内核；引导器和用户态工具链作为自举输入保留。`build-checks` 可用同样的目标和 `--image build-checks/boot/cinux.img` 验证内核检查配置。全部构建树与 QEMU 仍须串行运行。
+
+第一批性能优化将根文件系统块缓存从固定 32 KiB 改为按初始化时空闲 RAM 的 1/32 预算、最大 64 MiB，缓存页按需分配，使用哈希索引与 CLOCK 淘汰。2026-10-26 在相同 KVM、2 vCPU、512 MiB、串行编译及原有 `-g -O2` 参数下，前后匹配的 138 个编译单元累计耗时为 834.685s / 281.288s，约快 2.97 倍；完整 188 次编译、两轮链接及镜像封装共 369.811s，产物启动与 GCC 编译运行通过。旧基线在后续目录容量限制处失败，因此只比较双方完成的相同单元，不作完整构建耗时对比。ext2 目录按需增长、动态描述符表及 `RLIMIT_NOFILE` 同时保证完整链接能够完成；统一文件页缓存、目录项缓存及并行构建留待后续测量。

@@ -13,11 +13,12 @@
 namespace {
 
 struct FakeFs {
-    cinux::base::KernelError lookup_error = cinux::base::KernelError::kOk;
-    cinux::base::KernelError stat_error   = cinux::base::KernelError::kOk;
-    cinux::base::KernelError read_error   = cinux::base::KernelError::kOk;
-    unsigned long            file_bytes   = 0;
-    unsigned long            read_bytes   = 0;
+    cinux::base::KernelError lookup_error    = cinux::base::KernelError::kOk;
+    cinux::base::KernelError stat_error      = cinux::base::KernelError::kOk;
+    cinux::base::KernelError read_error      = cinux::base::KernelError::kOk;
+    unsigned long            file_bytes      = 0;
+    unsigned long            read_bytes      = 0;
+    mutable unsigned long    requested_bytes = 0;
     void                     retain([[maybe_unused]] cinux::fs::FsNode node) {}
     void                     release([[maybe_unused]] cinux::fs::FsNode node) {}
     bool                     readable([[maybe_unused]] cinux::fs::FsNode node) { return true; }
@@ -64,6 +65,7 @@ struct FakeFs {
                                             [[maybe_unused]] unsigned long     offset,
                                             [[maybe_unused]] void*             sink,
                                             [[maybe_unused]] unsigned long     count) const {
+        requested_bytes = count;
         if (read_error != cinux::base::KernelError::kOk) {
             return read_error;
         }
@@ -282,4 +284,33 @@ TEST("vfs: resolved views retain a detached backend until their last release") {
 
 int main() {
     return cinux::test::RunAll();
+}
+
+static void check_prefix_contents(const FakeFs&                            backend,
+                                  const cinux::base::Own<unsigned char[]>& bytes,
+                                  unsigned long                            count) {
+    ASSERT_EQ(backend.requested_bytes, 64UL);
+    ASSERT_EQ(count, 64UL);
+    ASSERT_EQ(bytes[63], 63U);
+}
+
+TEST("vfs: prefix reads cap I/O and preserve the prior buffer on a short read") {
+    FakeFs                  backend;
+    const auto              kOps = cinux::fs::EraseFs<FakeFs>();
+    const cinux::fs::FsView kView{.ops = &kOps, .self = &backend, .rest = "image"};
+    backend.file_bytes = 1024UL * 1024;
+    backend.read_bytes = 64;
+    cinux::base::Own<unsigned char[]> bytes;
+    unsigned long                     count = 0;
+    ASSERT_TRUE(cinux::fs::ReadFilePrefix(kView, 64, bytes, count).ok());
+    check_prefix_contents(backend, bytes, count);
+    const auto* const kPrevious = bytes.get();
+    backend.read_bytes          = 32;
+    ASSERT_FALSE(cinux::fs::ReadFilePrefix(kView, 64, bytes, count).ok());
+    ASSERT_EQ(bytes.get(), kPrevious);
+    ASSERT_EQ(count, 64UL);
+    backend.read_bytes = 0;
+    ASSERT_TRUE(cinux::fs::ReadFilePrefix(kView, 0, bytes, count).ok());
+    ASSERT_EQ(backend.requested_bytes, 0UL);
+    ASSERT_EQ(count, 0UL);
 }

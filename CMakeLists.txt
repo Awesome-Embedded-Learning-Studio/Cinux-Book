@@ -39,6 +39,23 @@ add_custom_command(
             ${CMAKE_SOURCE_DIR}/user/rootfs/busybox/busybox.config
     COMMENT "glibc busybox for the ecosystem volume")
 add_custom_target(busybox_glibc DEPENDS ${CINUX_BUSYBOX_GLIBC})
+add_library(selfhost_seed_checks OBJECT EXCLUDE_FROM_ALL
+    scripts/ext2_seed/hello.cpp scripts/ext2_seed/execprobe.c scripts/ext2_seed/sendfileprobe.c)
+target_link_libraries(selfhost_seed_checks PRIVATE cinux_warnings)
+set(CINUX_TOOLCHAIN_STAGING ${CMAKE_BINARY_DIR}/toolchain-staging)
+add_custom_command(
+    OUTPUT ${CINUX_TOOLCHAIN_STAGING}/hello.s
+    COMMAND ${CMAKE_COMMAND} -E env
+            "CINUX_ROOTFS_CACHE=${CMAKE_SOURCE_DIR}/.cache/rootfs"
+            bash ${CMAKE_SOURCE_DIR}/scripts/build-toolchain-staging.sh ${CINUX_TOOLCHAIN_STAGING}
+    DEPENDS selfhost_seed_checks
+            ${CMAKE_SOURCE_DIR}/scripts/build-toolchain-staging.sh
+            ${CMAKE_SOURCE_DIR}/scripts/ext2_seed/hello.c
+            ${CMAKE_SOURCE_DIR}/scripts/ext2_seed/hello.cpp
+            ${CMAKE_SOURCE_DIR}/scripts/ext2_seed/execprobe.c
+            ${CMAKE_SOURCE_DIR}/scripts/ext2_seed/sendfileprobe.c
+    COMMENT "GCC/G++ toolchain staging for the self-host volume")
+add_custom_target(toolchain_staging DEPENDS ${CINUX_TOOLCHAIN_STAGING}/hello.s)
 add_custom_command(
     OUTPUT ${CINUX_HELLO_GLIBC}
     COMMAND bash ${CMAKE_SOURCE_DIR}/scripts/glibc/build-hello-glibc.sh ${CINUX_HELLO_GLIBC}
@@ -49,6 +66,7 @@ add_custom_command(
     OUTPUT ${CINUX_EXT2_IMG}
     COMMAND ${CMAKE_COMMAND} -E touch ${CINUX_EXT2_IMG}
     COMMAND ${CMAKE_COMMAND} -E env "CINUX_BUILD_DIR=${CMAKE_BINARY_DIR}"
+            "CINUX_TOOLCHAIN_STAGING=${CINUX_TOOLCHAIN_STAGING}"
             "CINUX_HELLO_ELF=$<TARGET_FILE:user_hello>"
             "CINUX_SHELL_ELF=$<TARGET_FILE:user_shell>"
             "CINUX_MAPPER_ELF=$<TARGET_FILE:user_mapper>"
@@ -66,7 +84,8 @@ add_custom_command(
     DEPENDS user_hello user_shell user_mapper user_sigdemo user_sigcatch user_nxdemo user_ecotest
             user_efaulter user_smepdemo user_aslrdemo
             user_tlsdemo user_threaddemo user_ttydemo user_smpstress
-            busybox_glibc hello_glibc
+            busybox_glibc hello_glibc toolchain_staging
+            ${CINUX_TOOLCHAIN_STAGING}/hello.s
             ${CMAKE_SOURCE_DIR}/scripts/create_ext2_disk.sh
             ${CMAKE_SOURCE_DIR}/scripts/ext2_seed/fstab
             ${CMAKE_SOURCE_DIR}/scripts/ext2_seed/inittab
@@ -132,3 +151,9 @@ add_subdirectory(user)
 add_subdirectory(kernel)
 
 add_subdirectory(test)
+
+add_custom_target(kernel_selfhost_volume
+    COMMAND ${CINUX_PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/prepare-kernel-selfhost.py
+            --build-dir ${CMAKE_BINARY_DIR}
+    DEPENDS ext2_img boot_image
+    COMMENT "Source-only kernel build volume for compilation inside Cinux")

@@ -238,7 +238,36 @@ base::Result<unsigned long> RamFs::read(FsNode node, unsigned long offset, void*
 base::Result<unsigned long> RamFs::write(FsNode node, unsigned long offset, const void* source,
                                          unsigned long count) {
     const proc::SpinGuard kGuard(lock_);
+    return write_locked(node, offset, source, count);
+}
+
+base::Result<unsigned long> RamFs::append(FsNode node, unsigned long& offset, const void* source,
+                                          unsigned long count) {
+    const proc::SpinGuard kGuard(lock_);
+    const auto* const     kFile = static_cast<const RamNode*>(node.opaque);
+    const unsigned long   kEnd  = kFile->size;
+    const auto            kPut  = write_locked(node, kEnd, source, count);
+    if (kPut.ok()) {
+        offset = kEnd + kPut.value();
+    }
+    return kPut;
+}
+
+base::Result<void> RamFs::truncate(FsNode node) {
+    const proc::SpinGuard kGuard(lock_);
     auto* const           kFile = static_cast<RamNode*>(node.opaque);
+    if (kFile->type != InodeType::kFile) {
+        return base::KernelError::kIsADirectory;
+    }
+    kFile->size     = 0;
+    kFile->capacity = 0;
+    kFile->data.reset();
+    return {};
+}
+
+base::Result<unsigned long> RamFs::write_locked(FsNode node, unsigned long offset,
+                                                const void* source, unsigned long count) {
+    auto* const kFile = static_cast<RamNode*>(node.opaque);
     if (kFile->type != InodeType::kFile) {
         return base::KernelError::kIsADirectory;
     }

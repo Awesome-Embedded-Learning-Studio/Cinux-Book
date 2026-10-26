@@ -188,6 +188,23 @@ public:
                                                     const void* source, unsigned long count);
 
     /**
+     * @brief Appends under the backend write lock and reports the final cursor.
+     * @param[in] node Regular file handle.
+     * @param[in,out] offset Receives the cursor after this write.
+     * @param[in] source Kernel bytes to store.
+     * @param[in] count Bytes to store.
+     * @return Bytes written, or a backend error.
+     */
+    [[nodiscard]] base::Result<unsigned long> append(FsNode node, unsigned long& offset,
+                                                     const void* source, unsigned long count);
+    /**
+     * @brief Truncates a regular file to zero under the backend write lock.
+     * @param[in] node Regular file handle.
+     * @return Success or a backend error.
+     */
+    [[nodiscard]] base::Result<void>          truncate(FsNode node);
+
+    /**
      * @brief         Hands out one directory entry by ordinal.
      *
      * @param[in]     node    Directory handle.
@@ -270,6 +287,14 @@ public:
     [[nodiscard]] base::Result<FsNode> adopt_open(FsNode node, std::string_view path);
 
 private:
+    [[nodiscard]] base::Result<unsigned long> write_locked(FsNode node, unsigned long offset,
+                                                           const void* source, unsigned long count);
+
+    base::Result<Inode> read_child(const Inode& parent, std::string_view name, unsigned long& ino);
+    struct SymlinkPlan;
+    base::Result<void> expand_symlink(const Inode& inode, unsigned long ino,
+                                      const SymlinkPlan& plan);
+
     /// One directory-block spot an insert might land in: where the block
     /// lives, where the spot starts, the entry sitting there, and who is
     /// moving in.
@@ -356,7 +381,8 @@ private:
     [[nodiscard]] base::Result<unsigned long> ensure_double_block(Inode& node, unsigned long outer,
                                                                   unsigned long inner);
 
-    bool add_dir_entry(const Inode& parent_dir, unsigned long child_ino, std::string_view name);
+    bool add_dir_entry(Inode& parent_dir, unsigned long parent_ino, unsigned long child_ino,
+                       std::string_view name);
     [[nodiscard]] bool fill_dead_slot(const DirInsert& slot);
     [[nodiscard]] bool shrink_live_entry(const DirInsert& slot);
     bool               remove_dir_entry(const Inode& parent_dir, std::string_view name);

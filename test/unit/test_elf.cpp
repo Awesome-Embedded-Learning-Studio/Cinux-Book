@@ -3,10 +3,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <string>
+#include <vector>
 
 #include "../framework/framework.hpp"
 #include "cinux/byte_order.hpp"
 #include "kernel/loader/elf_layout.hpp"
+#include "kernel/loader/exec_arguments.hpp"
 #include "kernel/loader/loader.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "test_assert.hpp"
@@ -224,10 +227,19 @@ TEST("elf: refusals name their family") {
         !cinux::loader::ParseElf64(kGoodImage.bytes, 32, cinux::loader::ImageRole::kProgram).ok());
     refuse_mangled_word(kGoodImage, 0, 'M');
     refuse_mangled_word(kGoodImage, 4, 1);
-    refuse_mangled_word(kGoodImage, 16, 3);
     refuse_mangled_word(kGoodImage, 18, 0x28);
     refuse_mangled_word(kGoodImage, 56, 0);
     refuse_mangled_word(kGoodImage, 54, 32);
+}
+
+TEST("elf: the program seat takes the relocatable shape and names its bias need") {
+    TestImage relocatable = kGoodImage;
+    relocatable.bytes[16] = cinux::loader::kTypeShared;
+    const auto kParsed    = cinux::loader::ParseElf64(relocatable.bytes, kImageBytes,
+                                                      cinux::loader::ImageRole::kProgram);
+    ASSERT_TRUE(kParsed.ok());
+    ASSERT_TRUE(cinux::loader::ProgramNeedsLoadBias(relocatable.bytes, kImageBytes));
+    ASSERT_TRUE(!cinux::loader::ProgramNeedsLoadBias(kGoodImage.bytes, kImageBytes));
 }
 
 TEST("elf: reads past the table refuse politely") {
@@ -252,10 +264,7 @@ TEST("elf: the interpreter seat parses a shared image and reports its header tab
     ASSERT_TRUE(segment.file_bytes == kImageBytes);
 }
 
-TEST("elf: each seat refuses the other's file type") {
-    ASSERT_TRUE(!cinux::loader::ParseElf64(kSharedImage.bytes, kImageBytes,
-                                           cinux::loader::ImageRole::kProgram)
-                     .ok());
+TEST("elf: the interpreter seat refuses the fixed-base shape") {
     ASSERT_TRUE(!cinux::loader::ParseElf64(kGoodImage.bytes, kImageBytes,
                                            cinux::loader::ImageRole::kInterpreter)
                      .ok());
@@ -547,4 +556,62 @@ TEST("elf: images without a gnu-stack header answer absent") {
 
 int main() {
     return cinux::test::RunAll();
+}
+
+TEST("exec: argument budget follows RLIMIT_STACK floor ceiling and pointer accounting") {
+    using cinux::loader::ArgumentStringBudget;
+    const auto kDefault = ArgumentStringBudget(8UL * 1024 * 1024, 600, 400);
+    ASSERT_TRUE(kDefault.ok());
+    ASSERT_EQ(kDefault.value(), (2UL * 1024 * 1024) - (1000 * sizeof(unsigned long)));
+    ASSERT_EQ(static_cast<unsigned long>(ArgumentStringBudget(4UL * 1024 * 1024, 1, 0).value()),
+              (1024UL * 1024) - sizeof(unsigned long));
+    ASSERT_EQ(static_cast<unsigned long>(ArgumentStringBudget(0, 0, 0).value()),
+              (128UL * 1024) - sizeof(unsigned long));
+    ASSERT_EQ(static_cast<unsigned long>(ArgumentStringBudget(~0ULL, 1, 0).value()),
+              (6UL * 1024 * 1024) - sizeof(unsigned long));
+    ASSERT_FALSE(ArgumentStringBudget(0, (128UL * 1024) / sizeof(unsigned long), 0).ok());
+    ASSERT_FALSE(ArgumentStringBudget(~0ULL, cinux::loader::kMaxArgumentStrings + 1, 0).ok());
+}
+
+static void check_picture_guards(const std::vector<unsigned char>& bytes) {
+    for (unsigned long index = 0; index < 16; ++index) {
+        ASSERT_EQ(bytes[index], 0xA5U);
+        ASSERT_EQ(bytes[bytes.size() - 1 - index], 0xA5U);
+    }
+}
+
+TEST("exec: a measured multi-page picture preserves every string pointer and executable name") {
+    const std::string              kText(8192, 'x');
+    const char* const              kArguments[]   = {"different argv zero", kText.c_str(), nullptr};
+    const char* const              kEnvironment[] = {"ENV=yes", nullptr};
+    const cinux::loader::EntryRuns kRuns{.arguments = kArguments, .environment = kEnvironment};
+    cinux::loader::EntryFacts      facts{};
+    facts.executable                       = "/bin/actual";
+    facts.platform                         = "x86_64";
+    const auto                      kBytes = cinux::loader::EntryPictureBytes(kRuns, facts);
+    std::vector<unsigned char>      bytes(kBytes + 32, 0xA5);
+    constexpr unsigned long         kBase = 0x7FFF'0000;
+    const cinux::loader::EntryStack kStack{
+        .bytes    = bytes.data() + 16,
+        .base     = kBase,
+        .capacity = kBytes,
+        .rsp      = kBase,
+    };
+    ASSERT_EQ(cinux::loader::WriteEntryPicture(kStack, kRuns, facts), kBase);
+    ASSERT_EQ(cinux::base::ReadWord64(bytes.data(), 16), 2ULL);
+    const auto kFirst  = cinux::base::ReadWord64(bytes.data(), 24) - kBase;
+    const auto kSecond = cinux::base::ReadWord64(bytes.data(), 32) - kBase;
+    ASSERT_EQ(std::string(reinterpret_cast<char*>(bytes.data() + 16 + kFirst)),
+              "different argv zero");
+    ASSERT_EQ(std::string(reinterpret_cast<char*>(bytes.data() + 16 + kSecond)).compare(kText), 0);
+    unsigned long executable = 0;
+    ASSERT_TRUE(picture_find(bytes.data() + 16, 6 * sizeof(unsigned long),
+                             cinux::loader::kAuxExecfn, executable));
+    ASSERT_EQ(std::string(reinterpret_cast<char*>(bytes.data() + 16 + executable - kBase)),
+              "/bin/actual");
+    check_picture_guards(bytes);
+    ASSERT_EQ(cinux::loader::WriteEntryPicture(
+                  {.bytes = bytes.data(), .base = kBase, .capacity = kBytes - 1, .rsp = kBase},
+                  kRuns, facts),
+              0UL);
 }

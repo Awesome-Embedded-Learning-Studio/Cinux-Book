@@ -33,6 +33,7 @@ namespace cinux::base {
  */
 enum class KernelError : std::uint8_t {
     kOk = 0,             ///< No error.
+    kTooManyOpenFiles,   ///< The descriptor resource limit was reached.
     kOutOfMemory,        ///< Allocation failed.
     kInvalidArgument,    ///< Caller passed an unusable argument.
     kNotFound,           ///< Looked-up object does not exist.
@@ -68,10 +69,23 @@ enum class KernelError : std::uint8_t {
  */
 constexpr const char* ErrorString(KernelError error) {
     constexpr const char* kNames[] = {
-        "Ok",           "OutOfMemory",       "InvalidArgument",   "NotFound",
-        "IOError",      "WouldBlock",        "AlreadyExists",     "NotADirectory",
-        "IsADirectory", "DirectoryNotEmpty", "NotSupported",      "Interrupted",
-        "BrokenPipe",   "NotConnected",      "ConnectionRefused", "ConnectionReset",
+        "Ok",
+        "TooManyOpenFiles",
+        "OutOfMemory",
+        "InvalidArgument",
+        "NotFound",
+        "IOError",
+        "WouldBlock",
+        "AlreadyExists",
+        "NotADirectory",
+        "IsADirectory",
+        "DirectoryNotEmpty",
+        "NotSupported",
+        "Interrupted",
+        "BrokenPipe",
+        "NotConnected",
+        "ConnectionRefused",
+        "ConnectionReset",
     };
     static_assert(sizeof(kNames) / sizeof(kNames[0]) == std::to_underlying(KernelError::kCount));
 

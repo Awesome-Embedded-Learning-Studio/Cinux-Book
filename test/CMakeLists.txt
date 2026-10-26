@@ -111,6 +111,11 @@ add_cinux_test(font)
 add_cinux_test(framebuffer)
 add_cinux_test(console)
 add_cinux_test(syscall_face ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_uname.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_tgkill.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_close.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_pipe.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_sendfile.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/fs/pipe.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_mmap.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_pread.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_sigtimedwait.cpp
@@ -157,7 +162,8 @@ set_source_files_properties(unit/test_fpu_gate.cpp PROPERTIES COMPILE_OPTIONS "-
 add_cinux_test(self_list)
 add_cinux_test(shared)
 add_cinux_test(elf ${CMAKE_SOURCE_DIR}/kernel/loader/elf_layout.cpp
-                    ${CMAKE_SOURCE_DIR}/kernel/loader/entry_picture.cpp)
+                    ${CMAKE_SOURCE_DIR}/kernel/loader/entry_picture.cpp
+                    ${CMAKE_SOURCE_DIR}/kernel/loader/exec_arguments.cpp)
 add_cinux_test(sync ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                       ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
                       ${CMAKE_SOURCE_DIR}/kernel/proc/futex.cpp

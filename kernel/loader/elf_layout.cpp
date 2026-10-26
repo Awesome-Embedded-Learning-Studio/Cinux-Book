@@ -33,8 +33,10 @@ base::Result<ElfImage> ParseElf64(const std::uint8_t* data, std::size_t bytes, I
     }
     const std::uint16_t kType    = base::ReadWord16(data, kIdentBytes);
     const std::uint16_t kMachine = base::ReadWord16(data, kIdentBytes + 2);
-    const std::uint16_t kWanted  = role == ImageRole::kProgram ? kTypeExecutable : kTypeShared;
-    if (kType != kWanted || kMachine != kMachineX8664) {
+    const bool          kTypeOk  = role == ImageRole::kInterpreter
+                                       ? kType == kTypeShared
+                                       : kType == kTypeExecutable || kType == kTypeShared;
+    if (!kTypeOk || kMachine != kMachineX8664) {
         return base::KernelError::kInvalidArgument;
     }
     const std::uint64_t kEntry      = base::ReadWord64(data, 24);
@@ -137,6 +139,14 @@ bool ReadGnuStackFlags(const std::uint8_t* data, std::size_t bytes, std::uint32_
         return true;
     }
     return false;
+}
+
+bool ProgramNeedsLoadBias(const std::uint8_t* data, std::size_t bytes) {
+    const base::Result<ElfImage> kParsed = ParseElf64(data, bytes, ImageRole::kProgram);
+    if (!kParsed.ok()) {
+        return false;
+    }
+    return base::ReadWord16(data, kIdentBytes) == kTypeShared;
 }
 
 }  // namespace cinux::loader

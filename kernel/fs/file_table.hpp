@@ -2,15 +2,12 @@
  * @file    file_table.hpp
  * @brief   One task's open files: slots keyed by descriptor number.
  *
- * A file descriptor is an index, nothing more — the number ring 3 holds
- * names the slot it lands on. Slots 0 through 2 are never handed out:
- * read and write give those three their fixed meanings (keyboard in,
- * console out, console err) before the table is ever asked, so the
- * first allocated descriptor is 3, the shape every Unix program grew up
- * expecting. One slot carries everything a follow-up call needs: which
- * backend, which node of it, and how far this open file has traveled —
- * the offset is bytes for a file and the entry ordinal for a directory,
- * the doubling getdents leans on.
+ * Descriptor numbers select shared open descriptions. Storage grows in
+ * bitmap-sized chunks, while the caller supplies its current resource
+ * ceiling. Standard streams occupy ordinary slots; once closed, zero
+ * through two can be reused by the same lowest-free rule as every other
+ * descriptor. Shared tables serialize lookup and replacement, and release
+ * backend ownership after dropping the table lock.
  *
  * @author  Charliechen114514
  * @date    2026-10-07
@@ -23,7 +20,7 @@
 #pragma once
 
 #include "cinux/bit_ops/bitmap.hpp"
-#include "cinux/container/slot_table.hpp"
+#include "cinux/own.hpp"
 #include "cinux/ref_count.hpp"
 #include "cinux/result.hpp"
 #include "cinux/shared.hpp"
@@ -33,21 +30,15 @@
 
 namespace cinux::fs {
 
-/**
- * @brief   How many descriptors one task may hold at once.
- * @note    Sixteen seats: a hosted shell's F_DUPFD_CLOEXEC asks from
- *          seat ten up, and a teaching kernel that wants real job
- *          control has to have those seats to give.
- * @since   0.1.0
- * @ingroup kernel_fs
- */
-inline constexpr unsigned long kFileTableMax = 16;
+/** @brief Linux's default nr_open ceiling; storage grows only when used. */
+inline constexpr unsigned long kFileTableMax = 1024UL * 1024;
 
 /** @brief Open metadata initialized before a descriptor becomes visible. */
 struct OpenOptions {
     unsigned long            status  = 0;
     bool                     cloexec = false;
     base::Shared<MountLease> lifetime{nullptr};  ///< Backend ownership inherited from resolve.
+    unsigned long limit = kFileTableMax;  ///< Exclusive descriptor ceiling for this allocation.
 };
 
 /**
@@ -64,7 +55,7 @@ struct OpenOptions {
  *          hands out three first — the shape every Unix program grew up
  *          with, arrived at honestly. adopt seats an open another table
  *          already owns, which is how a forked child inherits its
- *          parent's cursor. SlotTable owns occupancy; every stored
+ *          parent's cursor. Each bitmap-sized chunk owns occupancy; every stored
  *          entry holds one owner count over its OpenFile.
  * @since   0.1.0
  * @ingroup kernel_fs
@@ -123,7 +114,8 @@ struct FileTable : cinux::base::RefCount<> {
      * @since         0.8.0
      * @ingroup       kernel_fs
      */
-    [[nodiscard]] base::Result<unsigned long> adopt(const base::Shared<OpenFile>& file);
+    [[nodiscard]] base::Result<unsigned long> adopt(const base::Shared<OpenFile>& file,
+                                                    unsigned long limit = kFileTableMax);
 
     /**
      * @brief         Seats one open at the descriptor number the caller
@@ -149,16 +141,16 @@ struct FileTable : cinux::base::RefCount<> {
      * @param[in]     file   The shared open to seat.
      * @param[in]     floor  The lowest number the new seat may take.
      * @return        The descriptor number, or kInvalidArgument when
-     *                nothing is held, kOutOfMemory when no seat at or
+     *                nothing is held, kTooManyOpenFiles when no seat at or
      *                above the floor is free.
-     * @note          Floors below the first handed-out number clamp up
-     *                to it, so the reserved stream numbers never take a
-     *                seat. A dup lands here.
+     * @note          The limit is exclusive; a lowered resource limit
+     *                constrains new descriptors without invalidating old ones.
      * @since         0.9.0
      * @ingroup       kernel_fs
      */
     [[nodiscard]] base::Result<unsigned long> adopt_from(const base::Shared<OpenFile>& file,
-                                                         unsigned long floor, bool cloexec = false);
+                                                         unsigned long floor, bool cloexec = false,
+                                                         unsigned long limit = kFileTableMax);
 
     /**
      * @brief         Acquires an owning hold for reading and advancing.
@@ -239,7 +231,11 @@ struct FileTable : cinux::base::RefCount<> {
      * @return The destination descriptor, or a lookup error without changing it.
      */
     [[nodiscard]] base::Result<unsigned long> duplicate_at(unsigned long source,
-                                                           unsigned long destination);
+                                                           unsigned long destination,
+                                                           unsigned long limit = kFileTableMax);
+
+    /** @brief Descriptor span covered by the current dynamically grown table. */
+    [[nodiscard]] unsigned long capacity() const;
 
 private:
     struct TablePolicy {
@@ -254,11 +250,14 @@ private:
     [[nodiscard]] base::Result<base::Shared<OpenFile>> shared_locked(unsigned long descriptor);
     [[nodiscard]] base::Shared<OpenFile>               detach_locked(unsigned long descriptor);
     mutable base::SpinMutex                            gate_;
-    base::container::SlotTable<base::Shared<OpenFile>, kFileTableMax> slots_;
-    /// One bit per descriptor number: set means close at exec. The
-    /// bitmap owns the words; the array is just the storage it binds.
-    base::bit::WordMask cloexec_words_[base::bit::Bitmap::words_for(kFileTableMax)] = {};
-    base::bit::Bitmap   cloexec_map_{};
+    struct Chunk;
+    [[nodiscard]] Chunk*                      chunk_locked(unsigned long descriptor) const;
+    [[nodiscard]] Chunk*                      ensure_chunk_locked(unsigned long descriptor);
+    [[nodiscard]] base::Result<unsigned long> vacant_locked(unsigned long floor,
+                                                            unsigned long limit) const;
+    base::Own<Chunk*[]>                       chunks_;
+    unsigned long                             chunk_count_ = 0;
+    unsigned long                             next_fd_     = 0;
 };
 
 }  // namespace cinux::fs

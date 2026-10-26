@@ -95,8 +95,8 @@ void ReportCompareFailure(const char* actual_text, const char* expected_text, bo
 
 #define ASSERT_EQ(actual, expected)                                                                \
     do {                                                                                           \
-        const auto& kActualValue   = (actual);                                                     \
-        const auto& kExpectedValue = (expected);                                                   \
+        const auto kActualValue   = (actual);                                                      \
+        const auto kExpectedValue = (expected);                                                    \
         if (!(kActualValue == kExpectedValue)) {                                                   \
             ::cinux::test::ReportCompareFailure(#actual, #expected, true);                         \
             ++::cinux::test::g_failures;                                                           \
@@ -106,8 +106,8 @@ void ReportCompareFailure(const char* actual_text, const char* expected_text, bo
 
 #define ASSERT_NE(actual, expected)                                                                \
     do {                                                                                           \
-        const auto& kActualValue   = (actual);                                                     \
-        const auto& kExpectedValue = (expected);                                                   \
+        const auto kActualValue   = (actual);                                                      \
+        const auto kExpectedValue = (expected);                                                    \
         if (kActualValue == kExpectedValue) {                                                      \
             ::cinux::test::ReportCompareFailure(#actual, #expected, false);                        \
             ++::cinux::test::g_failures;                                                           \

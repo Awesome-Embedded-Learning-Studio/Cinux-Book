@@ -12,6 +12,7 @@
 
 #include <algorithm>
 
+#include "cinux/own.hpp"
 #include "cinux/path.hpp"
 #include "cinux/result.hpp"
 #include "cinux/shared.hpp"
@@ -27,10 +28,17 @@
 
 namespace cinux::syscall {
 
+unsigned long FileDescriptorLimit() {
+    const auto kLimit = CurrentTask()->limits[7][0];
+    return static_cast<unsigned long>(kLimit < fs::kFileTableMax ? kLimit : fs::kFileTableMax);
+}
+
 int ErrnoFrom(base::KernelError error) {
     switch (error) {
     case base::KernelError::kNotFound:
         return kEnoent;
+    case base::KernelError::kTooManyOpenFiles:
+        return kEmfile;
     case base::KernelError::kOutOfMemory:
         return kEnomem;
     case base::KernelError::kIOError:
@@ -47,6 +55,8 @@ int ErrnoFrom(base::KernelError error) {
         return kEagain;
     case base::KernelError::kInterrupted:
         return kEintr;
+    case base::KernelError::kBrokenPipe:
+        return kEpipe;
     default:
         return kEinval;
     }
@@ -76,13 +86,16 @@ long long CopyUserPath(unsigned long long source, char* out, unsigned long cap) 
 }
 
 long long FoldUserPath(unsigned long long source, char* out, unsigned long cap) {
-    char            raw[fs::kFsPathMax] = {};
-    const long long kRaw                = CopyUserPath(source, raw, sizeof(raw));
+    const base::Own<char[]> kRawPath(new char[fs::kUserPathMax]);
+    if (!kRawPath.holds()) {
+        return -kEnomem;
+    }
+    const long long kRaw = CopyUserPath(source, kRawPath.get(), fs::kUserPathMax);
     if (kRaw < 0) {
         return kRaw;
     }
-    const char* const  kBase = raw[0] == '/' ? "/" : CurrentTask()->cwd;
-    const base::Folded kFold = base::FoldOntoPath(kBase, raw, out, cap);
+    const char* const  kBase = kRawPath[0] == '/' ? "/" : CurrentTask()->cwd;
+    const base::Folded kFold = base::FoldOntoPath(kBase, kRawPath.get(), out, cap);
     if (!kFold.ok) {
         return -kEnametoolong;
     }

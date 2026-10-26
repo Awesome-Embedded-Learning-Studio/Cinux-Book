@@ -30,4 +30,13 @@ namespace cinux::syscall {
  */
 long long HandleAccess(const SyscallFrame& frame);
 
+/**
+ * @brief Answers a directory-relative access query from faccessat or faccessat2.
+ * @param[in] frame rdi names AT_FDCWD, rsi the path, rdx the mode.
+ * @return Zero, or a negative errno.
+ * @since 0.8.0
+ * @ingroup kernel_syscall
+ */
+long long HandleFaccessat(const SyscallFrame& frame);
+
 }  // namespace cinux::syscall

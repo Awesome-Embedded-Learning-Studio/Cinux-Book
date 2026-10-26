@@ -284,23 +284,26 @@ bool Ahci::init() {
     for (unsigned long index = 0; index < pattern.size(); ++index) {
         pattern[index] = static_cast<uint8_t>(index);
     }
-    const BlockSpan kOneBlock{.value = 1};
-    if (!write_blocks(Lba{.value = 1}, kOneBlock, pattern.data())) {
-        print::Println("[kern] ahci scratch write failed");
+    const BlockSpan                   kOneBlock{.value = 1};
+    std::array<uint8_t, kSectorBytes> saved{};
+    if (!read_blocks(Lba{.value = 1}, kOneBlock, saved.data())) {
+        print::Println("[kern] ahci scratch save failed");
         return false;
     }
-    if (!read_blocks(Lba{.value = 1}, kOneBlock, readback.data())) {
-        print::Println("[kern] ahci scratch read failed");
-        return false;
-    }
-    const bool kMatches = cinux::base::EqualBytes(pattern.data(), readback.data(), pattern.size());
-    cinux::base::SetBytes(pattern.data(), 0, pattern.size());
-    if (!write_blocks(Lba{.value = 1}, kOneBlock, pattern.data())) {
+    const bool kWritten = write_blocks(Lba{.value = 1}, kOneBlock, pattern.data());
+    const bool kRead    = kWritten && read_blocks(Lba{.value = 1}, kOneBlock, readback.data());
+    const bool kMatches =
+        kRead && cinux::base::EqualBytes(pattern.data(), readback.data(), pattern.size());
+    if (!write_blocks(Lba{.value = 1}, kOneBlock, saved.data())) {
         print::Println("[kern] ahci scratch restore failed");
         return false;
     }
     if (!flush()) {
         print::Println("[kern] ahci flush failed");
+        return false;
+    }
+    if (!kWritten || !kRead) {
+        print::Println("[kern] ahci scratch transfer failed");
         return false;
     }
     if (kMatches) {

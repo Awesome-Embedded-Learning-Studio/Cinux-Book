@@ -20,6 +20,7 @@
 #include <utility>
 
 #include "cinux/format.hpp"
+#include "cinux/math.hpp"
 #include "cinux/memory.hpp"
 #include "cinux/own.hpp"
 #include "cinux/result.hpp"
@@ -93,6 +94,11 @@ unsigned long Vfs::mounts_text(char* out, unsigned long capacity) const {
 
 base::Result<void> ReadWholeFile(const FsView& view, base::Own<unsigned char[]>& out,
                                  unsigned long& out_bytes) {
+    return ReadFilePrefix(view, ~0UL, out, out_bytes);
+}
+
+base::Result<void> ReadFilePrefix(const FsView& view, unsigned long limit,
+                                  base::Own<unsigned char[]>& out, unsigned long& out_bytes) {
     const base::Result<FsNode> kNode = view.ops->lookup(view.self, view.rest);
     if (!kNode.ok()) {
         return kNode.error();
@@ -102,20 +108,21 @@ base::Result<void> ReadWholeFile(const FsView& view, base::Own<unsigned char[]>&
     if (!kProbed.ok()) {
         return kProbed.error();
     }
-    base::Own<unsigned char[]> buffer(new unsigned char[probe.size]);
+    const auto                 kBytes = base::math::Min(probe.size, limit);
+    base::Own<unsigned char[]> buffer(new unsigned char[kBytes]);
     if (!buffer.holds()) {
         return base::KernelError::kOutOfMemory;
     }
     const base::Result<unsigned long> kGot =
-        view.ops->read(view.self, kNode.value(), 0, buffer.get(), probe.size);
+        view.ops->read(view.self, kNode.value(), 0, buffer.get(), kBytes);
     if (!kGot.ok()) {
         return kGot.error();
     }
-    if (kGot.value() != probe.size) {
+    if (kGot.value() != kBytes) {
         return base::KernelError::kIOError;
     }
     out       = static_cast<base::Own<unsigned char[]>&&>(buffer);
-    out_bytes = probe.size;
+    out_bytes = kBytes;
     return {};
 }
 

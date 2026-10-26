@@ -21,7 +21,7 @@ base::Result<EntryFacts> LoadInterpreter(const char* path, const mm::AddressSpac
     }
     unsigned long              image_bytes = 0;
     base::Own<unsigned char[]> image;
-    const auto                 kRead = fs::ReadWholeFile(kView.value(), image, image_bytes);
+    const auto                 kRead = fs::ReadFilePrefix(kView.value(), 65536, image, image_bytes);
     if (!kRead.ok()) {
         return kRead.error();
     }
@@ -29,10 +29,16 @@ base::Result<EntryFacts> LoadInterpreter(const char* path, const mm::AddressSpac
     if (!kNode.ok()) {
         return kNode.error();
     }
+    fs::FsStat probed{};
+    if (kView.value().ops->stat == nullptr ||
+        !kView.value().ops->stat(kView.value().self, kNode.value(), probed).ok()) {
+        return base::KernelError::kIOError;
+    }
     const LoadWorld kWorld{
         .space         = space,
         .vmas          = ranges,
         .file          = kNode.value(),
+        .file_bytes    = probed.size,
         .file_ops      = kView.value().ops,
         .file_self     = kView.value().self,
         .file_lifetime = kView.value().lifetime,

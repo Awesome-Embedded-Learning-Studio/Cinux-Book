@@ -17,7 +17,7 @@ namespace cinux::syscall {
 namespace {
 
 /// Seats both ends of one fresh pipe in the caller's table.
-long long seat_pipe_pair(unsigned long long user_fds) {
+long long seat_pipe_pair(unsigned long long user_fds, bool cloexec) {
     if (user_fds == 0 || user_fds >= kUserAddressLimit) {
         return -kEfault;
     }
@@ -25,7 +25,6 @@ long long seat_pipe_pair(unsigned long long user_fds) {
     if (!kPipe.holds()) {
         return -kEnomem;
     }
-    kPipe->add_writer();
     const fs::FsNode kReadMark{
         .opaque = nullptr,
         .type   = fs::InodeType::kFile,
@@ -40,22 +39,28 @@ long long seat_pipe_pair(unsigned long long user_fds) {
     };
     const proc::Task* const           kSelf = CurrentTask();
     const base::Result<unsigned long> kReadEnd =
-        kSelf->files->alloc(fs::PipeOps(), kPipe.get(), kReadMark);
+        kSelf->files->alloc(fs::PipeOps(), kPipe.get(), kReadMark,
+                            {.cloexec = cloexec, .limit = FileDescriptorLimit()});
     if (!kReadEnd.ok()) {
-        return -kEnomem;
+        return -kEmfile;
     }
-    const base::Result<unsigned long> kWriteEnd =
-        kSelf->files->alloc(fs::PipeOps(), kPipe.get(), kWriteMark);
+    const base::Result<unsigned long> kWriteEnd = kSelf->files->alloc(
+        fs::PipeOps(), kPipe.get(), kWriteMark,
+        {.status = kOpenWriteOnly, .cloexec = cloexec, .limit = FileDescriptorLimit()});
     if (!kWriteEnd.ok()) {
         cinux::base::safety::Check(kSelf->files->free(kReadEnd.value()).ok(),
                                    "pipe read end vanished while seating the write end");
-        return -kEnomem;
+        return -kEmfile;
     }
     const unsigned int kPair[2] = {
         static_cast<unsigned int>(kReadEnd.value()),
         static_cast<unsigned int>(kWriteEnd.value()),
     };
     if (!uaccess::CopyToUser(user_fds, kPair, sizeof(kPair))) {
+        cinux::base::safety::Check(kSelf->files->free(kReadEnd.value()).ok(),
+                                   "pipe read end vanished");
+        cinux::base::safety::Check(kSelf->files->free(kWriteEnd.value()).ok(),
+                                   "pipe write end vanished");
         return -kEfault;
     }
     return 0;
@@ -64,14 +69,14 @@ long long seat_pipe_pair(unsigned long long user_fds) {
 }  // namespace
 
 long long HandlePipe(const SyscallFrame& frame) {
-    return seat_pipe_pair(frame.rdi);
+    return seat_pipe_pair(frame.rdi, false);
 }
 
 long long HandlePipe2(const SyscallFrame& frame) {
-    if (frame.rsi != 0) {
+    if ((frame.rsi & ~kOpenCloexec) != 0) {
         return -kEinval;
     }
-    return seat_pipe_pair(frame.rdi);
+    return seat_pipe_pair(frame.rdi, (frame.rsi & kOpenCloexec) != 0);
 }
 
 long long HandleDup(const SyscallFrame& frame) {
@@ -79,7 +84,8 @@ long long HandleDup(const SyscallFrame& frame) {
     if (!kHold.ok()) {
         return -kEbadf;
     }
-    const base::Result<unsigned long> kCopy = CurrentTask()->files->adopt(kHold.value());
+    const base::Result<unsigned long> kCopy =
+        CurrentTask()->files->adopt(kHold.value(), FileDescriptorLimit());
     if (!kCopy.ok()) {
         return -kEmfile;
     }
@@ -87,7 +93,8 @@ long long HandleDup(const SyscallFrame& frame) {
 }
 
 long long HandleDup2(const SyscallFrame& frame) {
-    const auto kCopy = CurrentTask()->files->duplicate_at(frame.rdi, frame.rsi);
+    const auto kCopy =
+        CurrentTask()->files->duplicate_at(frame.rdi, frame.rsi, FileDescriptorLimit());
     return kCopy.ok() ? static_cast<long long>(kCopy.value()) : -kEbadf;
 }
 

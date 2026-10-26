@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <limits>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 
@@ -10,20 +11,26 @@
 #include "cinux/memory.hpp"
 #include "cinux/result.hpp"
 #include "cinux/shared.hpp"
+#include "kernel/fs/file_table.hpp"
 #include "kernel/fs/vfs.hpp"
 #include "kernel/mm/vma.hpp"
+#include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/sched_class.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
+#include "kernel/syscall/sys_close.hpp"
 #include "kernel/syscall/sys_fcntl.hpp"
 #include "kernel/syscall/sys_getrandom.hpp"
 #include "kernel/syscall/sys_mmap.hpp"
 #include "kernel/syscall/sys_open.hpp"
 #include "kernel/syscall/sys_openat.hpp"
+#include "kernel/syscall/sys_pipe.hpp"
 #include "kernel/syscall/sys_pread.hpp"
 #include "kernel/syscall/sys_prlimit.hpp"
+#include "kernel/syscall/sys_sendfile.hpp"
 #include "kernel/syscall/sys_sigtimedwait.hpp"
 #include "kernel/syscall/sys_stat.hpp"
+#include "kernel/syscall/sys_tgkill.hpp"
 #include "kernel/syscall/sys_uname.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
@@ -33,14 +40,27 @@
 // Isolate the *at argument adapters from the VFS implementation.
 namespace cinux::syscall {
 
+unsigned long FileDescriptorLimit() {
+    return CurrentTask()->limits[7][0];
+}
+
 long long HandleOpen(const SyscallFrame& /*frame*/) {
     return 101;
 }
 long long HandleStat(const SyscallFrame& /*frame*/) {
     return 102;
 }
-int ErrnoFrom([[maybe_unused]] base::KernelError error) {
-    return 5;
+int ErrnoFrom(base::KernelError error) {
+    switch (error) {
+    case base::KernelError::kWouldBlock:
+        return 11;
+    case base::KernelError::kInterrupted:
+        return 4;
+    case base::KernelError::kBrokenPipe:
+        return 32;
+    default:
+        return 5;
+    }
 }
 base::Result<void> ReclaimUserSpan(const proc::Task& self, unsigned long start,
                                    unsigned long bytes) {
@@ -54,6 +74,8 @@ namespace {
 // Compare against an independent consumer's ABI, including fields the
 // teaching FsStat does not yet supply. A compact FsStat is not a wire record.
 using WireStat = cinux::syscall::SyscallStat;
+static_assert(static_cast<int>(cinux::syscall::SyscallNr::kTgkill) == SYS_tgkill);
+static_assert(static_cast<int>(cinux::syscall::SyscallNr::kTkill) == SYS_tkill);
 static_assert(sizeof(WireStat) == sizeof(struct stat));
 static_assert(static_cast<int>(cinux::syscall::SyscallNr::kMmap) == SYS_mmap);
 static_assert(static_cast<int>(cinux::syscall::SyscallNr::kMprotect) == SYS_mprotect);
@@ -133,6 +155,8 @@ public:
         runner.name       = "face";
         runner.stack_base = 0x1000ULL * 0x40;
         runner.parent     = &kin;
+        cinux::base::CopyBytes(runner.limits, cinux::proc::kDefaultResourceLimits,
+                               sizeof(runner.limits));
         cinux::proc::Scheduler::self().init(sink);
         cinux::proc::Scheduler::self().install_class(cinux::proc::DefaultFifoClass());
         cinux::proc::Scheduler::self().seat(runner);
@@ -208,6 +232,14 @@ TEST("syscall face: uname fills the six slots in hosted order") {
     ASSERT_EQ(record[5 * kSlot], '\0');
 }
 
+void check_updated_limits(cinux::syscall::SyscallFrame& frame, unsigned long long (&old)[2]) {
+    frame.rdx = 0;
+    frame.r10 = reinterpret_cast<unsigned long long>(old);
+    ASSERT_EQ(cinux::syscall::HandlePrlimit64(frame), 0);
+    ASSERT_EQ(old[0], 5ULL);
+    ASSERT_EQ(old[1], cinux::fs::kFileTableMax);
+}
+
 void run_prlimit_body() {
     unsigned long long           old[2] = {0, 0};
     cinux::syscall::SyscallFrame frame  = plain_frame();
@@ -219,15 +251,15 @@ void run_prlimit_body() {
     frame.rdi = 0;
     frame.rsi = 99;
     ASSERT_EQ(cinux::syscall::HandlePrlimit64(frame), -22);
-    frame.rsi                  = 7;
-    unsigned long long want[2] = {5, ~0ULL};
-    frame.rdx                  = reinterpret_cast<unsigned long long>(want);
+    frame.rsi                                   = 7;
+    cinux::syscall::CurrentTask()->limits[7][0] = 3;
+    cinux::syscall::CurrentTask()->limits[7][1] = 9;
+    unsigned long long want[2]                  = {5, cinux::fs::kFileTableMax};
+    frame.rdx                                   = reinterpret_cast<unsigned long long>(want);
     ASSERT_EQ(cinux::syscall::HandlePrlimit64(frame), 0);
-    frame.rdx = 0;
-    frame.r10 = reinterpret_cast<unsigned long long>(old);
-    ASSERT_EQ(cinux::syscall::HandlePrlimit64(frame), 0);
-    ASSERT_EQ(old[0], 5ULL);
-    ASSERT_EQ(old[1], ~0ULL);
+    ASSERT_EQ(old[0], 3ULL);
+    ASSERT_EQ(old[1], 9ULL);
+    check_updated_limits(frame, old);
     cinux::proc::Scheduler::self().exit_current();
 }
 
@@ -432,6 +464,252 @@ TEST("syscall face: fixed mappings replace what sat at the address") {
 TEST("syscall face: sigtimedwait answers try-again without parking") {
     const cinux::syscall::SyscallFrame kFrame = plain_frame();
     ASSERT_EQ(cinux::syscall::HandleRtSigtimedwait(kFrame), -11);
+}
+
+struct TransferBackend {
+    unsigned char                 source[8192]{};
+    unsigned char                 sink[8192]{};
+    unsigned long                 source_bytes = sizeof(source);
+    unsigned long                 put_limit    = sizeof(sink);
+    unsigned long                 fail_at      = ~0UL;
+    bool                          would_block  = false;
+    static const cinux::fs::FsOps kOps;
+};
+
+constexpr cinux::fs::FsOps TransferBackend::kOps = [] noexcept {
+    cinux::fs::FsOps ops{};
+    ops.retain  = [](void*, cinux::fs::FsNode) {};
+    ops.release = [](void*, cinux::fs::FsNode) {};
+    ops.stat    = [](void*, cinux::fs::FsNode node,
+                     cinux::fs::FsStat& stat) -> cinux::base::Result<void> {
+        stat      = {};
+        stat.mode = node.ino == 2 ? 0010600 : 0100600;
+        return {};
+    };
+    ops.read = [](void* self, cinux::fs::FsNode, unsigned long offset, void* sink,
+                  unsigned long count) -> cinux::base::Result<unsigned long> {
+        const auto& backend = *static_cast<TransferBackend*>(self);
+        const auto  kEnd    = std::min(backend.source_bytes, sizeof(backend.source));
+        if (offset >= kEnd) {
+            return 0UL;
+        }
+        const auto kCount = std::min(count, kEnd - offset);
+        cinux::base::CopyBytes(sink, backend.source + offset, kCount);
+        return kCount;
+    };
+    ops.write = [](void* self, cinux::fs::FsNode, unsigned long offset, const void* source,
+                   unsigned long count) -> cinux::base::Result<unsigned long> {
+        const auto& backend = *static_cast<TransferBackend*>(self);
+        if (backend.would_block) {
+            return cinux::base::KernelError::kWouldBlock;
+        }
+        if (offset >= backend.fail_at) {
+            return cinux::base::KernelError::kIOError;
+        }
+        if (offset >= sizeof(backend.sink)) {
+            return 0UL;
+        }
+        const auto kCount = std::min({count, backend.put_limit, sizeof(backend.sink) - offset});
+        cinux::base::CopyBytes(static_cast<TransferBackend*>(self)->sink + offset, source, kCount);
+        return kCount;
+    };
+    return ops;
+}();
+
+void check_explicit_sendfile(const TransferBackend& backend, cinux::syscall::SyscallFrame& frame) {
+    const auto* const kSelf = cinux::syscall::CurrentTask();
+    const auto        kIn   = kSelf->files->get(frame.rsi).value();
+    kIn->offset             = 9;
+    long long offset        = 4;
+    frame.rdx               = reinterpret_cast<unsigned long long>(&offset);
+    frame.r10               = 37;
+    ASSERT_EQ(cinux::syscall::HandleSendfile(frame), 37);
+    ASSERT_EQ(offset, 41LL);
+    ASSERT_EQ(kIn->offset, 9UL);
+    ASSERT_EQ(backend.sink[0], backend.source[4]);
+    frame.rdx = 0;
+    frame.r10 = 7000;
+    ASSERT_EQ(cinux::syscall::HandleSendfile(frame), 7000);
+    ASSERT_EQ(kIn->offset, 7009UL);
+}
+
+void check_sendfile_short_and_faults(TransferBackend&              backend,
+                                     cinux::syscall::SyscallFrame& frame) {
+    const auto* const kSelf = cinux::syscall::CurrentTask();
+    const auto        kIn   = kSelf->files->get(frame.rsi).value();
+    const auto        kOut  = kSelf->files->get(frame.rdi).value();
+    kIn->offset             = 0;
+    kOut->offset            = 0;
+    backend.put_limit       = 3;
+    frame.rdx               = 0;
+    frame.r10               = 10;
+    ASSERT_EQ(cinux::syscall::HandleSendfile(frame), 3);
+    ASSERT_EQ(kIn->offset, 3UL);
+    ASSERT_EQ(kOut->offset, 3UL);
+    backend.put_limit = sizeof(backend.sink);
+    backend.fail_at   = 4096;
+    kIn->offset       = 0;
+    kOut->offset      = 0;
+    frame.r10         = sizeof(backend.source);
+    ASSERT_EQ(cinux::syscall::HandleSendfile(frame), 4096);
+    ASSERT_EQ(kIn->offset, 4096UL);
+    ASSERT_EQ(cinux::syscall::HandleSendfile(frame), -cinux::syscall::kEio);
+}
+
+void check_sendfile_refusals(TransferBackend& backend, cinux::syscall::SyscallFrame& frame) {
+    const auto* const kSelf = cinux::syscall::CurrentTask();
+    const auto        kOut  = kSelf->files->get(frame.rdi).value();
+    kOut->status_flags      = cinux::syscall::kOpenWriteOnly | cinux::syscall::kOpenAppend;
+    ASSERT_EQ(cinux::syscall::HandleSendfile(frame), -cinux::syscall::kEinval);
+    kOut->status_flags  = cinux::syscall::kOpenWriteOnly | cinux::syscall::kOpenNonblock;
+    backend.would_block = true;
+    ASSERT_EQ(cinux::syscall::HandleSendfile(frame), -cinux::syscall::kEagain);
+    frame.r10 = ~0ULL;
+    ASSERT_EQ(cinux::syscall::HandleSendfile(frame), -cinux::syscall::kEinval);
+    frame.rdx = cinux::syscall::kUserAddressLimit;
+    ASSERT_EQ(cinux::syscall::HandleSendfile(frame), -cinux::syscall::kEfault);
+}
+
+
+void check_sendfile_bounds(cinux::syscall::SyscallFrame& frame) {
+    const auto* const kSelf = cinux::syscall::CurrentTask();
+    const auto        kIn   = kSelf->files->get(frame.rsi).value();
+    kIn->offset             = 8192;
+    frame.rdx               = 0;
+    frame.r10               = 1;
+    ASSERT_EQ(cinux::syscall::HandleSendfile(frame), 0);
+    long long offset = -1;
+    frame.rdx        = reinterpret_cast<unsigned long long>(&offset);
+    ASSERT_EQ(cinux::syscall::HandleSendfile(frame), -cinux::syscall::kEinval);
+    offset = std::numeric_limits<long long>::max();
+    ASSERT_EQ(cinux::syscall::HandleSendfile(frame), -cinux::syscall::kEoverflow);
+    frame.rdx = 0;
+    frame.rdi = cinux::fs::kFileTableMax;
+    ASSERT_EQ(cinux::syscall::HandleSendfile(frame), -cinux::syscall::kEbadf);
+}
+
+void check_sendfile_alias(cinux::syscall::SyscallFrame frame) {
+    const auto kIn    = cinux::syscall::CurrentTask()->files->get(frame.rsi).value();
+    kIn->status_flags = cinux::syscall::kOpenReadWrite;
+    kIn->offset       = 2;
+    frame.rdi         = frame.rsi;
+    frame.rdx         = 0;
+    frame.r10         = 5;
+    ASSERT_EQ(cinux::syscall::HandleSendfile(frame), 5);
+    ASSERT_EQ(kIn->offset, 7UL);
+}
+
+void run_sendfile_body() {
+    TransferBackend backend;
+    for (unsigned long index = 0; index < sizeof(backend.source); ++index) {
+        backend.source[index] = static_cast<unsigned char>(index % 251);
+    }
+    const auto* const kSelf = cinux::syscall::CurrentTask();
+    const auto        kIn   = kSelf->files->alloc(&TransferBackend::kOps, &backend, {});
+    const auto        kOut  = kSelf->files->alloc(&TransferBackend::kOps, &backend, {},
+                                                  {
+                                                      .status = cinux::syscall::kOpenWriteOnly,
+                                                  });
+    ASSERT_TRUE(kIn.ok() && kOut.ok());
+    cinux::syscall::SyscallFrame frame{};
+    frame.rdi = kOut.value();
+    frame.rsi = kIn.value();
+    check_explicit_sendfile(backend, frame);
+    check_sendfile_short_and_faults(backend, frame);
+    check_sendfile_refusals(backend, frame);
+    backend.would_block                                = false;
+    backend.fail_at                                    = ~0UL;
+    kSelf->files->get(frame.rdi).value()->status_flags = cinux::syscall::kOpenWriteOnly;
+    kSelf->files->get(frame.rdi).value()->offset       = 0;
+    check_sendfile_alias(frame);
+    check_sendfile_bounds(frame);
+    kSelf->files->close_all();
+    cinux::proc::Scheduler::self().exit_current();
+}
+
+TEST("syscall face: sendfile keeps offsets and completed bytes across short writes and faults") {
+    FaceWorld world;
+    world.run(run_sendfile_body);
+}
+
+
+void check_close_range_marks(cinux::syscall::SyscallFrame& frame, unsigned int descriptor) {
+    const auto* const kSelf = cinux::syscall::CurrentTask();
+    ASSERT_TRUE(kSelf->files->set_cloexec(descriptor, false).ok());
+    frame.rdi = descriptor;
+    frame.rsi = descriptor;
+    frame.rdx = 4;
+    ASSERT_EQ(cinux::syscall::HandleCloseRange(frame), 0);
+    ASSERT_TRUE(kSelf->files->cloexec(descriptor));
+    frame.rdi = 9;
+    frame.rsi = 3;
+    ASSERT_EQ(cinux::syscall::HandleCloseRange(frame), -cinux::syscall::kEinval);
+    frame.rdi = 0;
+    frame.rsi = ~0U;
+    frame.rdx = 0;
+    ASSERT_EQ(cinux::syscall::HandleCloseRange(frame), 0);
+}
+
+void check_close_range_unshare(cinux::syscall::SyscallFrame& frame,
+                               const unsigned int*           descriptors) {
+    auto* const kSelf     = cinux::syscall::CurrentTask();
+    const auto  kOriginal = kSelf->files;
+    frame.rdi             = descriptors[0];
+    frame.rsi             = ~0U;
+    frame.rdx             = 2;
+    ASSERT_EQ(cinux::syscall::HandleCloseRange(frame), 0);
+    ASSERT_TRUE(!kSelf->files->get(descriptors[0]).ok());
+    ASSERT_TRUE(!kSelf->files->get(descriptors[1]).ok());
+    ASSERT_TRUE(kOriginal->get(descriptors[0]).ok());
+    ASSERT_TRUE(kOriginal->get(descriptors[1]).ok());
+    kSelf->files = kOriginal;
+    check_close_range_marks(frame, descriptors[0]);
+}
+
+void run_pipe_flags_body() {
+    const auto* const            kSelf = cinux::syscall::CurrentTask();
+    unsigned int                 descriptors[2]{};
+    cinux::syscall::SyscallFrame frame{};
+    frame.rdi = reinterpret_cast<unsigned long long>(descriptors);
+    frame.rsi = cinux::syscall::kOpenCloexec;
+    ASSERT_EQ(cinux::syscall::HandlePipe2(frame), 0);
+    ASSERT_TRUE(kSelf->files->cloexec(descriptors[0]));
+    ASSERT_TRUE(kSelf->files->cloexec(descriptors[1]));
+    ASSERT_EQ(kSelf->files->get(descriptors[1]).value()->status_flags,
+              cinux::syscall::kOpenWriteOnly);
+    check_close_range_unshare(frame, descriptors);
+    cinux::proc::Scheduler::self().exit_current();
+}
+
+TEST("syscall face: pipe2 cloexec and close_range unshare preserve the other table") {
+    FaceWorld world;
+    world.run(run_pipe_flags_body);
+}
+
+void run_thread_signal_body() {
+    auto* const kSelf = cinux::syscall::CurrentTask();
+    kSelf->tgid       = kSelf->pid;
+    cinux::syscall::SyscallFrame frame{};
+    frame.rdi = kSelf->tgid;
+    frame.rsi = kSelf->pid;
+    ASSERT_EQ(cinux::syscall::HandleTgkill(frame), 0);
+    frame.rdi += 1;
+    ASSERT_EQ(cinux::syscall::HandleTgkill(frame), -cinux::syscall::kEsrch);
+    frame.rdi = kSelf->tgid;
+    frame.rsi = kSelf->pid + 1000;
+    ASSERT_EQ(cinux::syscall::HandleTgkill(frame), -cinux::syscall::kEsrch);
+    frame.rsi = kSelf->pid;
+    frame.rdx = ~0ULL;
+    ASSERT_EQ(cinux::syscall::HandleTgkill(frame), -cinux::syscall::kEinval);
+    frame.rdi = kSelf->pid;
+    frame.rsi = 0;
+    ASSERT_EQ(cinux::syscall::HandleTkill(frame), 0);
+    cinux::proc::Scheduler::self().exit_current();
+}
+
+TEST("syscall face: tgkill checks the target thread group and tkill checks only tid") {
+    FaceWorld world;
+    world.run(run_thread_signal_body);
 }
 
 }  // namespace

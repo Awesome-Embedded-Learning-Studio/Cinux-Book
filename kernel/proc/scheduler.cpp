@@ -318,6 +318,11 @@ void Scheduler::exit_current(long long code) {
     const arch::IrqGuard kGuard;
     Task* const          kPrev = current();
     base::safety::Check(kPrev != nullptr, "exit called outside any task");
+    if (kPrev->vfork_done != nullptr) {
+        auto* const kDone = kPrev->vfork_done;
+        kPrev->vfork_done = nullptr;
+        kDone->finish(true);
+    }
     futex::ClearTidWord(*kPrev);
     kPrev->files.reset();
     reap_pending();

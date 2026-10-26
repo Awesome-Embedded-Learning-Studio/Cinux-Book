@@ -147,34 +147,53 @@ concept FileSystem = requires(Fs& backend, std::string_view path, std::string_vi
  */
 struct FsOps {
     /// Finds a node by mount-relative path.
-    base::Result<FsNode> (*lookup)(void* self, std::string_view path);
+    base::Result<FsNode> (*lookup)(void* self, std::string_view path)                  = nullptr;
     /// Creates a file at a mount-relative path.
-    base::Result<FsNode> (*make_file)(void* self, std::string_view path);
+    base::Result<FsNode> (*make_file)(void* self, std::string_view path)               = nullptr;
     /// Creates a directory at a mount-relative path.
-    base::Result<FsNode> (*make_dir)(void* self, std::string_view path);
+    base::Result<FsNode> (*make_dir)(void* self, std::string_view path)                = nullptr;
     /// Removes a file or an empty directory.
-    base::Result<void> (*unlink)(void* self, std::string_view path);
+    base::Result<void> (*unlink)(void* self, std::string_view path)                    = nullptr;
     /// Reads up to count bytes at offset into sink.
     base::Result<unsigned long> (*read)(void* self, FsNode node, unsigned long offset, void* sink,
-                                        unsigned long count);
+                                        unsigned long count)                           = nullptr;
     /// Writes count bytes from source at offset, growing as needed.
     base::Result<unsigned long> (*write)(void* self, FsNode node, unsigned long offset,
-                                         const void* source, unsigned long count);
+                                         const void* source, unsigned long count)      = nullptr;
     /// Fills entry with the index-th child; false means index is past the end.
-    base::Result<bool> (*read_dir)(void* self, FsNode node, unsigned long index, FsDirent& entry);
+    base::Result<bool> (*read_dir)(void* self, FsNode node, unsigned long index,
+                                   FsDirent& entry)                                    = nullptr;
     /// Fills probed with the node's metadata.
-    base::Result<void> (*stat)(void* self, FsNode node, FsStat& probed);
+    base::Result<void> (*stat)(void* self, FsNode node, FsStat& probed)                = nullptr;
     /// Pins a borrowed node for an open descriptor.
-    void (*retain)(void* self, FsNode node);
+    void (*retain)(void* self, FsNode node)                                            = nullptr;
     /// Drops a descriptor's pin, reclaiming an unlinked node at the last release.
-    void (*release)(void* self, FsNode node);
+    void (*release)(void* self, FsNode node)                                           = nullptr;
     /// Whether a reader would make progress on this node right now.
-    bool (*readable)(void* self, FsNode node);
+    bool (*readable)(void* self, FsNode node)                                          = nullptr;
     /// One device question, answered with zero or a negative errno.
     long long (*ioctl)(void* self, FsNode node, unsigned long long word,
-                       unsigned long long argument);
+                       unsigned long long argument)                                    = nullptr;
     /// Replaces a node at open time, for backends whose open seats a fresh device.
-    base::Result<FsNode> (*adopt_open)(void* self, FsNode node, std::string_view path);
+    base::Result<FsNode> (*adopt_open)(void* self, FsNode node, std::string_view path) = nullptr;
+    /**
+     * @brief Atomically appends bytes and returns the resulting cursor.
+     * @param[in] self Backend instance.
+     * @param[in] node Open node.
+     * @param[in,out] offset Updated to the end of the completed write.
+     * @param[in] source Kernel bytes to append.
+     * @param[in] count Number of bytes to append.
+     * @return Bytes written, or a backend error.
+     */
+    base::Result<unsigned long> (*append)(void* self, FsNode node, unsigned long& offset,
+                                          const void* source, unsigned long count)     = nullptr;
+    /**
+     * @brief Removes all bytes from a regular file.
+     * @param[in] self Backend instance.
+     * @param[in] node Open node.
+     * @return Success or a backend error.
+     */
+    base::Result<void> (*truncate)(void* self, FsNode node)                            = nullptr;
 };
 
 /**
@@ -215,6 +234,21 @@ template <FileSystem Fs>
         [](void* self, FsNode node, std::string_view path) {
             return static_cast<Fs*>(self)->adopt_open(node, path);
         },
+        [](void* self, FsNode node, unsigned long& offset, const void* source,
+           unsigned long count) -> base::Result<unsigned long> {
+            if constexpr (requires(Fs& backend) { backend.append(node, offset, source, count); }) {
+                return static_cast<Fs*>(self)->append(node, offset, source, count);
+            } else {
+                return base::KernelError::kNotSupported;
+            }
+        },
+        [](void* self, FsNode node) -> base::Result<void> {
+            if constexpr (requires(Fs& backend) { backend.truncate(node); }) {
+                return static_cast<Fs*>(self)->truncate(node);
+            } else {
+                return base::KernelError::kNotSupported;
+            }
+        },
     };
 }
 
@@ -248,6 +282,28 @@ struct FsView {
  */
 [[nodiscard]] base::Result<void> ReadWholeFile(const FsView& view, base::Own<unsigned char[]>& out,
                                                unsigned long& out_bytes);
+
+/**
+ * @brief         Reads one file's leading bytes, capped by the caller.
+ * @param[in]     view       The file to read, as resolve returned it.
+ * @param[in]     limit      The most bytes to carry; a smaller file
+ *                           yields its whole size.
+ * @param[out]    out        Receives the buffer holding the prefix.
+ * @param[out]    out_bytes  Receives how many bytes landed.
+ * @return        Success when the prefix arrived whole; otherwise the
+ *                backend error, or kIOError for a successful but short
+ *                read.
+ * @note          The prefix ladder matches ReadWholeFile's — lookup,
+ *                stat, one allocation, one read, a size match — with
+ *                the size the smaller of the file and the limit. A
+ *                zero-byte answer returns success with an empty hold,
+ *                because an empty file is a fact, not a failure.
+ * @since         0.8.0
+ * @ingroup       kernel_fs
+ */
+[[nodiscard]] base::Result<void> ReadFilePrefix(const FsView& view, unsigned long limit,
+                                                base::Own<unsigned char[]>& out,
+                                                unsigned long&              out_bytes);
 
 /**
  * @brief   The mount table: path prefixes to backends, nothing more.
