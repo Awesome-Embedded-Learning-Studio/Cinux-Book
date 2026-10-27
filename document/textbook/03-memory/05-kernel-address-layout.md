@@ -122,7 +122,7 @@ inline constexpr unsigned long kUserMmapTop      = 0x00007F8000000000UL;
 inline constexpr unsigned long kUserStackTop     = kUserTop - cinux::arch::page::kSize;
 ```
 
-五条咱们挨条报名。kUserTop 0x0000800000000000,客人的天花板,3.1 量过,岗上的限与图上的线同数。kUserNullTop 64KiB,空指针禁区,3.1 也认过,客人解引用了没立起来的指针,踩的是这块注定没映射的地。余下三条本章头一回露脸:kUserBrkMmapSplit 0x0000400000000000,程序加 brk 的地界与 mmap 区的分界,恰是天花板折半。kUserMmapTop 0x00007F8000000000,mmap 区的顶,注写明走向,`allocations grow down from here`,门牌从顶往下发。kUserStackTop 定在 kUserTop 减一页,0x00007FFFFFFFF000,默认主栈到这儿为止,上方那一页留在地图外。这儿有一处跟正文对不上,得当面认:正文《内存当家》那一卷把 mmap 区说成从分界线往上长,码上的注写的走向正相反,数与走向,都以码为准。五条的队,断言也排好了,押在文件尾巴上:
+五条咱们挨条报名。kUserTop 0x0000800000000000,客人的天花板,3.1 量过,岗上的限与图上的线同数。kUserNullTop 64KiB,空指针禁区,3.1 也认过,客人解引用了没立起来的指针,踩的是这块注定没映射的地。余下三条,分界那条缺页那一课的 brk 一节点过名,这回补全队伍:kUserBrkMmapSplit 0x0000400000000000,程序加 brk 的地界与 mmap 区的分界,恰是天花板折半。kUserMmapTop 0x00007F8000000000,mmap 区的顶,注写明走向,`allocations grow down from here`,门牌从顶往下发。kUserStackTop 定在 kUserTop 减一页,0x00007FFFFFFFF000,默认主栈到这儿为止,上方那一页留在地图外。这儿有一处跟正文对不上,得当面认:正文《内存当家》那一卷把 mmap 区说成从分界线往上长,码上的注写的走向正相反,数与走向,都以码为准。五条的队,断言也排好了,押在文件尾巴上:
 
 ```cpp
 static_assert(kUserStackTop + cinux::arch::page::kSize == kUserTop,
@@ -140,7 +140,7 @@ static_assert(kUserNullTop < kUserBrkMmapSplit && kUserBrkMmapSplit < kUserMmapT
 
 ## Code: Cinux 实况:长凳六案,机内回指
 
-锚还是 r13_userspace,前三章用的也是它。这一章咱们连机器都不用起:地图是常量,长凳直跑就能对实。面板也还是 3.1 抄过的四行,本章一行不动。机内的活证据,3.2 的 ktest 三案拍过了,镜像与直接映射翻得回物理、没人动过的堆基址翻回 0、低半 256 项逐项验零,三案回指,屏不重刊。长凳的构建照 3.4 的口径,默认档备一份目录:
+锚还是 r13_userspace,缺页那一课换了 r19_lazy_alloc_page,前头其余各章用的也是它。这一章咱们连机器都不用起:地图是常量,长凳直跑就能对实。面板也还是 3.1 抄过的四行,本章一行不动。机内的活证据,3.2 的 ktest 三案拍过了,镜像与直接映射翻得回物理、没人动过的堆基址翻回 0、低半 256 项逐项验零,三案回指,屏不重刊。长凳的构建照 3.4 的口径,默认档备一份目录:
 
 ```bash
 cmake -B build-dbg
@@ -221,7 +221,7 @@ C++ 在这一章出手的地方,就是文件尾巴那十二条 static_assert。�
 | 空窗 | 立了项、发了基址、正经住户没到任的窗:vmalloc 全空,ioremap 临时工顶班 |
 | 保护页 | kUserStackTop 上方不映射的一页:栈顶与天花板之间隔一页踩空的地 |
 
-地图铺平了,咱们盘一盘第 3 部的家底,还欠一课:《缺页与按需分页》。地图发门牌,走查记翻译,translate 查无此页翻出的那个 0,3.1 埋过,3.2 接过一回。真有客人一脚踩空,谁来接、接住以后页从哪来,归那一课讲。
+地图铺平了,咱们盘一盘第 3 部的家底,还欠最后一课:《Page Cache 与写回》。地图发门牌,走查记翻译,缺页那一课把没映的页补上,文件页要用到的那一拍,字节是从一座柜子里递出来的,柜子当时没摊开。柜子几格、凭什么敢把写扣在内存里、还的时辰定在哪,归那一课讲。
 
 ## 练一练
 
