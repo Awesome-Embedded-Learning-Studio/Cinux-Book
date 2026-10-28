@@ -84,6 +84,9 @@ inline constexpr uint32_t kTrbLink = 6;
 /// @brief TRB type: ask the controller for one free device slot.
 inline constexpr uint32_t kTrbEnableSlot = 9;
 
+/// @brief TRB type: return a device slot to the controller.
+inline constexpr uint32_t kTrbDisableSlot = 10;
+
 /// @brief TRB type: the controller's completion of one command.
 inline constexpr uint32_t kTrbCommandCompletion = 33;
 
@@ -110,6 +113,9 @@ inline constexpr uint32_t kTrbStatusStage = 4;
 
 /// @brief Completion code: the controller's word for success.
 inline constexpr uint32_t kCompletionSuccess = 1;
+
+/// @brief Completion code: the transfer stopped short of its length.
+inline constexpr uint32_t kCompletionShortPacket = 13;
 
 /**
  * @brief         One control word's type half, the cycle bit apart.
@@ -313,19 +319,30 @@ struct KeyboardEp {
     uint8_t  interval;      ///< Polling interval the endpoint asked for.
 };
 
+/// @brief HID interface protocol: the device speaks its raw report protocol.
+inline constexpr uint8_t kHidProtocolNone = 0;
+
+/// @brief HID interface protocol: a boot keyboard's fixed report layout.
+inline constexpr uint8_t kHidProtocolBootKeyboard = 1;
+
 /**
- * @brief         Finds the boot-keyboard interface inside one configuration.
+ * @brief         Finds one HID interface inside a configuration by protocol.
  *
- * @param[in]     config   The configuration descriptor, whole.
- * @param[in]     bytes    How many bytes of it were read.
- * @param[out]    into     The keyboard's configuration and endpoint facts.
- * @return        True when a HID boot-keyboard interface with one interrupt
- *                endpoint answered inside.
+ * @param[in]     config    The configuration descriptor, whole.
+ * @param[in]     bytes     How many bytes of it were read.
+ * @param[in]     protocol  The bInterfaceProtocol the caller wants, a
+ *                         kHidProtocol word.
+ * @param[out]    into      The interface's configuration and endpoint facts.
+ * @return        True when a HID interface with that protocol and one
+ *                interrupt endpoint answered inside.
  * @warning       None
  * @throws        None
- * @since         0.6.0
+ * @since         0.9.0
  * @ingroup       kernel_driver
  */
+[[nodiscard]] bool FindHidInterface(const unsigned char* config, unsigned long bytes,
+                                    uint8_t protocol, KeyboardEp& into);
+
 [[nodiscard]] bool FindKeyboardInterface(const unsigned char* config, unsigned long bytes,
                                          KeyboardEp& into);
 

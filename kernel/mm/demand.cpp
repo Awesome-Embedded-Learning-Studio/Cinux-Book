@@ -47,6 +47,29 @@ using arch::page::Entry;
     return region.file_ops->read(region.file_self, region.backing, kFileAt, kSink, kSize).ok();
 }
 
+/// @brief Maps one page of a device-backed range straight to the hardware
+///        frame the device names; no RAM frame stands between the fault
+///        and the hardware.
+[[nodiscard]] bool map_device_page(const AddressSpace& space, const VmaRegion& region,
+                                   unsigned long page) {
+    if (region.file_ops == nullptr) {
+        return false;
+    }
+    const unsigned long long kInto =
+        region.file_offset + static_cast<unsigned long long>(page - region.start);
+    const base::Result<unsigned long> kFrame =
+        region.file_ops->frame_at(region.file_self, region.backing, kInto);
+    if (!kFrame.ok()) {
+        return false;
+    }
+    const Entry kBits = arch::page::UserLeafTerms(region.writable, region.executable);
+    if (!space.map_user(page, kFrame.value(), kBits)) {
+        return false;
+    }
+    arch::InvalidatePage(page);
+    return true;
+}
+
 }  // namespace
 
 bool FillPage(const AddressSpace& space, const VmaStore& ranges, unsigned long long address,
@@ -88,6 +111,9 @@ bool FillPage(const AddressSpace& space, const VmaStore& ranges, unsigned long l
         Pmm::self().retain_frame(base::PhysAddr{kPhysical});
         arch::InvalidatePage(kPage);
         return true;
+    }
+    if (kRegion->kind == VmaKind::kDevice) {
+        return map_device_page(space, *kRegion, kPage);
     }
     const base::PhysAddr kFrame = Pmm::self().allocate_page();
     if (kFrame == base::PhysAddr{}) {

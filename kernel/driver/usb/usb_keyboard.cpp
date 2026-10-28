@@ -50,8 +50,6 @@ const fs::DeviceOps kKeyboardOps{
     .context   = nullptr,
 };
 
-/// @brief How many descriptor bytes the descriptor buffer keeps.
-constexpr unsigned long kDescriptorBytes = 128;
 
 }  // namespace
 
@@ -59,32 +57,17 @@ bool UsbKeyboard::init() {
     if (device_.slot() != 0) {
         return true;
     }
-    XhciHost& host = XhciHost::self();
-    if (!host.present() || !device_.address(host)) {
-        return false;
-    }
-    unsigned char descriptor[kDescriptorBytes] = {};
-    if (!device_.control_read(host, 0x0100, descriptor, 8) ||
-        !device_.control_read(host, 0x0100, descriptor, 18)) {
-        return false;
-    }
-    if (!device_.control_read(host, 0x0200, descriptor, 9)) {
-        return false;
-    }
-    const unsigned long kConfigBytes = static_cast<unsigned long>(descriptor[2]) |
-                                       (static_cast<unsigned long>(descriptor[3]) << 8U);
-    if (kConfigBytes == 0 || kConfigBytes > kDescriptorBytes ||
-        !device_.control_read(host, 0x0200, descriptor, static_cast<uint16_t>(kConfigBytes))) {
-        return false;
-    }
+    XhciHost&       host = XhciHost::self();
     usb::KeyboardEp keyboard{};
-    if (!usb::FindKeyboardInterface(descriptor, kConfigBytes, keyboard)) {
+    if (!device_.enumerate(host, 1, keyboard)) {
         return false;
     }
-    if (!device_.set_configuration(host, keyboard.config_value)) {
+    if (keyboard.address != 0x81 || !device_.set_configuration(host, keyboard.config_value)) {
+        static_cast<void>(device_.detach(host));
         return false;
     }
     if (!device_.configure_interrupt_in(host, keyboard.max_packet, keyboard.interval)) {
+        static_cast<void>(device_.detach(host));
         return false;
     }
     device_.interrupt_read(host, &UsbKeyboard::report_arrived, this);

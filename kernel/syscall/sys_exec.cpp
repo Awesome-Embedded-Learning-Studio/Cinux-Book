@@ -388,6 +388,7 @@ long long HandleExecve(const SyscallFrame& frame) {
     kSelf->user_root                          = kSelf->space->root();
     kSelf->space->activate();
     auto& mutable_frame    = const_cast<SyscallFrame&>(frame);
+    mutable_frame          = {};
     mutable_frame.user_rsp = kEntryRsp;
     mutable_frame.rcx      = kFirstInstruction;
     mutable_frame.r11      = kUserFlags;

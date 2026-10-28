@@ -80,6 +80,15 @@ bake_glibc_volume() {
         fi
     fi
     [ -f "$hello_glibc" ] && install -m 0755 "$hello_glibc" "$assemble/bin/hello-glibc"
+    local vesper_desk="${CINUX_VESPER_DESK:-}"
+    if [ -n "$vesper_desk" ] && [ -f "$vesper_desk" ]; then
+        install -m 0755 "$vesper_desk" "$assemble/bin/vesper"
+        printf '%s\n' '::respawn:/bin/vesper /dev/fb0 /dev/event0 /dev/event1' \
+            >> "$assemble/etc/inittab"
+        echo "[ext2-disk] desk seated at /bin/vesper (inittab respawn)"
+    else
+        echo "[ext2-disk] no desk binary at CINUX_VESPER_DESK; volume boots headless" >&2
+    fi
     local ecotest="${CINUX_ECOTEST:-${build_dir}/glibc/ecotest}"
     [ -f "$ecotest" ] && install -m 0755 "$ecotest" "$assemble/bin/ecotest"
     cp -a "${staging}/." "$assemble/"

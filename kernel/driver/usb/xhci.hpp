@@ -23,6 +23,7 @@
 #include <stdint.h>
 
 #include "cinux/singleton.hpp"
+#include "cinux/spin_mutex.hpp"
 #include "kernel/driver/usb/usb_config.hpp"
 #include "kernel/driver/usb/xhci_layout.hpp"
 
@@ -33,7 +34,8 @@ class UsbDevice;
 
 /// @brief One seated device as the event drain sees it, erased at the seam.
 struct DeviceRoute {
-    void* device;                               ///< The seated device, opaque here.
+    uint8_t port;    ///< The root-hub port the device answered on, zero when free.
+    void*   device;  ///< The seated device, opaque here.
     void (*deliver)(void* device, const Trb&);  ///< Hands one transfer event over.
 };
 
@@ -149,10 +151,11 @@ private:
     uint64_t                event_page_                     = 0;
     uint64_t                device_page_                    = 0;
     usb::DeviceRoute        routes_[usb::kXhciSlotsEnabled] = {};
-    uint64_t                awaited_trb_                    = 0;
-    bool                    command_ready_                  = false;
-    uint8_t                 command_slot_                   = 0;
-    uint8_t                 command_code_                   = 0;
+    base::SpinMutex         event_gate_{};
+    uint64_t                awaited_trb_   = 0;
+    bool                    command_ready_ = false;
+    uint8_t                 command_slot_  = 0;
+    uint8_t                 command_code_  = 0;
 };
 
 }  // namespace cinux::driver

@@ -1,10 +1,13 @@
 #include "kernel/fs/procfs/procfs.hpp"
 
 #include <iterator>
+#include <span>
 #include <string_view>
 
 #include "cinux/container/name_table.hpp"
 #include "cinux/format.hpp"
+#include "cinux/literal_types.hpp"
+#include "cinux/math.hpp"
 #include "cinux/memory.hpp"
 #include "cinux/parse.hpp"
 #include "cinux/result.hpp"
@@ -28,8 +31,9 @@ constexpr unsigned long kMeminfoIno = 2;
 /// The self directory's inode.
 constexpr unsigned long kSelfIno = 3;
 
-constexpr unsigned long kMountsIno = 7;
-constexpr unsigned long kUptimeIno = 8;
+constexpr unsigned long kMountsIno  = 7;
+constexpr unsigned long kUptimeIno  = 8;
+constexpr unsigned long kCpuinfoIno = 9;
 
 /// One pid directory's stride in the inode space.
 constexpr unsigned long kPidStride = 4;
@@ -51,6 +55,7 @@ constexpr FixedName kRootNames[] = {
     {.name = "devices", .type = InodeType::kFile, .step = kProcDevicesIno - kRootIno},
     {.name = "mounts", .type = InodeType::kFile, .step = kMountsIno - kRootIno},
     {.name = "uptime", .type = InodeType::kFile, .step = kUptimeIno - kRootIno},
+    {.name = "cpuinfo", .type = InodeType::kFile, .step = kCpuinfoIno - kRootIno},
 };
 
 /// One process directory's fixed names, stat first, cmdline second.
@@ -90,20 +95,86 @@ unsigned long format_stat(char* out, unsigned long out_cap, const proc::TaskSnap
     return base::StrLength(out, out_cap);
 }
 
-/// "MemTotal:\nMemFree:\n" in kilobytes, pages times four.
 unsigned long format_meminfo(char* out, unsigned long out_cap, const ProcSource& source) {
     unsigned long free_pages  = 0;
     unsigned long total_pages = 0;
     if (source.memory != nullptr) {
         source.memory(source.context, free_pages, total_pages);
     }
+    using base::operator""_KiB;
+    const auto kTotalBytes = total_pages * source.memory_page_bytes;
+    const auto kFreeBytes  = base::math::Min(free_pages, total_pages) * source.memory_page_bytes;
     const base::format::Arg kArgs[] = {
-        base::format::NumU(total_pages * 4UL),
-        base::format::NumU(free_pages * 4UL),
+        base::format::NumU(kTotalBytes),        base::format::NumU(kTotalBytes - kFreeBytes),
+        base::format::NumU(kFreeBytes),         base::format::NumU(kTotalBytes / 1_KiB),
+        base::format::NumU(kFreeBytes / 1_KiB), base::format::NumU(kFreeBytes / 1_KiB),
     };
-    base::format::FormatToBuf(out, out_cap, "MemTotal:  %lu kB\nMemFree:   %lu kB\n",
+    base::format::FormatToBuf(out, out_cap,
+                              "        total: used: free: shared: buffers: cached:\n"
+                              "Mem: %lu %lu %lu 0 0 0\nSwap: 0 0 0\n"
+                              "MemTotal:  %lu kB\nMemFree:   %lu kB\n"
+                              "MemAvailable: %lu kB\nBuffers: 0 kB\nCached: 0 kB\n"
+                              "SwapTotal: 0 kB\nSwapFree: 0 kB\n",
                               base::format::ArgsView::of(kArgs));
     return base::StrLength(out, out_cap);
+}
+
+unsigned long format_cpu(char* out, unsigned long capacity, const ProcCpuFacts& cpu) {
+    const base::format::Arg kArgs[] = {
+        base::format::NumU(cpu.processor), base::format::Str(cpu.vendor_id),
+        base::format::NumU(cpu.family),    base::format::NumU(cpu.model),
+        base::format::Str(cpu.model_name), base::format::NumU(cpu.stepping),
+        base::format::NumU(cpu.apic_id),   base::format::Str(cpu.flags),
+    };
+    base::format::FormatToBuf(out, capacity,
+                              "processor\t: %lu\nvendor_id\t: %s\ncpu family\t: %u\n"
+                              "model\t\t: %u\nmodel name\t: %s\nstepping\t: %u\n"
+                              "apicid\t\t: %u\nflags\t\t: %s\n\n",
+                              base::format::ArgsView::of(kArgs));
+    return base::StrLength(out, capacity);
+}
+
+unsigned long read_cpuinfo(const ProcSource& source, unsigned long offset, std::span<char> out) {
+    if (source.nth_cpu == nullptr || out.empty()) {
+        return 0;
+    }
+    unsigned long gave = 0;
+    for (unsigned long ordinal = 0;; ++ordinal) {
+        ProcCpuFacts cpu{};
+        if (!source.nth_cpu(source.context, ordinal, cpu)) {
+            break;
+        }
+        char       record[512]{};
+        const auto kBytes = format_cpu(record, sizeof(record), cpu);
+        if (offset >= kBytes) {
+            offset -= kBytes;
+            continue;
+        }
+        const auto kGive = base::math::Min(kBytes - offset, out.size() - gave);
+        base::CopyBytes(out.data() + gave, record + offset, kGive);
+        gave += kGive;
+        offset = 0;
+        if (gave == out.size()) {
+            break;
+        }
+    }
+    return gave;
+}
+
+unsigned long cpuinfo_size(const ProcSource& source) {
+    if (source.nth_cpu == nullptr) {
+        return 0;
+    }
+    unsigned long bytes = 0;
+    for (unsigned long ordinal = 0;; ++ordinal) {
+        ProcCpuFacts cpu{};
+        if (!source.nth_cpu(source.context, ordinal, cpu)) {
+            break;
+        }
+        char record[512]{};
+        bytes += format_cpu(record, sizeof(record), cpu);
+    }
+    return bytes;
 }
 
 /// One class section of the devices node: the header, then every
@@ -377,6 +448,9 @@ base::Result<unsigned long> ProcFs::read(FsNode node, unsigned long offset, void
         }
         return gave;
     }
+    if (node.ino == kCpuinfoIno) {
+        return read_cpuinfo(source_, offset, std::span{static_cast<char*>(sink), count});
+    }
     char          scratch[512] = {};
     unsigned long bytes        = 0;
     if (!generate(source_, node.ino, scratch, sizeof(scratch), bytes)) {
@@ -452,6 +526,10 @@ base::Result<void> ProcFs::stat(FsNode node, FsStat& probed) {
         return {};
     }
     probed.mode = kFsFileMode;
+    if (node.ino == kCpuinfoIno) {
+        probed.size = cpuinfo_size(source_);
+        return {};
+    }
     if (node.ino == kProcExeIno) {
         probed.size = source_.exe_size != nullptr ? source_.exe_size(source_.context) : 0;
         return {};
@@ -478,6 +556,7 @@ long long ProcFs::ioctl(FsNode /*node*/, unsigned long long /*word*/,
 }
 
 base::Result<FsNode> ProcFs::adopt_open(FsNode node, std::string_view /*path*/) {
+    retain(node);
     return node;
 }
 

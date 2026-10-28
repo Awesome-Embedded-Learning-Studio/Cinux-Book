@@ -386,3 +386,28 @@ TEST("ramfs: append selects the live end and truncate clears existing handles") 
     check_ramfs_append(ram, kNode.value());
     check_ramfs_truncate(ram, kNode.value());
 }
+
+TEST("ramfs: a held directory resolves dot locally and refuses unsupported parent traversal") {
+    cinux::fs::RamFs pool;
+    const auto       kDirectory = pool.make_dir("held");
+    ASSERT_TRUE(kDirectory.ok());
+    const auto kFile = pool.make_file("held/child");
+    ASSERT_TRUE(kFile.ok());
+    const auto kDotted = pool.lookup_at(kDirectory.value(), "./child");
+    ASSERT_TRUE(kDotted.ok());
+    ASSERT_EQ(kDotted.value().ino, kFile.value().ino);
+    pool.release(kDotted.value());
+    ASSERT_EQ(pool.lookup_at(kDirectory.value(), "../child").error(),
+              cinux::base::KernelError::kNotSupported);
+}
+
+TEST("ramfs: a detached directory handle cannot create an unreachable child") {
+    cinux::fs::RamFs pool;
+    ASSERT_TRUE(pool.make_dir("gone").ok());
+    const auto kHeld = pool.lookup_held("gone");
+    ASSERT_TRUE(kHeld.ok());
+    ASSERT_TRUE(pool.unlink("gone").ok());
+    const auto kChild = pool.make_file_at(kHeld.value(), "orphan");
+    pool.release(kHeld.value());
+    ASSERT_EQ(kChild.error(), cinux::base::KernelError::kNotFound);
+}

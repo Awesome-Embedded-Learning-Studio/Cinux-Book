@@ -11,6 +11,7 @@
 #include "kernel/arch/x86_64/page_entry.hpp"
 #include "kernel/arch/x86_64/registers.hpp"
 #include "kernel/mm/address_space.hpp"
+#include "kernel/mm/hardware_frames.hpp"
 #include "kernel/mm/layout.hpp"
 #include "kernel/mm/page_walk.hpp"
 #include "kernel/mm/pmm.hpp"
@@ -67,6 +68,9 @@ void share_leaf(Entry& slot, unsigned long spot, const CloneWalk& context) {
                                "fork clone refused a map");
     const VmaRegion* const kRegion =
         context.ranges != nullptr ? context.ranges->find(spot) : nullptr;
+    if (kRegion != nullptr && kRegion->kind == VmaKind::kDevice) {
+        return;
+    }
     if (kRegion != nullptr && kRegion->shared.holds()) {
         Pmm::self().retain_frame(base::PhysAddr{kTarget});
         return;
@@ -167,6 +171,9 @@ void InstallResolver() {
 void ReleaseFrame(unsigned long long frame) {
     const arch::IrqGuard kIrq;
     const auto           kGate = g_fault_gate.guard();
+    if (cinux::mm::IsHardwarePage(static_cast<unsigned long>(frame))) {
+        return;
+    }
     if (release_share(frame) == 0) {
         cinux::mm::Pmm::self().free_page(cinux::base::PhysAddr{frame});
     }

@@ -314,3 +314,12 @@ TEST("vfs: prefix reads cap I/O and preserve the prior buffer on a short read") 
     ASSERT_EQ(backend.requested_bytes, 0UL);
     ASSERT_EQ(count, 0UL);
 }
+
+TEST("vfs: erased optional capabilities stay absent for an unsupported backend") {
+    const auto kOps = cinux::fs::EraseFs<FakeFs>();
+    ASSERT_TRUE(kOps.append == nullptr);
+    ASSERT_TRUE(kOps.truncate == nullptr);
+    ASSERT_TRUE(kOps.chmod == nullptr);
+    ASSERT_TRUE(kOps.frame_at == nullptr);
+    ASSERT_TRUE(kOps.rename == nullptr);
+}

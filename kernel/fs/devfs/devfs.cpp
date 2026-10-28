@@ -6,6 +6,7 @@
 #include "cinux/memory.hpp"
 #include "cinux/result.hpp"
 #include "kernel/driver/device/device.hpp"
+#include "kernel/driver/input/input_config.hpp"
 #include "kernel/driver/tty/pty_config.hpp"
 #include "kernel/fs/devfs/devfs_config.hpp"
 #include "kernel/fs/fs_config.hpp"
@@ -13,6 +14,11 @@
 #include "kernel/syscall/syscall.hpp"
 
 namespace cinux::fs {
+
+static_assert(2U + kDevfsDeviceMax <= driver::kPtyInoBase,
+              "the seated device band must stay below the pty band");
+static_assert(driver::kPtyInoBase + (2U * driver::kPtyPairs) < driver::kInputInoBase,
+              "the pty band must stay below the per-open input band");
 
 namespace {
 
@@ -88,6 +94,14 @@ const DeviceOps* DevFs::ops_of(FsNode node) const {
         return static_cast<const DeviceOps*>(node.opaque);
     }
     return static_cast<const DeviceNode*>(node.opaque)->ops;
+}
+
+base::Result<unsigned long> DevFs::frame_at(FsNode node, unsigned long long offset) const {
+    const DeviceOps* const kOps = ops_of(node);
+    if (kOps == nullptr || kOps->map_frame == nullptr) {
+        return base::KernelError::kNotSupported;
+    }
+    return kOps->map_frame(kOps->context, offset);
 }
 
 base::Result<void> DevFs::register_device(std::string_view name, unsigned long rdev,
@@ -207,6 +221,10 @@ base::Result<void> DevFs::stat(FsNode node, FsStat& probed) {
         return {};
     }
     probed.mode = kFsCharDevMode;
+    if (node.ino >= driver::kInputInoBase) {
+        probed.rdev = MakeDeviceId(driver::kInputEventMajor, node.ino - driver::kInputInoBase);
+        return {};
+    }
     if (node.ino < driver::kPtyInoBase) {
         probed.rdev = static_cast<const DeviceNode*>(node.opaque)->rdev;
         return {};
@@ -262,10 +280,17 @@ long long DevFs::ioctl(FsNode node, unsigned long long word, unsigned long long 
 }
 
 base::Result<FsNode> DevFs::adopt_open(FsNode node, std::string_view path) {
-    if (adopter_ == nullptr) {
-        return node;
+    if (node.type == InodeType::kCharDevice) {
+        const auto* ops = ops_of(node);
+        if (ops->open != nullptr) {
+            return ops->open(ops->context, node);
+        }
     }
-    return adopter_(node, path);
+    auto adopted = adopter_ == nullptr ? base::Result<FsNode>{node} : adopter_(node, path);
+    if (adopted.ok()) {
+        retain(adopted.value());
+    }
+    return adopted;
 }
 
 }  // namespace cinux::fs

@@ -22,6 +22,7 @@
 #include "kernel/driver/device/device.hpp"
 #include "kernel/driver/hpet/hpet.hpp"
 #include "kernel/driver/keyboard/keyboard.hpp"
+#include "kernel/driver/mouse/ps2_mouse.hpp"
 #include "kernel/driver/net/e1000.hpp"
 #include "kernel/driver/net/loopback.hpp"
 #include "kernel/driver/nvme/nvme.hpp"
@@ -175,6 +176,13 @@ constexpr InitStep kInitSteps[] = {
                 return nullptr;
             }
             driver::Keyboard::self().attach();
+            return info;
+        },
+    },
+    {
+        .name = "pointer",
+        .run  = +[](const BootInfo* info) -> const BootInfo* {
+            static_cast<void>(driver::Ps2Mouse::self().init());
             return info;
         },
     },

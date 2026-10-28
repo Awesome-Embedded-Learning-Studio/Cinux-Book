@@ -184,6 +184,22 @@ struct SelfList {
     }
 
     /**
+     * @brief Find the first linked object matching a predicate without unlinking it.
+     * @tparam Predicate Callable accepting a stored object.
+     * @param[in] predicate Match condition.
+     * @return The matching object, or nullptr.
+     */
+    template <typename Predicate>
+    [[nodiscard]] Stuff* find_if(Predicate predicate) {
+        for (Stuff* item = head(); item != nullptr; item = after(*item)) {
+            if (predicate(*item)) {
+                return item;
+            }
+        }
+        return nullptr;
+    }
+
+    /**
      * @brief         Whether anything is linked.
      * @return        True when the list holds no object.
      * @since         0.1.0

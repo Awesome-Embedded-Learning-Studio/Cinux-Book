@@ -52,6 +52,23 @@ public:
     }
 
     /**
+     * @brief Acquire an owner only while at least one owner remains.
+     * @return False after the final release; zero is never resurrected.
+     * @note The caller must independently prevent storage reclamation during this call.
+     */
+    [[nodiscard]] bool try_retain() {
+        Count observed = count_.load(std::memory_order_acquire);
+        while (observed != 0) {
+            constexpr auto kCeiling = std::numeric_limits<Count>::max();
+            safety::Check(observed != kCeiling, "reference count overflow");
+            if (count_.compare_exchange_weak(observed, observed + 1, std::memory_order_acq_rel)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * @brief Drop one owner; releasing an empty counter terminates.
      * @return True exactly when the last owning reference is released.
      * @since 0.1.0

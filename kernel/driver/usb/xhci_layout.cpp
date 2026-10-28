@@ -249,6 +249,11 @@ uint64_t PackSetup(uint8_t type, uint8_t request, uint16_t value, uint16_t index
 }
 
 bool FindKeyboardInterface(const unsigned char* config, unsigned long bytes, KeyboardEp& into) {
+    return FindHidInterface(config, bytes, 1, into);
+}
+
+bool FindHidInterface(const unsigned char* config, unsigned long bytes, uint8_t protocol,
+                      KeyboardEp& into) {
     unsigned long walk        = 0;
     uint8_t       want_config = 0;
     bool          keyboard    = false;
@@ -261,8 +266,8 @@ bool FindKeyboardInterface(const unsigned char* config, unsigned long bytes, Key
         if (kType == 2 && kLength >= 9) {
             want_config = config[walk + 5];
             keyboard    = false;
-        } else if (kType == 4 && kLength >= 9 && config[walk + 5] == 3 && config[walk + 7] == 1) {
-            keyboard = true;
+        } else if (kType == 4 && kLength >= 9) {
+            keyboard = config[walk + 5] == 3 && config[walk + 7] == protocol;
         } else if (keyboard && kType == 5 && kLength >= 7 && (config[walk + 2] & 0x80U) != 0 &&
                    (config[walk + 3] & 0x03U) == 3) {
             into              = KeyboardEp{};

@@ -77,6 +77,22 @@ TEST("ext2: on-disk structure sizes") {
     ASSERT_TRUE(sizeof(DirEntry) == 8);
 }
 
+TEST("block cache: device flush failures propagate and clean pages still retry the barrier") {
+    cinux::test::ImageDisk    disk(std::vector<std::uint8_t>(4096));
+    cinux::driver::BlockQueue queue(disk);
+    cinux::driver::BlockCache cache(queue, 1);
+    const std::uint8_t        kByte = 31;
+    ASSERT_TRUE(cache.patch(cinux::driver::Lba{}, 0, 1, &kByte));
+    disk.fail_flushes(true);
+    ASSERT_FALSE(cache.flush());
+    ASSERT_EQ(disk.flush_count(), 1UL);
+    const auto kWrites = disk.write_count();
+    disk.fail_flushes(false);
+    ASSERT_TRUE(cache.flush());
+    ASSERT_EQ(disk.flush_count(), 2UL);
+    ASSERT_EQ(disk.write_count(), kWrites);
+}
+
 TEST("ext2: superblock and group offsets against the specification") {
     ASSERT_TRUE(offsetof(Superblock, s_magic) == 56);
     ASSERT_TRUE(offsetof(Superblock, s_inode_size) == 88);
@@ -984,6 +1000,258 @@ int main() {
     return cinux::test::RunAll();
 }
 
+namespace {
+
+/// Writes the bytes to a scratch file and reports an e2fsck -fn verdict.
+bool fsck_reports_clean(const std::string& path, const std::vector<std::uint8_t>& image) {
+    // NOLINTNEXTLINE(bugprone-command-processor) the scratch tree is ours
+    static_cast<void>(std::system("mkdir -p /tmp/cinux_ext2_faultsweep"));
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out.write(reinterpret_cast<const char*>(image.data()),
+              static_cast<std::streamsize>(image.size()));
+    out.close();
+    if (run_quietly("e2fsck -fn " + path)) {
+        return true;
+    }
+    std::println(stderr, "[fsck] reporting on {}", path);
+    // NOLINTNEXTLINE(bugprone-command-processor) the scratch tree is ours
+    static_cast<void>(std::system(("e2fsck -fn " + path + " 2>&1 | head -20").c_str()));
+    return false;
+}
+
+/// One staged rename setup: a source file and a victim to overwrite,
+/// both with payloads no mistake can pass off as the other's.
+struct RenameStage {
+    std::vector<std::uint8_t> image;
+    unsigned long             source_ino = 0;
+    unsigned long             victim_ino = 0;
+    unsigned long             writes     = 0;
+};
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) a body walks one story in order
+RenameStage prepare_rename_stage() {
+    RenameStage stage;
+    const auto& bake = baked();
+    stage.image      = bake.image;
+    cinux::test::ImageDisk    disk(stage.image);
+    cinux::driver::BlockQueue queue(disk);
+    cinux::driver::BlockCache cache(queue, 8);
+    cinux::fs::ext2::Ext2     volume(cache, frozen_clock);
+    if (!volume.mount().ok()) {
+        return stage;
+    }
+    const auto kVictim = volume.make_file("victim");
+    const auto kSource = volume.make_file("source");
+    if (!kVictim.ok() || !kSource.ok()) {
+        return stage;
+    }
+    stage.victim_ino = kVictim.value().ino;
+    stage.source_ino = kSource.value().ino;
+    const std::vector<std::uint8_t> kVictimBytes(64, 0xEE);
+    const std::vector<std::uint8_t> kSourceBytes(64, 0x11);
+    static_cast<void>(volume.write(kVictim.value(), 0, kVictimBytes.data(), kVictimBytes.size()));
+    static_cast<void>(volume.write(kSource.value(), 0, kSourceBytes.data(), kSourceBytes.size()));
+    static_cast<void>(cache.flush());
+    stage.image  = disk.image();
+    stage.writes = disk.write_count();
+    return stage;
+}
+
+/// A crash on this unjournaled volume may leave bitmap and counter
+/// drift; the honest claim is that fsck repairs it all automatically and
+/// the data survives, so repair a copy, recheck it, and remount it.
+// NOLINTNEXTLINE(bugprone-command-processor) the scratch tree is ours
+bool crash_left_only_repairable_residue(const std::string&               path,
+                                        const std::vector<std::uint8_t>& image) {
+    // NOLINTNEXTLINE(bugprone-command-processor) the scratch tree is ours
+    static_cast<void>(std::system("mkdir -p /tmp/cinux_ext2_faultsweep"));
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out.write(reinterpret_cast<const char*>(image.data()),
+              static_cast<std::streamsize>(image.size()));
+    out.close();
+    // NOLINTNEXTLINE(bugprone-command-processor) the scratch tree is ours
+    static_cast<void>(std::system(("e2fsck -fy " + path + " >/dev/null 2>&1").c_str()));
+    return run_quietly("e2fsck -fn " + path);
+}
+
+/// Reports the inode number debugfs itself sees behind one name.
+unsigned long debugfs_ino_of(const std::string& dir, const std::string& image_path,
+                             const char* name) {
+    run_quietly("cp " + image_path + " " + dir + "/probe.img");
+    static_cast<void>(run_quietly("debugfs -R 'stat <" + std::string(name) + ">' " + dir +
+                                  "/probe.img > " + dir + "/probe.stat"));
+    std::ifstream report(dir + "/probe.stat");
+    std::string   word;
+    while (report >> word) {
+        if (word == "Inode:") {
+            unsigned long ino = 0;
+            if (report >> ino) {
+                return ino;
+            }
+        }
+    }
+    return 0;
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) a body walks one story in order
+TEST("ext2: a crash between the rename's writes never loses a named file") {
+    const RenameStage kStage = prepare_rename_stage();
+    ASSERT_TRUE(kStage.source_ino != 0);
+    const std::string               kScratch = "/tmp/cinux_ext2_faultsweep/fault-sweep.img";
+    const std::vector<std::uint8_t> kVictimBytes(64, 0xEE);
+    const std::vector<std::uint8_t> kSourceBytes(64, 0x11);
+    const unsigned long             kDirtyWritesForTheRename = 8;
+    for (unsigned long cut = 0; cut <= kDirtyWritesForTheRename; ++cut) {
+        cinux::test::ImageDisk    disk(kStage.image);
+        cinux::driver::BlockQueue queue(disk);
+        cinux::driver::BlockCache cache(queue, 8);
+        cinux::fs::ext2::Ext2     volume(cache, frozen_clock);
+        ASSERT_TRUE(volume.mount().ok());
+        ASSERT_TRUE(volume.rename("source", "victim").ok());
+        disk.fail_writes_from(cut);
+        static_cast<void>(cache.flush());
+        disk.fail_writes_from(~0UL);
+        cinux::driver::BlockQueue cold_queue(disk);
+        cinux::driver::BlockCache cold_cache(cold_queue, 8);
+        cinux::fs::ext2::Ext2     cold(cold_cache, frozen_clock);
+        const bool                kMounts = cold.mount().ok();
+        ASSERT_TRUE(kMounts);
+        const auto kOld            = cold.lookup("source");
+        const auto kNew            = cold.lookup("victim");
+        const bool kOldKeepsSource = kOld.ok() && kOld.value().ino == kStage.source_ino;
+        const bool kNewKeepsVictim = kNew.ok() && kNew.value().ino == kStage.victim_ino;
+        const bool kNewTookSource  = kNew.ok() && kNew.value().ino == kStage.source_ino;
+        ASSERT_TRUE(kOldKeepsSource || kNewKeepsVictim || kNewTookSource);
+        if (kNewKeepsVictim) {
+            std::vector<std::uint8_t> read_back(64, 0);
+            ASSERT_EQ(cold.read(kNew.value(), 0, read_back.data(), read_back.size()).value(), 64U);
+            ASSERT_TRUE(read_back == kVictimBytes);
+        }
+        if (kNewTookSource) {
+            std::vector<std::uint8_t> read_back(64, 0);
+            ASSERT_EQ(cold.read(kNew.value(), 0, read_back.data(), read_back.size()).value(), 64U);
+            ASSERT_TRUE(read_back == kSourceBytes);
+            if (kOldKeepsSource) {
+                ASSERT_EQ(debugfs_ino_of("/tmp/cinux_ext2_faultsweep", kScratch, "victim"),
+                          kStage.source_ino);
+            }
+        }
+        const bool kIntact = kOldKeepsSource && kNewKeepsVictim;
+        const bool kMoved  = !kOld.ok() && kNewTookSource;
+        if (kIntact || kMoved) {
+            ASSERT_TRUE(crash_left_only_repairable_residue(kScratch, disk.image()));
+        }
+    }
+}
+
+}  // namespace
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) a body walks one story in order
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) a body walks one story in order
+TEST("ext2: a held directory node anchors names while its inode stays distinct") {
+    const auto& bake = baked();
+    ASSERT_TRUE(bake.ok);
+    cinux::test::ImageDisk    disk(bake.image);
+    cinux::driver::BlockQueue queue(disk);
+    cinux::driver::BlockCache cache(queue, 8);
+    cinux::fs::ext2::Ext2     volume(cache, frozen_clock);
+    ASSERT_TRUE(volume.mount().ok());
+    ASSERT_TRUE(volume.make_dir("held").ok());
+    ASSERT_TRUE(volume.make_file("held/first").ok());
+    const auto kHeldNode = volume.lookup_held("held");
+    ASSERT_TRUE(kHeldNode.ok());
+
+    const auto kSameName = volume.lookup_at(kHeldNode.value(), "first");
+    ASSERT_TRUE(kSameName.ok());
+    ASSERT_EQ(kSameName.value().ino, volume.lookup("held/first").value().ino);
+    volume.release(kSameName.value());
+
+    ASSERT_TRUE(volume.unlink("held/first").ok());
+    const auto kGone = volume.lookup_at(kHeldNode.value(), "first");
+    ASSERT_TRUE(!kGone.ok());
+
+    ASSERT_TRUE(volume.unlink("held").ok());
+    ASSERT_TRUE(volume.make_file("recycle-seat").ok());
+    ASSERT_TRUE(volume.make_dir("held").ok());
+    ASSERT_TRUE(volume.make_file("held/first").ok());
+    const auto kNewTree = volume.lookup("held/first");
+    ASSERT_TRUE(kNewTree.ok());
+    const auto kOldAnchor = volume.lookup_at(kHeldNode.value(), "first");
+    ASSERT_TRUE(!kOldAnchor.ok());
+    ASSERT_NE(kHeldNode.value().ino, volume.lookup("held").value().ino);
+    volume.release(kHeldNode.value());
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) a body walks one story in order
+TEST("ext2: a later group serves blocks on a real mke2fs multi-group volume") {
+    const std::string kDir    = "/tmp/cinux_ext2_multigroup";
+    const std::string kImage  = kDir + "/volume.img";
+    const std::string kFiller = kDir + "/filler.bin";
+    run_quietly("rm -rf " + kDir);
+    run_quietly("mkdir -p " + kDir);
+    const std::vector<std::uint8_t> kFillerBytes(7'000'000, 0x5A);
+    ASSERT_TRUE(write_file(kFiller, kFillerBytes));
+    std::string make = "truncate -s 16M ";
+    make += kImage;
+    make += " && mkfs.ext2 -q -F -b 1024 -O none -N 64 ";
+    make += kImage;
+    ASSERT_TRUE(run_quietly(make));
+    std::string seat_filler = "debugfs -w -R 'write ";
+    seat_filler += kFiller;
+    seat_filler += " filler' ";
+    seat_filler += kImage;
+    ASSERT_TRUE(run_quietly(seat_filler));
+    std::ifstream file(kImage, std::ios::binary);
+    ASSERT_TRUE(file.good());
+    file.seekg(0, std::ios::end);
+    const std::streamoff kBytes = file.tellg();
+    file.seekg(0);
+    std::vector<std::uint8_t> image(static_cast<unsigned long>(kBytes));
+    file.read(reinterpret_cast<char*>(image.data()), kBytes);
+    ASSERT_EQ(file.gcount(), kBytes);
+    cinux::test::ImageDisk    disk(std::move(image));
+    cinux::driver::BlockQueue queue(disk);
+    cinux::driver::BlockCache cache(queue, 8);
+    cinux::fs::ext2::Ext2     volume(cache, frozen_clock);
+    ASSERT_TRUE(volume.mount().ok());
+    const auto kLate = volume.make_file("late.bin");
+    ASSERT_TRUE(kLate.ok());
+    const std::vector<std::uint8_t> kPayload(4096, 0xC3);
+    ASSERT_EQ(volume.write(kLate.value(), 0, kPayload.data(), kPayload.size()).value(), 4096U);
+    ASSERT_TRUE(cache.flush());
+    std::string snapshot = "cp ";
+    snapshot += kImage;
+    snapshot += ' ';
+    snapshot += kDir;
+    snapshot += "/after.img";
+    static_cast<void>(run_quietly(snapshot));
+    std::string blocks_query = "debugfs -R 'blocks <late.bin>' ";
+    blocks_query += kDir;
+    blocks_query += "/after.img > ";
+    blocks_query += kDir;
+    blocks_query += "/late.blocks";
+    ASSERT_TRUE(run_quietly(blocks_query));
+    std::ifstream blocks_file(kDir + "/late.blocks");
+    ASSERT_TRUE(blocks_file.good());
+    unsigned long block_id = 0;
+    unsigned long lowest   = ~0UL;
+    while (blocks_file >> block_id) {
+        lowest = block_id < lowest ? block_id : lowest;
+    }
+    ASSERT_TRUE(lowest >= 8192UL);
+    ASSERT_TRUE(fsck_reports_clean(kDir + "/fsck.img", disk.image()));
+    cinux::driver::BlockQueue cold_queue(disk);
+    cinux::driver::BlockCache cold_cache(cold_queue, 8);
+    cinux::fs::ext2::Ext2     cold(cold_cache, frozen_clock);
+    ASSERT_TRUE(cold.mount().ok());
+    const auto kColdLate = cold.lookup("late.bin");
+    ASSERT_TRUE(kColdLate.ok());
+    std::vector<std::uint8_t> read_back(4096, 0);
+    ASSERT_EQ(cold.read(kColdLate.value(), 0, read_back.data(), read_back.size()).value(), 4096U);
+    ASSERT_TRUE(read_back == kPayload);
+    run_quietly("rm -rf " + kDir);
+}
+
 TEST("ext2: lookup follows relative absolute chained directory and long symlinks") {
     auto& bake = baked();
     ASSERT_TRUE(bake.ok);
@@ -1164,4 +1432,375 @@ TEST("ext2: file and directory creation grow across direct blocks and persist") 
     ASSERT_TRUE(volume.mount().ok());
     check_growing_directory(volume);
     check_directory_disk_blocks(bake);
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) one allocation and remount scenario.
+TEST("ext2: descriptors beyond the first table block allocate and persist") {
+    const auto& bake = baked();
+    ASSERT_TRUE(bake.ok);
+    auto                    image      = bake.image;
+    constexpr unsigned long kBlock     = 1024;
+    constexpr unsigned long kGroup     = 32;
+    const auto              kInodes    = peek_u32(image, kBlock + 40);
+    const auto              kBlocks    = peek_u32(image, kBlock + 32);
+    const auto              kBitmap    = peek_u32(image, 2 * kBlock);
+    const auto              kRelocated = (image.size() / kBlock) - 1;
+    cinux::base::CopyBytes(image.data() + (kRelocated * kBlock), image.data() + (kBitmap * kBlock),
+                           kBlock);
+    cinux::base::SetBytes(image.data() + (3 * kBlock), 0, kBlock);
+    cinux::base::CopyBytes(image.data() + (3 * kBlock), image.data() + (2 * kBlock),
+                           sizeof(GroupDescriptor));
+    poke_u32(image, kBlock, (kGroup + 1) * kInodes);
+    poke_u32(image, kBlock + 4, (kGroup * kBlocks) + 4096);
+    poke_u32(image, 2 * kBlock, static_cast<std::uint32_t>(kRelocated));
+    poke_u16(image, (2 * kBlock) + offsetof(GroupDescriptor, bg_free_inodes_count), 0);
+    cinux::test::ImageDisk disk(std::move(image));
+    {
+        cinux::driver::BlockQueue queue(disk);
+        cinux::driver::BlockCache cache(queue, 8);
+        cinux::fs::ext2::Ext2     volume(cache);
+        ASSERT_TRUE(volume.mount().ok());
+        const auto kMade = volume.make_file("later-group");
+        ASSERT_TRUE(kMade.ok());
+        ASSERT_TRUE(kMade.value().ino > kGroup * kInodes);
+        const unsigned char kBytes[] = {11, 22, 33};
+        ASSERT_TRUE(volume.write(kMade.value(), 0, kBytes, sizeof(kBytes)).ok());
+        ASSERT_TRUE(cache.flush());
+    }
+    cinux::driver::BlockQueue queue(disk);
+    cinux::driver::BlockCache cache(queue, 8);
+    cinux::fs::ext2::Ext2     volume(cache);
+    ASSERT_TRUE(volume.mount().ok());
+    const auto kFound = volume.lookup("later-group");
+    ASSERT_TRUE(kFound.ok());
+    unsigned char bytes[3]{};
+    const auto    kRead = volume.read(kFound.value(), 0, bytes, sizeof(bytes));
+    ASSERT_TRUE(kRead.ok());
+    ASSERT_EQ(kRead.value(), sizeof(bytes));
+    ASSERT_EQ(bytes[0], 11);
+    ASSERT_EQ(bytes[2], 33);
+    const auto kNext = volume.make_file("later-group-next");
+    ASSERT_TRUE(kNext.ok());
+    ASSERT_TRUE(kNext.value().ino != kFound.value().ino);
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) one replace and remount scenario.
+TEST("ext2: rename replaces a file and preserves inode permissions across remount") {
+    const auto& bake = baked();
+    ASSERT_TRUE(bake.ok);
+    cinux::test::ImageDisk disk(bake.image);
+    unsigned long          moved_ino = 0;
+    {
+        cinux::driver::BlockQueue queue(disk);
+        cinux::driver::BlockCache cache(queue, 8);
+        cinux::fs::ext2::Ext2     volume(cache);
+        ASSERT_TRUE(volume.mount().ok());
+        const auto kSource = volume.make_file("rename-source");
+        ASSERT_TRUE(kSource.ok());
+        moved_ino                      = kSource.value().ino;
+        const unsigned char kPayload[] = {4, 5, 6};
+        ASSERT_TRUE(volume.write(kSource.value(), 0, kPayload, sizeof(kPayload)).ok());
+        ASSERT_TRUE(volume.make_file("rename-target").ok());
+        ASSERT_TRUE(volume.chmod(kSource.value(), 0640).ok());
+        ASSERT_TRUE(volume.rename("rename-source", "rename-target").ok());
+        ASSERT_TRUE(!volume.lookup("rename-source").ok());
+        ASSERT_TRUE(cache.flush());
+    }
+    cinux::driver::BlockQueue queue(disk);
+    cinux::driver::BlockCache cache(queue, 8);
+    cinux::fs::ext2::Ext2     volume(cache);
+    ASSERT_TRUE(volume.mount().ok());
+    const auto kMoved = volume.lookup("rename-target");
+    ASSERT_TRUE(kMoved.ok());
+    ASSERT_EQ(kMoved.value().ino, moved_ino);
+    cinux::fs::FsStat facts{};
+    ASSERT_TRUE(volume.stat(kMoved.value(), facts).ok());
+    ASSERT_EQ(facts.mode & 0777U, 0640U);
+    unsigned char bytes[3]{};
+    ASSERT_TRUE(volume.read(kMoved.value(), 0, bytes, sizeof(bytes)).ok());
+    ASSERT_EQ(bytes[0], 4);
+    ASSERT_EQ(bytes[2], 6);
+}
+
+TEST("ext2: reusing a deleted entry preserves the next record with a different name length") {
+    const auto& bake = baked();
+    ASSERT_TRUE(bake.ok);
+    auto       image  = bake.image;
+    const auto kSmall = bake.volume->lookup("small.txt");
+    ASSERT_TRUE(kSmall.ok());
+    const auto kBlock = root_first_block(image) * 1024;
+    cinux::base::SetBytes(image.data() + kBlock, 0, 1024);
+    poke_u16(image, kBlock + 4, 512);
+    image[kBlock + 6] = 100;
+    poke_u32(image, kBlock + 512, static_cast<std::uint32_t>(kSmall.value().ino));
+    poke_u16(image, kBlock + 516, 512);
+    image[kBlock + 518] = 8;
+    cinux::base::CopyBytes(image.data() + kBlock + 520, "sentinel", 8);
+    cinux::test::ImageDisk    disk(std::move(image));
+    cinux::driver::BlockQueue queue(disk);
+    cinux::driver::BlockCache cache(queue, 4);
+    cinux::fs::ext2::Ext2     volume(cache);
+    ASSERT_TRUE(volume.mount().ok());
+    ASSERT_TRUE(volume.make_file("new").ok());
+    ASSERT_TRUE(volume.lookup("sentinel").ok());
+    ASSERT_TRUE(volume.make_file("another-new-entry").ok());
+    ASSERT_TRUE(volume.lookup("new").ok());
+    ASSERT_TRUE(volume.lookup("sentinel").ok());
+}
+
+namespace {
+
+void prepare_sync_file(cinux::fs::ext2::Ext2& volume, const std::vector<std::uint8_t>& payload) {
+    ASSERT_TRUE(volume.make_dir("synced").ok());
+    const auto kFile = volume.make_file("synced/pending");
+    ASSERT_TRUE(kFile.ok());
+    ASSERT_EQ(volume.write(kFile.value(), 0, payload.data(), payload.size()).value(),
+              payload.size());
+    ASSERT_TRUE(volume.rename("synced/pending", "synced/complete").ok());
+    ASSERT_TRUE(volume.sync());
+}
+
+void verify_sync_file(cinux::fs::ext2::Ext2& cold, const std::vector<std::uint8_t>& payload) {
+    ASSERT_FALSE(cold.lookup("synced/pending").ok());
+    const auto kColdFile = cold.lookup("synced/complete");
+    ASSERT_TRUE(kColdFile.ok());
+    std::vector<std::uint8_t> back(payload.size());
+    ASSERT_EQ(cold.read(kColdFile.value(), 0, back.data(), back.size()).value(), back.size());
+    ASSERT_TRUE(back == payload);
+}
+
+}
+
+TEST("ext2: volume sync persists namespace and indirect file data for a cold remount") {
+    const BakedVolume& bake = baked();
+    ASSERT_TRUE(bake.ok);
+    cinux::test::ImageDisk    disk(bake.image);
+    cinux::driver::BlockQueue queue(disk);
+    cinux::driver::BlockCache cache(queue, 8);
+    cinux::fs::ext2::Ext2     volume(cache);
+    ASSERT_TRUE(volume.mount().ok());
+    const auto kPayload = pattern_bytes(300_KiB);
+    prepare_sync_file(volume, kPayload);
+    ASSERT_EQ(disk.flush_count(), 1UL);
+    cinux::driver::BlockQueue cold_queue(disk);
+    cinux::driver::BlockCache cold_cache(cold_queue, 4);
+    cinux::fs::ext2::Ext2     cold(cold_cache);
+    ASSERT_TRUE(cold.mount().ok());
+    verify_sync_file(cold, kPayload);
+}
+
+TEST("ext2 regression: a retained directory fd cannot turn into a recreated directory") {
+    const auto& bake = baked();
+    ASSERT_TRUE(bake.ok);
+    cinux::test::ImageDisk    disk(bake.image);
+    cinux::driver::BlockQueue queue(disk);
+    cinux::driver::BlockCache cache(queue, 8);
+    cinux::fs::ext2::Ext2     volume(cache, frozen_clock);
+    ASSERT_TRUE(volume.mount().ok());
+    const auto kHeld = volume.make_dir("review-held");
+    ASSERT_TRUE(kHeld.ok());
+    const auto kOpened = volume.lookup_held("review-held");
+    ASSERT_TRUE(kOpened.ok());
+    ASSERT_TRUE(volume.unlink("review-held").ok());
+    const auto kRecreated = volume.make_dir("review-held");
+    ASSERT_TRUE(kRecreated.ok());
+    ASSERT_TRUE(volume.make_file("review-held/foreign").ok());
+    const auto kForeign = volume.lookup_at(kHeld.value(), "foreign");
+    std::println("[review] held inode={}, recreated inode={}, old handle reached new file={}",
+                 kHeld.value().ino, kRecreated.value().ino, kForeign.ok());
+    if (kForeign.ok()) {
+        volume.release(kForeign.value());
+    }
+    volume.release(kHeld.value());
+    ASSERT_FALSE(kForeign.ok());
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) lifetime regression.
+TEST("ext2 regression: rename keeps an independently opened replaced target alive") {
+    const auto& bake = baked();
+    ASSERT_TRUE(bake.ok);
+    cinux::test::ImageDisk    disk(bake.image);
+    cinux::driver::BlockQueue queue(disk);
+    cinux::driver::BlockCache cache(queue, 8);
+    cinux::fs::ext2::Ext2     volume(cache, frozen_clock);
+    ASSERT_TRUE(volume.mount().ok());
+    const auto kSource = volume.make_file("review-source");
+    const auto kTarget = volume.make_file("review-target");
+    ASSERT_TRUE(kSource.ok() && kTarget.ok());
+    ASSERT_TRUE(volume.write(kSource.value(), 0, "NEW", 3).ok());
+    ASSERT_TRUE(volume.write(kTarget.value(), 0, "OLD", 3).ok());
+    volume.retain(kTarget.value());
+    ASSERT_TRUE(volume.rename("review-source", "review-target").ok());
+    const auto kReplacement = volume.make_file("review-inode-reuse");
+    ASSERT_TRUE(kReplacement.ok());
+    ASSERT_TRUE(volume.write(kReplacement.value(), 0, "BAD", 3).ok());
+    char       bytes[4]{};
+    const auto kRead = volume.read(kTarget.value(), 0, bytes, 3);
+    std::println("[review] replaced target inode={}, fresh file inode={}, held target bytes={}",
+                 kTarget.value().ino, kReplacement.value().ino, bytes);
+    volume.release(kTarget.value());
+    ASSERT_TRUE(kRead.ok());
+    ASSERT_TRUE(std::string_view(bytes, 3) == "OLD");
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) failure matrix.
+TEST("ext2 regression: a failed rename preserves both preexisting names and contents") {
+    const auto& bake = baked();
+    ASSERT_TRUE(bake.ok);
+    cinux::test::ImageDisk seed(bake.image);
+    {
+        cinux::driver::BlockQueue queue(seed);
+        cinux::driver::BlockCache cache(queue, 16);
+        cinux::fs::ext2::Ext2     volume(cache, frozen_clock);
+        ASSERT_TRUE(volume.mount().ok());
+        ASSERT_TRUE(volume.make_dir("review-from").ok());
+        ASSERT_TRUE(volume.make_dir("review-to").ok());
+        const auto kSource = volume.make_file("review-from/source");
+        const auto kTarget = volume.make_file("review-to/target");
+        ASSERT_TRUE(kSource.ok() && kTarget.ok());
+        ASSERT_TRUE(volume.write(kSource.value(), 0, "NEW", 3).ok());
+        ASSERT_TRUE(volume.write(kTarget.value(), 0, "OLD", 3).ok());
+        ASSERT_TRUE(cache.flush());
+    }
+    bool broken = false;
+    for (unsigned long slots = 1; slots <= 4 && !broken; ++slots) {
+        for (unsigned long cut = 0; cut < 12 && !broken; ++cut) {
+            cinux::test::ImageDisk    disk(seed.image());
+            cinux::driver::BlockQueue queue(disk);
+            cinux::driver::BlockCache cache(queue, slots);
+            cinux::fs::ext2::Ext2     volume(cache, frozen_clock);
+            ASSERT_TRUE(volume.mount().ok());
+            disk.fail_writes_from(cut);
+            const auto kResult = volume.rename("review-from/source", "review-to/target");
+            disk.fail_writes_from(~0UL);
+            if (kResult.ok()) {
+                continue;
+            }
+            const auto kSource = volume.lookup("review-from/source");
+            const auto kTarget = volume.lookup("review-to/target");
+            char       source_bytes[4]{};
+            char       target_bytes[4]{};
+            if (kSource.ok()) {
+                ASSERT_TRUE(volume.read(kSource.value(), 0, source_bytes, 3).ok());
+            }
+            if (kTarget.ok()) {
+                ASSERT_TRUE(volume.read(kTarget.value(), 0, target_bytes, 3).ok());
+            }
+            broken = !kSource.ok() || !kTarget.ok() || std::string_view(source_bytes, 3) != "NEW" ||
+                     std::string_view(target_bytes, 3) != "OLD";
+            if (broken) {
+                std::println(
+                    "[review] rename returned error: slots={}, cut={}, source={}, target={}", slots,
+                    cut, source_bytes, target_bytes);
+            }
+        }
+    }
+    ASSERT_FALSE(broken);
+}
+
+// NOLINTBEGIN(readability-function-cognitive-complexity) preparation fault matrix.
+TEST(
+    "ext2 regression: failed rename preparation preserves the original independently checked "
+    "image") {
+    const auto& bake = baked();
+    ASSERT_TRUE(bake.ok);
+    cinux::test::ImageDisk seed(bake.image);
+    {
+        cinux::driver::BlockQueue queue(seed);
+        cinux::driver::BlockCache cache(queue, 16);
+        cinux::fs::ext2::Ext2     volume(cache, frozen_clock);
+        ASSERT_TRUE(volume.mount().ok());
+        ASSERT_TRUE(volume.make_dir("from").ok());
+        ASSERT_TRUE(volume.make_dir("to").ok());
+        const auto kSource = volume.make_file("from/source");
+        const auto kTarget = volume.make_file("to/target");
+        ASSERT_TRUE(kSource.ok() && kTarget.ok());
+        ASSERT_TRUE(volume.write(kSource.value(), 0, "NEW", 3).ok());
+        ASSERT_TRUE(volume.write(kTarget.value(), 0, "OLD", 3).ok());
+        ASSERT_TRUE(volume.sync());
+    }
+    unsigned long failures  = 0;
+    unsigned long successes = 0;
+    for (unsigned long cut = 0; cut < 20; ++cut) {
+        cinux::test::ImageDisk    disk(seed.image());
+        cinux::driver::BlockQueue queue(disk);
+        cinux::driver::BlockCache cache(queue, 8);
+        cinux::fs::ext2::Ext2     volume(cache, frozen_clock);
+        ASSERT_TRUE(volume.mount().ok());
+        disk.fail_reads_from(disk.read_count() + cut);
+        const auto kMoved = volume.rename("from/source", "to/target");
+        disk.fail_reads_from(~0UL);
+        if (kMoved.ok()) {
+            ++successes;
+            continue;
+        }
+        ++failures;
+        ASSERT_TRUE(volume.sync());
+        ASSERT_TRUE(disk.image() == seed.image());
+        ASSERT_TRUE(fsck_reports_clean("/tmp/cinux-review-failed-rename.img", disk.image()));
+    }
+    ASSERT_NE(failures, 0UL);
+    ASSERT_NE(successes, 0UL);
+}
+
+// NOLINTEND(readability-function-cognitive-complexity)
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) orphan persistence scenario.
+TEST("ext2 regression: deferred final close reclaims orphan blocks and deletion time") {
+    const auto& bake = baked();
+    ASSERT_TRUE(bake.ok);
+    cinux::test::ImageDisk    disk(bake.image);
+    cinux::driver::BlockQueue queue(disk);
+    cinux::driver::BlockCache cache(queue, 8);
+    cinux::fs::ext2::Ext2     volume(cache, frozen_clock);
+    ASSERT_TRUE(volume.mount().ok());
+    ASSERT_TRUE(volume.make_file("held-file").ok());
+    const auto kHeld = volume.lookup_held("held-file");
+    ASSERT_TRUE(kHeld.ok());
+    ASSERT_TRUE(volume.write(kHeld.value(), 0, "OLD", 3).ok());
+    ASSERT_TRUE(volume.unlink("held-file").ok());
+    char bytes[3]{};
+    ASSERT_TRUE(volume.read(kHeld.value(), 0, bytes, sizeof(bytes)).ok());
+    ASSERT_TRUE(std::string_view(bytes, 3) == "OLD");
+    const auto kWrites = disk.write_count();
+    volume.release(kHeld.value());
+    ASSERT_EQ(disk.write_count(), kWrites);
+    ASSERT_TRUE(volume.sync());
+    ASSERT_TRUE(fsck_reports_clean("/tmp/cinux-review-orphan.img", disk.image()));
+}
+
+TEST("block cache: an uncommittable batch leaves cached and platter bytes unchanged") {
+    cinux::test::ImageDisk           disk(std::vector<std::uint8_t>(8192));
+    cinux::driver::BlockQueue        queue(disk);
+    cinux::driver::BlockCache        cache(queue, 1);
+    cinux::driver::BlockCache::Batch batch(cache);
+    const unsigned char              kByte = 17;
+    ASSERT_TRUE(batch.patch(cinux::driver::Lba{0}, 0, 1, &kByte));
+    ASSERT_TRUE(batch.patch(cinux::driver::Lba{8}, 0, 1, &kByte));
+    ASSERT_FALSE(batch.commit());
+    unsigned char back = 99;
+    ASSERT_TRUE(cache.read(cinux::driver::Lba{0}, &back, 1));
+    ASSERT_EQ(back, 0);
+    ASSERT_TRUE(cache.read(cinux::driver::Lba{8}, &back, 1));
+    ASSERT_EQ(back, 0);
+    ASSERT_EQ(disk.write_count(), 0UL);
+}
+
+TEST("ext2 regression: a detached directory handle cannot create an unreachable child") {
+    const auto& bake = baked();
+    ASSERT_TRUE(bake.ok);
+    cinux::test::ImageDisk    disk(bake.image);
+    cinux::driver::BlockQueue queue(disk);
+    cinux::driver::BlockCache cache(queue, 8);
+    cinux::fs::ext2::Ext2     volume(cache, frozen_clock);
+    ASSERT_TRUE(volume.mount().ok());
+    ASSERT_TRUE(volume.make_dir("gone").ok());
+    const auto kHeld = volume.lookup_held("gone");
+    ASSERT_TRUE(kHeld.ok());
+    ASSERT_TRUE(volume.unlink("gone").ok());
+    const auto kChild = volume.make_file_at(kHeld.value(), "orphan");
+    volume.release(kHeld.value());
+    ASSERT_EQ(kChild.error(), cinux::base::KernelError::kNotFound);
+    ASSERT_TRUE(volume.sync());
+    ASSERT_TRUE(fsck_reports_clean("/tmp/cinux-review-detached.img", disk.image()));
 }

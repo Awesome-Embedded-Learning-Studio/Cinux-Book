@@ -16,6 +16,8 @@ const char* kind_name(VmaKind kind) {
         return "file";
     case VmaKind::kStack:
         return "stack";
+    case VmaKind::kDevice:
+        return "device";
     }
     return "?";
 }

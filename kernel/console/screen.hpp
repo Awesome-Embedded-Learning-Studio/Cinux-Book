@@ -21,6 +21,8 @@
 
 #include <stdint.h>
 
+#include <atomic>
+
 #include "cinux/singleton.hpp"
 #include "kernel/boot/boot_info.hpp"
 #include "kernel/console/console_grid.hpp"
@@ -83,14 +85,40 @@ public:
      */
     void put_char(char glyph_char);
 
+    /**
+     * @brief         Step aside for whoever holds the frame.
+     *
+     * @return        None
+     * @note          The pixel door closes while a memory device's
+     *                mapping owns the screen: painting requests turn
+     *                quiet, the caret stands still, and the serial half
+     *                of the console fan-out keeps talking.
+     * @since         0.9.0
+     * @ingroup       kernel_driver
+     */
+    void yield_frame();
+
+    /**
+     * @brief         Take the pixels back.
+     *
+     * @return        None
+     * @note          The framebuffer node's last close: the text screen
+     *                resumes where its caret stood.
+     * @since         0.9.0
+     * @ingroup       kernel_driver
+     */
+    void reclaim_frame();
+
+
 private:
     TextConsole() = default;
 
     void paint_glyph(uint32_t glyph, Caret cell);
 
-    Caret    caret_{};
-    Psf2Font font_{};
-    bool     alive_ = false;
+    Caret                      caret_{};
+    Psf2Font                   font_{};
+    bool                       alive_ = false;
+    std::atomic<unsigned long> frame_holders_{0};
 };
 
 }  // namespace cinux::console

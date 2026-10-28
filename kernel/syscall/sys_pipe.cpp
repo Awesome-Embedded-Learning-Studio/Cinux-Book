@@ -17,7 +17,9 @@ namespace cinux::syscall {
 namespace {
 
 /// Seats both ends of one fresh pipe in the caller's table.
-long long seat_pipe_pair(unsigned long long user_fds, bool cloexec) {
+long long seat_pipe_pair(unsigned long long user_fds, unsigned long long flags) {
+    const bool kCloexec = (flags & kOpenCloexec) != 0;
+    const auto kStatus  = flags & kOpenNonblock;
     if (user_fds == 0 || user_fds >= kUserAddressLimit) {
         return -kEfault;
     }
@@ -37,16 +39,16 @@ long long seat_pipe_pair(unsigned long long user_fds, bool cloexec) {
         .ino    = kPipe->identity(),
         .size   = 0,
     };
-    const proc::Task* const           kSelf = CurrentTask();
-    const base::Result<unsigned long> kReadEnd =
-        kSelf->files->alloc(fs::PipeOps(), kPipe.get(), kReadMark,
-                            {.cloexec = cloexec, .limit = FileDescriptorLimit()});
+    const proc::Task* const           kSelf    = CurrentTask();
+    const base::Result<unsigned long> kReadEnd = kSelf->files->alloc(
+        fs::PipeOps(), kPipe.get(), kReadMark,
+        {.status = kStatus, .cloexec = kCloexec, .limit = FileDescriptorLimit()});
     if (!kReadEnd.ok()) {
         return -kEmfile;
     }
     const base::Result<unsigned long> kWriteEnd = kSelf->files->alloc(
         fs::PipeOps(), kPipe.get(), kWriteMark,
-        {.status = kOpenWriteOnly, .cloexec = cloexec, .limit = FileDescriptorLimit()});
+        {.status = kOpenWriteOnly | kStatus, .cloexec = kCloexec, .limit = FileDescriptorLimit()});
     if (!kWriteEnd.ok()) {
         cinux::base::safety::Check(kSelf->files->free(kReadEnd.value()).ok(),
                                    "pipe read end vanished while seating the write end");
@@ -69,14 +71,14 @@ long long seat_pipe_pair(unsigned long long user_fds, bool cloexec) {
 }  // namespace
 
 long long HandlePipe(const SyscallFrame& frame) {
-    return seat_pipe_pair(frame.rdi, false);
+    return seat_pipe_pair(frame.rdi, 0);
 }
 
 long long HandlePipe2(const SyscallFrame& frame) {
-    if ((frame.rsi & ~kOpenCloexec) != 0) {
+    if ((frame.rsi & ~(kOpenCloexec | kOpenNonblock)) != 0) {
         return -kEinval;
     }
-    return seat_pipe_pair(frame.rdi, (frame.rsi & kOpenCloexec) != 0);
+    return seat_pipe_pair(frame.rdi, frame.rsi);
 }
 
 long long HandleDup(const SyscallFrame& frame) {

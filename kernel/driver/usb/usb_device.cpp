@@ -22,6 +22,7 @@
 
 #include "cinux/addr.hpp"
 #include "cinux/bit_ops/bitmask.hpp"
+#include "cinux/byte_order.hpp"
 #include "cinux/memory.hpp"
 #include "cinux/ptr.hpp"
 #include "kernel/arch/x86_64/instructions.hpp"
@@ -88,7 +89,7 @@ void control_stages(Trb* ring, RingState& state, uint64_t ring_physical, uint64_
 }  // namespace
 
 template <typename Owner>
-bool UsbDevice<Owner>::address(XhciHost& host) {
+bool UsbDevice<Owner>::address(XhciHost& host, uint8_t port) {
     uint8_t slot = 0;
     if (!host.run_command(0, TrbControl(kTrbEnableSlot, 0), slot) || slot == 0) {
         return false;
@@ -110,19 +111,9 @@ bool UsbDevice<Owner>::address(XhciHost& host) {
     ep1_page_                                                         = kEp1.raw;
     base::PtrAt<uint64_t>(mm::DirectMapVirt(host.device_page_))[slot] = output_page_;
 
-    for (unsigned long candidate = 1; candidate <= host.max_ports(); ++candidate) {
-        if ((host.port_status(candidate) & 1U) == 0) {
-            continue;
-        }
-        uint8_t speed = 0;
-        if (!host.reset_port(candidate, speed)) {
-            return false;
-        }
-        port_  = static_cast<uint8_t>(candidate);
-        speed_ = speed;
-        break;
-    }
-    if (port_ == 0) {
+    port_                        = port;
+    host.routes_[slot_ - 1].port = port;
+    if (!host.reset_port(port_, speed_)) {
         return false;
     }
 
@@ -136,6 +127,63 @@ bool UsbDevice<Owner>::address(XhciHost& host) {
     const uint32_t kSlotBits = static_cast<uint32_t>(slot_) << 24U;
     uint8_t        answered  = 0;
     return host.run_command(input_page_, TrbControl(kTrbAddressDevice, kSlotBits), answered);
+}
+
+template <typename Owner>
+bool UsbDevice<Owner>::detach(XhciHost& host) {
+    if (slot_ == 0) {
+        return true;
+    }
+    uint8_t answered = 0;
+    if (!host.run_command(0, TrbControl(kTrbDisableSlot, static_cast<uint32_t>(slot_) << 24U),
+                          answered)) {
+        return false;
+    }
+    host.routes_[slot_ - 1]                                            = {};
+    base::PtrAt<uint64_t>(mm::DirectMapVirt(host.device_page_))[slot_] = 0;
+    const uint64_t kPages[] = {input_page_, output_page_, ep0_page_, ep1_page_};
+    for (const uint64_t kPage : kPages) {
+        if (kPage != 0) {
+            mm::Pmm::self().free_page(base::PhysAddr{kPage});
+        }
+    }
+    slot_ = 0;
+    port_ = 0;
+    return true;
+}
+
+template <typename Owner>
+bool UsbDevice<Owner>::enumerate(XhciHost& host, uint8_t protocol, KeyboardEp& endpoint) {
+    if (!host.present()) {
+        return false;
+    }
+    for (unsigned int port = 1; port <= host.max_ports() && port <= 255; ++port) {
+        bool occupied = false;
+        for (const auto& route : host.routes_) {
+            occupied = occupied || route.port == port;
+        }
+        if (occupied || (host.port_status(port) & 1U) == 0) {
+            continue;
+        }
+        if (!address(host, static_cast<uint8_t>(port))) {
+            static_cast<void>(detach(host));
+            return false;
+        }
+        unsigned char descriptor[256] = {};
+        if (control_read(host, 0x0100, descriptor, 18) &&
+            control_read(host, 0x0200, descriptor, 9)) {
+            const auto kLength = base::ReadWord16(descriptor, 2);
+            if (kLength >= 9 && kLength <= sizeof(descriptor) &&
+                control_read(host, 0x0200, descriptor, kLength) &&
+                FindHidInterface(descriptor, kLength, protocol, endpoint)) {
+                return true;
+            }
+        }
+        if (!detach(host)) {
+            return false;
+        }
+    }
+    return false;
 }
 
 template <typename Owner>
@@ -263,6 +311,8 @@ uint8_t UsbDevice<Owner>::slot() const {
 
 namespace cinux::driver {
 class UsbKeyboard;
+class UsbTablet;
 }
 
 template class cinux::driver::usb::UsbDevice<cinux::driver::UsbKeyboard>;
+template class cinux::driver::usb::UsbDevice<cinux::driver::UsbTablet>;

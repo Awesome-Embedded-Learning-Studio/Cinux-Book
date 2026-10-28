@@ -8,30 +8,38 @@
 #include <sys/syscall.h>
 
 #include "../framework/framework.hpp"
+#include "cinux/bit_ops/bitmask.hpp"
 #include "cinux/memory.hpp"
 #include "cinux/result.hpp"
 #include "cinux/shared.hpp"
 #include "kernel/fs/file_table.hpp"
+#include "kernel/fs/ramfs/ramfs.hpp"
 #include "kernel/fs/vfs.hpp"
 #include "kernel/mm/vma.hpp"
 #include "kernel/proc/proc_config.hpp"
 #include "kernel/proc/sched_class.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/task.hpp"
+#include "kernel/syscall/signal.hpp"
 #include "kernel/syscall/sys_close.hpp"
+#include "kernel/syscall/sys_epoll.hpp"
+#include "kernel/syscall/sys_eventfd.hpp"
 #include "kernel/syscall/sys_fcntl.hpp"
 #include "kernel/syscall/sys_getrandom.hpp"
 #include "kernel/syscall/sys_mmap.hpp"
 #include "kernel/syscall/sys_open.hpp"
 #include "kernel/syscall/sys_openat.hpp"
 #include "kernel/syscall/sys_pipe.hpp"
+#include "kernel/syscall/sys_ppoll.hpp"
 #include "kernel/syscall/sys_pread.hpp"
 #include "kernel/syscall/sys_prlimit.hpp"
+#include "kernel/syscall/sys_read.hpp"
 #include "kernel/syscall/sys_sendfile.hpp"
 #include "kernel/syscall/sys_sigtimedwait.hpp"
 #include "kernel/syscall/sys_stat.hpp"
 #include "kernel/syscall/sys_tgkill.hpp"
 #include "kernel/syscall/sys_uname.hpp"
+#include "kernel/syscall/sys_write.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
 #include "test_assert.hpp"
@@ -44,11 +52,17 @@ unsigned long FileDescriptorLimit() {
     return CurrentTask()->limits[7][0];
 }
 
-long long HandleOpen(const SyscallFrame& /*frame*/) {
+long long OpenPath(const char* /*path*/, Word /*flags*/, Word /*mode*/) {
     return 101;
 }
-long long HandleStat(const SyscallFrame& /*frame*/) {
+long long StatPath(const char* /*path*/, Word /*destination*/) {
     return 102;
+}
+long long OpenPathAt(Word /*descriptor*/, const char* relative, Word /*flags*/, Word /*mode*/) {
+    return std::string_view{relative} == "unsupported" ? -kEopnotsupp : 103;
+}
+long long StatPathAt(Word /*descriptor*/, const char* relative, Word /*destination*/) {
+    return std::string_view{relative} == "unsupported" ? -kEopnotsupp : 104;
 }
 int ErrnoFrom(base::KernelError error) {
     switch (error) {
@@ -58,6 +72,8 @@ int ErrnoFrom(base::KernelError error) {
         return 4;
     case base::KernelError::kBrokenPipe:
         return 32;
+    case base::KernelError::kInvalidArgument:
+        return 22;
     default:
         return 5;
     }
@@ -84,6 +100,7 @@ static_assert(static_cast<int>(cinux::syscall::SyscallNr::kBrk) == SYS_brk);
 static_assert(static_cast<int>(cinux::syscall::SyscallNr::kPread64) == SYS_pread64);
 static_assert(static_cast<int>(cinux::syscall::SyscallNr::kRtSigtimedwait) == SYS_rt_sigtimedwait);
 static_assert(static_cast<int>(cinux::syscall::SyscallNr::kMount) == SYS_mount);
+static_assert(static_cast<int>(cinux::syscall::SyscallNr::kSync) == SYS_sync);
 static_assert(static_cast<int>(cinux::syscall::SyscallNr::kUmount2) == SYS_umount2);
 static_assert(offsetof(WireStat, dev) == offsetof(struct stat, st_dev));
 static_assert(offsetof(WireStat, ino) == offsetof(struct stat, st_ino));
@@ -125,6 +142,26 @@ static_assert(POLLHUP == 0x010);
 static_assert(POLLNVAL == 0x020);
 
 constexpr unsigned long kSlot = 65;
+
+/// The epoll wire record, byte-for-byte as ring 3 lays it out.
+struct [[gnu::packed]] EpollEventWire {
+    unsigned int       events;
+    unsigned long long data;
+};
+static_assert(sizeof(EpollEventWire) == 12);
+
+/// The poll wire record the same way.
+struct PollRecordWire {
+    int            fd;
+    unsigned short events;
+    unsigned short answer;
+};
+static_assert(sizeof(PollRecordWire) == 8);
+
+/// One signal's set word, the same helper the signal tests carry.
+constexpr cinux::syscall::SigSet bit_for(int number) {
+    return cinux::syscall::SigSet{1ULL << static_cast<unsigned>(number - 1)};
+}
 
 cinux::syscall::SyscallFrame plain_frame() {
     cinux::syscall::SyscallFrame frame{};
@@ -205,15 +242,69 @@ void FaceSink::reclaim(cinux::proc::Task& dead) {
 }
 
 TEST("syscall face: at-fdcwd accepts both extensions of a signed int") {
-    cinux::syscall::SyscallFrame frame = plain_frame();
-    for (const unsigned long long kDescriptor : {0x00000000FFFFFF9CULL, 0xFFFFFFFFFFFFFF9CULL}) {
-        frame.rdi = kDescriptor;
+    FaceWorld world;
+    world.run([] {
+        cinux::syscall::SyscallFrame frame   = plain_frame();
+        const char                   kPath[] = "child";
+        frame.rsi                            = reinterpret_cast<unsigned long long>(kPath);
+        for (const unsigned long long kDescriptor :
+             {0x00000000FFFFFF9CULL, 0xFFFFFFFFFFFFFF9CULL}) {
+            frame.rdi = kDescriptor;
+            ASSERT_EQ(cinux::syscall::HandleOpenat(frame), 101);
+            ASSERT_EQ(cinux::syscall::HandleNewfstatat(frame), 102);
+        }
+        cinux::proc::Scheduler::self().exit_current();
+    });
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) a body walks one story in order
+TEST("syscall face: a dirfd with its own walk routes relative names to it") {
+    FaceWorld world;
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity) argument adapter cases.
+    world.run([] {
+        cinux::fs::RamFs           pool;
+        constexpr cinux::fs::FsOps kPoolOps = cinux::fs::EraseFs<cinux::fs::RamFs>();
+        ASSERT_TRUE(pool.make_dir("/held").ok());
+        const cinux::fs::FsNode        kDirNode = pool.lookup("/held").value();
+        const cinux::proc::Task* const kSelf    = cinux::proc::Scheduler::self().current();
+        const auto                     kSeat    = kSelf->files->alloc(&kPoolOps, &pool, kDirNode);
+        ASSERT_TRUE(kSeat.ok());
+        cinux::syscall::SyscallFrame frame    = plain_frame();
+        const char                   kChild[] = "child";
+        frame.rsi                             = reinterpret_cast<unsigned long long>(kChild);
+        frame.rdi                             = kSeat.value();
+        ASSERT_EQ(cinux::syscall::HandleOpenat(frame), 103);
+        ASSERT_EQ(cinux::syscall::HandleNewfstatat(frame), 104);
+        const char kUnsupported[] = "unsupported";
+        frame.rsi                 = reinterpret_cast<unsigned long long>(kUnsupported);
+        ASSERT_EQ(cinux::syscall::HandleOpenat(frame), -cinux::syscall::kEopnotsupp);
+        ASSERT_EQ(cinux::syscall::HandleNewfstatat(frame), -cinux::syscall::kEopnotsupp);
+        const char kAbsolute[] = "/child";
+        frame.rsi              = reinterpret_cast<unsigned long long>(kAbsolute);
+        ASSERT_EQ(cinux::syscall::HandleOpenat(frame), 101);
+        frame.rsi = reinterpret_cast<unsigned long long>(kChild);
+        frame.rdi = ~0ULL - 99ULL;
+        ASSERT_EQ(cinux::syscall::HandleOpenat(frame), 101);
+        ASSERT_TRUE(kSelf->files->free(kSeat.value()).ok());
+        cinux::proc::Scheduler::self().exit_current();
+    });
+}
+
+TEST("syscall face: absolute paths ignore invalid dirfd and relative paths reject it") {
+    FaceWorld world;
+    world.run([] {
+        cinux::syscall::SyscallFrame frame   = plain_frame();
+        const char                   kPath[] = "child";
+        frame.rsi                            = reinterpret_cast<unsigned long long>(kPath);
+        frame.rdi                            = cinux::fs::kFileTableMax;
+        ASSERT_EQ(cinux::syscall::HandleOpenat(frame), -cinux::syscall::kEbadf);
+        ASSERT_EQ(cinux::syscall::HandleNewfstatat(frame), -cinux::syscall::kEbadf);
+        const char kAbsolute[] = "/child";
+        frame.rsi              = reinterpret_cast<unsigned long long>(kAbsolute);
         ASSERT_EQ(cinux::syscall::HandleOpenat(frame), 101);
         ASSERT_EQ(cinux::syscall::HandleNewfstatat(frame), 102);
-    }
-    frame.rdi = 7;
-    ASSERT_EQ(cinux::syscall::HandleOpenat(frame), -cinux::syscall::kEnotdir);
-    ASSERT_EQ(cinux::syscall::HandleNewfstatat(frame), -cinux::syscall::kEnotdir);
+        cinux::proc::Scheduler::self().exit_current();
+    });
 }
 
 TEST("syscall face: uname fills the six slots in hosted order") {
@@ -246,7 +337,7 @@ void run_prlimit_body() {
     frame.rdi                           = 0;
     frame.r10                           = reinterpret_cast<unsigned long long>(old);
     ASSERT_EQ(cinux::syscall::HandlePrlimit64(frame), 0);
-    frame.rdi = 7;
+    frame.rdi = cinux::syscall::CurrentTask()->pid + 1000;
     ASSERT_EQ(cinux::syscall::HandlePrlimit64(frame), -1);
     frame.rdi = 0;
     frame.rsi = 99;
@@ -461,9 +552,55 @@ TEST("syscall face: fixed mappings replace what sat at the address") {
     world.run(run_mmap_fixed_body);
 }
 
-TEST("syscall face: sigtimedwait answers try-again without parking") {
+TEST("syscall face: sigtimedwait rejects a wrong signal-set size") {
     const cinux::syscall::SyscallFrame kFrame = plain_frame();
-    ASSERT_EQ(cinux::syscall::HandleRtSigtimedwait(kFrame), -11);
+    ASSERT_EQ(cinux::syscall::HandleRtSigtimedwait(kFrame), -22);
+}
+
+namespace {
+
+void check_signal_wait_arguments(cinux::syscall::SyscallFrame frame) {
+    using namespace cinux::syscall;
+    frame.rdx = kUserAddressLimit;
+    ASSERT_EQ(HandleRtSigtimedwait(frame), -14);
+    const unsigned long long kBadTimeout[2] = {0, 1'000'000'000};
+    frame.rdx                               = reinterpret_cast<Word>(kBadTimeout);
+    ASSERT_EQ(HandleRtSigtimedwait(frame), -22);
+    frame.rdi = kUserAddressLimit;
+    ASSERT_EQ(HandleRtSigtimedwait(frame), -14);
+}
+
+void run_signal_wait_body() {
+    using namespace cinux::syscall;
+    auto&                    self = *CurrentTask();
+    const SigSet             kWanted{cinux::base::bit::MaskBit<unsigned long long>(kSigUsr2 - 1)};
+    const SigSet             kOther{cinux::base::bit::MaskBit<unsigned long long>(kSigUsr1 - 1)};
+    const unsigned long long kZeroTimeout[2]{};
+    int                      info[32]{};
+    auto                     frame = plain_frame();
+    frame.rdi                      = reinterpret_cast<Word>(&kWanted);
+    frame.rsi                      = reinterpret_cast<Word>(info);
+    frame.rdx                      = reinterpret_cast<Word>(kZeroTimeout);
+    frame.r10                      = sizeof(SigSet);
+    self.signals.blocked           = kWanted | kOther;
+    self.signals.pending           = kWanted | kOther;
+    ASSERT_EQ(HandleRtSigtimedwait(frame), kSigUsr2);
+    ASSERT_EQ(info[0], kSigUsr2);
+    ASSERT_EQ(self.signals.pending.raw, kOther.raw);
+    ASSERT_EQ(self.signals.blocked.raw, (kWanted | kOther).raw);
+    ASSERT_EQ(HandleRtSigtimedwait(frame), -11);
+    self.signals.blocked = {};
+    ASSERT_EQ(HandleRtSigtimedwait(frame), -4);
+    self.signals.pending = {};
+    check_signal_wait_arguments(frame);
+    cinux::proc::Scheduler::self().exit_current();
+}
+
+}
+
+TEST("syscall face: sigtimedwait consumes a blocked signal and preserves other pending signals") {
+    FaceWorld world;
+    world.run(run_signal_wait_body);
 }
 
 struct TransferBackend {
@@ -710,6 +847,218 @@ void run_thread_signal_body() {
 TEST("syscall face: tgkill checks the target thread group and tkill checks only tid") {
     FaceWorld world;
     world.run(run_thread_signal_body);
+}
+
+void run_shared_mapping_body() {
+    cinux::syscall::SyscallFrame frame = plain_frame();
+    cinux::proc::Task* const     kSelf = cinux::proc::Scheduler::self().current();
+    kSelf->vmas = cinux::base::Shared<cinux::mm::VmaStore>(new cinux::mm::VmaStore{});
+    cinux::fs::RamFs           pool;
+    constexpr cinux::fs::FsOps kPoolOps = cinux::fs::EraseFs<cinux::fs::RamFs>();
+    ASSERT_TRUE(pool.make_file("/mapped").ok());
+    const cinux::base::Result<unsigned long> kSeat =
+        kSelf->files->alloc(&kPoolOps, &pool, pool.lookup("/mapped").value());
+    ASSERT_TRUE(kSeat.ok());
+    frame.rdx = 3;
+    frame.rsi = 4096;
+    frame.r9  = 0;
+    frame.r8  = kSeat.value();
+    frame.r10 = cinux::syscall::kMapShared;
+    ASSERT_EQ(cinux::syscall::HandleMmap(frame), -cinux::syscall::kEinval);
+    frame.r10                = cinux::syscall::kMapPrivate;
+    const long long kPrivate = cinux::syscall::HandleMmap(frame);
+    ASSERT_TRUE(kPrivate > 0);
+    frame.r10 = cinux::syscall::kMapShared | cinux::syscall::kMapAnonymous;
+    ASSERT_EQ(cinux::syscall::HandleMmap(frame), -cinux::syscall::kEinval);
+    kSelf->vmas = {};
+    cinux::proc::Scheduler::self().exit_current();
+}
+
+TEST("syscall face: shared mappings demand a frame-capable file and refuse anonymous") {
+    FaceWorld world;
+    world.run(run_shared_mapping_body);
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) a body walks one story in order
+void run_epoll_rotation_body() {
+    using namespace cinux::syscall;
+    SyscallFrame frame    = plain_frame();
+    frame.rdi             = 0;
+    const long long kLoop = HandleEpollCreate1(frame);
+    ASSERT_TRUE(kLoop >= 0);
+    frame.rdi              = 0;
+    frame.rsi              = kOpenNonblock;
+    const long long kFirst = HandleEventfd2(frame);
+    ASSERT_TRUE(kFirst >= 0);
+    frame.rdi               = 0;
+    const long long kSecond = HandleEventfd2(frame);
+    ASSERT_TRUE(kSecond >= 0);
+    unsigned long long one = 1;
+    frame.rdi              = static_cast<unsigned long long>(kFirst);
+    frame.rsi              = reinterpret_cast<Word>(&one);
+    frame.rdx              = sizeof(one);
+    ASSERT_EQ(HandleWrite(frame), 8);
+    frame.rdi = static_cast<unsigned long long>(kSecond);
+    ASSERT_EQ(HandleWrite(frame), 8);
+
+    EpollEventWire interest{};
+    interest.events = 0x001;
+    interest.data   = 111;
+    frame.rdi       = static_cast<unsigned long long>(kLoop);
+    frame.rsi       = 1;
+    frame.rdx       = static_cast<unsigned long long>(kFirst);
+    frame.r10       = reinterpret_cast<Word>(&interest);
+    ASSERT_EQ(HandleEpollCtl(frame), 0);
+    interest.data = 222;
+    frame.rdx     = static_cast<unsigned long long>(kSecond);
+    ASSERT_EQ(HandleEpollCtl(frame), 0);
+
+    EpollEventWire seen[2]{};
+    frame.rdi = static_cast<unsigned long long>(kLoop);
+    frame.rsi = reinterpret_cast<Word>(seen);
+    frame.rdx = 1;
+    frame.r10 = 0;
+    ASSERT_EQ(HandleEpollWait(frame), 1);
+    const unsigned long long kFirstData = seen[0].data;
+    frame.rsi                           = reinterpret_cast<Word>(seen + 1);
+    ASSERT_EQ(HandleEpollWait(frame), 1);
+    ASSERT_TRUE(seen[0].data != seen[1].data);
+    frame.rsi = reinterpret_cast<Word>(seen);
+    ASSERT_EQ(HandleEpollWait(frame), 1);
+    ASSERT_EQ(seen[0].data, kFirstData);
+
+    frame.rdi = static_cast<unsigned long long>(kLoop);
+    frame.rsi = 2;
+    frame.rdx = static_cast<unsigned long long>(kFirst);
+    ASSERT_EQ(HandleEpollCtl(frame), 0);
+    interest.data = 333;
+    frame.rsi     = 1;
+    frame.rdx     = static_cast<unsigned long long>(kFirst);
+    frame.r10     = reinterpret_cast<Word>(&interest);
+    ASSERT_EQ(HandleEpollCtl(frame), 0);
+    frame.rdi = static_cast<unsigned long long>(kLoop);
+    frame.rsi = reinterpret_cast<Word>(seen);
+    frame.rdx = 1;
+    frame.r10 = 0;
+    ASSERT_EQ(HandleEpollWait(frame), 1);
+    frame.rsi = reinterpret_cast<Word>(seen + 1);
+    ASSERT_EQ(HandleEpollWait(frame), 1);
+    ASSERT_EQ(seen[0].data, 222U);
+    ASSERT_EQ(seen[1].data, 333U);
+    cinux::proc::Scheduler::self().exit_current();
+}
+
+TEST("syscall face: ready watches rotate under maxevents one and survive slot reuse") {
+    FaceWorld world;
+    world.run(run_epoll_rotation_body);
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) a body walks one story in order
+void run_masked_wait_body() {
+    using namespace cinux::syscall;
+    SyscallFrame frame    = plain_frame();
+    frame.rdi             = 0;
+    const long long kLoop = HandleEpollCreate1(frame);
+    ASSERT_TRUE(kLoop >= 0);
+
+    const cinux::proc::Task& self    = *cinux::proc::Scheduler::self().current();
+    const auto               kBefore = self.signals.blocked;
+    SigSet                   wanted{};
+    wanted = wanted | bit_for(kSigKill) | bit_for(kSigStop) | bit_for(kSigUsr1);
+
+    EpollEventWire seen{};
+    frame.rdi = static_cast<unsigned long long>(kLoop);
+    frame.rsi = reinterpret_cast<Word>(&seen);
+    frame.rdx = 1;
+    frame.r10 = 0;
+    frame.r8  = reinterpret_cast<Word>(&wanted);
+    frame.r9  = sizeof(wanted);
+    ASSERT_EQ(HandleEpollPwait(frame), 0);
+    ASSERT_TRUE(self.signals.blocked.raw == kBefore.raw);
+
+    frame.r9 = 4;
+    ASSERT_EQ(HandleEpollPwait(frame), -kEinval);
+    frame.r9 = sizeof(wanted);
+    frame.r8 = kUserAddressLimit;
+    ASSERT_EQ(HandleEpollPwait(frame), -kEfault);
+    ASSERT_TRUE(self.signals.blocked.raw == kBefore.raw);
+
+    unsigned long long timeout[2] = {0, 0};
+    frame.rdi                     = 0;
+    frame.rsi                     = 0;
+    frame.rdx                     = reinterpret_cast<Word>(timeout);
+    frame.r10                     = reinterpret_cast<Word>(&wanted);
+    ASSERT_EQ(HandlePpoll(frame), 0);
+    ASSERT_TRUE(self.signals.blocked.raw == kBefore.raw);
+    frame.r10 = kUserAddressLimit;
+    ASSERT_EQ(HandlePpoll(frame), -kEfault);
+    ASSERT_TRUE(self.signals.blocked.raw == kBefore.raw);
+    cinux::proc::Scheduler::self().exit_current();
+}
+
+TEST("syscall face: masked waits stage the mask wholly and restore it after") {
+    FaceWorld world;
+    world.run(run_masked_wait_body);
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) a body walks one story in order
+void run_eventfd_door_body() {
+    using namespace cinux::syscall;
+    SyscallFrame frame       = plain_frame();
+    frame.rdi                = 0;
+    frame.rsi                = kOpenNonblock;
+    const long long kCounter = HandleEventfd2(frame);
+    ASSERT_TRUE(kCounter >= 0);
+
+    unsigned long long value = 7;
+    frame.rdi                = static_cast<unsigned long long>(kCounter);
+    frame.rsi                = reinterpret_cast<Word>(&value);
+    frame.rdx                = sizeof(value);
+    ASSERT_EQ(HandleWrite(frame), 8);
+    value = ~0ULL;
+    ASSERT_EQ(HandleWrite(frame), -kEinval);
+    value = ~0ULL - 8;
+    ASSERT_EQ(HandleWrite(frame), 8);
+    value = 1;
+    ASSERT_EQ(HandleWrite(frame), -kEagain);
+    ASSERT_EQ(HandleRead(frame), 8);
+    value = 0;
+    static_cast<void>(value);
+
+    PollRecordWire asks[1]{};
+    asks[0].fd                               = static_cast<int>(kCounter);
+    asks[0].events                           = kPollOut;
+    frame.rdi                                = reinterpret_cast<Word>(asks);
+    frame.rsi                                = 1;
+    frame.rdx                                = 0;
+    const unsigned long long kZeroTimeout[2] = {0, 0};
+    frame.rdx                                = reinterpret_cast<Word>(kZeroTimeout);
+    ASSERT_EQ(HandlePpoll(frame), 1);
+    ASSERT_EQ(asks[0].answer, kPollOut);
+
+    frame.rdi                  = 1;
+    frame.rsi                  = kOpenNonblock | 1ULL;
+    const long long kSemaphore = HandleEventfd2(frame);
+    ASSERT_TRUE(kSemaphore >= 0);
+    value     = 1;
+    frame.rdi = static_cast<unsigned long long>(kSemaphore);
+    frame.rsi = reinterpret_cast<Word>(&value);
+    frame.rdx = sizeof(value);
+    ASSERT_EQ(HandleWrite(frame), 8);
+    ASSERT_EQ(HandleWrite(frame), 8);
+    unsigned long long taken = 0;
+    frame.rsi                = reinterpret_cast<Word>(&taken);
+    frame.rdx                = sizeof(taken);
+    ASSERT_EQ(HandleRead(frame), 8);
+    ASSERT_EQ(taken, 1U);
+    ASSERT_EQ(HandleRead(frame), 8);
+    ASSERT_EQ(taken, 1U);
+    cinux::proc::Scheduler::self().exit_current();
+}
+
+TEST("syscall face: eventfd refuses the all-ones write and honours the semaphore") {
+    FaceWorld world;
+    world.run(run_eventfd_door_body);
 }
 
 }  // namespace

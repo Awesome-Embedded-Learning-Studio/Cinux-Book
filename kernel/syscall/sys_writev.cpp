@@ -1,5 +1,7 @@
 #include "kernel/syscall/sys_writev.hpp"
 
+#include <utility>
+
 #include "kernel/syscall/sys_write.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/uaccess.hpp"
@@ -36,6 +38,9 @@ long long HandleWritev(const SyscallFrame& frame) {
             return total > 0 ? total : kPut;
         }
         total += kPut;
+        if (std::cmp_less(kPut, run.bytes)) {
+            return total;
+        }
     }
     return total;
 }

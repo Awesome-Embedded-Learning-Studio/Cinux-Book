@@ -17,13 +17,12 @@
 namespace cinux::syscall {
 
 /**
- * @brief         reboot(): cut the power.
- * @param[in]     frame   Unread; the one command needs no argument.
- * @return        Zero when the write went out; -kEnosys when the
- *                firmware publishes no ACPI tables to walk.
- * @note          The Linux number carries a four-argument magic
- *                protocol; the teaching face takes none of it — the
- *                one command is power off.
+ * @brief         Validate reboot authorization, synchronize, and power off.
+ * @param[in]     frame   Linux reboot magic words and power-off command.
+ * @return        Zero on success; -kEperm for a non-root caller,
+ *                -kEinval for invalid words, -kEnosys without ACPI,
+ *                or -kEio when synchronization fails.
+ * @note          A failed synchronization leaves the machine running.
  * @since         0.1.0
  * @ingroup kernel_syscall
  */

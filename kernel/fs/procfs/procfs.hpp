@@ -71,6 +71,21 @@ struct ProcDeviceFacts {
 };
 
 /**
+ * @brief Identification facts for one online logical processor.
+ * @ingroup kernel_fs
+ */
+struct ProcCpuFacts {
+    unsigned long processor = 0;     ///< Online logical processor index.
+    unsigned int  apic_id   = 0;     ///< Hardware interrupt-controller identity.
+    unsigned int  family    = 0;     ///< Decoded CPU family.
+    unsigned int  model     = 0;     ///< Decoded CPU model.
+    unsigned int  stepping  = 0;     ///< Processor revision.
+    char          vendor_id[13]{};   ///< Terminated CPUID vendor identifier.
+    char          model_name[49]{};  ///< Terminated CPUID brand string.
+    char          flags[96]{};       ///< Space-separated hardware feature names.
+};
+
+/**
  * @brief   The facts one procfs instance answers with.
  * @note    Every seat is a function pointer over a context the
  *          assembler owns; the kernel wires the scheduler, the page
@@ -106,6 +121,9 @@ struct ProcSource {
     /// The memory counters, in pages.
     void (*memory)(void* context, unsigned long& free_pages, unsigned long& total_pages) = nullptr;
 
+    /// Byte size of one page returned by the memory source.
+    unsigned long memory_page_bytes = 0;
+
     /// Names the ordinal-th seated device; false past the last.
     bool (*nth_device)(void* context, unsigned long ordinal, ProcDeviceFacts& into) = nullptr;
 
@@ -115,6 +133,9 @@ struct ProcSource {
     /// per-interface traffic books yet, and the node says so by
     /// printing honest zeros rather than invented bytes.
     bool (*nth_net_iface)(void* context, unsigned long ordinal, char* out) = nullptr;
+
+    /// Copies one online processor's identification; false past the last.
+    bool (*nth_cpu)(void* context, unsigned long ordinal, ProcCpuFacts& into) = nullptr;
 
     /// The word every seat receives back.
     void* context = nullptr;

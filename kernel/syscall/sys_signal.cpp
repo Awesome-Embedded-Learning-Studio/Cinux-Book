@@ -26,22 +26,6 @@ constexpr Word kActionBytes = sizeof(SigAction);
 constexpr Word kSetBytes = sizeof(SigSet);
 
 /**
- * @brief         Clears the two signals no mask may hold.
- * @param[in]     set   The mask ring 3 offered.
- * @return        The same mask without the kill and stop bits.
- * @note          Linux strips these silently rather than refusing: a
- *                library that blocks "everything" should not have to
- *                know which two signals the kernel keeps for itself.
- * @since         0.1.0
- * @ingroup       kernel_syscall
- */
-SigSet strip_uncatchable(SigSet set) {
-    set = set & ~SigSet{1ULL << static_cast<unsigned>(kSigKill - 1)};
-    set = set & ~SigSet{1ULL << static_cast<unsigned>(kSigStop - 1)};
-    return set;
-}
-
-/**
  * @brief         Whether a handler word names something ring 3 owns.
  * @param[in]     handler   The word an action record carries.
  * @return        true for the reserved default and ignore words and
@@ -76,6 +60,20 @@ bool in_stack_window(Word start, Word bytes) {
 
 }  // namespace
 
+long long HandleRtSigpending(const SyscallFrame& frame) {
+    if (frame.rsi != sizeof(SigSet)) {
+        return -kEinval;
+    }
+    auto*  self = CurrentTask();
+    SigSet pending;
+    {
+        const arch::IrqGuard kIrq;
+        const auto           kGuard = self->signals.gate.guard();
+        pending                     = self->signals.pending & self->signals.blocked;
+    }
+    return uaccess::CopyToUser(frame.rdi, &pending, sizeof(pending)) ? 0 : -kEfault;
+}
+
 long long HandleRtSigaction(const SyscallFrame& frame) {
     const int kNumber = static_cast<int>(frame.rdi);
     if (!proc::SignalCatchable(kNumber) || frame.r10 != kSetBytes) {
@@ -90,7 +88,7 @@ long long HandleRtSigaction(const SyscallFrame& frame) {
         if (!handler_word_ok(wanted.handler)) {
             return -kEinval;
         }
-        wanted.mask = strip_uncatchable(wanted.mask);
+        wanted.mask = MaskableSignals(wanted.mask);
         install     = true;
     }
     proc::Task& self = *CurrentTask();
@@ -124,7 +122,7 @@ long long HandleRtSigprocmask(const SyscallFrame& frame) {
         if (!uaccess::CopyFromUser(&wanted, frame.rsi, kSetBytes)) {
             return -kEfault;
         }
-        wanted = strip_uncatchable(wanted);
+        wanted = MaskableSignals(wanted);
         apply  = true;
     }
     proc::Task& self = *CurrentTask();

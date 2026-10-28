@@ -62,6 +62,15 @@ public:
      * @ingroup       kernel_fs
      */
     [[nodiscard]] base::Result<FsNode> lookup(std::string_view path);
+    /// Resolve and pin a node before releasing the tree lock.
+    [[nodiscard]] base::Result<FsNode> lookup_held(std::string_view path);
+    /// Create and pin a node before releasing the tree lock.
+    [[nodiscard]] base::Result<FsNode> make_file_held(std::string_view path);
+
+    /** @brief Resolves a relative path against one held directory node. */
+    [[nodiscard]] base::Result<FsNode> lookup_at(FsNode base, std::string_view rest);
+    /** @brief Creates one file directly under one held directory node. */
+    [[nodiscard]] base::Result<FsNode> make_file_at(FsNode base, std::string_view name);
 
     /**
      * @brief         Creates a file at a mount-relative path.

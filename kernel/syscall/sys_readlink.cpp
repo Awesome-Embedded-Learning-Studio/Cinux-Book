@@ -13,22 +13,17 @@
 
 namespace cinux::syscall {
 
-long long HandleReadlink(const SyscallFrame& frame) {
-    if (frame.rsi == 0 || frame.rdx == 0) {
-        return -kEfault;
-    }
-    char storage[fs::kFsPathMax] = {};
-    if (const long long kBad = FoldUserPath(frame.rdi, storage, fs::kFsPathMax); kBad < 0) {
-        return kBad;
-    }
-    const base::Result<fs::FsView> kView = fs::FileWorld::self().resolve(storage);
+namespace {
+
+long long readlink_path(const char* path, Word destination, Word capacity) {
+    const base::Result<fs::FsView> kView = fs::FileWorld::self().resolve(path);
     if (!kView.ok()) {
         return -ErrnoFrom(kView.error());
     }
-    const fs::FsView kFlat = kView.value();
+    const fs::FsView& flat = kView.value();
 
     const arch::IrqGuard           kGuard;
-    const base::Result<fs::FsNode> kNode = kFlat.ops->lookup(kFlat.self, kFlat.rest);
+    const base::Result<fs::FsNode> kNode = flat.ops->lookup(flat.self, flat.rest);
     if (!kNode.ok()) {
         return -ErrnoFrom(kNode.error());
     }
@@ -40,11 +35,32 @@ long long HandleReadlink(const SyscallFrame& frame) {
     while (length + 1 < sizeof(kSelf->exe) && kSelf->exe[length] != '\0') {
         ++length;
     }
-    const unsigned long long kGive = length < frame.rdx ? length : frame.rdx;
-    if (!uaccess::CopyToUser(frame.rsi, kSelf->exe, kGive)) {
+    const unsigned long long kGive = length < capacity ? length : capacity;
+    if (!uaccess::CopyToUser(destination, kSelf->exe, kGive)) {
         return -kEfault;
     }
     return static_cast<long long>(kGive);
 }
+}  // namespace
+
+long long HandleReadlinkat(const SyscallFrame& frame) {
+    char storage[fs::kFsPathMax]{};
+    if (const auto kBad = FoldUserPathAt(frame.rdi, frame.rsi, storage); kBad < 0) {
+        return kBad;
+    }
+    return readlink_path(storage, frame.rdx, frame.r10);
+}
+
+long long HandleReadlink(const SyscallFrame& frame) {
+    if (frame.rsi == 0 || frame.rdx == 0) {
+        return -kEfault;
+    }
+    char storage[fs::kFsPathMax] = {};
+    if (const long long kBad = FoldUserPath(frame.rdi, storage, fs::kFsPathMax); kBad < 0) {
+        return kBad;
+    }
+    return readlink_path(storage, frame.rsi, frame.rdx);
+}
+
 
 }  // namespace cinux::syscall

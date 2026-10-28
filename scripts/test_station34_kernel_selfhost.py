@@ -17,8 +17,22 @@ from qemu_args import device_args
 
 
 class Guest:
-    def __init__(self, image, volume, log, timeout):
-        devices = device_args(image)
+    def __init__(self, image, volume, log, timeout, memory=512, monitor=None, ps2_only=False,
+                 gui=False, qmp=None):
+        subprocess.run(['cmake', '--build', str(image.parent.parent), '--target', 'qemu_disks'],
+                       check=True, stdout=subprocess.DEVNULL)
+        devices = device_args(image, 'qemu-gui-args.txt' if gui else 'qemu-device-args.txt')
+        if gui:
+            for index, argument in enumerate(devices):
+                if argument == '-display':
+                    devices[index + 1] = 'none'
+            devices = [word for index, word in enumerate(devices)
+                       if word != '-m' and (index == 0 or devices[index - 1] != '-m')]
+        if ps2_only:
+            devices = [word for index, word in enumerate(devices)
+                       if not (word.startswith(('usb-kbd', 'usb-tablet'))
+                               or (word == '-device' and index + 1 < len(devices)
+                                   and devices[index + 1].startswith(('usb-kbd', 'usb-tablet'))))]
         for index, argument in enumerate(devices):
             if argument.startswith("format=raw,file=") and argument.endswith(",if=none,id=spare"):
                 devices[index] = f"format=raw,file={volume},if=none,id=spare"
@@ -26,10 +40,11 @@ class Guest:
         self.timeout = timeout
         self.transcript = bytearray()
         self.process = subprocess.Popen(
-            ["qemu-system-x86_64", *devices, "-m", "512M", "-boot", "order=c",
+            ["qemu-system-x86_64", *devices, "-m", f"{memory}M", "-boot", "order=c",
              "-drive", f"format=raw,file={image},if=none,id=boot",
              "-device", "ide-hd,drive=boot,bus=ide.0,bootindex=0",
-             "-serial", "stdio", "-monitor", "none"],
+             *(["-qmp", f"unix:{qmp},server,nowait"] if qmp else []),
+             "-serial", "stdio", "-monitor", f"unix:{monitor},server,nowait" if monitor else "none"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
     def wait_for(self, pattern, start=0):
@@ -54,8 +69,11 @@ class Guest:
         match = self.wait_for(rb"\r?\n" + marker.encode() + rb"_(\d+)\r?\n", start)
         if match[1] != b"0":
             raise RuntimeError(f"command failed ({match[1].decode()}): {text}")
-        self.wait_for(rb"/ #", start + match.end())
+        self.wait_for_prompt(start + match.end())
         return bytes(self.transcript[start:])
+
+    def wait_for_prompt(self, start=0):
+        return self.wait_for(rb"(?:/[^\r\n]*|~[^\r\n]*) [#$] ", start)
 
     def close(self):
         if self.process.poll() is None:

@@ -48,6 +48,8 @@ set(CINUX_KERNEL_NO_SSE_ISLAND
     ${CMAKE_SOURCE_DIR}/kernel/driver/usb/xhci_layout.cpp
     ${CMAKE_SOURCE_DIR}/kernel/driver/usb/usb_device.cpp
     ${CMAKE_SOURCE_DIR}/kernel/driver/usb/usb_keyboard.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/driver/usb/usb_tablet.cpp
+    ${CMAKE_SOURCE_DIR}/kernel/driver/usb/tablet_report.cpp
     ${CMAKE_SOURCE_DIR}/kernel/interrupt/irq.cpp
     ${CMAKE_SOURCE_DIR}/kernel/debug/trace.cpp
     ${CMAKE_SOURCE_DIR}/kernel/debug/kallsyms.cpp
@@ -183,11 +185,11 @@ endfunction()
 function(add_cinux_ktest name stage)
     set(kallsyms_source ${CMAKE_CURRENT_BINARY_DIR}/cinux_ktest_${name}_kallsyms.cpp)
     set(ktest_core cinux_ktest_${name}_core)
-    add_library(${ktest_core} OBJECT ${CINUX_KERNEL_CORE_SOURCES})
+    add_library(${ktest_core} OBJECT EXCLUDE_FROM_ALL ${CINUX_KERNEL_CORE_SOURCES})
     set_property(TARGET ${ktest_core} PROPERTY POSITION_INDEPENDENT_CODE OFF)
     cinux_kernel_compile_settings(${ktest_core})
 
-    add_executable(cinux_ktest_${name}_unsym
+    add_executable(cinux_ktest_${name}_unsym EXCLUDE_FROM_ALL
         ${CMAKE_SOURCE_DIR}/test/kernel/test_main.cpp
         $<TARGET_OBJECTS:${ktest_core}>
         ${CMAKE_CURRENT_BINARY_DIR}/font_blob.o
@@ -203,7 +205,7 @@ function(add_cinux_ktest name stage)
 
     cinux_kallsyms_bridge(cinux_ktest_${name}_unsym ${kallsyms_source})
 
-    add_executable(cinux_ktest_${name}
+    add_executable(cinux_ktest_${name} EXCLUDE_FROM_ALL
         ${CMAKE_SOURCE_DIR}/test/kernel/test_main.cpp
         $<TARGET_OBJECTS:${ktest_core}>
         ${CMAKE_CURRENT_BINARY_DIR}/font_blob.o

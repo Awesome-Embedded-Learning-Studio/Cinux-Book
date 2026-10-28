@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <algorithm>
+#include <iterator>
 #include <string_view>
 
 namespace cinux::base::container {
@@ -41,12 +43,9 @@ namespace cinux::base::container {
 template <typename Entry, unsigned long Count>
 [[nodiscard]] constexpr const Entry* FindByName(const Entry (&table)[Count],
                                                 std::string_view name) {
-    for (unsigned long index = 0; index < Count; ++index) {
-        if (std::string_view(table[index].name) == name) {
-            return &table[index];
-        }
-    }
-    return nullptr;
+    const auto* const kFound = std::ranges::find_if(
+        table, [name](const Entry& entry) { return std::string_view(entry.name) == name; });
+    return kFound == std::end(table) ? nullptr : kFound;
 }
 
 /**
@@ -66,12 +65,8 @@ template <typename Entry, unsigned long Count>
 template <typename Entry, unsigned long Count>
 [[nodiscard]] constexpr const Entry* FindByWord(const Entry (&table)[Count],
                                                 unsigned long long word) {
-    for (unsigned long index = 0; index < Count; ++index) {
-        if (table[index].word == word) {
-            return &table[index];
-        }
-    }
-    return nullptr;
+    const auto* const kFound = std::ranges::find(table, word, &Entry::word);
+    return kFound == std::end(table) ? nullptr : kFound;
 }
 
 }  // namespace cinux::base::container

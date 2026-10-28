@@ -8,19 +8,48 @@
 
 namespace cinux::driver {
 
+namespace {
+
+/// Compose one 32-bit pixel from a channel layout and a paint,
+/// truncating each channel to its mask width.
+constexpr uint32_t compose_pixel(const cinux::boot::FramebufferInfo& layout, Paint paint) {
+    uint32_t const kRed   = static_cast<uint32_t>(paint.red) >> (8U - layout.red_size);
+    uint32_t const kGreen = static_cast<uint32_t>(paint.green) >> (8U - layout.green_size);
+    uint32_t const kBlue  = static_cast<uint32_t>(paint.blue) >> (8U - layout.blue_size);
+    return (kRed << layout.red_shift) | (kGreen << layout.green_shift) |
+           (kBlue << layout.blue_shift);
+}
+
+/// Byte offset of one pixel in a 32bpp linear framebuffer; callers own
+/// the bounds.
+constexpr uint64_t pixel_byte_offset(uint32_t pitch, uint32_t column, uint32_t row) {
+    return (static_cast<uint64_t>(row) * pitch) + (static_cast<uint64_t>(column) * 4U);
+}
+
+}
+
 bool Framebuffer::init(const cinux::boot::FramebufferInfo& info) {
     if (info.bpp != 32 || info.width == 0 || info.height == 0 || info.pitch < info.width * 4U) {
         return false;
     }
     base_ = cinux::base::PtrAt<volatile uint32_t>(
         cinux::mm::IoremapVirt(static_cast<unsigned long>(info.physical)));
+    layout_      = info;
     pitch_       = info.pitch;
     pitch_words_ = info.pitch / 4U;
     width_       = info.width;
     height_      = info.height;
-    ink_         = ComposePixel(info, kInk);
-    paper_       = ComposePixel(info, kPaper);
+    ink_         = compose_pixel(info, kInk);
+    paper_       = compose_pixel(info, kPaper);
     return true;
+}
+
+const cinux::boot::FramebufferInfo& Framebuffer::layout() const {
+    return layout_;
+}
+
+unsigned long Framebuffer::frame_bytes() const {
+    return static_cast<unsigned long>(pitch_) * height_;
 }
 
 bool Framebuffer::alive() const {
@@ -81,7 +110,7 @@ void Framebuffer::scroll_up(uint32_t line_count) {
 
 volatile uint32_t* Framebuffer::address_of(uint32_t column, uint32_t row) {
     return reinterpret_cast<volatile uint32_t*>(reinterpret_cast<volatile unsigned char*>(base_) +
-                                                PixelByteOffset(pitch_, column, row));
+                                                pixel_byte_offset(pitch_, column, row));
 }
 
 }  // namespace cinux::driver

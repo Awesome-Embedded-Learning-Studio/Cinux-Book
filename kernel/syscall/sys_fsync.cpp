@@ -16,11 +16,15 @@ long long HandleFsync(const SyscallFrame& frame) {
     }
     fs::FsStat        probed{};
     const auto* const kFile = kSlot.value().get();
-    const auto        kStat = kFile->ops->stat(kFile->backend, kFile->node, probed);
+    if (kFile->ops->stat == nullptr) {
+        return -kEinval;
+    }
+    const auto kStat = kFile->ops->stat(kFile->backend, kFile->node, probed);
     if (!kStat.ok()) {
         return -ErrnoFrom(kStat.error());
     }
-    const auto kType = base::bit::BitMask{probed.mode}.extract({.low = 12, .width = 4});
+    const auto kType = base::bit::BitMask{static_cast<unsigned long>(probed.mode)}.extract(
+        {.low = 12, .width = 4});
     if (kType != 8 && kType != 4) {
         return -kEinval;
     }

@@ -10,7 +10,6 @@ from qemu_args import device_args
 
 QEMU = "qemu-system-x86_64"
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-VOLUME_PATH = os.path.join(REPO_ROOT, "build", "boot", "ext2.img")
 MON_PATH = "/tmp/cinux_qemu_mon"
 SERIAL_PATH = "/tmp/cinux_qemu_serial.log"
 DUMP_PATH = "/tmp/cinux_qemu_screen.ppm"
@@ -30,7 +29,7 @@ class Session:
                 os.unlink(stale)
         self.proc = subprocess.Popen(
             [
-                QEMU, *device_args(self.image),
+                QEMU, *device_args(self.image, "qemu-run-args.txt"),
                 "-drive", f"format=raw,file={self.image}",
                 "-serial", f"file:{SERIAL_PATH}",
                 "-monitor", f"unix:{MON_PATH},server,nowait",

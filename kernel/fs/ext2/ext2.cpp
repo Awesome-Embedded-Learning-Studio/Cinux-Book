@@ -27,7 +27,6 @@
 #include <cstdint>
 #include <string_view>
 
-#include "cinux/bit_ops/bitmask.hpp"
 #include "cinux/math.hpp"
 #include "cinux/memory.hpp"
 #include "cinux/path.hpp"
@@ -37,6 +36,7 @@
 #include "kernel/fs/ext2/ext2_layout.hpp"
 #include "kernel/fs/fs_config.hpp"
 #include "kernel/fs/vfs.hpp"
+#include "kernel/proc/sync.hpp"
 #include "kernel/syscall/syscall.hpp"
 
 namespace cinux::fs::ext2 {
@@ -56,12 +56,24 @@ const char* name_bytes_of(const DirEntry& entry) {
 
 Ext2::Ext2(driver::BlockCache& cache, ClockFn clock) : cache_(cache), clock_(clock) {}
 
+Ext2::~Ext2() {
+    while (const auto* hold = held_.pop_head()) {
+        delete hold;
+    }
+    write_gate_.retire();
+}
+
+bool Ext2::sync() {
+    const proc::MutexGuard kGate(write_gate_);
+    return mounted_ && reap_pending() && cache_.flush();
+}
+
 base::Result<void> Ext2::mount() {
     if (mounted_) {
         return base::KernelError::kInvalidArgument;
     }
 
-    if (!cache_.read(driver::Lba{.value = kSuperblockSector}, &sb_, sizeof(Superblock))) {
+    if (!read_storage(driver::Lba{.value = kSuperblockSector}, &sb_, sizeof(Superblock))) {
         return base::KernelError::kIOError;
     }
     if (sb_.s_magic != kMagic) {
@@ -87,8 +99,13 @@ base::Result<void> Ext2::mount() {
         return base::KernelError::kIOError;
     }
 
-    if (!read_block(sb_.s_first_data_block + 1, groups_)) {
-        return base::KernelError::kIOError;
+    const unsigned long kDescriptorsPerBlock = kVolumeBlockBytes / sizeof(GroupDescriptor);
+    const unsigned long kTableBlocks         = base::math::Ceil(group_count_, kDescriptorsPerBlock);
+    for (unsigned long block = 0; block < kTableBlocks; ++block) {
+        if (!read_block(sb_.s_first_data_block + 1 + block,
+                        groups_ + (block * kDescriptorsPerBlock))) {
+            return base::KernelError::kIOError;
+        }
     }
 
     const base::Result<Inode> kRoot = read_inode(kRootInode);
@@ -126,7 +143,7 @@ base::Result<void> Ext2::expand_symlink(const Inode& inode, unsigned long ino,
             .ino    = ino,
             .size   = kBytes,
         };
-        const auto kRead = read(kLink, 0, target, kBytes);
+        const auto kRead = read_locked(kLink, 0, target, kBytes);
         if (!kRead.ok() || kRead.value() != kBytes) {
             return base::KernelError::kIOError;
         }
@@ -145,6 +162,15 @@ base::Result<void> Ext2::expand_symlink(const Inode& inode, unsigned long ino,
 
 base::Result<Inode> Ext2::read_child(const Inode& parent, std::string_view name,
                                      unsigned long& ino) {
+    if (!IsDirectoryMode(parent.i_mode)) {
+        return base::KernelError::kNotADirectory;
+    }
+    if (name == ".") {
+        return parent;
+    }
+    if (name == ".." && ino == kRootInode) {
+        return base::KernelError::kNotSupported;
+    }
     const auto kChild = lookup_in_dir(parent, name);
     if (!kChild.ok()) {
         return kChild.error();
@@ -154,6 +180,18 @@ base::Result<Inode> Ext2::read_child(const Inode& parent, std::string_view name,
 }
 
 base::Result<FsNode> Ext2::lookup(std::string_view path) {
+    const proc::MutexGuard kGate(write_gate_);
+    return lookup_locked(path);
+}
+base::Result<FsNode> Ext2::lookup_held(std::string_view path) {
+    const proc::MutexGuard kGate(write_gate_);
+    const auto             kNode = lookup_locked(path);
+    if (kNode.ok()) {
+        retain_locked(kNode.value());
+    }
+    return kNode;
+}
+base::Result<FsNode> Ext2::lookup_locked(std::string_view path) {
     if (!mounted_) {
         return base::KernelError::kIOError;
     }
@@ -163,8 +201,58 @@ base::Result<FsNode> Ext2::lookup(std::string_view path) {
         return base::KernelError::kInvalidArgument;
     }
     base::CopyBytes(pending, path.data(), path.size());
+    return walk_from(kRootInode, pending);
+}
+
+base::Result<FsNode> Ext2::lookup_at(FsNode base, std::string_view rest) {
+    const proc::MutexGuard kGate(write_gate_);
+    if (!mounted_) {
+        return base::KernelError::kIOError;
+    }
+    if (base.type != InodeType::kDirectory || rest.empty() || rest.front() == '/') {
+        return base::KernelError::kInvalidArgument;
+    }
+    char pending[kFsPathMax]{};
+    if (rest.size() >= sizeof(pending)) {
+        return base::KernelError::kInvalidArgument;
+    }
+    base::CopyBytes(pending, rest.data(), rest.size());
+    const auto kAnchor = read_inode(base.ino);
+    if (!kAnchor.ok()) {
+        return kAnchor.error();
+    }
+    if (kAnchor.value().i_links_count == 0) {
+        return base::KernelError::kNotFound;
+    }
+    const auto kNode = walk_from(base.ino, pending);
+    if (kNode.ok()) {
+        retain_locked(kNode.value());
+    }
+    return kNode;
+}
+
+base::Result<bool> Ext2::redirect_through_link(const LinkSpot& spot, const Inode& link,
+                                               unsigned long ino) {
+    const auto kParentBytes = static_cast<unsigned long>(spot.part.data() - spot.walked.data());
+    const auto kExpanded    = expand_symlink(link, ino,
+                                             {
+                                                 .path         = spot.walked,
+                                                 .parent_bytes = kParentBytes,
+                                                 .rest         = spot.rest,
+                                                 .pending      = spot.pending,
+                                             });
+    if (!kExpanded.ok()) {
+        return kExpanded.error();
+    }
+    if (spot.start_ino != kRootInode && spot.pending[0] == '/') {
+        return base::KernelError::kNotSupported;
+    }
+    return true;
+}
+
+base::Result<FsNode> Ext2::walk_from(unsigned long start_ino, char* pending) {
     for (unsigned int followed = 0; followed <= 40; ++followed) {
-        unsigned long current_ino = kRootInode;
+        unsigned long current_ino = start_ino;
         auto          current     = read_inode(current_ino);
         if (!current.ok()) {
             return current.error();
@@ -178,21 +266,20 @@ base::Result<FsNode> Ext2::lookup(std::string_view path) {
             if (!current.ok()) {
                 return current.error();
             }
-            const base::bit::BitMask<std::uint32_t> kMode{current.value().i_mode};
-            constexpr base::bit::BitRange           kType{.low = 12, .width = 4};
-            if (kMode.extract(kType) != 0xA) {
+            if (!IsSymlinkMode(current.value().i_mode)) {
                 continue;
             }
-            const auto kParentBytes = static_cast<unsigned long>(part.data() - kPath.data());
-            const auto kExpanded    = expand_symlink(current.value(), current_ino,
-                                                     {
-                                                         .path         = kPath,
-                                                         .parent_bytes = kParentBytes,
-                                                         .rest         = walk.rest,
-                                                         .pending      = pending,
-                                                     });
-            if (!kExpanded.ok()) {
-                return kExpanded.error();
+            const auto kLink = redirect_through_link(
+                {
+                    .walked    = kPath,
+                    .part      = part,
+                    .rest      = walk.rest,
+                    .pending   = pending,
+                    .start_ino = start_ino,
+                },
+                current.value(), current_ino);
+            if (!kLink.ok()) {
+                return kLink.error();
             }
             redirected = true;
             break;
@@ -212,6 +299,11 @@ base::Result<FsNode> Ext2::lookup(std::string_view path) {
 
 base::Result<unsigned long> Ext2::read(FsNode node, unsigned long offset, void* sink,
                                        unsigned long count) {
+    const proc::MutexGuard kGate(write_gate_);
+    return read_locked(node, offset, sink, count);
+}
+base::Result<unsigned long> Ext2::read_locked(FsNode node, unsigned long offset, void* sink,
+                                              unsigned long count) {
     if (!mounted_) {
         return base::KernelError::kIOError;
     }
@@ -254,6 +346,7 @@ base::Result<unsigned long> Ext2::read(FsNode node, unsigned long offset, void* 
 }
 
 base::Result<bool> Ext2::read_dir(FsNode node, unsigned long index, FsDirent& entry) {
+    const proc::MutexGuard kGate(write_gate_);
     if (!mounted_) {
         return base::KernelError::kIOError;
     }
@@ -297,14 +390,6 @@ base::Result<bool> Ext2::read_dir(FsNode node, unsigned long index, FsDirent& en
     return true;
 }
 
-void Ext2::retain(FsNode node) {
-    static_cast<void>(node);
-}
-
-void Ext2::release(FsNode node) {
-    static_cast<void>(node);
-}
-
 bool Ext2::readable(FsNode /*node*/) {
     return true;
 }
@@ -315,10 +400,12 @@ long long Ext2::ioctl(FsNode /*node*/, unsigned long long /*word*/,
 }
 
 base::Result<FsNode> Ext2::adopt_open(FsNode node, std::string_view /*path*/) {
+    retain(node);
     return node;
 }
 
 base::Result<void> Ext2::stat(FsNode node, FsStat& probed) {
+    const proc::MutexGuard kGate(write_gate_);
     if (!mounted_) {
         return base::KernelError::kIOError;
     }
@@ -340,7 +427,7 @@ std::uint32_t Ext2::now_stamp() {
 }
 
 bool Ext2::read_block(unsigned long block, void* sink) {
-    return cache_.read(driver::Lba{.value = block * kBlockSectors}, sink, kVolumeBlockBytes);
+    return read_storage(driver::Lba{.value = block * kBlockSectors}, sink, kVolumeBlockBytes);
 }
 
 base::Result<Inode> Ext2::read_inode(unsigned long ino) {

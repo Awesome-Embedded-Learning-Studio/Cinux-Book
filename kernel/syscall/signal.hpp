@@ -3,7 +3,7 @@
  * @brief   The signal numbers, sets and action words ring 3 and the
  *          kernel agree on.
  *
- * Numbers follow Linux x86_64 (1..22, the trimmed v1 range): a static
+ * Numbers follow Linux x86_64 (1..64): a static
  * program raising or masking a signal issues these values verbatim.
  * The set is one word, the action record is four words, and handler
  * addresses use two reserved values (0 default, 1 ignore) the way
@@ -49,9 +49,10 @@ inline constexpr int kSigStop   = 19;  ///< Stop; cannot be caught or blocked.
 inline constexpr int kSigTstp   = 20;  ///< Stop typed at the keyboard.
 inline constexpr int kSigTtin   = 21;  ///< Background read tried the terminal.
 inline constexpr int kSigTtou   = 22;  ///< Background write tried the terminal.
+inline constexpr int kSigWinch  = 28;  ///< The terminal's window changed shape.
 
-/// One past the highest served signal; sets and tables span it.
-inline constexpr int kSignalCount = 22;
+/// The highest served signal; sets and tables span it.
+inline constexpr int kSignalCount = 64;
 
 /// Handler word meaning "take the default action for this signal".
 inline constexpr unsigned long long kSignalDefault = 0;
@@ -69,6 +70,10 @@ inline constexpr unsigned long long kSaRestart = 0x10000000;
 /// that install handlers without one.
 inline constexpr unsigned long long kSaRestorer = 0x04000000;
 
+/// sa_flags: allow the delivered signal to remain unblocked inside its
+/// own handler.
+inline constexpr unsigned long long kSaNodefer = 0x40000000;
+
 /// sa_flags: the handler reverts to default once it has run once.
 inline constexpr unsigned long long kSaResethand = 0x80000000;
 
@@ -76,6 +81,16 @@ inline constexpr unsigned long long kSaResethand = 0x80000000;
 /// base vocabulary's named-bit face, so both worlds read one type and no
 /// set-operator is written twice.
 using SigSet = cinux::base::bit::BitMask<unsigned long long>;
+
+/**
+ * @brief Remove the signals whose delivery cannot be masked.
+ * @param[in] set Requested blocked set.
+ * @return The set without SIGKILL and SIGSTOP.
+ */
+[[nodiscard]] constexpr SigSet MaskableSignals(SigSet set) {
+    return set & ~SigSet{base::bit::MaskBit<unsigned long long>(kSigKill - 1)} &
+           ~SigSet{base::bit::MaskBit<unsigned long long>(kSigStop - 1)};
+}
 
 /**
  * @brief   One signal's disposition, as rt_sigaction installs it.

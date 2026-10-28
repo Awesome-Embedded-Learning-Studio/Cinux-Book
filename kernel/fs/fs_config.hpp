@@ -18,6 +18,8 @@
 
 #include <cstdint>
 
+#include "cinux/bit_ops/bitmask.hpp"
+
 namespace cinux::fs {
 
 /**

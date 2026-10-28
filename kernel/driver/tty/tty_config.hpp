@@ -79,6 +79,7 @@ inline constexpr unsigned long long kTtyTiocsctty  = 0x540E;
 inline constexpr unsigned long long kTtyTiocgpgrp  = 0x540F;
 inline constexpr unsigned long long kTtyTiocspgrp  = 0x5410;
 inline constexpr unsigned long long kTtyTiocgwinsz = 0x5413;
+inline constexpr unsigned long long kTtyTiocswinsz = 0x5414;
 inline constexpr unsigned long long kTtyTiocgptn   = 0x80045430;
 inline constexpr unsigned long long kTtyTiocsptlck = 0x40045431;
 

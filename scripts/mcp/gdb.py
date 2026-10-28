@@ -148,7 +148,7 @@ class Session:
         with open(self.qemu_log, "wb") as errors:
             self.qemu = subprocess.Popen(
                 [
-                    "qemu-system-x86_64", *device_args(self.image),
+                    "qemu-system-x86_64", *device_args(self.image, "qemu-run-args.txt"),
                     "-drive", f"format=raw,file={self.image}",
                     "-serial", f"file:{self.serial_log}", "-S", "-gdb", f"tcp:127.0.0.1:{self.gdb_port}",
                 ],

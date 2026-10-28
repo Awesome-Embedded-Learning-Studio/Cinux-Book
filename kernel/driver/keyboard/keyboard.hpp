@@ -21,8 +21,11 @@
 
 #include <stdint.h>
 
+#include <atomic>
+
 #include "cinux/container/ring_queue.hpp"
 #include "cinux/singleton.hpp"
+#include "kernel/driver/input/event_stream.hpp"
 #include "kernel/driver/keyboard/keyboard_config.hpp"
 #include "kernel/driver/keyboard/scancode.hpp"
 #include "kernel/proc/sync.hpp"
@@ -61,12 +64,14 @@ public:
 
     /**
      * @brief         Feed one raw byte from the data port through the
-     *                translator; a printable result joins the queue.
+     *                translator; a printable result joins the queue,
+     *                and the event face publishes its word.
      *
      * @param[in]     raw_byte   Byte read from port 0x60.
      * @return        None
      * @note          Runs on the IRQ1 path: integer-only, queue push,
-     *                nothing slow.
+     *                nothing slow. The glyph queue only hears the
+     *                stream while nobody grabbed the device.
      * @since         0.1.0
      * @ingroup       kernel_driver
      */
@@ -94,12 +99,27 @@ public:
      */
     char take(bool wait);
 
+    /**
+     * @brief         The keyboard's event stream, the input node's
+     *                device half.
+     *
+     * @return        The stream this device publishes into.
+     * @since         0.9.0
+     * @ingroup       kernel_driver
+     */
+    [[nodiscard]] EventStream& events();
+
 private:
     Keyboard() = default;
 
+    static void grab_hook(void* context, bool grabbed);
+
     TranslatorState                                          state_{};
+    KeycodeState                                             codes_{};
     base::container::RingQueue<char, kKeyboardEventCapacity> events_{};
     proc::Semaphore                                          readable_{};
+    EventStream                                              stream_;
+    std::atomic<bool>                                        glyphs_live_{true};
 };
 
 }  // namespace cinux::driver

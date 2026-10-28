@@ -273,6 +273,14 @@ public:
      */
     [[nodiscard]] MutexGuard guard();
 
+    /**
+     * @brief Release the idle mutex's lock identity before storage reuse.
+     * @return None.
+     * @since 0.8.0
+     * @ingroup kernel_proc
+     */
+    void retire();
+
 private:
     Spinlock                                                      spin_;
     Task*                                                         owner_ = nullptr;

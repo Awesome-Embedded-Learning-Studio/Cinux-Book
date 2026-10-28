@@ -57,7 +57,7 @@ public:
      *            writer lives.
      * @return    The bytes taken, zero at end-of-file, or an error.
      */
-    base::Result<unsigned long> pull(void* sink, unsigned long count);
+    base::Result<unsigned long> pull(void* sink, unsigned long count, bool nonblock = false);
 
     /**
      * @brief     Puts count bytes; blocks while the ring is full.

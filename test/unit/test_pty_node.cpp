@@ -66,6 +66,7 @@ struct PairWorld {
         name[4]     = static_cast<char>('0' + number);
         slave       = g_devices.lookup(name).value();
         static_cast<void>(files.alloc(&kOps, &g_devices, master));
+        g_devices.release(master);
         static_cast<void>(files.alloc(&kOps, &g_devices, slave));
     }
 };

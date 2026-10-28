@@ -50,6 +50,7 @@ struct RamNode : DirNode<RamNode> {
     unsigned long                    capacity = 0;
     unsigned long                    size     = 0;
     base::RefCount<>                 references;
+    bool                             linked = true;
 
     void release_ref() {
         if (references.release()) {
@@ -135,6 +136,63 @@ base::Result<FsNode> RamFs::lookup(std::string_view path) {
     return node_handle(*kFound.value());
 }
 
+base::Result<FsNode> RamFs::lookup_held(std::string_view path) {
+    const proc::SpinGuard kGuard(lock_);
+    const auto            kFound = WalkPath(*root_, path);
+    if (!kFound.ok()) {
+        return kFound.error();
+    }
+    kFound.value()->references.retain();
+    return node_handle(*kFound.value());
+}
+base::Result<FsNode> RamFs::make_file_held(std::string_view path) {
+    const proc::SpinGuard kGuard(lock_);
+    const auto            kMade = make_node(*root_, next_ino_, path, InodeType::kFile);
+    if (!kMade.ok()) {
+        return kMade.error();
+    }
+    kMade.value()->references.retain();
+    return node_handle(*kMade.value());
+}
+base::Result<FsNode> RamFs::lookup_at(FsNode base, std::string_view rest) {
+    const proc::SpinGuard kGuard(lock_);
+    auto* const           kAnchor = static_cast<RamNode*>(base.opaque);
+    if (kAnchor == nullptr || kAnchor->type != InodeType::kDirectory ||
+        (!rest.empty() && rest.front() == '/')) {
+        return base::KernelError::kInvalidArgument;
+    }
+    const base::Result<RamNode*> kFound = WalkPath(*kAnchor, rest);
+    if (!kFound.ok()) {
+        return kFound.error();
+    }
+    kFound.value()->references.retain();
+    return node_handle(*kFound.value());
+}
+
+base::Result<FsNode> RamFs::make_file_at(FsNode base, std::string_view name) {
+    const proc::SpinGuard kGuard(lock_);
+    auto* const           kAnchor = static_cast<RamNode*>(base.opaque);
+    if (kAnchor == nullptr || kAnchor->type != InodeType::kDirectory) {
+        return base::KernelError::kNotADirectory;
+    }
+    if (!kAnchor->linked) {
+        return base::KernelError::kNotFound;
+    }
+    if (!name_is_new(name)) {
+        return base::KernelError::kInvalidArgument;
+    }
+    if (kAnchor->find(name) != nullptr) {
+        return base::KernelError::kAlreadyExists;
+    }
+    auto* const kNode = new RamNode{};
+    base::CopyBytes(kNode->name, name.data(), name.size());
+    kNode->type = InodeType::kFile;
+    kNode->ino  = next_ino_++;
+    kAnchor->adopt(*kNode);
+    kNode->references.retain();
+    return node_handle(*kNode);
+}
+
 base::Result<FsNode> RamFs::make_file(std::string_view path) {
     const proc::SpinGuard        kGuard(lock_);
     const base::Result<RamNode*> kMade = make_node(*root_, next_ino_, path, InodeType::kFile);
@@ -180,6 +238,7 @@ base::Result<void> RamFs::unlink(std::string_view path) {
         kDir->adopt(*kVictim);
         return base::KernelError::kDirectoryNotEmpty;
     }
+    kVictim->linked = false;
     kVictim->release_ref();
     return {};
 }
@@ -206,6 +265,7 @@ long long RamFs::ioctl(FsNode /*node*/, unsigned long long /*word*/,
 }
 
 base::Result<FsNode> RamFs::adopt_open(FsNode node, std::string_view /*path*/) {
+    retain(node);
     return node;
 }
 

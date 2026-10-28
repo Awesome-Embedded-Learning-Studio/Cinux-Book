@@ -9,6 +9,15 @@ kept = []
 seen = set()
 for entry in entries:
     words = entry.get("arguments") or shlex.split(entry["command"])
+    # GCC permits floating-point declarations with this code-generation restriction;
+    # Clang rejects even libstdc++ declarations. Preserve the no-SIMD AST target
+    # while leaving the actual GCC build flags untouched.
+    if "-mgeneral-regs-only" in words:
+        words = [word for word in words if word != "-mgeneral-regs-only"]
+        words.extend(("-mno-sse", "-mno-sse2", "-mno-mmx"))
+        entry = dict(entry)
+        entry.pop("command", None)
+        entry["arguments"] = words
     normalized = []
     index = 0
     while index < len(words):

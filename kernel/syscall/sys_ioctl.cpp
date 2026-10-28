@@ -2,11 +2,14 @@
 
 #include <cstdint>
 
+#include "cinux/bit_ops/bitmask.hpp"
 #include "cinux/byte_order.hpp"
+#include "cinux/container/name_table.hpp"
 #include "cinux/memory.hpp"
 #include "cinux/result.hpp"
 #include "cinux/shared.hpp"
-#include "kernel/arch/x86_64/irq_guard.hpp"
+#include "kernel/driver/framebuffer/framebuffer_config.hpp"
+#include "kernel/driver/input/input_config.hpp"
 #include "kernel/driver/tty/tty_config.hpp"
 #include "kernel/fs/open_file.hpp"
 #include "kernel/net/ifaces.hpp"
@@ -173,51 +176,81 @@ const WordSpan kWordSpans[] = {
     {.word = driver::kTtyTiocgpgrp, .bytes = 4, .caller_gives = false},
     {.word = driver::kTtyTiocspgrp, .bytes = 4, .caller_gives = true},
     {.word = driver::kTtyTiocgwinsz, .bytes = 8, .caller_gives = false},
+    {.word = driver::kTtyTiocswinsz, .bytes = 8, .caller_gives = true},
     {.word = driver::kTtyTiocsptlck, .bytes = 4, .caller_gives = true},
     {.word = driver::kTtyTiocgptn, .bytes = 4, .caller_gives = false},
+    {
+        .word         = driver::kFbGetVarScreeninfo,
+        .bytes        = driver::kFbVarScreeninfoBytes,
+        .caller_gives = false,
+    },
+    {
+        .word         = driver::kFbGetFixScreeninfo,
+        .bytes        = driver::kFbFixScreeninfoBytes,
+        .caller_gives = false,
+    },
+    {.word = driver::kEvdevGetAbsX, .bytes = sizeof(driver::InputAbsInfo), .caller_gives = false},
+    {.word = driver::kEvdevGetAbsY, .bytes = sizeof(driver::InputAbsInfo), .caller_gives = false},
+    {.word = driver::kEvdevGrab, .bytes = 0, .caller_gives = true},
 };
 
-/// The span one command's argument carries, or nullptr when unknown.
-const WordSpan* span_of(unsigned long long word) {
-    for (const WordSpan& span : kWordSpans) {
-        if (span.word == word) {
-            return &span;
-        }
-    }
-    return nullptr;
-}
+/// The widest argument any known word carries, the stage's size.
+constexpr unsigned long kStageBytes = driver::kFbVarScreeninfoBytes;
 
 }  // namespace
 
 long long HandleIoctl(const SyscallFrame& frame) {
-    const arch::IrqGuard                           kGuard;
     const base::Result<base::Shared<fs::OpenFile>> kSlot = LiveSlot(frame.rdi);
     if (!kSlot.ok()) {
         return -kEbadf;
     }
-    const fs::OpenFile* const kFile = kSlot.value().get();
+    fs::OpenFile* const          kFile    = kSlot.value().get();
+    constexpr unsigned long long kFionbio = 0x5421;
+    if (frame.rsi == kFionbio) {
+        int enabled = 0;
+        if (!uaccess::CopyFromUser(&enabled, frame.rdx, sizeof(enabled))) {
+            return -kEfault;
+        }
+        if (enabled != 0) {
+            kFile->status_flags |= kOpenNonblock;
+        } else {
+            kFile->status_flags &= ~kOpenNonblock;
+        }
+        return 0;
+    }
     if (kFile->ops == net::SocketOps()) {
         return socket_if_ioctl(frame.rsi, frame.rdx);
     }
     if (kFile->ops->ioctl == nullptr) {
         return -kEnotty;
     }
-    const WordSpan* const kSpan = span_of(frame.rsi);
-    if (kSpan == nullptr) {
+    WordSpan        dynamic{};
+    const WordSpan* span = base::container::FindByWord(kWordSpans, frame.rsi);
+    if ((frame.rsi & driver::kEvdevGetKeysMask) == driver::kEvdevGetKeys) {
+        const auto kBytes = base::bit::BitMask{frame.rsi}.extract(driver::kEvdevGetKeysSize);
+        const auto kCap   = driver::InputKeyCodeBytes();
+        dynamic           = {
+            .word         = frame.rsi,
+            .bytes        = kBytes < kCap ? kBytes : kCap,
+            .caller_gives = false,
+        };
+        span = &dynamic;
+    }
+    if (span == nullptr) {
         return -kEnotty;
     }
-    if (kSpan->bytes == 0) {
+    if (span->bytes == 0) {
         return kFile->ops->ioctl(kFile->backend, kFile->node, frame.rsi, frame.rdx);
     }
-    unsigned char stage[driver::kTermios2Bytes];
+    unsigned char stage[kStageBytes];
     cinux::base::SetBytes(stage, 0, sizeof(stage));
-    if (kSpan->caller_gives && !uaccess::CopyFromUser(stage, frame.rdx, kSpan->bytes)) {
+    if (span->caller_gives && !uaccess::CopyFromUser(stage, frame.rdx, span->bytes)) {
         return -kEfault;
     }
     const auto      kStageWord = reinterpret_cast<unsigned long long>(stage);
     const long long kAnswer = kFile->ops->ioctl(kFile->backend, kFile->node, frame.rsi, kStageWord);
-    if (kAnswer >= 0 && !kSpan->caller_gives &&
-        !uaccess::CopyToUser(frame.rdx, stage, kSpan->bytes)) {
+    if (kAnswer >= 0 && !span->caller_gives &&
+        !uaccess::CopyToUser(frame.rdx, stage, span->bytes)) {
         return -kEfault;
     }
     return kAnswer;

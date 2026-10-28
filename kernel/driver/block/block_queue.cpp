@@ -9,6 +9,10 @@
 
 namespace cinux::driver {
 
+BlockQueue::~BlockQueue() {
+    lock_.retire();
+}
+
 bool BlockQueue::read(Lba first, BlockSpan span, uint8_t* destination) {
     const unsigned long kSlot = enqueue(first, span, destination, RequestKind::kRead);
     if (kSlot == kBlockQueueDepth) {
@@ -55,9 +59,10 @@ bool BlockQueue::await(unsigned long slot) {
         bool duty = false;
         {
             const proc::SpinGuard kGuard(lock_);
-            const BlockRequest&   request = *pool_.get(slot);
+            BlockRequest&         request = *pool_.get(slot);
             if (request.done.finished()) {
                 const bool kMoved = request.done.success();
+                request.done.retire();
                 cinux::base::safety::Check(pool_.erase(slot),
                                            "block request slot vanished before reclaim");
                 return kMoved;
@@ -75,6 +80,7 @@ bool BlockQueue::await(unsigned long slot) {
         const bool    kMoved  = request.done.wait();
         {
             const proc::SpinGuard kGuard(lock_);
+            request.done.retire();
             cinux::base::safety::Check(pool_.erase(slot),
                                        "block request slot vanished before reclaim");
         }

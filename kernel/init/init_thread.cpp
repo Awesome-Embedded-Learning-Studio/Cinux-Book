@@ -13,6 +13,7 @@
 #include "kernel/init/init_thread.hpp"
 
 #include <cstdint>
+#include <string_view>
 #include <utility>
 
 #include "cinux/assert.hpp"
@@ -23,6 +24,7 @@
 #include "cinux/result.hpp"
 #include "cinux/shared.hpp"
 #include "kernel/arch/x86_64/entropy.hpp"
+#include "kernel/arch/x86_64/firmware_config.hpp"
 #include "kernel/arch/x86_64/page.hpp"
 #include "kernel/arch/x86_64/page_entry.hpp"
 #include "kernel/arch/x86_64/registers.hpp"
@@ -185,10 +187,15 @@ ShellWorld build_shell_world(std::uint64_t& entry) {
     cinux::base::SetBytes(cinux::base::PtrAt<unsigned char>(mm::DirectMapVirt(kStackFrame.raw)), 0,
                           cinux::arch::page::kSize);
     const char* const kShellArgv[2] = {"/sbin/init", nullptr};
-    const char* const kShellEnvp[]  = {
+    char              boot_environment[128]{};
+    static_cast<void>(arch::ReadFirmwareString("opt/cinux/init-env", boot_environment));
+    const auto        kSeparator          = std::string_view{boot_environment}.find('=');
+    const bool        kEnvironmentPresent = kSeparator != std::string_view::npos && kSeparator != 0;
+    const char* const kShellEnvp[]        = {
         "PATH=/bin:/sbin:/usr/bin:/usr/sbin",
         "HOME=/root",
         "TERM=linux",
+        kEnvironmentPresent ? boot_environment : nullptr,
         nullptr,
     };
     const loader::EntryRuns  kShellRuns{.arguments = kShellArgv, .environment = kShellEnvp};

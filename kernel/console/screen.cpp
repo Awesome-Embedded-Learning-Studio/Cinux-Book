@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 
+#include "cinux/assert.hpp"
 #include "kernel/boot/boot_info.hpp"
 #include "kernel/console/console_grid.hpp"
 #include "kernel/console/font.hpp"
@@ -47,7 +48,7 @@ uint32_t TextConsole::rows() const {
 }
 
 void TextConsole::put_char(char glyph_char) {
-    if (!alive_) {
+    if (!alive_ || frame_holders_.load() != 0) {
         return;
     }
     cinux::driver::Framebuffer& screen = cinux::driver::Framebuffer::self();
@@ -63,6 +64,14 @@ void TextConsole::put_char(char glyph_char) {
         screen.scroll_up(font_.height);
     }
     caret_ = kStep.caret;
+}
+
+void TextConsole::yield_frame() {
+    frame_holders_.fetch_add(1);
+}
+
+void TextConsole::reclaim_frame() {
+    base::safety::Check(frame_holders_.fetch_sub(1) != 0, "frame lease underflow");
 }
 
 void TextConsole::paint_glyph(uint32_t glyph, Caret cell) {
