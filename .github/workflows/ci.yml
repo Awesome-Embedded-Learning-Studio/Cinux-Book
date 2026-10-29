@@ -80,6 +80,11 @@ jobs:
         if: failure() && matrix.build_type == 'Debug' && matrix.checks == 'none'
         run: |
           sudo apt-get install -y -q gdb || { sudo apt-get update -q && sudo apt-get install -y -q gdb; }
+          if [ ! -f build-ci/boot/cinux.img ]; then
+            cmake --build build-ci --parallel 2 --target boot_image ext2_img qemu_disks
+          fi
+          kelf=$(find build-ci -maxdepth 2 -type f -name cinux_kernel | head -1)
+          echo "kernel elf: ${kelf:-none}"
           qemu-system-x86_64 $(tr '\n' ' ' < build-ci/qemu-device-args.txt) \
             -snapshot -drive format=raw,file=build-ci/boot/cinux.img \
             -serial file:build-ci/autopsy-serial.log -monitor none \
@@ -89,7 +94,7 @@ jobs:
           gdb -batch -nx \
             -ex 'set pagination off' \
             -ex 'set architecture i386:x86-64' \
-            -ex 'file build-ci/kernel/cinux_kernel' \
+            -ex "file $kelf" \
             -ex 'target remote :1234' \
             -ex 'info threads' \
             -ex 'thread apply all info registers' \
