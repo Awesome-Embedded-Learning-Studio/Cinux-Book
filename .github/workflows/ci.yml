@@ -104,6 +104,7 @@ jobs:
         with:
           kvm: 'true'
           cache-key: ecosystem-${{ matrix.checks }}
+          wayland: 'true'
       - name: Check combined instrumentation on the host and in kernel tests
         if: matrix.checks == 'checks'
         env:

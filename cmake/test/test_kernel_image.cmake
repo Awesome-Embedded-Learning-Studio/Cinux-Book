@@ -35,8 +35,11 @@ foreach(layout text_only rodata rodata_data)
         -P "${SOURCE_DIR}/cmake/kernel/image_size_check.cmake")
 endforeach()
 
-file(READ "${TEST_DIR}/rodata.bin" truncated LIMIT 48)
-file(WRITE "${TEST_DIR}/truncated.bin" "${truncated}")
+execute_process(COMMAND head -c 48 "${TEST_DIR}/rodata.bin"
+    OUTPUT_FILE "${TEST_DIR}/truncated.bin" RESULT_VARIABLE truncate_status)
+if(NOT truncate_status EQUAL 0)
+    message(FATAL_ERROR "truncating rodata.bin failed with ${truncate_status}")
+endif()
 configure_file("${TEST_DIR}/rodata.bin" "${TEST_DIR}/extended.bin" COPYONLY)
 file(APPEND "${TEST_DIR}/extended.bin" "x")
 foreach(invalid truncated extended)
