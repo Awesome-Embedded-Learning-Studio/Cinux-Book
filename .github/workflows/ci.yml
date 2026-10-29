@@ -79,6 +79,7 @@ jobs:
       - name: Autopsy the frozen guest via QEMU gdbstub
         if: failure() && matrix.build_type == 'Debug' && matrix.checks == 'none'
         run: |
+          sudo apt-get install -y -q gdb || { sudo apt-get update -q && sudo apt-get install -y -q gdb; }
           qemu-system-x86_64 $(tr '\n' ' ' < build-ci/qemu-device-args.txt) \
             -snapshot -drive format=raw,file=build-ci/boot/cinux.img \
             -serial file:build-ci/autopsy-serial.log -monitor none \
