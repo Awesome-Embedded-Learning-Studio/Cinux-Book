@@ -4,12 +4,14 @@
 
 ### 从 512 字节的 MBR 起步，一路长到能把自己重新编译一遍
 
+为什么是Cinux，是因为 C++'s Linux，也是 CharlieChen's \*nix（逃）。
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)]()
 [![CMake](https://img.shields.io/badge/CMake-supported-blue)]()
 [![Docs](https://img.shields.io/badge/docs-VitePress-42b883)](https://awesome-embedded-learning-studio.github.io/Cinux-Book/)
 
-[在线阅读](https://awesome-embedded-learning-studio.github.io/Cinux-Book/) · [从第一站开始](https://awesome-embedded-learning-studio.github.io/Cinux-Book/journey/01-mbr/) · [路线](#这本书怎么走)
+[在线阅读](https://awesome-embedded-learning-studio.github.io/Cinux-Book/) · [从第一站开始](https://awesome-embedded-learning-studio.github.io/Cinux-Book/journey/01-mbr/)
 
 </div>
 
@@ -65,24 +67,6 @@ QEMU 窗口里亮起来的就是 Cinux：开机日志滚完，直接进 Vesper �
   <img src="assets/README/compile_self.gif" width="512" alt="在 Cinux 里编译 Cinux">
 </p>
 
-## 这本书怎么走
-
-全书沿着真实的开发史推进，主线从 `000_env_toolchain` 一直到 `r35_gui_fin`，共 31 个 tag：
-
-```
-引导 → 内核 → 内存 → 进程 → 用户态 → 存储 → 并发 → 多核 → 驱动 → 网络 → 桌面 → 自编译
-```
-
-跟着读，就一站一站 checkout：
-
-```bash
-git checkout r34_compile_self   # 例如：在 Cinux 里编译 Cinux 的那一站
-```
-
-正文按卷分册，配状态面板与实操截图，从[第一站](https://awesome-embedded-learning-studio.github.io/Cinux-Book/journey/01-mbr/)开始读；也可以直接 checkout 任意一个 tag，在源码里沉浸。
-
-> 31 个 tag 不等于 31 个连续的站号：`r17`、`r18`、`r28`–`r30` 的代码已经在主线，tag 还在补。
-
 ## 装备你的机器
 
 最小配置是 GCC ≥ 14 加 CMake ≥ 3.16，够跑宿主测试：
@@ -110,56 +94,6 @@ sudo pacman -S --needed base-devel wget unzip bc \
   cmake ninja qemu-system-x86 qemu-ui-gtk e2fsprogs file bison flex \
   rsync cpio ncurses libarchive openssl pkgconf
 ```
-
-四个已知差异，撞上再回来看：
-
-- 裸装 Ubuntu 常缺 `wget`、`perl`、`patch`，Buildroot 的宿主检查会拦，上面 apt 行已带上；
-- `mkfs.ext2` 需要 libarchive 的 tar 输入能力：Ubuntu 24.04 自带的 1.47.0 只认目录输入，跑 `bash scripts/checks/setup-mke2fs.sh <安装前缀>` 自编 1.47.2 解决；Arch、Fedora 的发行版直接可用；
-- Arch 把 QEMU 的 GTK 界面拆在 `qemu-ui-gtk` 分包里，缺它 `run_gui` 会报 `Display 'gtk' is not available`；
-- WSL2 实测可用（WSLg 负责弹窗），首次下载大件时出口带宽小就挂代理或多连接下载。
-
-## 仓库地图
-
-| 路径 | 内容 |
-| --- | --- |
-| `document/` | 教程正文与站点配置（VitePress 分卷并发构建） |
-| `document/journey/` | 主线各站章节 |
-| `kernel/` | 内核本体：引导、内存、进程、文件系统、驱动、网络 |
-| `user/` | 用户态程序、Vesper 桌面与 Buildroot 开发盘集成 |
-| `cmake/qemu/` | QEMU 设备与启动参数配方 |
-| `scripts/checks/` | 验收矩阵与 CI 编排脚本 |
-
-## 测试与验收
-
-宿主侧一条 `ctest` 就能跑完：
-
-```bash
-cmake --build build --target test_host -j$(nproc)
-ctest --test-dir build/test --output-on-failure
-```
-
-更完整的验收矩阵覆盖宿主 sanitizer（ASan、TSan）、机内单核与双核、UBSan 与 lockdep 检查、生态冒烟和定时自编译实弹：
-
-```bash
-bash scripts/checks/acceptance.sh
-```
-
-细节见[测试检查说明](scripts/checks/README.md)。
-
-## 相关仓库
-
-| 相关仓库 | 定位 |
-| --- | --- |
-| [Cinux-Book](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book)（本仓） | x86_64 OS 中文教程，主线建设中 |
-| [Cinux](https://github.com/Awesome-Embedded-Learning-Studio/Cinux) | 更前沿的 Cinux 开发线 |
-| [Awesome-Embedded](https://github.com/Awesome-Embedded-Learning-Studio/Awesome-Embedded) | 组织总导航与项目索引 |
-| [PenguinLab](https://github.com/Awesome-Embedded-Learning-Studio/PenguinLab) | Linux/Embedded Linux 内核到用户态实验 |
-
-v1 的完整可跑内核（Bootloader 到 GUI 桌面）与旧版教程保留在 [`legacy/old_site`](https://github.com/Awesome-Embedded-Learning-Studio/Cinux-Book/tree/legacy/old_site) 分支，完整开发历程的历史 tag 也都还在。
-
-## 为什么叫 Cinux
-
-C/C++'s Linux，也是 CharlieChen's \*nix（逃）。
 
 ## 许可证
 
