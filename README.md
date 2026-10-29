@@ -64,7 +64,7 @@ QEMU 窗口里亮起来的就是 Cinux：开机日志滚完，直接进 Vesper �
 - `~/Cinux` 放着整份源码，`cmake --build build -j` 就在系统里重新编译内核：
 
 <p align="center">
-  <img src="assets/README/compile_self.gif" width="512" alt="在 Cinux 里编译 Cinux">
+  <img src="assets/README/compile_self.webp" width="512" alt="在 Cinux 里编译 Cinux">
 </p>
 
 ## 装备你的机器
