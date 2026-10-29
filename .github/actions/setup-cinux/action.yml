@@ -8,9 +8,6 @@ inputs:
   cache-key:
     description: Cell name used to keep concurrent compiler cache saves independent.
     required: true
-  wayland:
-    description: Build the wayland stack Vesper's compositor lane requires, since ubuntu-24.04 only ships 1.22.
-    default: 'false'
 
 runs:
   using: composite
@@ -23,25 +20,6 @@ runs:
           ccache cmake ninja-build make binutils libc6-dev python3 curl bzip2 xz-utils \
           qemu-system-x86 e2fsprogs file bc bison flex rsync cpio unzip \
           libncurses-dev libssl-dev libarchive-dev pkg-config
-
-    - name: Build the wayland stack Vesper requires
-      if: inputs.wayland == 'true'
-      shell: bash
-      run: |
-        set -euo pipefail
-        sudo apt-get install -y meson libffi-dev libxcb1-dev libxcb-composite0-dev wayland-protocols
-        wayland_version=1.26.0
-        wayland_build="$RUNNER_TEMP/wayland-$wayland_version"
-        mkdir -p "$wayland_build"
-        curl -fsSL --retry 3 \
-          "https://gitlab.freedesktop.org/wayland/wayland/-/archive/$wayland_version/wayland-$wayland_version.tar.gz" \
-          | tar -xzf - -C "$wayland_build"
-        meson setup "$wayland_build/out" "$wayland_build/wayland-$wayland_version" \
-          -Dlibdir=lib/x86_64-linux-gnu \
-          -Dtests=false -Ddocumentation=false -Ddtd_validation=false
-        meson compile -C "$wayland_build/out"
-        sudo meson install -C "$wayland_build/out"
-        echo 'PKG_CONFIG_PATH=/usr/local/lib/x86_64-linux-gnu/pkgconfig:/usr/local/share/pkgconfig' >> "$GITHUB_ENV"
 
     - name: Select matching compiler tools
       shell: bash
