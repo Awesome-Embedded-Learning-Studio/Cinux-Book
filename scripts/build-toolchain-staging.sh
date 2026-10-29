@@ -101,6 +101,12 @@ cp_lib() {
     local base soname
     base="$(basename "$src")"
     cp -aL "$src" "$work/usr/lib/"
+    # Linker scripts name host multiarch paths such as /lib/x86_64-linux-gnu.
+    # Keep those paths as well as the guest's flat runtime search directory.
+    if [ "$src" != "/usr/lib/$base" ]; then
+        mkdir -p "$work$(dirname "$src")"
+        ln -f "$work/usr/lib/$base" "$work$src"
+    fi
     soname="$(readelf -d "$src" 2>/dev/null | sed -n 's/.*SONAME.*\[\(.*\)\].*/\1/p' | head -1)"
     if [ -n "$soname" ] && [ "$soname" != "$base" ] && [ ! -e "$work/usr/lib/$soname" ]; then
         ln -sf "$base" "$work/usr/lib/$soname"
@@ -157,16 +163,17 @@ install -Dm0644 /usr/include/stdc-predef.h "$work/usr/include/stdc-predef.h"
 {
     printf '%s\n' -pie -o /hello
     printf '%s\n' -dynamic-linker /lib64/ld-linux-x86-64.so.2
-    printf '%s\n' /usr/lib/Scrt1.o
-    printf '%s\n' /usr/lib/crti.o
+    printf '%s\n' "$(readlink -f "$("$gcc_bin" -print-file-name=Scrt1.o)")"
+    printf '%s\n' "$(readlink -f "$("$gcc_bin" -print-file-name=crti.o)")"
     printf '%s\n' "${gcc_lib_dir}/crtbeginS.o"
     printf '%s\n' /hello.o
     printf '%s\n' -L/usr/lib
+    printf '%s\n' "-L$(dirname "$(readlink -f "$("$gcc_bin" -print-file-name=libc.so)")")"
     printf '%s\n' "-L${gcc_lib_dir}"
     printf '%s\n' -lgcc
     printf '%s\n' -lc
     printf '%s\n' "${gcc_lib_dir}/crtendS.o"
-    printf '%s\n' /usr/lib/crtn.o
+    printf '%s\n' "$(readlink -f "$("$gcc_bin" -print-file-name=crtn.o)")"
 } > "$work/hello.ldargs"
 
 printf 'GCC_LIB_DIR=%s\n' "$gcc_lib_dir" > "$meta_dir/manifest"

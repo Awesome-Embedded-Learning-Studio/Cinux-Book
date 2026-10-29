@@ -21,8 +21,9 @@ fi
 cmake -S "${vesper_root}" -B "${build}" -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_CXX_COMPILER=g++ \
     -DCMAKE_CXX_FLAGS="-static" \
-    -DCMAKE_EXE_LINKER_FLAGS="-static" >/dev/null
-cmake --build "${build}" --parallel "${CINUX_ROOTFS_JOBS:-4}" --target fbdev_desktop >/dev/null
+    -DCMAKE_EXE_LINKER_FLAGS="-static" \
+    -DVESPER_BACKEND=fbdev
+cmake --build "${build}" --parallel "${CINUX_ROOTFS_JOBS:-4}" --target fbdev_desktop
 
 mkdir -p "$(dirname "${out}")"
 cp "${build}/examples/fbdev_desktop" "${out}"

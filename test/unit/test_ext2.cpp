@@ -1005,7 +1005,7 @@ namespace {
 /// Writes the bytes to a scratch file and reports an e2fsck -fn verdict.
 bool fsck_reports_clean(const std::string& path, const std::vector<std::uint8_t>& image) {
     // NOLINTNEXTLINE(bugprone-command-processor) the scratch tree is ours
-    static_cast<void>(std::system("mkdir -p /tmp/cinux_ext2_faultsweep"));
+    static_cast<void>(run_quietly("mkdir -p /tmp/cinux_ext2_faultsweep"));
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     out.write(reinterpret_cast<const char*>(image.data()),
               static_cast<std::streamsize>(image.size()));
@@ -1014,8 +1014,9 @@ bool fsck_reports_clean(const std::string& path, const std::vector<std::uint8_t>
         return true;
     }
     std::println(stderr, "[fsck] reporting on {}", path);
+    const std::string          kDumpCmd      = "e2fsck -fn " + path + " 2>&1 | head -20";
     // NOLINTNEXTLINE(bugprone-command-processor) the scratch tree is ours
-    static_cast<void>(std::system(("e2fsck -fn " + path + " 2>&1 | head -20").c_str()));
+    [[maybe_unused]] const int kReportStatus = std::system(kDumpCmd.c_str());
     return false;
 }
 
@@ -1064,13 +1065,13 @@ RenameStage prepare_rename_stage() {
 bool crash_left_only_repairable_residue(const std::string&               path,
                                         const std::vector<std::uint8_t>& image) {
     // NOLINTNEXTLINE(bugprone-command-processor) the scratch tree is ours
-    static_cast<void>(std::system("mkdir -p /tmp/cinux_ext2_faultsweep"));
+    static_cast<void>(run_quietly("mkdir -p /tmp/cinux_ext2_faultsweep"));
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     out.write(reinterpret_cast<const char*>(image.data()),
               static_cast<std::streamsize>(image.size()));
     out.close();
     // NOLINTNEXTLINE(bugprone-command-processor) the scratch tree is ours
-    static_cast<void>(std::system(("e2fsck -fy " + path + " >/dev/null 2>&1").c_str()));
+    static_cast<void>(run_quietly("e2fsck -fy " + path));
     return run_quietly("e2fsck -fn " + path);
 }
 

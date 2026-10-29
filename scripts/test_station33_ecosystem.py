@@ -26,11 +26,12 @@ def main():
     )
     transcript = bytearray()
 
-    def wait_for(pattern):
+    def wait_for(pattern, start=0):
         deadline = time.monotonic() + args.timeout
         while time.monotonic() < deadline:
-            if re.search(pattern, transcript):
-                return
+            match = re.search(pattern, transcript[start:])
+            if match:
+                return match
             failure = re.search(rb"\r?\n(ECO_FAIL [^\r\n]+)\r?\n", transcript)
             if failure:
                 raise RuntimeError(failure.group(1).decode())
@@ -41,9 +42,13 @@ def main():
         raise RuntimeError(f"marker timed out: {pattern!r}")
 
     def command(text, marker):
+        start = len(transcript)
         process.stdin.write((text + "\n").encode())
         process.stdin.flush()
-        wait_for(rb"(?:\r?\n)" + marker.encode() + rb"\r?\n")
+        match = wait_for(rb"(?:\r?\n)" + marker.encode() + rb"\r?\n", start)
+        # ash may still be restoring terminal settings after the command's
+        # output. Wait for its next prompt before sending another input line.
+        wait_for(rb"/ #", start + match.end())
 
     try:
         wait_for(rb"Cinux up")
@@ -71,6 +76,15 @@ def main():
         return 0
     except RuntimeError as error:
         print(f"[ecosystem] FAIL: {error}")
+        try:
+            process.stdin.write(b"\n")
+            process.stdin.flush()
+            drain_deadline = time.monotonic() + 5
+            while time.monotonic() < drain_deadline:
+                if select.select([process.stdout], [], [], 0.2)[0]:
+                    transcript.extend(os.read(process.stdout.fileno(), 65536))
+        except OSError:
+            pass
         print(transcript.decode(errors="replace")[-5000:])
         return 1
     finally:
