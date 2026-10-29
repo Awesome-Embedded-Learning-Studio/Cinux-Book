@@ -127,6 +127,32 @@ static void check_epoll_rotation(int loop_fd) {
     check(close(first_counter) == 0 && close(second_counter) == 0, "close rotation counters");
 }
 
+static void check_eventfd_edges(int loop_fd) {
+    int counter = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    check(counter >= 0, "edge counter");
+    struct epoll_event interest = {.events = EPOLLIN | EPOLLET, .data.u64 = 919};
+    struct epoll_event seen = {0};
+    check(epoll_ctl(loop_fd, EPOLL_CTL_ADD, counter, &interest) == 0, "add edge counter");
+    check(epoll_wait(loop_fd, &seen, 1, 0) == 0, "empty edge counter");
+    uint64_t one = 1;
+    for (int turn = 0; turn < 3; ++turn) {
+        check(write(counter, &one, sizeof(one)) == sizeof(one), "write edge counter");
+        check(epoll_wait(loop_fd, &seen, 1, 0) == 1 && seen.data.u64 == 919 &&
+                  seen.events == EPOLLIN, "each write notifies without a read");
+        check(epoll_wait(loop_fd, &seen, 1, 0) == 0, "edge does not repeat while readable");
+    }
+    check(epoll_ctl(loop_fd, EPOLL_CTL_MOD, counter, &interest) == 0, "rearm readable edge");
+    check(epoll_wait(loop_fd, &seen, 1, 0) == 1, "modify reports current readiness");
+    check(epoll_wait(loop_fd, &seen, 1, 0) == 0, "modified edge consumed once");
+    uint64_t taken = 0;
+    check(read(counter, &taken, sizeof(taken)) == sizeof(taken) && taken == 3,
+          "drain edge counter");
+    check(write(counter, &one, sizeof(one)) == sizeof(one), "wake drained edge counter");
+    check(epoll_wait(loop_fd, &seen, 1, 0) == 1, "edge after drain");
+    check(close(counter) == 0, "close edge counter");
+    check(epoll_wait(loop_fd, &seen, 1, 0) == 0, "closed edge removed");
+}
+
 static void check_blocking_counter_write(void) {
     int counter = eventfd(0, 0);
     check(counter >= 0, "blocking counter");
@@ -194,6 +220,9 @@ int main(void) {
 
     puts("nativeprobe: epoll rotation");
     check_epoll_rotation(loop);
+
+    puts("nativeprobe: eventfd edges");
+    check_eventfd_edges(loop);
 
     puts("nativeprobe: blocking counter");
     check_blocking_counter_write();

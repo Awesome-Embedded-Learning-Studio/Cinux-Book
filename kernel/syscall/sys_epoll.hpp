@@ -1,6 +1,6 @@
 /**
  * @file sys_epoll.hpp
- * @brief Level-triggered epoll readiness over open descriptions.
+ * @brief Epoll readiness, including edge-triggered event-counter input.
  */
 #pragma once
 #include "kernel/syscall/syscall.hpp"
