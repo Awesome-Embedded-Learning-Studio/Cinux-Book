@@ -76,6 +76,29 @@ jobs:
         run: bash scripts/checks/run-cell.sh kernel ${{ matrix.build_type }} ${{ matrix.checks }} build-ci
       - name: Boot the production kernel and run the existing BusyBox checks
         run: python3 scripts/test_station33_ecosystem.py --image build-ci/boot/cinux.img
+      - name: Autopsy the frozen guest via QEMU gdbstub
+        if: failure() && matrix.build_type == 'Debug' && matrix.checks == 'none'
+        run: |
+          qemu-system-x86_64 $(tr '\n' ' ' < build-ci/qemu-device-args.txt) \
+            -snapshot -drive format=raw,file=build-ci/boot/cinux.img \
+            -serial file:build-ci/autopsy-serial.log -monitor none \
+            -gdb tcp::1234 &
+          qemu_pid=$!
+          sleep 45
+          gdb -batch -nx \
+            -ex 'set pagination off' \
+            -ex 'set architecture i386:x86-64' \
+            -ex 'file build-ci/kernel/cinux_kernel' \
+            -ex 'target remote :1234' \
+            -ex 'info threads' \
+            -ex 'thread apply all info registers' \
+            -ex 'thread apply all x/6i $pc-16' \
+            > build-ci/autopsy-gdb.txt 2>&1 || true
+          kill "$qemu_pid" || true
+          echo '=== autopsy serial ==='
+          cat build-ci/autopsy-serial.log || true
+          echo '=== autopsy gdb ==='
+          cat build-ci/autopsy-gdb.txt || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -84,6 +107,8 @@ jobs:
             build-ci/test/Testing/Temporary/
             build-ci/test/kernel_test_*/serial.log
             build-ci/station33-ecosystem.serial.log
+            build-ci/autopsy-serial.log
+            build-ci/autopsy-gdb.txt
             build-ci/test-inventory.json
             build-ci/CMakeCache.txt
             build-ci/qemu-device-args.txt
