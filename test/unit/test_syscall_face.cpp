@@ -22,6 +22,7 @@
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/signal.hpp"
 #include "kernel/syscall/sys_close.hpp"
+#include "kernel/syscall/sys_capability.hpp"
 #include "kernel/syscall/sys_epoll.hpp"
 #include "kernel/syscall/sys_eventfd.hpp"
 #include "kernel/syscall/sys_fcntl.hpp"
@@ -254,6 +255,47 @@ TEST("syscall face: at-fdcwd accepts both extensions of a signed int") {
             ASSERT_EQ(cinux::syscall::HandleOpenat(frame), 101);
             ASSERT_EQ(cinux::syscall::HandleNewfstatat(frame), 102);
         }
+        cinux::proc::Scheduler::self().exit_current();
+    });
+}
+
+TEST("syscall face: capability queries are empty and cannot grant privileges") {
+    FaceWorld world;
+    world.run([] {
+        using namespace cinux::syscall;
+        struct Header { unsigned int version; int pid; } header{0, 0};
+        unsigned int data[7]{};
+        auto frame = plain_frame();
+        frame.rdi = reinterpret_cast<Word>(&header);
+        frame.rsi = reinterpret_cast<Word>(data);
+        ASSERT_EQ(HandleCapget(frame), -kEinval);
+        ASSERT_EQ(header.version, 0x20080522U);
+        data[0] = ~0U;
+        data[6] = 123;
+        ASSERT_EQ(HandleCapget(frame), 0);
+        ASSERT_EQ(data[0], 0U);
+        ASSERT_EQ(data[6], 123U);
+        ASSERT_EQ(HandleCapset(frame), 0);
+        data[1] = 1U << 13;  // A caller cannot mint CAP_NET_RAW.
+        ASSERT_EQ(HandleCapset(frame), -kEperm);
+        data[1] = 0;
+        header.version = 0x19980330;
+        data[3] = 456;
+        ASSERT_EQ(HandleCapget(frame), 0);
+        ASSERT_EQ(data[3], 456U);
+        frame.rsi = kUserAddressLimit;
+        ASSERT_EQ(HandleCapget(frame), -kEfault);
+        frame = plain_frame();
+        frame.rdi = 8;
+        frame.rsi = 1;
+        ASSERT_EQ(HandlePrctl(frame), 0);
+        frame.rdi = 7;
+        ASSERT_EQ(HandlePrctl(frame), 1);
+        frame.rdi = 8;
+        frame.rsi = 2;
+        ASSERT_EQ(HandlePrctl(frame), -kEinval);
+        frame.rsi = 0;
+        ASSERT_EQ(HandlePrctl(frame), 0);
         cinux::proc::Scheduler::self().exit_current();
     });
 }

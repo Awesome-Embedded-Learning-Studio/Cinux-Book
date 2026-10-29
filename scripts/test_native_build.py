@@ -30,6 +30,8 @@ def main():
     parser.add_argument('--probe-only', action='store_true')
     parser.add_argument('--configure-only', action='store_true')
     parser.add_argument('--reuse', action='store_true', help='resume a previous guest build')
+    parser.add_argument('--ping-host', action='append', default=[],
+                        help='also test standard ping against this IP or DNS name')
     args = parser.parse_args()
     image = args.image.resolve()
     build = image.parent.parent
@@ -64,6 +66,9 @@ def main():
             guest.command('python3 -B -S -c ' + shlex.quote(verifier) + '; echo SOURCE_PROOF_$?',
                           'SOURCE_PROOF')
         guest.command('/bin/nativeprobe; echo NATIVE_PROBE_$?', 'NATIVE_PROBE')
+        for index, host in enumerate(['127.0.0.1', '10.0.2.2', *args.ping_host]):
+            guest.command('ping -c 2 -W 2 ' + shlex.quote(host) +
+                          f'; echo PING_{index}_$?', f'PING_{index}')
         guest.command(r"printf '#include <stdint.h>\nuint32_t x;\n' | g++ -m32 -ffreestanding -x c++ -c - -o /tmp/boot32.o; echo BOOT32_$?", 'BOOT32')
         guest.command('tar --format=ustar -C assets/initrd -cf /tmp/native-initrd.tar readme.txt docs; echo TAR_$?', 'TAR')
         if args.probe_only:

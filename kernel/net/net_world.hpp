@@ -190,6 +190,7 @@ private:
     static void pump_entry();
     static void route_thunk(void* context, const OutboundDatagram& datagram);
     void        route_send(const OutboundDatagram& datagram);
+    void        flush_resolved();
     void        wait_for_answers(unsigned long& seen);
 
     struct ArpEntry {
@@ -197,6 +198,14 @@ private:
 
         void handle(const unsigned char* bytes, size_t length) const;
     };
+
+    struct PendingDatagram {
+        uint32_t next_hop = 0;
+        unsigned long length = 0;
+        unsigned long long expires = 0;
+        unsigned char bytes[kMaxDatagramBytes]{};
+    };
+    PendingDatagram pending_[8]{};
 
     proc::Spinlock        route_gate_;
     driver::net::NetPort* wire_port_   = nullptr;

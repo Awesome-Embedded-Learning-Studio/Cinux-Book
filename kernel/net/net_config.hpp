@@ -397,6 +397,9 @@ inline constexpr uint32_t kUserNetworkSelf = 0x0a00020f;
  */
 inline constexpr uint32_t kUserNetworkHost = 0x0a000202;
 
+/// Subnet mask of the default QEMU user network, 255.255.255.0.
+inline constexpr uint32_t kUserNetworkMask = 0xffffff00;
+
 /**
  * @brief   Time-to-live every outgoing IPv4 header carries.
  * @since   0.6.0

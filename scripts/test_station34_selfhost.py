@@ -12,7 +12,7 @@ import sys
 import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "mcp"))
-from qemu_args import device_args
+from qemu_args import device_args, qemu_command
 
 
 def main():
@@ -33,7 +33,7 @@ def main():
     link = "ld @/hello.ldargs"
     log = build / "station34-selfhost.serial.log"
     process = subprocess.Popen(
-        ["qemu-system-x86_64", *device_args(args.image), "-snapshot",
+        [*qemu_command(args.image), *device_args(args.image), "-snapshot",
          "-drive", f"format=raw,file={args.image}", "-serial", "stdio", "-monitor", "none"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     )

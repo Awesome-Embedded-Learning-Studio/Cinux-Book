@@ -74,6 +74,10 @@ Buildroot 的工具链、libc 或包选择变化通常需要干净重建。入�
 
 ## 原生开发环境
 
+开发盘的 `ping` 使用宿主 iputils 程序及其运行库，普通用户通过 ICMP datagram socket 收发，可直接执行 `ping -c 3 baidu.com`。默认网络为 QEMU 的 `10.0.2.0/24`，公网经 `10.0.2.2` 转发；`/etc/resolv.conf` 使用 `10.0.2.3`，并通过 `options use-vc` 让系统解析器走 DNS over TCP。当前未实现 ICMP 错误队列和 IPv4 选项回传，iputils 对这些可选功能可能输出警告；回显回复、TTL、接收时间戳和丢包统计正常工作。
+
+Linux 宿主默认构建一个 QEMU 辅助共享库，由仓库启动器通过 `LD_PRELOAD` 加载到 QEMU。它在 `slirp_input` 返回后调用 `qemu_notify_event`，让主循环立即重新收集新建的宿主 socket，避免外网 ICMP 回包等待约一秒后批量到达。`run`、`run_debug`、`run_gui` 和测试脚本共用该启动器；不需要手工设置环境变量，也不修改系统 QEMU。此补偿依赖动态链接的 libslirp 和 QEMU 导出的通知符号；对已修复或不兼容的 QEMU，可配置 `-DCINUX_QEMU_SLIRP_WAKEUP=OFF`，或单次使用 `CINUX_QEMU_SLIRP_WAKEUP=0 cmake --build build --target run_gui`。Cinux 机内默认关闭该宿主组件。
+
 串口默认通过 `su - cinux` 进入开发用户，HOME 与初始工作目录都是 `/home/cinux`。`run_gui` 由 init 自动以同一用户启动 Vesper，PTY 终端继承相同身份与环境。项目工作区在 `~/Cinux`，系统程序仍放 `/usr/bin` 等目录。
 
 当前账户身份可用于单人开发，但内核尚未完整实现文件权限隔离：路径访问、文件创建属主、umask、chmod 鉴权及 stat 属主信息仍有缺口。镜像里的 UID/GID 元数据得到保留，不代表普通用户已受到完整 Unix 权限约束；多用户隔离需另行补齐和验收。
@@ -118,7 +122,7 @@ GUI 入口通过 [QEMU fw_cfg](https://www.qemu.org/docs/master/specs/fw_cfg.htm
 
 终端持有焦点时，Tab 送入 PTY 供 shell 补全，其他控件保留 Tab 焦点切换。`python3 scripts/test_gui_tab.py --vesper build/glibc/vesper-desk` 使用开发卷副本验证 `/home/cinux/C<Tab>`、连续目录与文件名补全，以及双 Tab 列候选后继续输入；日志和截图在 `build/gui-tab/`，不会覆盖已有开发卷。
 
-默认构建图在 Linux 宿主和 Cinux 中完全相同，不存在按操作系统切换的 `CINUX_NATIVE_BUILD`。普通 `all` 生成项目程序、内核和启动镜像；host 测试、机内测试、rootfs 打包与 QEMU 均由显式目标调用。QEMU 设备与启动参数在 `cmake/qemu/`，rootfs 配方在 `cmake/rootfs.cmake`，测试内核清单在 `cmake/test/kernel_catalog.cmake`。Vesper 使用公开仓库的 `third_party/vesper` Git 子模块，版本由 Cinux 的 gitlink 固定，Visor 版本由 Vesper 固定；无需旁边另有开发仓或额外文件哈希清单。
+普通 `all` 在 Linux 宿主和 Cinux 中都生成项目程序、内核和启动镜像，不存在按操作系统切换的 `CINUX_NATIVE_BUILD`。Linux 宿主还构建上述 QEMU 唤醒库；host 测试、机内测试、rootfs 打包与 QEMU 运行均由显式目标调用。QEMU 设备与启动参数在 `cmake/qemu/`，rootfs 配方在 `cmake/rootfs.cmake`，测试内核清单在 `cmake/test/kernel_catalog.cmake`。Vesper 使用公开仓库的 `third_party/vesper` Git 子模块，版本由 Cinux 的 gitlink 固定，Visor 版本由 Vesper 固定；无需旁边另有开发仓或额外文件哈希清单。
 
 2026-10-27 实测：宿主和客体使用同一张构建图，客体从空目录完成 284 步构建，增量与源码修改后的重编译通过；产物哈希比对、启动标记、GCC hello 通过。GUI 中通过 PS/2 输入和 PTY 登录 shell 执行两条命令，并验证源码长度变化和对象时间更新。普通及 UBSan/lockdep 镜像的 GUI 回归、检查版开发探针通过。证据见 `build/native-build-test.log`（全量构建；首次重启受宿主 KVM 权限变更阻断）、`build/native-build-resume-test.log`（恢复后全流程 PASS）、`build/native-gui/`、`build/native-acceptance/`。
 

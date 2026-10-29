@@ -11,17 +11,17 @@ import { withBase } from 'vitepress'
 import imgGui from '../../../../assets/README/gui.webp'
 import imgCli from '../../../../assets/README/cli.webp'
 import imgBoot from '../../../../assets/README/boot.webp'
-import imgMulti from '../../../../assets/README/multi-terminal.webp'
+import imgNet from '../../../../assets/README/net.webp'
 import imgParallel from '../../../../assets/README/parallel.webp'
 import imgFs from '../../../../assets/README/filesystem.webp'
 
 const slides = [
-  { img: imgBoot, vol: '01', title: '从 0x7C00 点亮第一屏', note: '实模式 → 保护模式 → 长模式', href: '/book/01-boot/' },
-  { img: imgParallel, vol: '10', title: '让进程真正并发', note: '上下文切换与独立地址空间', href: '/book/10-multitasking/' },
-  { img: imgFs, vol: '08', title: '把磁盘接入文件世界', note: 'VFS 抽象与 ext2 读写', href: '/book/08-filesystem/' },
-  { img: imgCli, vol: '07', title: '走进用户态', note: '系统调用、ELF 加载与 Shell', href: '/book/07-userland/' },
-  { img: imgGui, vol: '09', title: '搭起自己的桌面', note: '帧缓冲、窗口管理与输入', href: '/book/09-gui/' },
-  { img: imgMulti, vol: '10', title: '多终端同时工作', note: '会话、TTY 与 fork / exec', href: '/book/10-multitasking/' },
+  { img: imgBoot, vol: '01', title: '从 0x7C00 点亮第一屏', note: '实模式 → 保护模式 → 长模式', href: '/journey/01-mbr/' },
+  { img: imgParallel, vol: '26', title: '两个核一起跑', note: 'APIC 唤醒与 SMP 启动', href: '/journey/26-smp/' },
+  { img: imgFs, vol: '16', title: '把磁盘接入文件世界', note: 'ext2 目录树与挂载表', href: '/journey/16-ext2/' },
+  { img: imgCli, vol: '13', title: '走进用户态', note: '系统调用、ELF 加载与 Shell', href: '/journey/13-userland/' },
+  { img: imgGui, vol: '35', title: '搭起自己的桌面', note: '帧缓冲、窗口管理与输入', href: '/journey/' },
+  { img: imgNet, vol: '30', title: '把网卡接进协议栈', note: 'e1000 驱动与 TCP/IP', href: '/journey/30-e1000/' },
 ]
 
 const active = ref(0)
@@ -48,7 +48,7 @@ onBeforeUnmount(stop)
         <a class="shot" :href="withBase(current.href)">
           <img :key="current.img" :src="current.img" :alt="current.title" />
           <span class="shot__meta">
-            <span class="shot__vol">VOL {{ current.vol }}</span>
+            <span class="shot__vol">第 {{ current.vol }} 站</span>
             <strong>{{ current.title }}</strong>
             <small>{{ current.note }}</small>
           </span>

@@ -13,7 +13,7 @@ import sys
 import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "mcp"))
-from qemu_args import device_args
+from qemu_args import device_args, qemu_command
 
 
 class Guest:
@@ -40,7 +40,7 @@ class Guest:
         self.timeout = timeout
         self.transcript = bytearray()
         self.process = subprocess.Popen(
-            ["qemu-system-x86_64", *devices, "-m", f"{memory}M", "-boot", "order=c",
+            [*qemu_command(image), *devices, "-m", f"{memory}M", "-boot", "order=c",
              "-drive", f"format=raw,file={image},if=none,id=boot",
              "-device", "ide-hd,drive=boot,bus=ide.0,bootindex=0",
              *(["-qmp", f"unix:{qmp},server,nowait"] if qmp else []),

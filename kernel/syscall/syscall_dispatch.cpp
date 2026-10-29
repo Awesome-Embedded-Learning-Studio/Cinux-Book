@@ -18,6 +18,7 @@
 #include "kernel/syscall/sys_access.hpp"
 #include "kernel/syscall/sys_arch_prctl.hpp"
 #include "kernel/syscall/sys_brk.hpp"
+#include "kernel/syscall/sys_capability.hpp"
 #include "kernel/syscall/sys_chdir.hpp"
 #include "kernel/syscall/sys_clock.hpp"
 #include "kernel/syscall/sys_clone.hpp"
@@ -87,6 +88,10 @@ struct Row {
 };
 
 constexpr Row kRows[] = {
+    {.number = cinux::syscall::SyscallNr::kSendmsg, .handler = cinux::syscall::HandleSendmsg},
+    {.number = cinux::syscall::SyscallNr::kRecvmsg, .handler = cinux::syscall::HandleRecvmsg},
+    {.number = cinux::syscall::SyscallNr::kCapget, .handler = cinux::syscall::HandleCapget},
+    {.number = cinux::syscall::SyscallNr::kCapset, .handler = cinux::syscall::HandleCapset},
     {.number = cinux::syscall::SyscallNr::kEpollWait, .handler = cinux::syscall::HandleEpollWait},
     {.number = cinux::syscall::SyscallNr::kEpollCtl, .handler = cinux::syscall::HandleEpollCtl},
     {.number = cinux::syscall::SyscallNr::kEpollPwait, .handler = cinux::syscall::HandleEpollPwait},

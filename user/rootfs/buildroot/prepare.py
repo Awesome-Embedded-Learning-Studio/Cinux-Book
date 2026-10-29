@@ -78,8 +78,10 @@ def main():
                                  capture_output=True, text=True, check=True).stdout.strip())
         if directory.is_absolute() and directory.is_dir():
             shutil.copytree(directory, root / str(directory).lstrip('/'), dirs_exist_ok=True)
-    for name in ('cmake', 'ninja', 'make', 'ar', 'ranlib', 'nm', 'objcopy', 'readelf', 'tar', 'dd'):
+    for name in ('cmake', 'ninja', 'make', 'ar', 'ranlib', 'nm', 'objcopy', 'readelf', 'tar', 'dd', 'ping'):
         stage_program(name, root, helper.copy_file)
+    (root / 'bin/ping').unlink(missing_ok=True)
+    (root / 'bin/ping').symlink_to('/usr/bin/ping')
     information = subprocess.run(['cmake', '--system-information'], capture_output=True,
                                  text=True, check=True).stdout
     cmake_root = pathlib.Path(re.search(r'CMAKE_ROOT "([^"]+)"', information)[1])

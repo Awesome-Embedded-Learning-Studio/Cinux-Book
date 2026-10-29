@@ -63,6 +63,14 @@ long long HandlePrlimit64(const SyscallFrame& frame) {
 
 long long HandlePrctl(const SyscallFrame& frame) {
     proc::Task* const kSelf = CurrentTask();
+    if (frame.rdi == 7) {  // PR_GET_KEEPCAPS
+        return kSelf->keep_capabilities ? 1 : 0;
+    }
+    if (frame.rdi == 8) {  // PR_SET_KEEPCAPS, independently of the (empty) sets.
+        if (frame.rsi > 1) { return -kEinval; }
+        kSelf->keep_capabilities = frame.rsi != 0;
+        return 0;
+    }
     if (frame.rdi == kPrSetName) {
         if (frame.rsi == 0) {
             return -kEfault;

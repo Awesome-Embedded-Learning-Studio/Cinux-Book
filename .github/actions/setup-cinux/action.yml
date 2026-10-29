@@ -18,7 +18,7 @@ runs:
         sudo apt-get update
         sudo apt-get install -y gcc-14 g++-14 gcc-14-multilib g++-14-multilib \
           ccache cmake ninja-build make binutils libc6-dev python3 curl bzip2 xz-utils \
-          qemu-system-x86 e2fsprogs file bc bison flex rsync cpio unzip \
+          qemu-system-x86 e2fsprogs file bc bison flex rsync cpio unzip iputils-ping \
           libncurses-dev libssl-dev libarchive-dev pkg-config
 
     - name: Select matching compiler tools

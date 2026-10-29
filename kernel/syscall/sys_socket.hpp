@@ -63,6 +63,11 @@ long long HandleSendto(const SyscallFrame& frame);
  */
 long long HandleRecvfrom(const SyscallFrame& frame);
 
+/** @brief Scatter a received socket message and its ancillary data. */
+long long HandleRecvmsg(const SyscallFrame& frame);
+/** @brief Gather and transmit a socket message. */
+long long HandleSendmsg(const SyscallFrame& frame);
+
 /**
  * @brief         shutdown(fd, how): end one or both directions.
  * @return        Zero, or a negative errno.

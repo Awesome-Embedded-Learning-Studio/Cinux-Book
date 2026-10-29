@@ -8,7 +8,7 @@ file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/qemu-run-args.txt"
 add_custom_target(run
     COMMAND ${CMAKE_COMMAND} -DROOTFS=${CINUX_QEMU_ROOTFS}
             -P ${CMAKE_SOURCE_DIR}/cmake/qemu/check_rootfs.cmake
-    COMMAND ${CINUX_QEMU_PROGRAM} ${CINUX_QEMU_RUN_ARGS}
+    COMMAND ${CINUX_QEMU_COMMAND} ${CINUX_QEMU_RUN_ARGS}
             -drive format=raw,file=${CMAKE_BINARY_DIR}/boot/cinux.img
             -serial stdio
     DEPENDS boot_image qemu_disks
@@ -21,7 +21,7 @@ add_custom_target(run_debug
             -P ${CMAKE_SOURCE_DIR}/cmake/qemu/check_rootfs.cmake
     COMMAND ${CMAKE_COMMAND} -E echo
             "gdb stub on :1234, machine frozen at reset; attach with: gdb -q -x ${CMAKE_BINARY_DIR}/kernel.gdb"
-    COMMAND ${CINUX_QEMU_PROGRAM} ${CINUX_QEMU_RUN_ARGS}
+    COMMAND ${CINUX_QEMU_COMMAND} ${CINUX_QEMU_RUN_ARGS}
             -drive format=raw,file=${CMAKE_BINARY_DIR}/boot/cinux.img
             -serial stdio -S -s
     DEPENDS boot_image qemu_disks
@@ -60,7 +60,7 @@ file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/qemu-gui-args.txt"
 add_custom_target(run_gui
     COMMAND ${CMAKE_COMMAND} -DROOTFS=${CINUX_QEMU_ROOTFS}
             -P ${CMAKE_SOURCE_DIR}/cmake/qemu/check_rootfs.cmake
-    COMMAND ${CINUX_QEMU_PROGRAM} ${CINUX_QEMU_GUI_ARGS}
+    COMMAND ${CINUX_QEMU_COMMAND} ${CINUX_QEMU_GUI_ARGS}
             -drive format=raw,file=${CMAKE_BINARY_DIR}/boot/cinux.img
             -serial stdio
     DEPENDS boot_image qemu_disks

@@ -11,8 +11,12 @@ import pathlib
 import re
 import socket
 import subprocess
+import sys
 import tempfile
 import time
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "mcp"))
+from qemu_args import qemu_command
 
 
 def main():
@@ -83,7 +87,7 @@ def main():
 
         try:
             vm = subprocess.Popen([
-                "qemu-system-x86_64", *options, "-snapshot",
+                *qemu_command(image), *options, "-snapshot",
                 "-drive", f"format=raw,file={image}",
                 "-serial", f"unix:{serial},server=on,wait=off",
                 "-gdb", f"unix:{work / 'gdb.sock'},server=on,wait=off",
