@@ -39,6 +39,7 @@
 #include "kernel/syscall/sys_stat.hpp"
 #include "kernel/syscall/sys_tgkill.hpp"
 #include "kernel/syscall/sys_uname.hpp"
+#include "kernel/syscall/sys_wait.hpp"
 #include "kernel/syscall/sys_write.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
@@ -255,6 +256,44 @@ TEST("syscall face: at-fdcwd accepts both extensions of a signed int") {
         }
         cinux::proc::Scheduler::self().exit_current();
     });
+}
+
+unsigned int g_wait4_selector_failures = 0;
+
+TEST("syscall face: wait4 decodes signed 32-bit process selectors") {
+    g_wait4_selector_failures = 0;
+    FaceWorld world;
+    world.run([] {
+        using namespace cinux::syscall;
+        auto& scheduler = cinux::proc::Scheduler::self();
+        for (const Word kSelector : {0x00000000FFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL,
+                                     0x00000000FFFFFFF9ULL, 0xFFFFFFFFFFFFFFF9ULL}) {
+            cinux::proc::Task child;
+            child.parent = scheduler.current();
+            child.pgid   = 7;
+            scheduler.seat(child, false);
+            const auto kPid = static_cast<long long>(child.pid);
+            auto       frame = plain_frame();
+            frame.rdi        = kSelector;
+            frame.rdx        = 1;  // WNOHANG: an eligible live child is not ECHILD.
+            const auto kLiveResult = HandleWait4(frame);
+            child.state            = cinux::proc::TaskState::kZombie;
+            child.exit_code        = 23 << 8;
+            int status             = 0;
+            frame.rsi              = reinterpret_cast<Word>(&status);
+            const auto kReaped     = HandleWait4(frame);
+            if (kReaped != kPid) {
+                cinux::proc::ChildReceipt cleanup{};
+                scheduler.wait_child(-1, true, cleanup);
+            }
+            if (kLiveResult != 0 || kReaped != kPid || status != (23 << 8) ||
+                HandleWait4(frame) != -kEchild) {
+                ++g_wait4_selector_failures;
+            }
+        }
+        scheduler.exit_current();
+    });
+    ASSERT_EQ(g_wait4_selector_failures, 0U);
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) a body walks one story in order
