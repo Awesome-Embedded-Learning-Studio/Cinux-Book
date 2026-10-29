@@ -35,13 +35,18 @@ sys.exit(int(os.environ['FAKE_EXIT']))
                                 FAKE_ARGS=str(self.work / 'args.json'), FAKE_EXIT='3',
                                 FAKE_SUMMARY='=== Results: 2 passed, 0 failed ===\n')
 
-    def run_kernel(self, cpus=1, devices='-smp;2;-display;none'):
+    def run_kernel(self, cpus=1, devices='-smp;2;-display;none', program=None):
         return subprocess.run(
-            ['cmake', f'-DQEMU_PROGRAM={self.qemu}', f'-DQEMU_DEVICE_ARGS={devices}',
+            ['cmake', f'-DQEMU_PROGRAM={program or self.qemu}', f'-DQEMU_DEVICE_ARGS={devices}',
              f'-DCPU_COUNT={cpus}', '-DIMAGE_FILE=fixture.img',
              f'-DTEST_DIR={self.work / "logs"}', '-P',
              str(ROOT / 'cmake/test/run_kernel_tests.cmake')],
             env=self.environment, capture_output=True, text=True)
+
+    def test_qemu_command_can_include_a_launcher_and_arguments(self):
+        result = self.run_kernel(program=f'{sys.executable};{self.qemu}')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('-snapshot', json.loads((self.work / 'args.json').read_text()))
 
     def test_each_cpu_leg_replaces_the_default_and_uses_a_snapshot(self):
         for cpus in (1, 2):
@@ -80,6 +85,92 @@ sys.exit(int(os.environ['FAKE_EXIT']))
                 result = self.run_kernel(cpus, devices)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse((self.work / 'args.json').exists())
+
+
+@unittest.skipUnless(sys.platform.startswith('linux') and shutil.which('cc'),
+                     'requires Linux ELF dynamic linking and a C compiler')
+class QemuWakeupTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temporary = tempfile.TemporaryDirectory(prefix='cinux-qemu-wakeup-')
+        cls.addClassCleanup(cls.temporary.cleanup)
+        cls.work = pathlib.Path(cls.temporary.name)
+        cls.library = cls.work / 'wakeup.so'
+        cls.program = cls.work / 'fake-qemu'
+        # Use real ELF interposition: the imported input function must run
+        # before the executable's exported main-loop notification function.
+        (cls.work / 'slirp.c').write_text('''#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+void slirp_input(void *s, const uint8_t *p, int n) {
+    if (s != NULL || n != 1 || *p != 42) abort();
+    puts("input");
+}
+''')
+        (cls.work / 'qemu.c').write_text('''#include <stdio.h>
+#include <stdint.h>
+#include <signal.h>
+#include <string.h>
+void slirp_input(void *, const uint8_t *, int);
+void qemu_notify_event(void) { puts("notify"); }
+int main(int argc, char **argv) {
+    if (argc > 1 && strcmp(argv[1], "--signal") == 0) raise(SIGTERM);
+    const uint8_t packet = 42;
+    slirp_input(NULL, &packet, 1);
+    for (int i = 1; i < argc; ++i) puts(argv[i]);
+    return 17;
+}
+''')
+        (cls.work / 'preload.c').write_text('''#include <stdio.h>
+__attribute__((constructor)) static void loaded(void) { puts("existing-preload"); }
+''')
+        commands = [
+            ['cc', '-shared', '-fPIC', '-pthread', '-Wall', '-Wextra', '-Werror',
+             str(ROOT / 'cmake/qemu/slirp_wakeup.c'), '-ldl', '-o', str(cls.library)],
+            ['cc', '-shared', '-fPIC', str(cls.work / 'slirp.c'),
+             '-o', str(cls.work / 'libfake-slirp.so')],
+            ['cc', str(cls.work / 'qemu.c'), '-L', str(cls.work), '-lfake-slirp',
+             '-Wl,--export-dynamic', f'-Wl,-rpath,{cls.work}', '-o', str(cls.program)],
+            ['cc', '-shared', '-fPIC', str(cls.work / 'preload.c'),
+             '-o', str(cls.work / 'preload.so')],
+        ]
+        for command in commands:
+            subprocess.run(command, check=True, capture_output=True, text=True)
+
+    def launch(self, *arguments, enabled=True, library=None, preload=None):
+        environment = dict(os.environ, CINUX_QEMU_SLIRP_WAKEUP='1' if enabled else '0')
+        environment.pop('LD_PRELOAD', None)
+        if preload:
+            environment['LD_PRELOAD'] = str(preload)
+        return subprocess.run(
+            [sys.executable, str(ROOT / 'scripts/mcp/qemu_launch.py'), str(self.program),
+             str(library or self.library), *arguments], env=environment,
+            capture_output=True, text=True)
+
+    def test_input_is_followed_by_notification_and_arguments_survive(self):
+        result = self.launch('path with spaces', 'literal;$(no-shell)')
+        self.assertEqual(result.returncode, 17, result.stderr)
+        self.assertEqual(result.stdout.splitlines(),
+                         ['input', 'notify', 'path with spaces', 'literal;$(no-shell)'])
+
+    def test_existing_preload_is_preserved(self):
+        result = self.launch(preload=self.work / 'preload.so')
+        self.assertEqual(result.returncode, 17, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ['existing-preload', 'input', 'notify'])
+
+    def test_opt_out_works_without_the_wakeup_library(self):
+        result = self.launch(enabled=False, library=self.work / 'absent.so')
+        self.assertEqual(result.returncode, 17, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ['input'])
+
+    def test_missing_library_has_an_actionable_error(self):
+        result = self.launch(library=self.work / 'absent.so')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('build the qemu_disks target', result.stderr)
+
+    def test_signal_reaches_the_qemu_process(self):
+        result = self.launch('--signal')
+        self.assertEqual(result.returncode, -15, result.stderr)
 
 
 class InventoryTests(unittest.TestCase):

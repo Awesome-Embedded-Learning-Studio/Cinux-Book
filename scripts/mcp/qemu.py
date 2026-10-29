@@ -6,9 +6,8 @@ import subprocess
 import time
 
 import frame
-from qemu_args import device_args
+from qemu_args import device_args, qemu_command
 
-QEMU = "qemu-system-x86_64"
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 MON_PATH = "/tmp/cinux_qemu_mon"
 SERIAL_PATH = "/tmp/cinux_qemu_serial.log"
@@ -31,7 +30,7 @@ class Session:
                 os.unlink(stale)
         self.proc = subprocess.Popen(
             [
-                QEMU, *device_args(self.image, self.config_name),
+                *qemu_command(self.image), *device_args(self.image, self.config_name),
                 *(["-snapshot"] if self.snapshot else []),
                 "-drive", f"format=raw,file={self.image}",
                 "-serial", f"file:{SERIAL_PATH}",

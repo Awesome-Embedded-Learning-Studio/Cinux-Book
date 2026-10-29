@@ -10,4 +10,9 @@ unsigned long long MonotonicNanoseconds() {
                                                .count());
 }
 
+unsigned long long RealtimeNanoseconds() {
+    return static_cast<unsigned long long>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count());
+}
+
 }

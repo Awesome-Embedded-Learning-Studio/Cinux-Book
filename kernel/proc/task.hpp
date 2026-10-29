@@ -108,6 +108,7 @@ struct Task : cinux::base::container::SelfNode<Task> {
     std::uint32_t                          euid{};
     std::uint32_t                          gid{};
     std::uint32_t                          egid{};
+    bool                                   keep_capabilities = false;
     std::uint32_t                          supplementary_groups[16]{};   ///< Extra group IDs.
     unsigned int                           supplementary_group_count{};  ///< Populated group IDs.
     Task*              parent{};      ///< Who may wait for this task; null when nobody can.

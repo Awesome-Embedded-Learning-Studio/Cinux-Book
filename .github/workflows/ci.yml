@@ -85,7 +85,8 @@ jobs:
           fi
           kelf=$(find build-ci -maxdepth 2 -type f -name cinux_kernel | head -1)
           echo "kernel elf: ${kelf:-none}"
-          qemu-system-x86_64 $(tr '\n' ' ' < build-ci/qemu-device-args.txt) \
+          mapfile -t qemu_command < build-ci/qemu-command.txt
+          "${qemu_command[@]}" $(tr '\n' ' ' < build-ci/qemu-device-args.txt) \
             -snapshot -drive format=raw,file=build-ci/boot/cinux.img \
             -serial file:build-ci/autopsy-serial.log -monitor none \
             -gdb tcp::1234 &
@@ -123,6 +124,7 @@ jobs:
             build-ci/test-inventory.json
             build-ci/CMakeCache.txt
             build-ci/qemu-device-args.txt
+            build-ci/qemu-command.txt
 
   ecosystem:
     name: ecosystem (Release, ${{ matrix.checks }})

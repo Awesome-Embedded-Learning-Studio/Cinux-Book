@@ -108,6 +108,8 @@ enum class SyscallNr : std::uint16_t {
     kGeteuid          = 107,  ///< geteuid(): the effective user id
     kGetegid          = 108,  ///< getegid(): the effective group id
     kPrctl            = 157,  ///< prctl(op, ...): process knobs
+    kCapget           = 125,  ///< Reads the supported empty capability sets.
+    kCapset           = 126,  ///< Drops capabilities; grants remain unsupported.
     kTime             = 201,  ///< time(tloc): seconds since the epoch
     kClockGettime     = 228,  ///< clock_gettime(clk, tp): seconds and nanoseconds
     kClockNanosleep   = 230,  ///< Relative or absolute sleep on a selected clock.
@@ -154,6 +156,8 @@ enum class SyscallNr : std::uint16_t {
     kAccept           = 43,   ///< accept(fd, addr, len): answer one knocking caller
     kSendto           = 44,   ///< sendto(fd, buf, len, flags, addr, len): one datagram out
     kRecvfrom         = 45,   ///< recvfrom(fd, buf, len, flags, addr, len): one datagram in
+    kSendmsg          = 46,   ///< Gather one socket message from iovecs.
+    kRecvmsg          = 47,   ///< Scatter one socket message and ancillary data.
     kShutdown         = 48,   ///< shutdown(fd, how): end one or both directions
     kBind             = 49,   ///< bind(fd, addr, len): seat the socket on an address
     kListen           = 50,   ///< listen(fd, backlog): offer to answer knocks

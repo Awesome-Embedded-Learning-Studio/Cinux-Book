@@ -113,6 +113,7 @@ add_cinux_test(madt ${CMAKE_SOURCE_DIR}/kernel/driver/acpi/madt.cpp)
 add_cinux_test(font)
 add_cinux_test(console)
 add_cinux_test(syscall_face ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_uname.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_capability.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_tgkill.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_close.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_pipe.cpp
@@ -360,7 +361,7 @@ foreach(entry IN LISTS CINUX_KTESTS CINUX_KTESTS_INTEGRATION)
         set(test_name kernel_test_${ktest}_cpu${cpus})
         add_test(NAME ${test_name}
             COMMAND ${CMAKE_COMMAND}
-                    -DQEMU_PROGRAM=${CINUX_QEMU_PROGRAM}
+                    "-DQEMU_PROGRAM=${CINUX_QEMU_COMMAND}"
                     "-DQEMU_DEVICE_ARGS=${CINUX_KTEST_DEVICE_ARGS}"
                     -DCPU_COUNT=${cpus}
                     -DIMAGE_FILE=${CMAKE_BINARY_DIR}/boot/cinux_ktest_${ktest}.img

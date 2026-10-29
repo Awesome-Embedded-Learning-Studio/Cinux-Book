@@ -20,7 +20,7 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "mcp"))
 from frame import read_ppm
-from qemu_args import device_args
+from qemu_args import device_args, qemu_command
 
 
 def lit_in(shot, x0, y0, x1, y1, threshold=40):
@@ -129,7 +129,7 @@ def main():
             index += 1
         index += 1
     process = subprocess.Popen(
-        ["qemu-system-x86_64", *devices, "-snapshot",
+        [*qemu_command(args.image), *devices, "-snapshot",
          "-drive", f"format=raw,file={args.image}",
          "-serial", "stdio",
          "-monitor", f"unix:{mon_path},server,nowait"],

@@ -1,5 +1,8 @@
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <sys/uio.h>
 
 #include <atomic>
 #include <thread>
@@ -51,6 +54,9 @@ unsigned long long MonotonicNanoseconds() {
     const auto kNow = g_test_monotonic_ns;
     g_test_monotonic_ns += g_test_monotonic_step_ns;
     return kNow;
+}
+unsigned long long RealtimeNanoseconds() {
+    return 1'000'000'000ULL + g_test_monotonic_ns;
 }
 
 }  // namespace cinux::syscall
@@ -916,6 +922,221 @@ TEST("itimer: a masked or ignored alarm never unlinks a blocked waiter") {
 TEST("raw socket: complete IPv4 echoes, four-byte socklen and EINTR") {
     SocketWorld world;
     world.run(run_raw_body);
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) a body walks one story in order
+void run_ping_body() {
+    using namespace cinux;
+    auto frame                              = plain_frame();
+    frame.rdi                               = net::kAfInet;
+    frame.rsi                               = net::kSockDgram;
+    frame.rdx                               = net::kIpv4ProtocolIcmp;
+    proc::Scheduler::self().current()->euid = 1000;
+    const auto kFd                          = syscall::HandleSocket(frame);
+    ASSERT_TRUE(kFd >= 0);
+    unsigned char address[16]{};
+    fill_sockaddr(address, net::kLoopbackAddress, 0);
+    unsigned char request[net::kEchoMessageBytes]{};
+    net::BuildEchoRequest(request, sizeof(request), 0x1111, 1);
+    frame     = plain_frame();
+    frame.rdi = static_cast<Word>(kFd);
+    frame.rsi = reinterpret_cast<Word>(request);
+    frame.rdx = sizeof(request);
+    frame.r8  = reinterpret_cast<Word>(address);
+    frame.r9  = sizeof(address);
+    ASSERT_EQ(syscall::HandleSendto(frame), static_cast<long long>(sizeof(request)));
+    net::NetWorld::self().pump_once();
+    unsigned char received[128]{};
+    struct AddressLength {
+        uint32_t bytes  = 16;
+        uint32_t canary = 0x12345678;
+    } length;
+    frame     = plain_frame();
+    frame.rdi = static_cast<Word>(kFd);
+    frame.rsi = reinterpret_cast<Word>(received);
+    frame.rdx = sizeof(received);
+    frame.r8  = reinterpret_cast<Word>(address);
+    frame.r9  = reinterpret_cast<Word>(&length);
+    ASSERT_EQ(syscall::HandleRecvfrom(frame), static_cast<long long>(sizeof(request)));
+    ASSERT_EQ(received[0], net::kIcmpEchoReply);
+    ASSERT_EQ(length.bytes, 16U);
+    ASSERT_EQ(length.canary, 0x12345678U);
+    ASSERT_EQ(base::ReadWord32Be(address, 4), net::kLoopbackAddress);
+    unsigned char corrupt[20 + sizeof(request)]{};
+    base::CopyBytes(corrupt + 20, received, sizeof(request));
+    corrupt[22] ^= 1;  // The raw observer runs before ICMP's own checksum check.
+    net::Ipv4View header{};
+    header.header_bytes = 20;
+    header.protocol = net::kIpv4ProtocolIcmp;
+    header.source = net::kLoopbackAddress;
+    header.destination = net::kLoopbackAddress;
+    net::NetWorld::self().raw().handle(corrupt, sizeof(corrupt), header);
+    const auto kOpen = proc::Scheduler::self().current()->files->get(static_cast<Word>(kFd));
+    ASSERT_TRUE(kOpen.ok());
+    ASSERT_FALSE(static_cast<net::Socket*>(kOpen.value()->backend)->holds_input());
+    unsigned char refused[net::kEchoMessageBytes]{};
+    refused[0] = net::kIcmpEchoReply;
+    frame      = plain_frame();
+    frame.rdi  = static_cast<Word>(kFd);
+    frame.rsi  = reinterpret_cast<Word>(refused);
+    frame.rdx  = sizeof(refused);
+    frame.r8   = reinterpret_cast<Word>(address);
+    frame.r9   = sizeof(address);
+    ASSERT_EQ(syscall::HandleSendto(frame), -syscall::kEinval);
+    proc::Scheduler::self().exit_current();
+}
+
+TEST("ping socket: an ordinary user pings, non-echo traffic is refused") {
+    SocketWorld world;
+    world.run(run_ping_body);
+}
+
+TEST("socket messages: scatter echo replies with TTL, timestamp and truncation") {
+    SocketWorld world;
+    world.run([] {
+        using namespace cinux;
+        auto frame = plain_frame();
+        frame.rdi = net::kAfInet;
+        frame.rsi = net::kSockDgram;
+        frame.rdx = net::kIpv4ProtocolIcmp;
+        const auto fd = syscall::HandleSocket(frame);
+        ASSERT_TRUE(fd >= 0);
+        unsigned char address[16]{};
+        fill_sockaddr(address, net::kLoopbackAddress, 0);
+        unsigned char request[16]{};
+        net::BuildEchoRequest(request, sizeof(request), 123, 1);
+        iovec outgoing[2]{{request, 7}, {request + 7, 9}};
+        msghdr sent{};
+        sent.msg_name = address;
+        sent.msg_namelen = sizeof(address);
+        sent.msg_iov = outgoing;
+        sent.msg_iovlen = 2;
+        unsigned int enabled = 1;
+        frame.rdi = static_cast<Word>(fd);
+        frame.rsi = syscall::kSolSocket;
+        frame.rdx = SO_TIMESTAMP;
+        frame.r10 = reinterpret_cast<Word>(&enabled);
+        frame.r8 = sizeof(enabled);
+        ASSERT_EQ(syscall::HandleSetsockopt(frame), 0);
+        frame.rsi = 0;
+        frame.rdx = 12;  // IP_RECVTTL
+        ASSERT_EQ(syscall::HandleSetsockopt(frame), 0);
+        frame = plain_frame();
+        frame.rdi = static_cast<Word>(fd);
+        frame.rsi = reinterpret_cast<Word>(&sent);
+        ASSERT_EQ(syscall::HandleSendmsg(frame), 16);
+        net::NetWorld::self().pump_once();
+        unsigned char answer[16]{};
+        iovec incoming[2]{{answer, 3}, {answer + 3, 13}};
+        alignas(cmsghdr) unsigned char ancillary[64]{};
+        msghdr received{};
+        received.msg_name = address;
+        received.msg_namelen = sizeof(address);
+        received.msg_iov = incoming;
+        received.msg_iovlen = 2;
+        received.msg_control = ancillary;
+        received.msg_controllen = sizeof(ancillary);
+        frame.rsi = reinterpret_cast<Word>(&received);
+        frame.rdx = MSG_DONTWAIT;
+        ASSERT_EQ(syscall::HandleRecvmsg(frame), 16);
+        ASSERT_EQ(answer[0], net::kIcmpEchoReply);
+        ASSERT_EQ(answer[15], request[15]);
+        ASSERT_EQ(received.msg_namelen, 16U);
+        ASSERT_EQ(received.msg_flags, 0);
+        auto* timestamp = CMSG_FIRSTHDR(&received);
+        ASSERT_TRUE(timestamp != nullptr);
+        ASSERT_EQ(timestamp->cmsg_level, SOL_SOCKET);
+        ASSERT_EQ(timestamp->cmsg_type, SCM_TIMESTAMP);
+        timeval time{};
+        base::CopyBytes(&time, CMSG_DATA(timestamp), sizeof(time));
+        ASSERT_TRUE(time.tv_sec >= 1);
+        const auto* ttl = CMSG_NXTHDR(&received, timestamp);
+        ASSERT_TRUE(ttl != nullptr);
+        ASSERT_EQ(ttl->cmsg_level, 0);
+        ASSERT_EQ(ttl->cmsg_type, 2);
+        int hops = 0;
+        base::CopyBytes(&hops, CMSG_DATA(ttl), sizeof(hops));
+        ASSERT_EQ(hops, 64);
+        ASSERT_EQ(syscall::HandleRecvmsg(frame), -syscall::kEagain);
+        frame.rsi = reinterpret_cast<Word>(&sent);
+        frame.rdx = 0;
+        ASSERT_EQ(syscall::HandleSendmsg(frame), 16);
+        net::NetWorld::self().pump_once();
+        incoming[0].iov_len = 4;
+        received.msg_iovlen = 1;
+        received.msg_controllen = 4;
+        frame.rsi = reinterpret_cast<Word>(&received);
+        frame.rdx = MSG_DONTWAIT | MSG_TRUNC;
+        ASSERT_EQ(syscall::HandleRecvmsg(frame), 16);
+        ASSERT_TRUE((received.msg_flags & (MSG_TRUNC | MSG_CTRUNC)) == (MSG_TRUNC | MSG_CTRUNC));
+        ASSERT_EQ(received.msg_controllen, 0UL);
+        proc::Scheduler::self().exit_current();
+    });
+}
+
+namespace {
+struct RouteNic {
+    cinux::driver::net::RxFrame incoming{};
+    bool ready = false;
+    unsigned int sent = 0;
+    unsigned int kind = 0;
+    unsigned char packet[cinux::net::kMaxDatagramBytes]{};
+    cinux::driver::net::MacAddress peer{};
+    bool has_mac() const { return true; }
+    bool has_ethernet_header() const { return true; }
+    unsigned long max_frame() const { return 1500; }
+    cinux::driver::net::MacAddress mac() const { return {}; }
+    bool poll_frame(cinux::driver::net::RxFrame& frame) {
+        if (!ready) { return false; }
+        frame = incoming;
+        ready = false;
+        return true;
+    }
+    bool send_l3(const cinux::driver::net::MacAddress& destination,
+                  cinux::driver::net::EtherType type, const unsigned char* bytes,
+                  unsigned long count) {
+        ++sent;
+        kind = type.value;
+        peer = destination;
+        cinux::base::CopyBytes(packet, bytes, count);
+        return true;
+    }
+};
+}
+
+TEST("routing: public datagrams resolve the gateway and survive the first ARP exchange") {
+    using namespace cinux;
+    for (const uint32_t kDestination : {0x01010101U, 0x0a000263U}) {
+        syscall::g_test_monotonic_ns = 0;
+        syscall::g_test_monotonic_step_ns = 0;
+        auto& world = net::NetWorld::self();
+        world.init();
+        RouteNic device;
+        driver::net::NetPort wire;
+        wire.adopt(device);
+        world.attach_wire(wire);
+        unsigned char request[16]{};
+        net::BuildEchoRequest(request, sizeof(request), 0x2222, 1);
+        ASSERT_TRUE(world.ipv4().send({.destination = kDestination,
+            .protocol = net::kIpv4ProtocolIcmp, .payload = request, .length = sizeof(request)}));
+        const auto kNextHop = kDestination == 0x01010101U ? net::kUserNetworkHost : kDestination;
+        ASSERT_EQ(device.kind, net::kEtherTypeArp);
+        ASSERT_EQ(base::ReadWord32Be(device.packet, 24), kNextHop);
+        driver::net::MacAddress gateway{};
+        gateway.bytes[5] = 2;
+        base::WriteWord16Be(device.incoming.bytes, 12, net::kEtherTypeArp);
+        net::ArpCache::build_request(device.incoming.bytes + 14, gateway,
+                                     kNextHop, net::kUserNetworkSelf);
+        base::WriteWord16Be(device.incoming.bytes + 14, 6, net::kArpOperReply);
+        device.incoming.size = 14 + net::kArpPacketBytes;
+        device.ready = true;
+        world.pump_once();
+        ASSERT_EQ(device.sent, 2U);
+        ASSERT_EQ(device.kind, net::kEtherTypeIpv4);
+        ASSERT_EQ(device.peer.bytes[5], 2U);
+        ASSERT_EQ(base::ReadWord32Be(device.packet, 16), kDestination);
+        ASSERT_EQ(device.packet[20], net::kIcmpEchoRequest);
+    }
 }
 
 namespace {
