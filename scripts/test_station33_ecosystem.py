@@ -71,6 +71,15 @@ def main():
         return 0
     except RuntimeError as error:
         print(f"[ecosystem] FAIL: {error}")
+        try:
+            process.stdin.write(b"\n")
+            process.stdin.flush()
+            drain_deadline = time.monotonic() + 5
+            while time.monotonic() < drain_deadline:
+                if select.select([process.stdout], [], [], 0.2)[0]:
+                    transcript.extend(os.read(process.stdout.fileno(), 65536))
+        except OSError:
+            pass
         print(transcript.decode(errors="replace")[-5000:])
         return 1
     finally:
