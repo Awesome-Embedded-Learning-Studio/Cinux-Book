@@ -28,13 +28,14 @@
 
 ## 快速上手
 
-主线需要 GCC ≥ 14 与 CMake ≥ 3.16:
+主线需要 GCC ≥ 14 与 CMake ≥ 3.16。下面构建并运行 host 测试：
 
 ```bash
 cmake -B build
 cmake --build build --target test_host -j$(nproc)
-ctest --test-dir build/test --output-on-failure
 ```
+
+完整验收与 CI 矩阵见 [测试检查说明](scripts/checks/README.md)，覆盖 host sanitizer、Debug/Release、单核/双核及已有用户态生态与自编译实弹。
 
 ---
 

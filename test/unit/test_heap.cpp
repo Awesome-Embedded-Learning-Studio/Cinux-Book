@@ -69,7 +69,7 @@ TEST("heap: refused pointers stay refused") {
     ASSERT_TRUE(heap.init(pool_base(), 16_KiB));
     ASSERT_TRUE(!heap.free(nullptr));
     ASSERT_TRUE(!heap.free(g_pool + 7));
-    ASSERT_TRUE(!heap.free(g_pool + 64_KiB + 32));
+    ASSERT_TRUE(!heap.free(g_pool + 32_KiB));
     ASSERT_TRUE(heap.allocate(1_GiB) == nullptr);
 }
 

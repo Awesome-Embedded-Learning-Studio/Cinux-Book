@@ -14,6 +14,17 @@ endif()
 set(serial_log "${TEST_DIR}/serial.log")
 file(REMOVE "${serial_log}")
 
+if(NOT CPU_COUNT MATCHES "^[12]$")
+    message(FATAL_ERROR "Kernel tests require an explicit CPU_COUNT of 1 or 2")
+endif()
+list(FIND QEMU_DEVICE_ARGS -smp smp_index)
+if(smp_index EQUAL -1)
+    message(FATAL_ERROR "QEMU_DEVICE_ARGS lacks -smp")
+endif()
+math(EXPR smp_count_index "${smp_index} + 1")
+list(REMOVE_AT QEMU_DEVICE_ARGS ${smp_count_index})
+list(INSERT QEMU_DEVICE_ARGS ${smp_count_index} ${CPU_COUNT})
+
 execute_process(
     COMMAND ${QEMU_PROGRAM} ${QEMU_DEVICE_ARGS}
             -snapshot
@@ -36,6 +47,13 @@ function(dump_serial_and_fail reason)
 endfunction()
 
 if(qemu_status EQUAL 3)
+    if(NOT EXISTS "${serial_log}")
+        dump_serial_and_fail("success exit without a serial log")
+    endif()
+    file(READ "${serial_log}" serial_output)
+    if(NOT serial_output MATCHES "=== Results: ([1-9][0-9]*) passed, 0 failed ===")
+        dump_serial_and_fail("success exit without a nonempty passing test summary")
+    endif()
     message(STATUS "kernel tests: all passed (serial log: ${serial_log})")
 elseif(qemu_status MATCHES "^[0-9]+$" AND qemu_status GREATER_EQUAL 3)
     math(EXPR failed_cases "(${qemu_status} - 3) / 2")

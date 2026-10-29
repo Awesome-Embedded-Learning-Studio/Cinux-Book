@@ -7,3 +7,4 @@ set(CINUX_KTESTS selfcheck:exceptions console:exceptions tick:irq keyboard:keybo
     vma:mm demand:mm loader:mm uaccess:proc sched:proc block:block block_error:block ext2:block
     pipe:proc tty:keyboard smp:proc smp_pipe:proc xhci:block net:block)
 set(CINUX_KTESTS_INTEGRATION "")
+set(CINUX_KTESTS_DUAL_CPU block smp smp_pipe)

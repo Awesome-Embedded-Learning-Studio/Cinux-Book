@@ -18,8 +18,10 @@ BOOT_WAIT_SECONDS = 4.0
 
 
 class Session:
-    def __init__(self, image):
+    def __init__(self, image, config_name="qemu-run-args.txt", snapshot=False):
         self.image = image
+        self.config_name = config_name
+        self.snapshot = snapshot
         self.mon = None
         self.proc = None
 
@@ -29,7 +31,8 @@ class Session:
                 os.unlink(stale)
         self.proc = subprocess.Popen(
             [
-                QEMU, *device_args(self.image, "qemu-run-args.txt"),
+                QEMU, *device_args(self.image, self.config_name),
+                *(["-snapshot"] if self.snapshot else []),
                 "-drive", f"format=raw,file={self.image}",
                 "-serial", f"file:{SERIAL_PATH}",
                 "-monitor", f"unix:{MON_PATH},server,nowait",

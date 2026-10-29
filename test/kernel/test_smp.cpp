@@ -210,19 +210,20 @@ void partial_boot_tables_release() {
     }
 }
 
-[[gnu::used, gnu::section(".test_cases")]] constinit const cinux::test::TestCase kApSelfcheck{
-    .name = "smp: online APs read back CR4 EFER LSTAR STAR SFMASK against the BSP",
-    .body = ap_mechanism_readback,
-};
-
-[[gnu::used, gnu::section(".test_cases")]] constinit const cinux::test::TestCase kCrossCore{
-    .name = "smp: two CPUs dispatch shared tasks and contend on a real spinlock",
-    .body = cross_core_dispatch,
-};
-
-[[gnu::used, gnu::section(".test_cases")]] constinit const cinux::test::TestCase kPartialBoot{
-    .name = "smp: every partial trampoline mapping allocation is returned on failure",
-    .body = partial_boot_tables_release,
+[[gnu::used, gnu::section(".test_cases"),
+  gnu::aligned(16)]] constinit const cinux::test::TestCase kSmpCases[]{
+    {
+        .name = "smp: every partial trampoline mapping allocation is returned on failure",
+        .body = partial_boot_tables_release,
+    },
+    {
+        .name = "smp: online APs read back CR4 EFER LSTAR STAR SFMASK against the BSP",
+        .body = ap_mechanism_readback,
+    },
+    {
+        .name = "smp: two CPUs dispatch shared tasks and contend on a real spinlock",
+        .body = cross_core_dispatch,
+    },
 };
 
 }

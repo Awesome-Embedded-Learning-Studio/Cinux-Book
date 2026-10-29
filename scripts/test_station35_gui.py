@@ -129,7 +129,7 @@ def main():
             index += 1
         index += 1
     process = subprocess.Popen(
-        ["qemu-system-x86_64", *devices,
+        ["qemu-system-x86_64", *devices, "-snapshot",
          "-drive", f"format=raw,file={args.image}",
          "-serial", "stdio",
          "-monitor", f"unix:{mon_path},server,nowait"],

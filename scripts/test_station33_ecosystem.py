@@ -20,7 +20,7 @@ def main():
     build = pathlib.Path(args.image).resolve().parent.parent
     log = build / "station33-ecosystem.serial.log"
     process = subprocess.Popen(
-        ["qemu-system-x86_64", *device_args(args.image),
+        ["qemu-system-x86_64", *device_args(args.image), "-snapshot",
          "-drive", f"format=raw,file={args.image}", "-serial", "stdio", "-monitor", "none"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     )

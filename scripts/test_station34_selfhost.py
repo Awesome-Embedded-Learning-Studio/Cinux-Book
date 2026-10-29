@@ -33,7 +33,7 @@ def main():
     link = "ld @/hello.ldargs"
     log = build / "station34-selfhost.serial.log"
     process = subprocess.Popen(
-        ["qemu-system-x86_64", *device_args(args.image),
+        ["qemu-system-x86_64", *device_args(args.image), "-snapshot",
          "-drive", f"format=raw,file={args.image}", "-serial", "stdio", "-monitor", "none"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     )

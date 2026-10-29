@@ -351,14 +351,23 @@ foreach(entry IN LISTS CINUX_KTESTS CINUX_KTESTS_INTEGRATION)
     endif()
     string(REPLACE "boot/ext2.img" "boot/ext2_ktest.img" CINUX_KTEST_DEVICE_ARGS
                    "${CINUX_QEMU_DEVICE_ARGS}")
-    add_test(NAME kernel_test_${ktest}
-        COMMAND ${CMAKE_COMMAND}
-                -DQEMU_PROGRAM=${CINUX_QEMU_PROGRAM}
-                "-DQEMU_DEVICE_ARGS=${CINUX_KTEST_DEVICE_ARGS}"
-                -DIMAGE_FILE=${CMAKE_BINARY_DIR}/boot/cinux_ktest_${ktest}.img
-                -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/kernel_test_${ktest}
-                -P ${CMAKE_SOURCE_DIR}/cmake/test/run_kernel_tests.cmake)
-    set_tests_properties(kernel_test_${ktest} PROPERTIES TIMEOUT 120)
+    set(ktest_cpus 1 2)
+    if(ktest IN_LIST CINUX_KTESTS_DUAL_CPU)
+        set(ktest_cpus 2)
+    endif()
+    foreach(cpus IN LISTS ktest_cpus)
+        set(test_name kernel_test_${ktest}_cpu${cpus})
+        add_test(NAME ${test_name}
+            COMMAND ${CMAKE_COMMAND}
+                    -DQEMU_PROGRAM=${CINUX_QEMU_PROGRAM}
+                    "-DQEMU_DEVICE_ARGS=${CINUX_KTEST_DEVICE_ARGS}"
+                    -DCPU_COUNT=${cpus}
+                    -DIMAGE_FILE=${CMAKE_BINARY_DIR}/boot/cinux_ktest_${ktest}.img
+                    -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/${test_name}
+                    -P ${CMAKE_SOURCE_DIR}/cmake/test/run_kernel_tests.cmake)
+        set_tests_properties(${test_name} PROPERTIES
+            TIMEOUT 120 LABELS "kernel;cpu${cpus}" RESOURCE_LOCK cinux_qemu)
+    endforeach()
     list(APPEND CINUX_KTEST_IMAGE_TARGETS boot_ktest_${ktest})
     add_dependencies(boot_ktest_${ktest} ext2_ktest_img)
 endforeach()

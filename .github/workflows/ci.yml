@@ -5,8 +5,128 @@ on:
     branches: [main]
   pull_request:
     branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  test-infrastructure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check test orchestration and failure handling
+        run: |
+          bash -n scripts/checks/acceptance.sh scripts/checks/matrix.sh scripts/checks/run-cell.sh scripts/checks/setup-mke2fs.sh
+          python3 -m unittest discover -s test/tools -p 'test_ci_checks.py' -v
+
+  host-tests:
+    name: host (Release, ${{ matrix.sanitizer }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [asan, tsan]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup-cinux
+        with:
+          cache-key: host-${{ matrix.sanitizer }}
+      - name: Run host sanitizer cell
+        env:
+          CINUX_CHECK_JOBS: '4'
+        run: bash scripts/checks/run-cell.sh host Release ${{ matrix.sanitizer }} build-ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: host-${{ matrix.sanitizer }}-logs
+          path: |
+            build-ci/test/Testing/Temporary/
+            build-ci/test-inventory.json
+            build-ci/CMakeCache.txt
+
+  kernel-tests:
+    name: kernel (${{ matrix.build_type }}, ${{ matrix.checks }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+        checks: [none, ubsan, lockdep]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup-cinux
+        with:
+          kvm: 'true'
+          cache-key: kernel-${{ matrix.build_type }}-${{ matrix.checks }}
+      - name: Run host and single/dual CPU kernel tests
+        env:
+          CINUX_CHECK_JOBS: '4'
+        run: bash scripts/checks/run-cell.sh kernel ${{ matrix.build_type }} ${{ matrix.checks }} build-ci
+      - name: Boot the production kernel and run the existing BusyBox checks
+        run: python3 scripts/test_station33_ecosystem.py --image build-ci/boot/cinux.img
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kernel-${{ matrix.build_type }}-${{ matrix.checks }}-logs
+          path: |
+            build-ci/test/Testing/Temporary/
+            build-ci/test/kernel_test_*/serial.log
+            build-ci/station33-ecosystem.serial.log
+            build-ci/test-inventory.json
+            build-ci/CMakeCache.txt
+            build-ci/qemu-device-args.txt
+
+  ecosystem:
+    name: ecosystem (Release, ${{ matrix.checks }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        checks: [none, checks]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup-cinux
+        with:
+          kvm: 'true'
+          cache-key: ecosystem-${{ matrix.checks }}
+      - name: Check combined instrumentation on the host and in kernel tests
+        if: matrix.checks == 'checks'
+        env:
+          CINUX_CHECK_JOBS: '4'
+        run: bash scripts/checks/run-cell.sh kernel Release checks build-ci
+      - name: Run existing userland, network and GUI checks
+        env:
+          CINUX_CHECK_JOBS: '4'
+        run: bash scripts/checks/run-cell.sh ecosystem Release ${{ matrix.checks }} build-ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ecosystem-${{ matrix.checks }}-logs
+          path: |
+            build-ci/*.log
+            build-ci/test/Testing/Temporary/
+            build-ci/test/kernel_test_*/serial.log
+            build-ci/tcp-smoke/
+            build-ci/station35/*.ppm
+            build-ci/test-inventory.json
+            build-ci/CMakeCache.txt
+            build-ci/qemu-device-args.txt
+
   # ── 文档构建验证(Cinux-Book 特有)──────────────────────────────
 
   docs:
