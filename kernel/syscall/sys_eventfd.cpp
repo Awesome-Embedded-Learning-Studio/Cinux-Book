@@ -20,6 +20,7 @@ constexpr unsigned long long kEventfdSemaphore = 1;
 constexpr uint64_t           kCounterMax       = ~uint64_t{0} - 1;
 struct Counter : base::RefCount<> {
     std::atomic<uint64_t> value{0};
+    std::atomic<unsigned long long> write_sequence{0};
     bool                  semaphore = false;
 };
 // NOLINTNEXTLINE(readability-function-size) FsOps callback signature.
@@ -61,6 +62,7 @@ base::Result<unsigned long> write_counter(void* context, [[maybe_unused]] fs::Fs
             return base::KernelError::kWouldBlock;
         }
         if (counter->value.compare_exchange_weak(value, value + added)) {
+            counter->write_sequence.fetch_add(1);
             return sizeof(added);
         }
     }
@@ -101,11 +103,18 @@ long long HandleEventfd2(const SyscallFrame& frame) {
                                     });
     return kDescriptor.ok() ? static_cast<long long>(kDescriptor.value()) : -kEmfile;
 }
-bool PollEventCounter(const fs::OpenFile* file, unsigned int events, unsigned short& ready) {
+bool PollEventCounter(const fs::OpenFile* file, unsigned int events, unsigned short& ready,
+                       unsigned long long* write_sequence) {
     if (file->ops != &kCounterOps) {
         return false;
     }
-    const auto kValue = static_cast<Counter*>(file->backend)->value.load();
+    const auto* counter = static_cast<Counter*>(file->backend);
+    // Read the notification sequence before readiness, so a racing writer
+    // remains observable on the next scan even if this scan sees its value.
+    if (write_sequence != nullptr) {
+        *write_sequence = counter->write_sequence.load();
+    }
+    const auto kValue = counter->value.load();
     ready = static_cast<unsigned short>((kValue != 0 ? events & kPollIn : 0U) |
                                         (kValue < kCounterMax ? events & kPollOut : 0U));
     return true;

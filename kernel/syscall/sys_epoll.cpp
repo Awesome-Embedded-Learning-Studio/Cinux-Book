@@ -16,6 +16,7 @@
 #include "kernel/proc/sync.hpp"
 #include "kernel/syscall/signal.hpp"
 #include "kernel/syscall/sys_clock.hpp"
+#include "kernel/syscall/sys_eventfd.hpp"
 #include "kernel/syscall/sys_ppoll.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
@@ -41,16 +42,21 @@ struct Watch {
     fs::OpenFile* file       = nullptr;
     unsigned long descriptor = 0;
     EpollEvent    event{};
+    unsigned long long version        = 0;
+    unsigned long long write_sequence = 0;
+    bool               edge_pending   = true;
 };
 struct Epoll : base::RefCount<> {
     base::container::SlotTable<Watch, kWatchLimit> watches{};
     unsigned long                                  cursor = 0;
+    unsigned long long                             next_version = 0;
     ~Epoll();
 };
 struct Snapshot {
     base::Shared<fs::OpenFile> file;
     EpollEvent                 event;
     unsigned long              index = 0;
+    unsigned long long         version = 0;
 };
 class EpollRegistry {
 public:
@@ -91,6 +97,7 @@ public:
                     .file  = base::Shared<fs::OpenFile>(watch->file),
                     .event = watch->event,
                     .index = kIndex,
+                    .version = watch->version,
                 };
             }
         }
@@ -99,6 +106,28 @@ public:
     void advance(Epoll& instance, unsigned long index) {
         const proc::SpinGuard kGuard(gate_);
         instance.cursor = (index + 1) % kWatchLimit;
+    }
+    bool claim(Epoll& instance, const Snapshot& item, unsigned long long sequence) {
+        const proc::SpinGuard kGuard(gate_);
+        auto* watch = instance.watches.get(item.index);
+        if (watch == nullptr || watch->version != item.version) {
+            return false;
+        }
+        if ((watch->event.events & kEdgeTriggered) != 0) {
+            if (!watch->edge_pending && watch->write_sequence == sequence) {
+                return false;
+            }
+            watch->write_sequence = sequence;
+            watch->edge_pending   = false;
+        }
+        return true;
+    }
+    void retry(Epoll& instance, const Snapshot& item) {
+        const proc::SpinGuard kGuard(gate_);
+        auto* watch = instance.watches.get(item.index);
+        if (watch != nullptr && watch->version == item.version) {
+            watch->edge_pending = true;
+        }
     }
     long long control_add(Epoll& instance, fs::OpenFile* file, unsigned long descriptor,
                           EpollEvent event);
@@ -124,7 +153,8 @@ long long EpollRegistry::control_add(Epoll& instance, fs::OpenFile* file, unsign
     if (kFound != kWatchLimit) {
         return -kEexist;
     }
-    const Watch kWatch{.file = file, .descriptor = descriptor, .event = event};
+    const Watch kWatch{.file = file, .descriptor = descriptor, .event = event,
+                        .version = ++instance.next_version};
     if (instance.watches.insert(kWatch) == kWatchLimit) {
         return -kEnomem;
     }
@@ -150,7 +180,10 @@ long long EpollRegistry::control_modify(Epoll& instance, fs::OpenFile* file,
     if (kIndex == kWatchLimit) {
         return -kEnoent;
     }
-    instance.watches.get(kIndex)->event = event;
+    auto* watch         = instance.watches.get(kIndex);
+    watch->event        = event;
+    watch->version      = ++instance.next_version;
+    watch->edge_pending = true;
     return 0;
 }
 void retain_epoll(void* context, [[maybe_unused]] fs::FsNode node) {
@@ -199,13 +232,20 @@ long long scan_events(Epoll& instance, Word address, unsigned long capacity) {
     const auto                        kSize = EpollRegistry::self().snapshot(instance, snapshot);
     unsigned long                     count = 0;
     for (unsigned long index = 0; index < kSize; ++index) {
-        const auto& item   = snapshot[index];
-        const auto  kReady = PollOpen(item.file.get(), item.event.events | kPollErr | kPollHup);
-        if (kReady == 0) {
+        const auto& item = snapshot[index];
+        unsigned short ready = 0;
+        unsigned long long sequence = 0;
+        if ((item.event.events & kEdgeTriggered) != 0) {
+            PollEventCounter(item.file.get(), item.event.events, ready, &sequence);
+        } else {
+            ready = PollOpen(item.file.get(), item.event.events | kPollErr | kPollHup);
+        }
+        if (ready == 0 || !EpollRegistry::self().claim(instance, item, sequence)) {
             continue;
         }
-        const EpollEvent kEvent{.events = kReady, .data = item.event.data};
+        const EpollEvent kEvent{.events = ready, .data = item.event.data};
         if (!uaccess::CopyToUser(address + (count * sizeof(EpollEvent)), &kEvent, sizeof(kEvent))) {
+            EpollRegistry::self().retry(instance, item);
             return -kEfault;
         }
         EpollRegistry::self().advance(instance, item.index);
@@ -249,8 +289,17 @@ long long HandleEpollCtl(const SyscallFrame& frame) {
     if (frame.rsi != kCtlDelete && !uaccess::CopyFromUser(&event, frame.r10, sizeof(event))) {
         return -kEfault;
     }
-    if ((event.events & (kEdgeTriggered | kOneShot)) != 0) {
+    if ((event.events & kOneShot) != 0) {
         return -kEopnotsupp;
+    }
+    if ((event.events & kEdgeTriggered) != 0) {
+        // libuv uses edge-triggered EPOLLIN on eventfd without draining it.
+        // Other backends and writable edges need their own wakeup tracking.
+        unsigned short ready = 0;
+        if ((event.events & ~(kEdgeTriggered | kPollIn | kPollErr | kPollHup)) != 0 ||
+            !PollEventCounter(kFile.value().get(), event.events, ready)) {
+            return -kEopnotsupp;
+        }
     }
     auto& registry = EpollRegistry::self();
     if (frame.rsi == kCtlAdd) {

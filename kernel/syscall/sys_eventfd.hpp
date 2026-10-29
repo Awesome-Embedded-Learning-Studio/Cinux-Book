@@ -14,7 +14,9 @@ namespace cinux::syscall {
 long long HandleEventfd2(const SyscallFrame& frame);
 /**
  * @brief Answer readiness when the open belongs to an event counter.
- * @return The result or a negative Linux errno.
+ * @param[out] write_sequence Optional successful-write sequence for edge notifications.
+ * @return true for an event counter, false for another open description.
  */
-bool      PollEventCounter(const fs::OpenFile* file, unsigned int events, unsigned short& ready);
+bool PollEventCounter(const fs::OpenFile* file, unsigned int events, unsigned short& ready,
+                      unsigned long long* write_sequence = nullptr);
 }
