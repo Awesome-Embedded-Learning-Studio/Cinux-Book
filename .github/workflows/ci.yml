@@ -91,15 +91,20 @@ jobs:
             -gdb tcp::1234 &
           qemu_pid=$!
           sleep 45
-          gdb -batch -nx \
-            -ex 'set pagination off' \
-            -ex 'set architecture i386:x86-64' \
-            -ex "file $kelf" \
-            -ex 'target remote :1234' \
-            -ex 'info threads' \
-            -ex 'thread apply all info registers' \
-            -ex 'thread apply all x/6i $pc-16' \
-            > build-ci/autopsy-gdb.txt 2>&1 || true
+          for sample in 1 2; do
+            echo "=== gdb sample $sample ===" >> build-ci/autopsy-gdb.txt
+            gdb -batch -nx \
+              -ex 'set pagination off' \
+              -ex 'set architecture i386:x86-64' \
+              -ex "file $kelf" \
+              -ex 'target remote :1234' \
+              -ex 'info threads' \
+              -ex 'thread apply all bt' \
+              -ex 'thread apply all info registers rip rbp rsp rdx rsi rdi r12 r13 rcx' \
+              -ex 'thread apply all x/4i $pc-8' \
+              >> build-ci/autopsy-gdb.txt 2>&1 || true
+            sleep 3
+          done
           kill "$qemu_pid" || true
           echo '=== autopsy serial ==='
           cat build-ci/autopsy-serial.log || true
