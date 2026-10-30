@@ -30,7 +30,7 @@
 <table>
 <tr>
 <td align="center" width="33%"><img src="assets/README/boot.webp" alt="开机日志"><br><sub>开机：VESA 1024×768、PCI 枚举、AHCI / NVMe / xHCI 就位</sub></td>
-<td align="center" width="33%"><img src="assets/README/gui.webp" alt="Vesper 桌面"><br><sub>Vesper 桌面：帧缓冲、窗口、图标与输入</sub></td>
+<td align="center" width="33%"><img src="assets/README/welcome.webp" alt="Vesper 桌面：About 与 Terminal 两个窗口"><br><sub>Vesper 桌面：About 与 Terminal 窗口，都画在帧缓冲上</sub></td>
 <td align="center" width="33%"><img src="assets/README/cli.webp" alt="shell 与进程表"><br><sub><code>ls /</code> 与 <code>ps</code>：文件树和真实进程表</sub></td>
 </tr>
 <tr>
