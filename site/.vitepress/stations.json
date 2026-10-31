@@ -310,6 +310,56 @@
       "note": "死法三层重讲、可注入泵与坐泵判例、vendor 表认卡防误绑、EERD 逐词读 MAC、RDT 哨兵纪律、分层取证三件套、SLIRP 迟滞与 1.2s 窗、第一声真线 ping——点亮网卡,四发三答",
       "status": "open",
       "trail": ["net_poll", "e1000", "RX/TX rings", "RDT sentinel", "SLIRP", "first ping"]
+    },
+    {
+      "id": "31",
+      "slug": "31-udp-socket",
+      "title": "UDP 与 socket:一只环与客人自己的 ping(卷名草稿)",
+      "titleEn": "UDP and the Socket Family: One Ring and the Guest's Own Ping",
+      "desc": "socket 的号位一次生齐,套接字穿文件的外衣坐进描述符表,门卫只认外衣。UDP 坐上四层的座,伪首部当了反码和分段累加的头一个主顾,端口表八个座,短命号码跟人家对齐。让位的圈与 EINTR 把超时和打断都接住,三扇钟门给 ping 备了相位前移的钟。裸通道开了,壳里的 ping 自己发自己收自己被打断,ifconfig 的问话有名册答,DNS 的应答让 UDP 全家当着真服务走了一遍。",
+      "note": "十四个号位一次生齐、伪首部反码和判例、端口表与短命号码、四步让位圈与 EINTR、三扇钟门相位前移、初始栈布局反转案、ifconfig 枚举门、SLIRP 的 DNS 判活——UDP 全家上岗,壳里的 ping 收官",
+      "status": "open",
+      "trail": ["udp", "socket", "SOCK_RAW", "EINTR", "ifconfig", "DNS"]
+    },
+    {
+      "id": "32",
+      "slug": "32-tcp",
+      "title": "TCP 完备:一张旧单与到点叫人的钟(卷名草稿)",
+      "titleEn": "TCP in Full: An Old Debt List and a Clock That Wakes on Time",
+      "desc": "当年收官笔记里的欠单摊开:重传、往返估算、窗口、乱序、道别后多守一程,原因写着同一句,需要定时唤醒基建。钟先立,十六个座,清座在调用之前。重传跟着还,底稿环镜像每一个在途的字节,三声一样的应答不用等钟,四座修包,两扇窗,道别之后多守两个最大段寿命,同四元组的新 SYN 静默让位。流式的成员坐进家族,accept 没有期限地等,回环上握手断案与临时顶爆栈案两案皆结,nc 上桌收卷。",
+      "note": "十态状态机、四重审验、告别舞、通用定时器件、RFC6298 的 RTO 与 Karn 算法、快速重传、滑动窗口与零窗重开、TIME_WAIT 两个最大段寿命、nc 实弹——TCP 完备,欠单清零",
+      "status": "open",
+      "trail": ["tcp", "RTO", "fast retransmit", "sliding window", "TIME_WAIT", "nc"]
+    },
+    {
+      "id": "33",
+      "slug": "33-ecosystem",
+      "title": "盘上换血:一家 glibc、一号当家人与一条命令的开张(卷名草稿)",
+      "titleEn": "A New Bloodline on Disk: One glibc, One Init, and a One-Command Grand Opening",
+      "desc": "盘上世界换血,动态的程序,init 作一号进程,一条命令从干净的树到 QEMU 里一台配得像样的系统。glibc 统一,musl 谢幕,glibc 的 hello 起动即死,入口栈对齐的悬案三修进门。MAP_FIXED 的替换语义、护墙翻案、RELRO 劈段、储物间与门内传话照单补齐,NVMe 做实不设兜底,一条命令开张。",
+      "note": "glibc 统一、movaps 栈对齐悬案、MAP_FIXED 替换语义、护墙打洞留段、RELRO 劈段、SysV shm、AF_UNIX、NVMe 无兜底实弹、Buildroot 一条命令——盘上世界换血开张",
+      "status": "open",
+      "trail": ["glibc", "init", "tmpfs", "SysV shm", "AF_UNIX", "NVMe", "Buildroot"]
+    },
+    {
+      "id": "34",
+      "slug": "34-selfhost",
+      "title": "编译自己:师傅进门与一只新内核(卷名草稿)",
+      "titleEn": "Compiling Itself: The Masters Move In and a Brand-New Kernel",
+      "desc": "编译器全家请进作坊,盘按全家的身材再扩。两位老师傅交头一件活,Hello from GCC! 一声开口,8 号 lseek 三锚立起。主程序的座认下 ET_DYN,地板五百一十二 MiB 加不超一 MiB 的滑动,cc1 四十七兆的胖子改惰性装载。九十声点名三种答法,装聋清零。压轴在自家盘上从空对象目录编出整只新内核,哈希逐字一致,重启开机,自家 gcc 当场编出 hello。",
+      "note": "闭包与门牌、断链案判例、ET_DYN 的座、cc1 惰性装载三分段、九十声点名三种答法、exec 按正本、sendfile 改判、块缓存 CLOCK 二次机会、机内自编内核与重启证明——工具链常驻,自举合龙",
+      "status": "open",
+      "trail": ["gcc", "toolchain", "PIE", "lazy loading", "block cache", "selfhost"]
+    },
+    {
+      "id": "35",
+      "slug": "35-gui-desktop",
+      "title": "桌面亮起:给系统一张脸(卷名草稿)",
+      "titleEn": "The Desktop Lights Up: Giving the System a Face",
+      "desc": "收官一卷,给系统一张脸。GUI 本体是用户态的客人,内核一行 GUI 代码没有,出的家什只有设备接口与终端复用。设备帧映进来不还,/dev/fb0 的像素正门是共享映射,键盘鼠标两股流各坐各的节点,8042 的辅助通道给鼠标带电,量窗的礼数立成二十八号信号,客人带来源进盘,桌面跟着开机自己爬起来。实弹四条判据让像素说话,桌面亮起,终端成群,终章实弹是桌面终端里自家 gcc 当场编 hello。",
+      "note": "设备帧登记表与还帧闸、fb0 共享映射与让屏、evdev 两股流与抓座、8042 辅助通道判例、TIOCSWINSZ 与 SIGWINCH、泵住用户主循环、纯 PS/2 通道、四条像素判据——桌面亮起,长征到站",
+      "status": "open",
+      "trail": ["framebuffer", "evdev", "ps2 mouse", "SIGWINCH", "PTY", "vesper", "desktop"]
     }
   ]
 }
