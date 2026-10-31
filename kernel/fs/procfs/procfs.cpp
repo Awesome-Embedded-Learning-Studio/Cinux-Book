@@ -242,7 +242,7 @@ unsigned long format_devices(char* out, unsigned long out_cap, const ProcSource&
 unsigned long format_net_dev(char* out, unsigned long out_cap, const ProcSource& source) {
     unsigned long     used     = 0;
     const char* const kHeads[] = {
-        "Inter-|   Receive                            |  Transmit\n",
+        "Inter-|   Receive                                                |  Transmit\n",
         " face |bytes    packets errs drop fifo frame compressed multicast|bytes    "
         "packets errs drop fifo colls carrier compressed\n",
     };
