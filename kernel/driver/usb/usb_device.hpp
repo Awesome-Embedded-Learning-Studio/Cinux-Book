@@ -60,7 +60,38 @@ public:
      * @since         0.6.0
      * @ingroup       kernel_driver
      */
-    [[nodiscard]] bool address(XhciHost& host);
+    [[nodiscard]] bool address(XhciHost& host, uint8_t port);
+
+    /**
+     * @brief         Walks free ports until one device answers the protocol.
+     *
+     * @param[in,out] host       The controller that owns the ports.
+     * @param[in]     protocol   The HID interface protocol wanted, a
+     *                           kHidProtocol word.
+     * @param[out]    endpoint   The answering device's endpoint facts.
+     * @return        True when one device kept its slot for the caller.
+     * @note          Ports another seated device holds are skipped, and a
+     *                device that answers with the wrong protocol is detached
+     *                so the walk can try the next port.
+     * @warning       None
+     * @throws        None
+     * @since         0.9.0
+     * @ingroup       kernel_driver
+     */
+    [[nodiscard]] bool enumerate(XhciHost& host, uint8_t protocol, KeyboardEp& endpoint);
+
+    /**
+     * @brief         Returns the slot and frees the device's pages.
+     *
+     * @param[in,out] host   The controller that owns the slot.
+     * @return        True when the slot left this device's hands, also when
+     *                nothing was seated.
+     * @warning       None
+     * @throws        None
+     * @since         0.9.0
+     * @ingroup       kernel_driver
+     */
+    [[nodiscard]] bool detach(XhciHost& host);
 
     /**
      * @brief         One control read over endpoint zero.

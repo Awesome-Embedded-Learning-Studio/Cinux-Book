@@ -17,6 +17,12 @@
 namespace cinux::syscall {
 
 /**
+ * @brief Return pending blocked signals in the caller's kernel-sized set.
+ * @return The result or a negative Linux errno.
+ */
+long long HandleRtSigpending(const SyscallFrame& frame);
+
+/**
  * @brief         Install (or ask about) one signal's disposition.
  * @param[in]     frame   rdi the signal, rsi the action to install
  *                        (null asks only), rdx the old action out

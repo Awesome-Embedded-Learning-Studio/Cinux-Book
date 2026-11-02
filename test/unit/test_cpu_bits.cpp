@@ -1,9 +1,24 @@
+#include <cpuid.h>
 #include <stdint.h>
 
 #include "../framework/framework.hpp"
+#include "kernel/arch/x86_64/cpuid.hpp"
 #include "kernel/arch/x86_64/page_entry.hpp"
 #include "kernel/arch/x86_64/registers.hpp"
 #include "test_assert.hpp"
+
+TEST("cpu bits: CPUID returns all four output registers") {
+    unsigned int eax = 0;
+    unsigned int ebx = 0;
+    unsigned int ecx = 0;
+    unsigned int edx = 0;
+    ASSERT_TRUE(__get_cpuid(0, &eax, &ebx, &ecx, &edx) != 0);
+    const auto kWords = cinux::arch::ReadCpuId(0, 0);
+    ASSERT_EQ(kWords.eax, eax);
+    ASSERT_EQ(kWords.ebx, ebx);
+    ASSERT_EQ(kWords.ecx, ecx);
+    ASSERT_EQ(kWords.edx, edx);
+}
 
 TEST("cpu bits: the no-execute flag is bit sixty-three of an entry") {
     const cinux::arch::page::Entry kFlag = cinux::arch::page::kNoExec;

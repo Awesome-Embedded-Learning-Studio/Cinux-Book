@@ -27,6 +27,7 @@
 
 #include <cstdint>
 
+#include "cinux/bit_ops/bitmask.hpp"
 #include "kernel/driver/block/block_config.hpp"
 
 namespace cinux::fs::ext2 {
@@ -70,7 +71,7 @@ inline constexpr unsigned long kDirEntryHeadBytes = 8;
 inline constexpr unsigned long kDirEntryAlign = 4;
 
 /// How many block groups a mounted volume may carry; beyond this is refused.
-inline constexpr unsigned long kMaxGroups = 32;
+inline constexpr unsigned long kMaxGroups = 256;
 
 /**
  * @brief   The superblock: one copy past byte 1024 of the volume.
@@ -283,5 +284,21 @@ struct BlockSlot {
  * @ingroup       kernel_fs
  */
 [[nodiscard]] bool IsRegularMode(std::uint16_t mode);
+
+/**
+ * @brief         Reads the type segment out of an inode mode.
+ *
+ * @param[in]     mode   The raw i_mode value.
+ * @return        True when the type segment says symbolic link.
+ * @since         0.1.0
+ * @ingroup       kernel_fs
+ */
+[[nodiscard]] bool IsSymlinkMode(std::uint16_t mode);
+
+/// The mode word's type segment: the top four bits.
+inline constexpr base::bit::BitRange kModeTypeSegment{.low = 12, .width = 4};
+
+/// The mode word's permission segment: the low twelve bits.
+inline constexpr base::bit::BitRange kModePermissionSegment{.low = 0, .width = 12};
 
 }  // namespace cinux::fs::ext2

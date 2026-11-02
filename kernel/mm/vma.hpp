@@ -46,6 +46,8 @@ enum class VmaKind : unsigned char {
     kAnonymous,  ///< Fresh memory with no file behind it; faults refill from zero.
     kFile,       ///< Bytes that trace back to a file node, as exec's segments do.
     kStack,      ///< The main stack, which grows downward toward lower addresses.
+    kDevice,     ///< Hardware frames behind a memory device, as the framebuffer's
+                 ///< shared mapping does; faults map the device's own pages.
 };
 
 /**

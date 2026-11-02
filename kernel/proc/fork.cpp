@@ -122,6 +122,7 @@ Task* BuildForkChild(unsigned long long frame_address) {
     kBorn->euid = kParent->euid;
     kBorn->gid  = kParent->gid;
     kBorn->egid = kParent->egid;
+    kBorn->keep_capabilities = kParent->keep_capabilities;
     base::CopyBytes(kBorn->supplementary_groups, kParent->supplementary_groups,
                     sizeof(kBorn->supplementary_groups));
     kBorn->supplementary_group_count = kParent->supplementary_group_count;

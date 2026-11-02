@@ -70,6 +70,21 @@ TEST("bitmask: union intersection and complement keep narrow storage width") {
     ASSERT_TRUE((~kLeft).raw == 0x7F);
 }
 
+TEST("bitmask: narrow words round-trip fields and full width saturates") {
+    using cinux::base::bit::BitMask;
+    BitMask<unsigned char> narrow{0xB7};
+    narrow.deposit({.low = 3, .width = 5}, 0x1E);
+    ASSERT_EQ(narrow.raw, static_cast<unsigned char>(0xF7));
+    ASSERT_EQ(narrow.extract({.low = 3, .width = 5}), 0x1EU);
+    ASSERT_EQ(narrow.extract({.low = 0, .width = 8}), narrow.raw);
+    BitMask<unsigned short> wide{0x1234};
+    wide.deposit({.low = 12, .width = 4}, 0x9);
+    ASSERT_EQ(wide.raw, 0x9234U);
+    BitMask<unsigned long long> full{0};
+    full.deposit({.low = 0, .width = 64}, ~0ULL);
+    ASSERT_EQ(full.raw, ~0ULL);
+}
+
 int main() {
     return cinux::test::RunAll();
 }

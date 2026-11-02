@@ -1,0 +1,4 @@
+#!/bin/sh
+if [ "${CINUX_SESSION:-}" = gui ]; then
+    exec /bin/su - cinux -c 'exec /bin/vesper /dev/fb0 /dev/event0 /dev/event1'
+fi

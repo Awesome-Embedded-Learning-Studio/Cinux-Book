@@ -1,0 +1,3 @@
+::sysinit:/bin/echo Cinux up
+::once:/bin/sh /etc/init.d/desktop
+console::respawn:/bin/su - cinux

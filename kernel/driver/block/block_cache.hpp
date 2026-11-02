@@ -39,6 +39,7 @@
 
 #include <stdint.h>
 
+#include "cinux/container/self_list.hpp"
 #include "cinux/own.hpp"
 #include "kernel/driver/block/block_config.hpp"
 #include "kernel/driver/block/block_device_concept.hpp"
@@ -62,6 +63,40 @@ class BlockQueue;
  */
 class BlockCache {
 public:
+    /**
+     * @brief Private page copies published together after all destination pages are pinned.
+     * @note A failed preparation or commit leaves the cache's logical bytes unchanged.
+     *       The caller serializes competing changes to the same filesystem.
+     */
+    class Batch {
+    public:
+        /// Bind a new, unpublished batch to its cache.
+        explicit Batch(BlockCache& cache) : cache_(cache) {}
+        ~Batch();
+        Batch(const Batch&)                        = delete;
+        Batch&             operator=(const Batch&) = delete;
+        /// Read staged bytes when present, otherwise read the original cache.
+        [[nodiscard]] bool read(Lba first, void* sink, unsigned long bytes);
+        /// Change a private page copy; failures poison the whole batch.
+        [[nodiscard]] bool patch(Lba first, unsigned long offset, unsigned long bytes,
+                                 const void* source);
+        /// Publish all prepared copies without device I/O during publication.
+        [[nodiscard]] bool commit();
+
+    private:
+        friend class BlockCache;
+        struct Page : base::container::SelfNode<Page> {
+            unsigned long        number = 0;
+            unsigned long        slot   = ~0UL;
+            base::Own<uint8_t[]> bytes;
+        };
+        Page*                           find(unsigned long number);
+        void                            unpin();
+        BlockCache&                     cache_;
+        base::container::SelfList<Page> pages_;
+        bool                            failed_ = false;
+    };
+
     /**
      * @brief         Binds the cache to its queue and shape.
      *
@@ -137,11 +172,11 @@ public:
     [[nodiscard]] unsigned long slot_sectors() const;
 
     /**
-     * @brief         Writes every dirty page back to the platter.
+     * @brief         Writes every dirty page and waits for the device flush.
      *
-     * @return        True when every dirty page landed; false when
-     *                any write was refused — the refused pages stay
-     *                dirty and ride the next flush or eviction.
+     * @return        True when every write and the device flush succeeded.
+     *                Refused writes remain dirty; a failed device flush
+     *                is retried even when no dirty pages remain.
      * @note          Task contexts only: the writes sleep on the
      *                queue.
      * @since         0.4.0
@@ -163,7 +198,8 @@ private:
         bool          dirty      = false;    ///< Whether the platter runs behind these bytes.
         uint8_t*      bytes      = nullptr;  ///< The page's bytes.
         unsigned long next_hash  = ~0UL;     ///< Next slot in this hash chain.
-        bool          referenced = false;    ///< Accessed since the replacement hand passed.
+        bool          pinned     = false;
+        bool          referenced = false;  ///< Accessed since the replacement hand passed.
     };
 
     [[nodiscard]] Slot*         claim_slot(unsigned long page);

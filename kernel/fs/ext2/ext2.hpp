@@ -7,15 +7,13 @@
  * faces over them. Inodes are read straight from their group tables on
  * every ask — no inode cache; the block cache covers these reads for
  * free. Every node handle is self-sufficient (an inode number plus
- * metadata), so retain and release have nothing to pin yet.
+ * metadata). Open descriptions pin inode allocation until their final release.
  *
  * Writes take the mutex, because a whole metadata sequence — find a
  * free bit, set it, discount the counters, write the superblock —
  * must land as one breath or two files can claim the same block.
- * Reads still carry no lock: the kernel's file world serves a single
- * task at a time today, so no reader ever meets a half-written
- * sequence. The day a second task shares this volume, the read faces
- * join the same mutex. The mutex is the sleeping kind on purpose:
+ * Readers share the volume mutex so staged namespace changes become
+ * visible only after publication. The mutex is the sleeping kind on purpose:
  * its critical section crosses queue commands, and a spin lock held
  * across a sleep is this tree's best-documented death.
  *
@@ -33,8 +31,11 @@
 #include <string_view>
 
 #include "cinux/bit_ops/bitmap.hpp"
+#include "cinux/container/self_list.hpp"
 #include "cinux/math.hpp"
 #include "cinux/result.hpp"
+#include "cinux/spin_mutex.hpp"
+#include "kernel/driver/block/block_device_concept.hpp"
 #include "kernel/fs/ext2/ext2_layout.hpp"
 #include "kernel/fs/vfs.hpp"
 #include "kernel/proc/sync.hpp"
@@ -79,6 +80,9 @@ public:
      */
     explicit Ext2(driver::BlockCache& cache, ClockFn clock = nullptr);
 
+    /** @brief Releases the volume's idle writer lock identity. */
+    ~Ext2();
+
     Ext2(const Ext2&)            = delete;
     Ext2& operator=(const Ext2&) = delete;
 
@@ -97,6 +101,13 @@ public:
     [[nodiscard]] base::Result<void> mount();
 
     /**
+     * @brief Flushes a complete metadata sequence and waits for the device.
+     * @return True when mounted and all writes and the device flush succeeded.
+     * @note Serializes against mutations with the volume writer lock.
+     */
+    [[nodiscard]] bool sync();
+
+    /**
      * @brief         Finds a node by mount-relative path.
      *
      * @param[in]     path   Path without leading slash; empty addresses
@@ -109,6 +120,15 @@ public:
      * @ingroup       kernel_fs
      */
     [[nodiscard]] base::Result<FsNode> lookup(std::string_view path);
+    /// Resolve and pin the inode in the same volume critical section.
+    [[nodiscard]] base::Result<FsNode> lookup_held(std::string_view path);
+    /// Create and pin a new inode before releasing the volume critical section.
+    [[nodiscard]] base::Result<FsNode> make_file_held(std::string_view path);
+
+    /** @brief Resolves a relative path against one held directory node. */
+    [[nodiscard]] base::Result<FsNode> lookup_at(FsNode base, std::string_view rest);
+    /** @brief Creates one file directly under one held directory node. */
+    [[nodiscard]] base::Result<FsNode> make_file_at(FsNode base, std::string_view name);
 
     /**
      * @brief         Creates a file at a mount-relative path.
@@ -286,11 +306,31 @@ public:
      */
     [[nodiscard]] base::Result<FsNode> adopt_open(FsNode node, std::string_view path);
 
+    /** @brief Move a regular file within this volume, replacing a regular target. */
+    [[nodiscard]] base::Result<void> rename(std::string_view source, std::string_view target);
+    /** @brief Update permission bits while preserving the inode type. */
+    [[nodiscard]] base::Result<void> chmod(FsNode node, unsigned int mode);
+
 private:
+    [[nodiscard]] base::Result<void>          unlink_locked(std::string_view path);
     [[nodiscard]] base::Result<unsigned long> write_locked(FsNode node, unsigned long offset,
                                                            const void* source, unsigned long count);
 
     base::Result<Inode> read_child(const Inode& parent, std::string_view name, unsigned long& ino);
+    [[nodiscard]] base::Result<FsNode> walk_from(unsigned long start_ino, char* pending);
+    /// One walk's redirect inputs: where the walk stands and who links.
+    struct LinkSpot {
+        std::string_view walked;
+        std::string_view part;
+        std::string_view rest;
+        char*            pending;
+        unsigned long    start_ino;
+    };
+    /// Expands one symlink on the walk, refusing absolute targets.
+    [[nodiscard]] base::Result<bool> redirect_through_link(const LinkSpot& spot, const Inode& link,
+                                                           unsigned long ino);
+    [[nodiscard]] base::Result<FsNode> seat_new_file(unsigned long    parent_ino,
+                                                     std::string_view leaf);
     struct SymlinkPlan;
     base::Result<void> expand_symlink(const Inode& inode, unsigned long ino,
                                       const SymlinkPlan& plan);
@@ -383,9 +423,67 @@ private:
 
     bool add_dir_entry(Inode& parent_dir, unsigned long parent_ino, unsigned long child_ino,
                        std::string_view name);
-    [[nodiscard]] bool fill_dead_slot(const DirInsert& slot);
-    [[nodiscard]] bool shrink_live_entry(const DirInsert& slot);
-    bool               remove_dir_entry(const Inode& parent_dir, std::string_view name);
+    /// Whether one directory entry's lengths and extent stay lawful.
+    [[nodiscard]] static bool entry_is_sound(const DirEntry& entry, unsigned long cursor);
+    [[nodiscard]] bool        fill_dead_slot(const DirInsert& slot);
+    [[nodiscard]] bool        shrink_live_entry(const DirInsert& slot);
+    bool                      remove_dir_entry(const Inode& parent_dir, std::string_view name);
+    /// Rewrites the inode field of one named directory entry in place.
+    [[nodiscard]] bool        replace_dir_entry_ino(const Inode& parent_dir, std::string_view name,
+                                                    unsigned long ino);
+    /// Drops one link from a file inode, freeing storage at the last.
+    [[nodiscard]] base::Result<void> drop_file_link(unsigned long ino);
+    /// Whether a directory carries no entries beyond its own two dots.
+    [[nodiscard]] base::Result<bool> directory_is_empty(const Inode& victim);
+    /// The two parent directories a rename walks between.
+    struct RenameEnds {
+        FsNode old_parent;
+        FsNode new_parent;
+        Inode  old_dir;
+        Inode  new_dir;
+    };
+    [[nodiscard]] base::Result<RenameEnds> resolve_rename_ends(std::string_view old_parent,
+                                                               std::string_view new_parent);
+    /// Seats the new name without retiring anything.
+    [[nodiscard]] bool seat_new_name(RenameEnds& ends, std::string_view new_leaf,
+                                     unsigned long source_ino, bool replacing);
+    /// One rename's naming decisions, resolved before any write.
+    struct RenamePlan {
+        std::string_view old_leaf;
+        std::string_view new_leaf;
+        unsigned long    source_ino;
+        unsigned long    target_ino;
+        bool             replacing;
+    };
+    /// Stage both directory changes for the enclosing mutation.
+    [[nodiscard]] base::Result<void> swap_names(RenameEnds& ends, const RenamePlan& plan);
+
+    /// Retires an emptied directory inode and its parent's back link.
+    [[nodiscard]] base::Result<void> retire_empty_directory(unsigned long ino,
+                                                            const Inode&  dead_dir,
+                                                            unsigned long parent_ino,
+                                                            const Inode&  parent);
+
+    class Mutation;
+    struct InodeHold : base::container::SelfNode<InodeHold> {
+        unsigned long ino   = 0;
+        unsigned long count = 0;
+    };
+    InodeHold*                  held_inode(unsigned long ino);
+    bool                        has_hold(unsigned long ino);
+    void                        retain_locked(FsNode node);
+    base::Result<FsNode>        make_file_locked(std::string_view path);
+    bool                        reap_inode(unsigned long ino);
+    bool                        reap_pending();
+    base::Result<FsNode>        lookup_locked(std::string_view path);
+    base::Result<unsigned long> read_locked(FsNode node, unsigned long offset, void* sink,
+                                            unsigned long count);
+    bool                        read_storage(driver::Lba first, void* sink, unsigned long bytes);
+    bool patch_storage(driver::Lba first, unsigned long offset, unsigned long bytes,
+                       const void* source);
+    base::container::SelfList<InodeHold> held_;
+    base::SpinMutex                      hold_gate_;
+    Mutation*                            mutation_ = nullptr;
 
     driver::BlockCache& cache_;
 

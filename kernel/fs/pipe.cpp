@@ -46,7 +46,7 @@ void post_each(proc::Semaphore& gate, unsigned long times) {
 
 }  // namespace
 
-base::Result<unsigned long> Pipe::pull(void* sink, unsigned long count) {
+base::Result<unsigned long> Pipe::pull(void* sink, unsigned long count, bool nonblock) {
     if (count == 0) {
         return 0;
     }
@@ -71,6 +71,9 @@ base::Result<unsigned long> Pipe::pull(void* sink, unsigned long count) {
                 readable_.post();
             }
             return 0;
+        }
+        if (nonblock) {
+            return base::KernelError::kWouldBlock;
         }
         readable_.wait();
         waited = true;
@@ -191,6 +194,18 @@ base::Result<unsigned long> pipe_write(void*       self, FsNode /*node*/, unsign
     return static_cast<Pipe*>(self)->push(source, count);
 }
 
+// NOLINTNEXTLINE(readability-function-size) the FsOps signature names five
+base::Result<unsigned long> pipe_try_read(void* self, FsNode /*node*/, unsigned long /*offset*/,
+                                          void* sink, unsigned long count) {
+    return static_cast<Pipe*>(self)->pull(sink, count, true);
+}
+
+// NOLINTNEXTLINE(readability-function-size) the FsOps signature names five
+base::Result<unsigned long> pipe_try_write(void* self, FsNode /*node*/, unsigned long /*offset*/,
+                                           const void* source, unsigned long count) {
+    return static_cast<Pipe*>(self)->try_push(source, count);
+}
+
 void pipe_retain(void* self, FsNode node) {
     auto* const kPipe = static_cast<Pipe*>(self);
     kPipe->retain();
@@ -227,6 +242,8 @@ const FsOps kOps{
     .readable   = nullptr,
     .ioctl      = nullptr,
     .adopt_open = nullptr,
+    .try_read   = pipe_try_read,
+    .try_write  = pipe_try_write,
 };
 
 }  // namespace

@@ -11,8 +11,12 @@ import json
 import pathlib
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "mcp"))
+from qemu_args import qemu_command
 
 
 def debugger_script(elf, sock, rounds):
@@ -114,7 +118,7 @@ def main():
     try:
         with (work / "qemu.log").open("w") as errors:
             vm = subprocess.Popen([
-                "qemu-system-x86_64", "-accel", args.accel, "-cpu", "max", "-m", "128M",
+                *qemu_command(boot), "-accel", args.accel, "-cpu", "max", "-m", "128M",
                 "-smp", "1", "-display", "none", "-monitor", "none", "-no-reboot",
                 "-snapshot", "-device", "ahci,id=sata0",
                 "-drive", f"format=raw,file={work / 'boot.img'}",

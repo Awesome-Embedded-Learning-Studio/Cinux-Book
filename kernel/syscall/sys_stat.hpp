@@ -27,4 +27,24 @@ namespace cinux::syscall {
  */
 long long HandleStat(const SyscallFrame& frame);
 
+/**
+ * @brief         Copy metadata for a folded kernel path to user storage.
+ * @return        Zero, or a negative errno.
+ * @since         0.3.0
+ * @ingroup       kernel_syscall
+ */
+long long StatPath(const char* path, unsigned long long destination);
+/**
+ * @brief         Stats one relative name through a held directory's backend.
+ * @param[in]     descriptor  The held directory's open descriptor.
+ * @param[in]     relative    The name relative to that descriptor.
+ * @param[out]    destination The user stat record.
+ * @return        Zero, or a negative errno; kEopnotsupp asks the caller
+ *                to fall back to string folding.
+ * @since         0.9.0
+ * @ingroup       kernel_syscall
+ */
+long long StatPathAt(unsigned long long descriptor, const char* relative,
+                     unsigned long long destination);
+
 }  // namespace cinux::syscall

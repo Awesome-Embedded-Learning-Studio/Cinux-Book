@@ -26,6 +26,15 @@ constexpr SigSet bit_for(int number) {
     return SigSet{1ULL << static_cast<unsigned>(number - 1)};
 }
 
+/// The mask a delivered handler runs under: the action's own mask,
+/// plus the delivered signal itself unless it asked to stay open.
+void apply_handler_mask(Task& self, const SigAction& action, int number) {
+    self.signals.blocked = syscall::MaskableSignals(self.signals.blocked | action.mask);
+    if ((action.flags & syscall::kSaNodefer) == 0) {
+        self.signals.blocked = self.signals.blocked | bit_for(number);
+    }
+}
+
 /// Preserve the interrupted function's red zone as well as alignment
 /// slack, the saved context and the handler's return address.
 constexpr unsigned long long kRedZoneBytes  = 128;
@@ -166,6 +175,7 @@ SignalDisposition DefaultDisposition(int number) {
     case cinux::syscall::kSigChld:
     case cinux::syscall::kSigUsr1:
     case cinux::syscall::kSigUsr2:
+    case cinux::syscall::kSigWinch:
         return SignalDisposition::kIgnore;
     case cinux::syscall::kSigCont:
         return SignalDisposition::kContinue;
@@ -185,8 +195,10 @@ void SignalState::reset() {
     for (SigAction& act : actions) {
         act = SigAction{};
     }
-    blocked = {};
-    pending = {};
+    blocked              = {};
+    pending              = {};
+    wait_restore         = {};
+    wait_restore_pending = false;
 }
 
 void SendToGroup(unsigned long long pgid, int number) {
@@ -236,12 +248,23 @@ bool SendSignal(Task& target, int number) {
     return true;
 }
 
+void FinishSignalWait(Task& task, SigSet restore) {
+    if (HasPendingSignal(task)) {
+        task.signals.wait_restore         = restore;
+        task.signals.wait_restore_pending = true;
+    } else {
+        task.signals.blocked = restore;
+    }
+}
 bool DeliverPendingSignals(SyscallFrame& frame) {
     Task* const kSelf = Scheduler::self().current();
     if (kSelf == nullptr) {
         return false;
     }
-    bool rewrote = false;
+    const bool   kRestoreWait = kSelf->signals.wait_restore_pending;
+    const SigSet kReturnMask  = kRestoreWait ? kSelf->signals.wait_restore : kSelf->signals.blocked;
+    kSelf->signals.wait_restore_pending = false;
+    bool rewrote                        = false;
     for (;;) {
         int       number = 0;
         SigAction action{};
@@ -275,13 +298,16 @@ bool DeliverPendingSignals(SyscallFrame& frame) {
             }
             continue;
         }
-        if (frame_handler_entry(frame, kNumber, action, kSelf->signals.blocked)) {
-            kSelf->signals.blocked = kSelf->signals.blocked | action.mask;
-            rewrote                = true;
+        if (frame_handler_entry(frame, kNumber, action, kReturnMask)) {
+            apply_handler_mask(*kSelf, action, kNumber);
+            rewrote = true;
         } else {
             die_by_signal(cinux::syscall::kSigSegv);
         }
         break;
+    }
+    if (!rewrote) {
+        kSelf->signals.blocked = kReturnMask;
     }
     return rewrote;
 }

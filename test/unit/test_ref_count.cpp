@@ -1,3 +1,4 @@
+#include <atomic>
 #include <thread>
 #include <type_traits>
 
@@ -86,4 +87,36 @@ TEST("spin mutex: concurrent critical sections retain every increment") {
         const std::jthread kSecond(kWorker);
     }
     ASSERT_EQ(count, 200000U);
+}
+
+TEST("ref count: conditional acquisition never resurrects the last released owner") {
+    cinux::base::RefCount<> references;
+    ASSERT_TRUE(references.try_retain());
+    ASSERT_FALSE(references.release());
+    ASSERT_TRUE(references.release());
+    ASSERT_FALSE(references.try_retain());
+    ASSERT_EQ(references.use_count(), 0UL);
+}
+
+TEST("ref count: final release racing acquisition leaves no resurrected owner") {
+    for (unsigned long turn = 0; turn < 100; ++turn) {
+        cinux::base::RefCount<>    references;
+        std::atomic<bool>          start{false};
+        std::atomic<unsigned long> final_releases{0};
+        std::jthread               reader([&] {
+            while (!start.load()) {
+                std::this_thread::yield();
+            }
+            if (references.try_retain() && references.release()) {
+                final_releases.fetch_add(1);
+            }
+        });
+        start.store(true);
+        if (references.release()) {
+            final_releases.fetch_add(1);
+        }
+        reader.join();
+        ASSERT_EQ(final_releases.load(), 1UL);
+        ASSERT_FALSE(references.try_retain());
+    }
 }

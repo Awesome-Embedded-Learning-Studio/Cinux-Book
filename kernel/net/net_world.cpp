@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "cinux/assert.hpp"
+#include "cinux/memory.hpp"
 #include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/boot/print.hpp"
 #include "kernel/driver/net/loopback.hpp"
@@ -62,6 +63,9 @@ void NetWorld::init() {
     udp_.init(kViaIpv4, kLoopbackAddress);
     tcp_.init(kViaIpv4, kLoopbackAddress);
     arp_.init();
+    for (auto& pending : pending_) {
+        pending.length = 0;
+    }
     arp_entry_ = {this};
 
     L4Seat icmp_seat;
@@ -106,6 +110,8 @@ void NetWorld::pump_once() {
     const proc::PreemptGuard kPin;
     stack_.poll(kPollBudgetFrames);
     tcp_.service(syscall::MonotonicNanoseconds());
+    const auto kRoute = route_gate_.guard();
+    flush_resolved();
 }
 
 void NetWorld::attach_wire(driver::net::NetPort& wire) {
@@ -135,14 +141,29 @@ void NetWorld::route_send(const OutboundDatagram& datagram) {
         return;
     }
 
-    const driver::net::MacAddress* next = arp_.lookup(datagram.destination);
+    const auto kNextHop = (datagram.destination & kUserNetworkMask) ==
+                                 (own_address_ & kUserNetworkMask)
+                             ? datagram.destination : kUserNetworkHost;
+    const driver::net::MacAddress* next = arp_.lookup(kNextHop);
     if (next == nullptr) {
+        // Retain the first datagram while ARP resolves its next hop. The IPv4
+        // destination stays intact even when the Ethernet peer is the gateway.
+        const auto kNow = syscall::MonotonicNanoseconds();
+        for (auto& pending : pending_) {
+            if (pending.length == 0 || pending.expires <= kNow) {
+                pending.next_hop = kNextHop;
+                pending.length  = datagram.length;
+                pending.expires = kNow + 5'000'000'000ULL;
+                base::CopyBytes(pending.bytes, datagram.payload, datagram.length);
+                break;
+            }
+        }
         unsigned char           request[kArpPacketBytes] = {};
         driver::net::MacAddress everyone                 = {};
         for (unsigned long index = 0; index < driver::net::kMacAddressBytes; ++index) {
             everyone.bytes[index] = driver::net::kBroadcastMacBytes[index];
         }
-        ArpCache::build_request(request, wire_port_->mac(), own_address_, datagram.destination);
+        ArpCache::build_request(request, wire_port_->mac(), own_address_, kNextHop);
         base::safety::Check(wire_port_->send_l3(everyone, driver::net::EtherType{kEtherTypeArp},
                                                 request, kArpPacketBytes),
                             "wire refused the address request");
@@ -151,6 +172,26 @@ void NetWorld::route_send(const OutboundDatagram& datagram) {
     base::safety::Check(wire_port_->send_l3(*next, driver::net::EtherType{kEtherTypeIpv4},
                                             datagram.payload, datagram.length),
                         "wire refused the datagram");
+}
+
+void NetWorld::flush_resolved() {
+    const auto kNow = syscall::MonotonicNanoseconds();
+    for (auto& pending : pending_) {
+        if (pending.length == 0) {
+            continue;
+        }
+        if (pending.expires <= kNow) {
+            pending.length = 0;
+            continue;
+        }
+        const auto* peer = arp_.lookup(pending.next_hop);
+        if (peer != nullptr) {
+            if (wire_port_->send_l3(*peer, driver::net::EtherType{kEtherTypeIpv4},
+                                    pending.bytes, pending.length)) {
+                pending.length = 0;
+            }
+        }
+    }
 }
 
 void NetWorld::wait_for_answers(unsigned long& seen) {

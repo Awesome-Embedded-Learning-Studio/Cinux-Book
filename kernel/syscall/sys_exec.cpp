@@ -374,6 +374,7 @@ long long HandleExecve(const SyscallFrame& frame) {
         return kMapped;
     }
     kSelf->signals.reset();
+    kSelf->keep_capabilities = false;
     kSelf->clear_child_tid = 0;
     kSelf->files->close_on_exec();
     note_program_identity(*kSelf, path);
@@ -388,6 +389,7 @@ long long HandleExecve(const SyscallFrame& frame) {
     kSelf->user_root                          = kSelf->space->root();
     kSelf->space->activate();
     auto& mutable_frame    = const_cast<SyscallFrame&>(frame);
+    mutable_frame          = {};
     mutable_frame.user_rsp = kEntryRsp;
     mutable_frame.rcx      = kFirstInstruction;
     mutable_frame.r11      = kUserFlags;

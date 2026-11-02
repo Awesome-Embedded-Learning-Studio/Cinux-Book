@@ -12,7 +12,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", default="build/boot/cinux.img")
     args = parser.parse_args()
-    session = qemu.Session(args.image)
+    session = qemu.Session(args.image, config_name="qemu-device-args.txt", snapshot=True)
     try:
         session.boot()
         for marker in ("[smp] 2 CPUs online", "[cpu 0]", "[cpu 1]", "/ #"):

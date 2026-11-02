@@ -221,7 +221,7 @@ TEST("signal tables: the catchable set excludes kill, stop and the outside") {
     ASSERT_TRUE(!SignalCatchable(kSigKill));
     ASSERT_TRUE(!SignalCatchable(kSigStop));
     ASSERT_TRUE(!SignalCatchable(0));
-    ASSERT_TRUE(!SignalCatchable(23));
+    ASSERT_TRUE(!SignalCatchable(cinux::syscall::kSignalCount + 1));
     ASSERT_TRUE(SignalCatchable(kSigInt));
     ASSERT_TRUE(SignalCatchable(kSigTerm));
     ASSERT_TRUE(SignalCatchable(kSigChld));
@@ -254,7 +254,7 @@ TEST("signal send: bad numbers refuse and zombies shrug") {
     cinux::proc::Task target;
     target.state = TaskState::kReady;
     ASSERT_TRUE(!SendSignal(target, 0));
-    ASSERT_TRUE(!SendSignal(target, 23));
+    ASSERT_TRUE(!SendSignal(target, cinux::syscall::kSignalCount + 1));
     ASSERT_TRUE(target.signals.pending.raw == 0);
 
     target.state = TaskState::kZombie;
@@ -310,6 +310,25 @@ TEST("signal delivery: a default terminate exits carrying the number") {
     ASSERT_TRUE(world.alpha.exit_code == kSigTerm);
 }
 
+TEST("signal delivery: masked wait delivers before restoring the caller mask") {
+    World world(990);
+    world.body = [](World& site) {
+        site.alpha.signals.actions[kSigInt - 1].handler = kHandlerWord;
+        site.frame.user_rsp                             = g_fake_rsp;
+        SendSignal(site.alpha, kSigInt);
+        cinux::proc::FinishSignalWait(site.alpha, bit_for(kSigInt));
+        site.rewrote = DeliverPendingSignals(site.frame);
+        cinux::proc::Scheduler::self().exit_current();
+    };
+    world.run();
+    ASSERT_TRUE(world.rewrote);
+    ASSERT_TRUE(!world.alpha.signals.wait_restore_pending);
+    const auto  kContext = (g_fake_rsp - 128 - sizeof(cinux::proc::SigReturnContext)) & ~0xFULL;
+    const auto* context  = cinux::base::PtrAt<const cinux::proc::SigReturnContext>(kContext);
+    ASSERT_TRUE(context->old_blocked.has(bit_for(kSigInt)));
+    ASSERT_TRUE(world.alpha.signals.blocked.has(bit_for(kSigInt)));
+}
+
 TEST("signal delivery: a custom handler rewrites the frame onto its stack") {
     World world(1000);
     world.body = [](World& site) {
@@ -329,7 +348,7 @@ TEST("signal delivery: a custom handler rewrites the frame onto its stack") {
     ASSERT_TRUE(frame_says(world.frame, g_fake_rsp));
     ASSERT_TRUE(world.alpha.signals.pending.raw == 0);
     ASSERT_TRUE(world.alpha.signals.blocked.has(bit_for(kSigUsr1)));
-    ASSERT_TRUE(!world.alpha.signals.blocked.has(bit_for(kSigInt)));
+    ASSERT_TRUE(world.alpha.signals.blocked.has(bit_for(kSigInt)));
 }
 
 TEST("signal delivery: an action promising a restorer returns to it, not the trampoline") {
@@ -701,4 +720,20 @@ int main() {
         }
     }
     return 3;
+}
+
+TEST("signal delivery: SA_NODEFER leaves the delivered signal unblocked") {
+    World world(992);
+    world.body = [](World& site) {
+        auto& action        = site.alpha.signals.actions[kSigInt - 1];
+        action.handler      = kHandlerWord;
+        action.flags        = cinux::syscall::kSaNodefer;
+        site.frame.user_rsp = g_fake_rsp;
+        SendSignal(site.alpha, kSigInt);
+        site.rewrote = DeliverPendingSignals(site.frame);
+        cinux::proc::Scheduler::self().exit_current();
+    };
+    world.run();
+    ASSERT_TRUE(world.rewrote);
+    ASSERT_FALSE(world.alpha.signals.blocked.has(bit_for(kSigInt)));
 }

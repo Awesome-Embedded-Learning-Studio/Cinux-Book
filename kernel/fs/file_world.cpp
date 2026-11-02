@@ -25,11 +25,16 @@
 #include "kernel/driver/block/block_config.hpp"
 #include "kernel/driver/block/block_queue.hpp"
 #include "kernel/driver/device/device.hpp"
+#include "kernel/driver/keyboard/keyboard.hpp"
+#include "kernel/driver/mouse/ps2_mouse.hpp"
 #include "kernel/driver/nvme/nvme.hpp"
 #include "kernel/driver/rtc/rtc.hpp"
 #include "kernel/driver/usb/usb_keyboard.hpp"
+#include "kernel/driver/usb/usb_tablet.hpp"
 #include "kernel/fs/devfs/console_node.hpp"
 #include "kernel/fs/devfs/devfs.hpp"
+#include "kernel/fs/devfs/fb_node.hpp"
+#include "kernel/fs/devfs/input_node.hpp"
 #include "kernel/fs/devfs/pty_node.hpp"
 #include "kernel/fs/ext2/ext2.hpp"
 #include "kernel/fs/file_table.hpp"
@@ -52,7 +57,7 @@ unsigned long long wall_clock() {
 }  // namespace
 
 bool FileWorld::sync() {
-    return cache_ == nullptr || (cache_->flush() && queue_->flush());
+    return volume_ == nullptr || volume_->sync();
 }
 
 void FileWorld::init() {
@@ -72,9 +77,14 @@ void FileWorld::init() {
     driver::DeviceModel::self().bind(devfs_);
     RegisterBuiltinDevices();
     RegisterConsoleDevice();
+    RegisterFramebufferDevice();
     RegisterPtyDevices();
     [[maybe_unused]] const bool kUsbKeyboard = driver::SeatUsbKeyboard();
-    const base::Result<void>    kSata        = driver::DeviceModel::self().seat({
+    const bool                  kTablet      = driver::UsbTablet::self().init();
+    RegisterInputDevices(
+        driver::Keyboard::self().events(),
+        kTablet ? driver::UsbTablet::self().events() : driver::Ps2Mouse::self().events());
+    const base::Result<void> kSata = driver::DeviceModel::self().seat({
         .klass       = driver::DeviceClass::kBlock,
         .name        = "sata0",
         .number      = MakeDeviceId(8, 0),

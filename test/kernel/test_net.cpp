@@ -67,6 +67,7 @@ TEST("net: e1000 answers a ping through the user network") {
 
 TEST("net: hand-cranking the pump answers a loopback ping") {
     ensure_world();
+    const auto    kBefore     = cinux::net::NetWorld::self().icmp().stats();
     unsigned char request[12] = {};
     fill_echo_request(request, sizeof(request));
     ASSERT_TRUE(
@@ -76,8 +77,9 @@ TEST("net: hand-cranking the pump answers a loopback ping") {
                                                   .length      = sizeof(request)}));
 
     cinux::net::NetWorld::self().pump_once();
-    ASSERT_TRUE(cinux::net::NetWorld::self().icmp().stats().replies_seen == 1);
-    ASSERT_TRUE(cinux::net::NetWorld::self().icmp().stats().requests_answered == 1);
+    ASSERT_EQ(cinux::net::NetWorld::self().icmp().stats().replies_seen, kBefore.replies_seen + 1);
+    ASSERT_EQ(cinux::net::NetWorld::self().icmp().stats().requests_answered,
+              kBefore.requests_answered + 1);
     ASSERT_TRUE(cinux::net::NetWorld::self().icmp().stats().last_identifier == 0x3030);
     ASSERT_TRUE(cinux::net::NetWorld::self().icmp().stats().last_sequence == 0x0001);
 }

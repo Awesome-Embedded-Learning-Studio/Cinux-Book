@@ -1,4 +1,6 @@
 #include <cstring>
+#include <sstream>
+#include <string>
 
 #include "../framework/framework.hpp"
 #include "cinux/memory.hpp"
@@ -74,6 +76,22 @@ void fake_memory(void* /*context*/, unsigned long& free_pages, unsigned long& to
     total_pages = 200;
 }
 
+bool fake_nth_cpu(void* /*context*/, unsigned long ordinal, cinux::fs::ProcCpuFacts& into) {
+    if (ordinal >= 8) {
+        return false;
+    }
+    into           = cinux::fs::ProcCpuFacts{};
+    into.processor = ordinal;
+    into.apic_id   = static_cast<unsigned int>(ordinal + 16);
+    into.family    = 6;
+    into.model     = 158;
+    into.stepping  = 10;
+    cinux::base::CopyText(into.vendor_id, "GenuineIntel");
+    cinux::base::CopyText(into.model_name, "Test CPU");
+    cinux::base::CopyText(into.flags, "fpu tsc sse sse2");
+    return true;
+}
+
 bool fake_nth_net_iface(void* /*context*/, unsigned long ordinal, char* out) {
     if (ordinal >= 2) {
         return false;
@@ -103,15 +121,17 @@ bool fake_nth_device(void* /*context*/, unsigned long ordinal, cinux::fs::ProcDe
 }
 
 const cinux::fs::ProcSource kFakeSource{
-    .nth_tgid      = fake_nth_tgid,
-    .snapshot      = fake_snapshot,
-    .exe_path      = fake_exe_path,
-    .exe_bytes     = fake_exe_bytes,
-    .exe_size      = fake_exe_size,
-    .memory        = fake_memory,
-    .nth_device    = fake_nth_device,
-    .nth_net_iface = fake_nth_net_iface,
-    .context       = nullptr,
+    .nth_tgid          = fake_nth_tgid,
+    .snapshot          = fake_snapshot,
+    .exe_path          = fake_exe_path,
+    .exe_bytes         = fake_exe_bytes,
+    .exe_size          = fake_exe_size,
+    .memory            = fake_memory,
+    .memory_page_bytes = 4096,
+    .nth_device        = fake_nth_device,
+    .nth_net_iface     = fake_nth_net_iface,
+    .nth_cpu           = fake_nth_cpu,
+    .context           = nullptr,
 };
 
 /// One procfs wired to the fake facts, the shape every case mounts.
@@ -134,6 +154,21 @@ bool text_at(cinux::fs::ProcFs& procfs, unsigned long ino, char* out, unsigned l
     return true;
 }
 
+std::string cpu_text(cinux::fs::ProcFs& procfs, cinux::fs::FsNode node) {
+    std::string text;
+    for (;;) {
+        char       chunk[17]{};
+        const auto kRead = procfs.read(node, text.size(), chunk, sizeof(chunk));
+        if (!kRead.ok()) {
+            return {};
+        }
+        if (kRead.value() == 0) {
+            return text;
+        }
+        text.append(chunk, kRead.value());
+    }
+}
+
 }  // namespace
 
 TEST("procfs: the root lists meminfo and self first") {
@@ -154,9 +189,9 @@ TEST("procfs: the root then lists living pids in walk order") {
     const cinux::base::Result<cinux::fs::FsNode> kRoot = stocked(stock).lookup("");
 
     cinux::fs::FsDirent entry;
-    ASSERT_TRUE(stock.read_dir(kRoot.value(), 7, entry).value());
-    ASSERT_STREQ(entry.name, "1");
     ASSERT_TRUE(stock.read_dir(kRoot.value(), 8, entry).value());
+    ASSERT_STREQ(entry.name, "1");
+    ASSERT_TRUE(stock.read_dir(kRoot.value(), 9, entry).value());
     ASSERT_STREQ(entry.name, "2");
 }
 
@@ -165,9 +200,9 @@ TEST("procfs: the pid walk ends past the last leader") {
     const cinux::base::Result<cinux::fs::FsNode> kRoot = stocked(stock).lookup("");
 
     cinux::fs::FsDirent entry;
-    ASSERT_TRUE(stock.read_dir(kRoot.value(), 10, entry).value());
+    ASSERT_TRUE(stock.read_dir(kRoot.value(), 11, entry).value());
     ASSERT_STREQ(entry.name, "12");
-    ASSERT_FALSE(stock.read_dir(kRoot.value(), 11, entry).value());
+    ASSERT_FALSE(stock.read_dir(kRoot.value(), 12, entry).value());
 }
 
 TEST("procfs: devices spells its classes in seating order") {
@@ -206,10 +241,88 @@ TEST("procfs: net/dev lists one honest-zero row per interface") {
 TEST("procfs: meminfo answers both counters in kilobytes") {
     cinux::fs::ProcFs stock;
     stocked(stock);
-    char text[96] = {};
+    char text[512] = {};
     ASSERT_TRUE(text_at(stock, 2, text, sizeof(text)));
     ASSERT_TRUE(std::strstr(text, "MemTotal:  800 kB") != nullptr);
     ASSERT_TRUE(std::strstr(text, "MemFree:   400 kB") != nullptr);
+    ASSERT_TRUE(std::strstr(text, "MemAvailable: 400 kB") != nullptr);
+    ASSERT_TRUE(
+        std::strstr(text, "Buffers: 0 kB\nCached: 0 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n") !=
+        nullptr);
+}
+
+TEST("procfs: meminfo also supplies a consistent legacy byte table") {
+    cinux::fs::ProcFs stock;
+    stocked(stock);
+    char text[512]{};
+    ASSERT_TRUE(text_at(stock, 2, text, sizeof(text)));
+    std::istringstream input{text};
+    std::string        label;
+    std::getline(input, label);
+    unsigned long total   = 0;
+    unsigned long used    = 0;
+    unsigned long free    = 0;
+    unsigned long shared  = 1;
+    unsigned long buffers = 1;
+    unsigned long cached  = 1;
+    input >> label >> total >> used >> free >> shared >> buffers >> cached;
+    ASSERT_TRUE(input.good() && label == "Mem:");
+    const bool kAccountingConsistent = total == 819200UL && used + free == total;
+    ASSERT_TRUE(kAccountingConsistent);
+    ASSERT_EQ(free, 409600UL);
+    ASSERT_EQ(shared + buffers + cached, 0UL);
+    input >> label >> total >> used >> free;
+    ASSERT_TRUE(input.good() && label == "Swap:");
+    ASSERT_EQ(total + used + free, 0UL);
+}
+
+TEST("procfs: memory uses the supplied page size") {
+    cinux::fs::ProcFs stock;
+    auto              source = kFakeSource;
+    source.memory_page_bytes = 8192;
+    stock.set_source(source);
+    char text[512]{};
+    ASSERT_TRUE(text_at(stock, 2, text, sizeof(text)));
+    ASSERT_TRUE(std::strstr(text, "MemTotal:  1600 kB") != nullptr);
+    ASSERT_TRUE(std::strstr(text, "MemFree:   800 kB") != nullptr);
+}
+
+TEST("procfs: cpuinfo streams all online CPUs beyond the scratch buffer") {
+    cinux::fs::ProcFs stock;
+    stocked(stock);
+    const auto kNode = stock.lookup("cpuinfo");
+    ASSERT_TRUE(kNode.ok());
+    const auto kWhole = cpu_text(stock, kNode.value());
+    ASSERT_TRUE(kWhole.size() > 512);
+    ASSERT_TRUE(kWhole.contains("processor\t: 0\n") && kWhole.contains("processor\t: 7\n"));
+    ASSERT_TRUE(kWhole.contains("vendor_id\t: GenuineIntel\n"));
+    ASSERT_TRUE(kWhole.contains("model name\t: Test CPU\n"));
+    ASSERT_TRUE(kWhole.contains("flags\t\t: fpu tsc sse sse2\n"));
+}
+
+TEST("procfs: cpuinfo stat, full reads and EOF agree with chunked reads") {
+    cinux::fs::ProcFs stock;
+    stocked(stock);
+    const auto kNode = stock.lookup("cpuinfo");
+    ASSERT_TRUE(kNode.ok());
+    const auto        kWhole = cpu_text(stock, kNode.value());
+    cinux::fs::FsStat facts{};
+    ASSERT_TRUE(stock.stat(kNode.value(), facts).ok());
+    ASSERT_EQ(facts.size, kWhole.size());
+    std::string single(kWhole.size(), '\0');
+    ASSERT_EQ(stock.read(kNode.value(), 0, single.data(), single.size()).value(), kWhole.size());
+    ASSERT_TRUE(single == kWhole);
+    char tail = 'x';
+    ASSERT_EQ(stock.read(kNode.value(), kWhole.size(), &tail, 1).value(), 0UL);
+    ASSERT_EQ(tail, 'x');
+}
+
+TEST("procfs: absent CPU facts produce a quiet empty file") {
+    cinux::fs::ProcFs stock;
+    const auto        kNode = stock.lookup("cpuinfo");
+    ASSERT_TRUE(kNode.ok());
+    char text[16]{};
+    ASSERT_EQ(stock.read(kNode.value(), 0, text, sizeof(text)).value(), 0UL);
 }
 
 TEST("procfs: a living pid directory serves stat then cmdline") {

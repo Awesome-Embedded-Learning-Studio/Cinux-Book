@@ -30,6 +30,7 @@
 #include "cinux/ptr.hpp"
 #include "cinux/result.hpp"
 #include "kernel/arch/x86_64/instructions.hpp"
+#include "kernel/arch/x86_64/irq_guard.hpp"
 #include "kernel/boot/print.hpp"
 #include "kernel/driver/apic/local_apic.hpp"
 #include "kernel/driver/msi/msi_layout.hpp"
@@ -116,17 +117,11 @@ constexpr unsigned long kRegPortSc = 0x400;
 /// @brief Port register stride, one bank per root-hub port.
 constexpr unsigned long kPortStride = 0x10;
 
-/// @brief PORTSC bit: a device is attached to this port.
-constexpr uint32_t kPortConnected = cinux::base::bit::MaskBit<uint32_t>(0).raw;
-
 /// @brief PORTSC bit: reset signaling, self-clearing.
 constexpr uint32_t kPortReset = cinux::base::bit::MaskBit<uint32_t>(4).raw;
 
 /// @brief PORTSC field: the attached device's speed code.
 constexpr cinux::base::bit::BitRange kPortSpeed{.low = 10, .width = 4};
-
-/// @brief Event control field: which endpoint a transfer event names.
-constexpr cinux::base::bit::BitRange kEventEndpoint{.low = 16, .width = 5};
 
 /// @brief The PCI shape this controller answers as.
 constexpr uint8_t kPciSubclassUsbLocal = 0x03;
@@ -296,7 +291,7 @@ bool XhciHost::reset_port(unsigned int port, uint8_t& speed) {
 void XhciHost::seat_device(uint8_t slot, void* device,
                            void (*deliver)(void* device, const usb::Trb& event)) {
     if (slot >= 1 && slot <= usb::kXhciSlotsEnabled) {
-        routes_[slot - 1] = usb::DeviceRoute{.device = device, .deliver = deliver};
+        routes_[slot - 1] = usb::DeviceRoute{.port = 0, .device = device, .deliver = deliver};
     }
 }
 
@@ -312,6 +307,11 @@ void XhciHost::consume_event() {
 
 // NOLINTNEXTLINE(readability-function-size) drain names three cargos
 void XhciHost::drain_events() {
+    const arch::IrqGuard kQuiet;
+    const auto           kGuard = event_gate_.guard();
+    if (window_ == nullptr || event_page_ == 0) {
+        return;
+    }
     if ((read32(regions_.operational + kRegUsbStatus) & kHostSystemError) != 0) {
         return;
     }

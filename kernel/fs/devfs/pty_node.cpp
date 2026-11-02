@@ -19,6 +19,7 @@
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/signals.hpp"
 #include "kernel/proc/task.hpp"
+#include "kernel/syscall/signal.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
 
@@ -216,6 +217,19 @@ long long slave_answer_ctty(Seat& seat, unsigned long long /*argument*/) {
     return 0;
 }
 
+// NOLINTNEXTLINE(misc-const-correctness) the change answers share one signature
+long long slave_answer_window_set(Seat& seat, unsigned long long argument) {
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
+    auto const* const kFrom = reinterpret_cast<const unsigned char*>(argument);
+    driver::TtyWindow shape{};
+    base::CopyBytes(&shape, kFrom, driver::kTtyWinsizeBytes);
+    seat.pair->slave().set_window(shape);
+    if (seat.foreground_pgid != 0) {
+        proc::SendToGroup(seat.foreground_pgid, syscall::kSigWinch);
+    }
+    return 0;
+}
+
 /// One slave question the seat answers by changing it.
 struct SlaveChangeAnswer {
     unsigned long long word;
@@ -225,6 +239,7 @@ struct SlaveChangeAnswer {
 constexpr SlaveChangeAnswer kSlaveChangeAnswers[] = {
     {.word = driver::kTtyTiocspgrp, .answer = slave_answer_pgrp_set},
     {.word = driver::kTtyTiocsctty, .answer = slave_answer_ctty},
+    {.word = driver::kTtyTiocswinsz, .answer = slave_answer_window_set},
 };
 
 long long slave_ioctl(void* context, unsigned long long word, unsigned long long argument) {

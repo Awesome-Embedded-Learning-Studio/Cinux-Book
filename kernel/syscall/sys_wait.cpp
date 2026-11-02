@@ -1,5 +1,7 @@
 #include "kernel/syscall/sys_wait.hpp"
 
+#include <cstdint>
+
 #include "cinux/byte_order.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/syscall/signal.hpp"
@@ -13,7 +15,9 @@ long long HandleWait4(const SyscallFrame& frame) {
     if (frame.rsi >= kUserAddressLimit) {
         return -kEfault;
     }
-    const auto                   kWanted  = static_cast<long long>(frame.rdi);
+    // pid_t is a signed 32-bit argument. A libc wrapper may leave the
+    // upper register bits zero: wait(-1) must not become PID 4294967295.
+    const auto                   kWanted  = static_cast<std::int32_t>(frame.rdi);
     constexpr unsigned long long kWNoHang = 1;
     const bool                   kNoHang  = (frame.rdx & kWNoHang) != 0;
     proc::ChildReceipt           receipt{};

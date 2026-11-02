@@ -61,8 +61,10 @@ struct SignalState {
         {};                                  ///< Per-signal disposition.
     cinux::syscall::SigSet         blocked;  ///< Held back until unblocked.
     cinux::syscall::SigSet         pending;  ///< Sent, awaiting a delivery window.
-    mutable cinux::base::SpinMutex gate;     ///< Serializes every pending rewrite;
-                                             ///< readers may peek unlocked.
+    cinux::syscall::SigSet         wait_restore;
+    bool                           wait_restore_pending = false;
+    mutable cinux::base::SpinMutex gate;  ///< Serializes every pending rewrite;
+                                          ///< readers may peek unlocked.
 
     /// Returns the dispositions, the mask and the pending set to their
     /// boot answers while the gate itself goes on living; exec resets
@@ -205,6 +207,9 @@ bool DeliverPendingSignals(cinux::syscall::SyscallFrame& frame);
  * @ingroup       kernel_proc
  */
 [[nodiscard]] bool MapSignalTrampoline(const mm::AddressSpace& space, mm::VmaStore& vmas);
+
+/** @brief Restore a temporary wait mask after delivering an eligible signal. */
+void FinishSignalWait(Task& task, cinux::syscall::SigSet restore);
 
 /**
  * @brief         The user address the trampoline lives at in every world.

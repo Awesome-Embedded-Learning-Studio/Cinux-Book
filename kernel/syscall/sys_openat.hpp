@@ -21,9 +21,8 @@ namespace cinux::syscall {
  *                world writes it.
  *
  * @return        The new descriptor, or a negative errno.
- * @note          The dirfd seat takes AT_FDCWD in both its signed
- *                spellings; the flag word rides the open path
- *                untouched, close-on-exec included.
+ * @note          Absolute paths ignore dirfd. Relative paths use the
+ *                open directory's recorded path, or cwd for AT_FDCWD.
  * @since         0.3.0
  * @ingroup       kernel_syscall
  */

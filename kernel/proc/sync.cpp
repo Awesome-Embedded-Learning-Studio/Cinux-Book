@@ -139,6 +139,11 @@ SpinGuard Spinlock::guard() {
     return SpinGuard(*this);
 }
 
+void Mutex::retire() {
+    cinux::base::safety::Check(owner_ == nullptr && waiters_.empty(), "retired busy mutex");
+    spin_.retire();
+}
+
 void Mutex::lock() {
     // Release the spinlock before switching, but keep IRQs masked until
     // park_current() has committed the task's blocked state.

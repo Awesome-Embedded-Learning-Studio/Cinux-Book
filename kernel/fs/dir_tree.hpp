@@ -162,6 +162,12 @@ template <typename Node>
         if (current->type != InodeType::kDirectory) {
             return base::KernelError::kNotADirectory;
         }
+        if (component == ".") {
+            continue;
+        }
+        if (component == "..") {
+            return base::KernelError::kNotSupported;
+        }
         current = current->find(component);
         if (current == nullptr) {
             return base::KernelError::kNotFound;

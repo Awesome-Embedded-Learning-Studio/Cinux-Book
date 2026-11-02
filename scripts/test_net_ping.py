@@ -49,7 +49,7 @@ def main():
     args = parser.parse_args()
     if not os.access("/dev/kvm", os.R_OK | os.W_OK):
         parser.error("/dev/kvm is unavailable or inaccessible; KVM is required")
-    session = qemu.Session(args.image)
+    session = qemu.Session(args.image, config_name="qemu-device-args.txt", snapshot=True)
     try:
         session.boot()
         wait_after(0, [r"\[smp\] 2 CPUs online", r"/ #"], 30)

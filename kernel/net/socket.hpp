@@ -26,6 +26,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <atomic>
 
 #include "cinux/container/ring_queue.hpp"
 #include "cinux/ref_count.hpp"
@@ -84,6 +85,10 @@ struct SocketAddress {
     int           family  = kAfInet;        ///< Address family selecting the remaining fields.
     unsigned long name_bytes{};             ///< Significant local name bytes.
     unsigned char name[kLocalNameBytes]{};  ///< Local name, including an abstract leading zero.
+    /// Receive-only metadata, independent of the sockaddr wire layout.
+    unsigned int received_ttl = 0;
+    unsigned long long received_ns = 0;
+    unsigned long datagram_bytes = 0;
 };
 
 /**
@@ -98,6 +103,8 @@ struct SocketAddress {
  */
 class Socket : public base::RefCount<> {
 public:
+    std::atomic<bool> receive_ttl{false};
+    std::atomic<bool> receive_timestamp{false};
     /**
      * @brief         Takes one datagram into the caller's buffer.
      *
@@ -409,6 +416,39 @@ private:
     SocketAddress                                                 peer_{};
     bool                                                          named_  = false;
     bool                                                          seated_ = false;
+};
+
+class PingSocket final : public Socket {
+public:
+    explicit PingSocket(RawModule& module);
+    ~PingSocket() override;
+    [[nodiscard]] bool          seated() const { return seated_; }
+    base::Result<unsigned long> receive(void* sink, unsigned long count,
+                                        SocketAddress* from) override;
+    base::Result<unsigned long> transmit(const void* source, unsigned long count,
+                                         const SocketAddress& destination) override;
+    base::Result<void>          adopt_local(const SocketAddress& local) override;
+    base::Result<void>          adopt_peer(const SocketAddress& peer) override;
+    base::Result<void>          report_local(SocketAddress& local) const override;
+    base::Result<void>          report_peer(SocketAddress& peer) const override;
+    [[nodiscard]] bool          holds_input() const override;
+
+private:
+    struct Waiting {
+        SocketAddress from;
+        unsigned long length = 0;
+        unsigned char bytes[kMaxIcmpEchoBytes]{};
+    };
+    static void            take(void* context, const unsigned char* bytes, size_t length,
+                                const Ipv4View& header);
+    RawModule&             module_;
+    mutable proc::Spinlock gate_;
+    base::container::RingQueue<Waiting, kUdpSocketQueueDatagrams> waiting_;
+    SocketAddress                                                 local_{};
+    SocketAddress                                                 peer_{};
+    bool                                                          named_      = false;
+    bool                                                          seated_     = false;
+    std::uint16_t                                                 identifier_ = 0;
 };
 
 /**

@@ -6,13 +6,29 @@ GLYPH_HEIGHT = 16
 
 
 def read_ppm(path):
-    with open(path, "rb") as handle:
-        data = handle.read()
-    parts = data.split()
-    width = int(parts[1])
-    height = int(parts[2])
-    offset = data.index(b"255\n", 3) + 4
-    return width, height, data[offset:]
+    """Decode a binary P6 dump: magic, comments, three fields, then pixels."""
+    data = path.read_bytes() if hasattr(path, "read_bytes") else open(path, "rb").read()
+    if not data.startswith(b"P6"):
+        raise RuntimeError(f"screendump is not P6: {path}")
+    fields = []
+    offset = 2
+    while len(fields) < 3:
+        while offset < len(data) and data[offset : offset + 1].isspace():
+            offset += 1
+        if data[offset : offset + 1] == b"#":
+            while data[offset : offset + 1] not in (b"\n", b""):
+                offset += 1
+            continue
+        start = offset
+        while not data[offset : offset + 1].isspace():
+            offset += 1
+        fields.append(int(data[start:offset]))
+    offset += 1
+    width, height, _ = fields
+    pixels = data[offset : offset + width * height * 3]
+    if len(pixels) != width * height * 3:
+        raise RuntimeError(f"screendump truncated: {path}")
+    return width, height, pixels
 
 
 def count_lit(pixels, width, text_row):

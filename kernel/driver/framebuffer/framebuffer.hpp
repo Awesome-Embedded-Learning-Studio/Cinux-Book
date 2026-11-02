@@ -39,40 +39,6 @@ inline constexpr Paint kInk{.red = 0xFF, .green = 0xFF, .blue = 0xFF};
 /// The backdrop every glyph hole gets.
 inline constexpr Paint kPaper{.red = 0x00, .green = 0x00, .blue = 0x00};
 
-/**
- * @brief         Compose one 32-bit pixel from a channel layout and a
- *                paint, truncating each channel to its mask width.
- *
- * @param[in]     layout   The framebuffer's color field facts.
- * @param[in]     paint    The color to lay down.
- * @return        The pixel as the display expects it.
- * @since         0.1.0
- * @ingroup       kernel_driver
- */
-constexpr uint32_t ComposePixel(const cinux::boot::FramebufferInfo& layout, Paint paint) {
-    uint32_t const kRed   = static_cast<uint32_t>(paint.red) >> (8U - layout.red_size);
-    uint32_t const kGreen = static_cast<uint32_t>(paint.green) >> (8U - layout.green_size);
-    uint32_t const kBlue  = static_cast<uint32_t>(paint.blue) >> (8U - layout.blue_size);
-    return (kRed << layout.red_shift) | (kGreen << layout.green_shift) |
-           (kBlue << layout.blue_shift);
-}
-
-/**
- * @brief         Byte offset of one pixel in a 32bpp linear framebuffer.
- *
- * @param[in]     pitch    Row stride in bytes; width times four, rounded
- *                         by the hardware.
- * @param[in]     column   Pixel column, zero at the left edge.
- * @param[in]     row      Pixel row, zero at the top edge.
- * @return        Byte offset from the framebuffer base.
- * @warning       Undefined past the edges; callers own the bounds.
- * @since         0.1.0
- * @ingroup       kernel_driver
- */
-constexpr uint64_t PixelByteOffset(uint32_t pitch, uint32_t column, uint32_t row) {
-    return (static_cast<uint64_t>(row) * pitch) + (static_cast<uint64_t>(column) * 4U);
-}
-
 /// The mapped linear framebuffer as a singleton device.
 class Framebuffer : public cinux::base::Singleton<Framebuffer> {
     friend class cinux::base::Singleton<Framebuffer>;
@@ -130,6 +96,27 @@ public:
     void put_pixel(uint32_t column, uint32_t row, bool lit);
 
     /**
+     * @brief         The boot-reported layout this device adopted.
+     *
+     * @return        The geometry record, valid for the boot's life.
+     * @note          The frame's own facts, not the console grammar's:
+     *                physical base, pitch, and the channel masks the
+     *                compose math already reads.
+     * @since         0.9.0
+     * @ingroup       kernel_driver
+     */
+    [[nodiscard]] const cinux::boot::FramebufferInfo& layout() const;
+
+    /**
+     * @brief         Bytes of pixel memory the device owns.
+     *
+     * @return        Pitch times height, the mode's whole extent.
+     * @since         0.9.0
+     * @ingroup       kernel_driver
+     */
+    [[nodiscard]] unsigned long frame_bytes() const;
+
+    /**
      * @brief         Flood the whole surface with the paper color.
      *
      * @return        None
@@ -154,13 +141,14 @@ private:
 
     volatile uint32_t* address_of(uint32_t column, uint32_t row);
 
-    volatile uint32_t* base_        = nullptr;
-    uint32_t           pitch_       = 0;
-    uint32_t           pitch_words_ = 0;
-    uint32_t           width_       = 0;
-    uint32_t           height_      = 0;
-    uint32_t           ink_         = 0;
-    uint32_t           paper_       = 0;
+    volatile uint32_t*           base_ = nullptr;
+    cinux::boot::FramebufferInfo layout_{};
+    uint32_t                     pitch_       = 0;
+    uint32_t                     pitch_words_ = 0;
+    uint32_t                     width_       = 0;
+    uint32_t                     height_      = 0;
+    uint32_t                     ink_         = 0;
+    uint32_t                     paper_       = 0;
 };
 
 }  // namespace cinux::driver

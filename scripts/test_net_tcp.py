@@ -11,8 +11,12 @@ import pathlib
 import re
 import socket
 import subprocess
+import sys
 import tempfile
 import time
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "mcp"))
+from qemu_args import qemu_command
 
 
 def main():
@@ -21,6 +25,7 @@ def main():
     parser.add_argument("--build-dir", type=pathlib.Path, default=root / "build")
     parser.add_argument("--accel", choices=("kvm", "tcg"), default="kvm")
     parser.add_argument("--timeout", type=float, default=60)
+    parser.add_argument("--log-dir", type=pathlib.Path)
     args = parser.parse_args()
     build = args.build_dir.resolve()
     image = build / "boot/cinux.img"
@@ -35,7 +40,8 @@ def main():
     options[options.index("-accel") + 1] = args.accel
     options[options.index("-cpu") + 1] = "host" if args.accel == "kvm" else "max"
     options[options.index("-smp") + 1] = "2"
-    work = pathlib.Path(tempfile.mkdtemp(prefix="cinux-tcp-"))
+    work = args.log_dir.resolve() if args.log_dir else pathlib.Path(tempfile.mkdtemp(prefix="cinux-tcp-"))
+    work.mkdir(parents=True, exist_ok=True)
     print(f"Logs: {work}", flush=True)
     print(f"kernel.bin: {len(kernel)} bytes, sha256 {hashlib.sha256(kernel).hexdigest()}",
           flush=True)
@@ -81,7 +87,7 @@ def main():
 
         try:
             vm = subprocess.Popen([
-                "qemu-system-x86_64", *options, "-snapshot",
+                *qemu_command(image), *options, "-snapshot",
                 "-drive", f"format=raw,file={image}",
                 "-serial", f"unix:{serial},server=on,wait=off",
                 "-gdb", f"unix:{work / 'gdb.sock'},server=on,wait=off",

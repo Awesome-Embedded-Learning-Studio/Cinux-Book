@@ -85,6 +85,9 @@ public:
         device_.adopt(device);
     }
 
+    /** @brief Releases the idle queue's lock identity. */
+    ~BlockQueue();
+
     /**
      * @brief         Reads blocks through the queue.
      *

@@ -147,35 +147,49 @@ concept FileSystem = requires(Fs& backend, std::string_view path, std::string_vi
  */
 struct FsOps {
     /// Finds a node by mount-relative path.
-    base::Result<FsNode> (*lookup)(void* self, std::string_view path)                  = nullptr;
+    base::Result<FsNode> (*lookup)(void* self, std::string_view path)                    = nullptr;
     /// Creates a file at a mount-relative path.
-    base::Result<FsNode> (*make_file)(void* self, std::string_view path)               = nullptr;
+    base::Result<FsNode> (*make_file)(void* self, std::string_view path)                 = nullptr;
     /// Creates a directory at a mount-relative path.
-    base::Result<FsNode> (*make_dir)(void* self, std::string_view path)                = nullptr;
+    base::Result<FsNode> (*make_dir)(void* self, std::string_view path)                  = nullptr;
     /// Removes a file or an empty directory.
-    base::Result<void> (*unlink)(void* self, std::string_view path)                    = nullptr;
+    base::Result<void> (*unlink)(void* self, std::string_view path)                      = nullptr;
     /// Reads up to count bytes at offset into sink.
     base::Result<unsigned long> (*read)(void* self, FsNode node, unsigned long offset, void* sink,
-                                        unsigned long count)                           = nullptr;
+                                        unsigned long count)                             = nullptr;
     /// Writes count bytes from source at offset, growing as needed.
     base::Result<unsigned long> (*write)(void* self, FsNode node, unsigned long offset,
-                                         const void* source, unsigned long count)      = nullptr;
+                                         const void* source, unsigned long count)        = nullptr;
     /// Fills entry with the index-th child; false means index is past the end.
     base::Result<bool> (*read_dir)(void* self, FsNode node, unsigned long index,
-                                   FsDirent& entry)                                    = nullptr;
+                                   FsDirent& entry)                                      = nullptr;
     /// Fills probed with the node's metadata.
-    base::Result<void> (*stat)(void* self, FsNode node, FsStat& probed)                = nullptr;
+    base::Result<void> (*stat)(void* self, FsNode node, FsStat& probed)                  = nullptr;
     /// Pins a borrowed node for an open descriptor.
-    void (*retain)(void* self, FsNode node)                                            = nullptr;
+    void (*retain)(void* self, FsNode node)                                              = nullptr;
     /// Drops a descriptor's pin, reclaiming an unlinked node at the last release.
-    void (*release)(void* self, FsNode node)                                           = nullptr;
+    void (*release)(void* self, FsNode node)                                             = nullptr;
     /// Whether a reader would make progress on this node right now.
-    bool (*readable)(void* self, FsNode node)                                          = nullptr;
+    bool (*readable)(void* self, FsNode node)                                            = nullptr;
     /// One device question, answered with zero or a negative errno.
     long long (*ioctl)(void* self, FsNode node, unsigned long long word,
-                       unsigned long long argument)                                    = nullptr;
-    /// Replaces a node at open time, for backends whose open seats a fresh device.
-    base::Result<FsNode> (*adopt_open)(void* self, FsNode node, std::string_view path) = nullptr;
+                       unsigned long long argument)                                      = nullptr;
+    /// Returns one retained node at open time; the caller must release this temporary hold.
+    base::Result<FsNode> (*adopt_open)(void* self, FsNode node, std::string_view path)   = nullptr;
+    /**
+     * @brief         Resolves a relative path against one held directory node.
+     * @param[in]     self Backend instance, the same one the anchor came from.
+     * @param[in]     base The directory node an open descriptor holds.
+     * @param[in]     rest Path relative to that node, no leading slash.
+     * @return        The node the backend itself anchors the name to.
+     * @note          The walk answers from the held node's identity, so a
+     *                renamed, recreated, or rebound directory keeps its
+     *                original meaning; backends without drift may leave
+     *                this absent and let callers fold strings instead.
+     */
+    base::Result<FsNode> (*lookup_at)(void* self, FsNode base, std::string_view rest)    = nullptr;
+    /// Creates one file directly under the held directory node.
+    base::Result<FsNode> (*make_file_at)(void* self, FsNode base, std::string_view name) = nullptr;
     /**
      * @brief Atomically appends bytes and returns the resulting cursor.
      * @param[in] self Backend instance.
@@ -186,14 +200,43 @@ struct FsOps {
      * @return Bytes written, or a backend error.
      */
     base::Result<unsigned long> (*append)(void* self, FsNode node, unsigned long& offset,
-                                          const void* source, unsigned long count)     = nullptr;
+                                          const void* source, unsigned long count)       = nullptr;
     /**
      * @brief Removes all bytes from a regular file.
      * @param[in] self Backend instance.
      * @param[in] node Open node.
      * @return Success or a backend error.
      */
-    base::Result<void> (*truncate)(void* self, FsNode node)                            = nullptr;
+    base::Result<void> (*truncate)(void* self, FsNode node)                              = nullptr;
+    /**
+     * @brief         Names the physical page one mapping offset shows.
+     * @param[in]     self Backend instance.
+     * @param[in]     node The node being mapped.
+     * @param[in]     offset Mapping offset, page-aligned.
+     * @return        The physical frame the page presents, or kNotSupported
+     *                when this backend mints no device mappings and
+     *                kInvalidArgument when the offset stands outside the
+     *                device's memory.
+     * @note          The mmap door for memory devices: a shared mapping of
+     *                a node whose backend answers here faults straight to
+     *                hardware frames, no RAM copy in between. Null for
+     *                every byte-bearing backend.
+     * @since         0.9.0
+     * @ingroup       kernel_fs
+     */
+    base::Result<unsigned long> (*frame_at)(void* self, FsNode node,
+                                            unsigned long long offset)                   = nullptr;
+    base::Result<void> (*rename)(void* self, std::string_view source,
+                                 std::string_view target)                                = nullptr;
+    base::Result<void> (*chmod)(void* self, FsNode node, unsigned int mode)              = nullptr;
+    base::Result<unsigned long> (*try_read)(void* self, FsNode node, unsigned long offset,
+                                            void* sink, unsigned long count)             = nullptr;
+    base::Result<unsigned long> (*try_write)(void* self, FsNode node, unsigned long offset,
+                                             const void* source, unsigned long count)    = nullptr;
+    /// Resolve and return a retained node; atomic with unlink for mutable backends.
+    base::Result<FsNode> (*lookup_held)(void* self, std::string_view path)               = nullptr;
+    /// Create and return a retained node; atomic with unlink for mutable backends.
+    base::Result<FsNode> (*make_file_held)(void* self, std::string_view path)            = nullptr;
 };
 
 /**
@@ -208,7 +251,7 @@ struct FsOps {
  */
 template <FileSystem Fs>
 [[nodiscard]] constexpr FsOps EraseFs() {
-    return {
+    FsOps ops{
         [](void* self, std::string_view path) { return static_cast<Fs*>(self)->lookup(path); },
         [](void* self, std::string_view path) { return static_cast<Fs*>(self)->make_file(path); },
         [](void* self, std::string_view path) { return static_cast<Fs*>(self)->make_dir(path); },
@@ -234,22 +277,79 @@ template <FileSystem Fs>
         [](void* self, FsNode node, std::string_view path) {
             return static_cast<Fs*>(self)->adopt_open(node, path);
         },
-        [](void* self, FsNode node, unsigned long& offset, const void* source,
-           unsigned long count) -> base::Result<unsigned long> {
-            if constexpr (requires(Fs& backend) { backend.append(node, offset, source, count); }) {
-                return static_cast<Fs*>(self)->append(node, offset, source, count);
-            } else {
-                return base::KernelError::kNotSupported;
-            }
-        },
-        [](void* self, FsNode node) -> base::Result<void> {
-            if constexpr (requires(Fs& backend) { backend.truncate(node); }) {
-                return static_cast<Fs*>(self)->truncate(node);
-            } else {
-                return base::KernelError::kNotSupported;
-            }
-        },
     };
+    if constexpr (requires(Fs& backend, FsNode base, std::string_view rest) {
+                      backend.lookup_at(base, rest);
+                  }) {
+        ops.lookup_at = [](void* self, FsNode base, std::string_view rest) {
+            return static_cast<Fs*>(self)->lookup_at(base, rest);
+        };
+    }
+    if constexpr (requires(Fs& backend, FsNode base, std::string_view name) {
+                      backend.make_file_at(base, name);
+                  }) {
+        ops.make_file_at = [](void* self, FsNode base, std::string_view name) {
+            return static_cast<Fs*>(self)->make_file_at(base, name);
+        };
+    }
+    if constexpr (requires(Fs& backend, FsNode node, unsigned long offset, const void* source,
+                           unsigned long count) { backend.append(node, offset, source, count); }) {
+        ops.append = [](void* self, FsNode node, unsigned long& offset, const void* source,
+                        unsigned long count) {
+            return static_cast<Fs*>(self)->append(node, offset, source, count);
+        };
+    }
+    if constexpr (requires(Fs& backend, FsNode node) { backend.truncate(node); }) {
+        ops.truncate = [](void* self, FsNode node) {
+            return static_cast<Fs*>(self)->truncate(node);
+        };
+    }
+    if constexpr (requires(Fs& backend, FsNode node, unsigned long long offset) {
+                      backend.frame_at(node, offset);
+                  }) {
+        ops.frame_at = [](void* self, FsNode node, unsigned long long offset) {
+            return static_cast<Fs*>(self)->frame_at(node, offset);
+        };
+    }
+    if constexpr (requires(Fs& backend, std::string_view source, std::string_view target) {
+                      backend.rename(source, target);
+                  }) {
+        ops.rename = [](void* self, std::string_view source, std::string_view target) {
+            return static_cast<Fs*>(self)->rename(source, target);
+        };
+    }
+    if constexpr (requires(Fs& backend, FsNode node, unsigned int mode) {
+                      backend.chmod(node, mode);
+                  }) {
+        ops.chmod = [](void* self, FsNode node, unsigned int mode) {
+            return static_cast<Fs*>(self)->chmod(node, mode);
+        };
+    }
+    ops.lookup_held = [](void* self, std::string_view path) -> base::Result<FsNode> {
+        auto& backend = *static_cast<Fs*>(self);
+        if constexpr (requires { backend.lookup_held(path); }) {
+            return backend.lookup_held(path);
+        } else {
+            auto node = backend.lookup(path);
+            if (node.ok()) {
+                backend.retain(node.value());
+            }
+            return node;
+        }
+    };
+    ops.make_file_held = [](void* self, std::string_view path) -> base::Result<FsNode> {
+        auto& backend = *static_cast<Fs*>(self);
+        if constexpr (requires { backend.make_file_held(path); }) {
+            return backend.make_file_held(path);
+        } else {
+            auto node = backend.make_file(path);
+            if (node.ok()) {
+                backend.retain(node.value());
+            }
+            return node;
+        }
+    };
+    return ops;
 }
 
 /**

@@ -9,6 +9,7 @@ mkdir -p "$logs"
 run_segment() {
     local name="$1"
     shift
+    echo "[acceptance] RUN ${name}"
     echo "RUNNING" >"${logs}/${name}.status"
     if ! "$@" >"${logs}/${name}.log" 2>&1; then
         echo "FAILED" >"${logs}/${name}.status"
@@ -19,34 +20,15 @@ run_segment() {
 
 failed=0
 
-run_segment default bash -e -c '
-    cmake -S . -B build -DCINUX_HOST_ASAN=OFF -DCINUX_HOST_TSAN=OFF \
-        -DCINUX_LOCKDEP=OFF -DCINUX_UBSAN=OFF
-    cmake --build build --parallel '"${check_jobs}"' --target test_host test_kernel boot_image
-' || failed=1
+export CINUX_CHECK_JOBS="$check_jobs"
+run_segment default bash scripts/checks/run-cell.sh kernel Release none build || failed=1
+run_segment asan bash scripts/checks/run-cell.sh host Release asan build-asan || failed=1
+run_segment tsan bash scripts/checks/run-cell.sh host Release tsan build-tsan || failed=1
+run_segment checks bash scripts/checks/run-cell.sh kernel Release checks build-checks || failed=1
+run_segment ecosystem bash scripts/checks/run-cell.sh ecosystem Release none build || failed=1
+run_segment ecosystem-checks bash scripts/checks/run-cell.sh ecosystem Release checks build-checks || failed=1
 
-run_segment asan bash -e -c '
-    cmake -S . -B build-asan -DCINUX_HOST_ASAN=ON -DCINUX_HOST_TSAN=OFF \
-        -DCINUX_LOCKDEP=ON -DCINUX_UBSAN=OFF
-    ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
-    UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
-        cmake --build build-asan --parallel '"${check_jobs}"' --target test_host
-' || failed=1
-
-run_segment tsan bash -e -c '
-    cmake -S . -B build-tsan -DCINUX_HOST_TSAN=ON -DCINUX_HOST_ASAN=OFF \
-        -DCINUX_LOCKDEP=ON -DCINUX_UBSAN=OFF
-    TSAN_OPTIONS=halt_on_error=1 \
-        cmake --build build-tsan --parallel '"${check_jobs}"' --target test_host
-' || failed=1
-
-run_segment checks bash -e -c '
-    cmake -S . -B build-checks -DCINUX_UBSAN=ON -DCINUX_LOCKDEP=ON \
-        -DCINUX_HOST_ASAN=OFF -DCINUX_HOST_TSAN=OFF
-    cmake --build build-checks --parallel '"${check_jobs}"' --target test_host test_kernel boot_image
-' || failed=1
-
-for name in default asan tsan checks; do
+for name in default asan tsan checks ecosystem ecosystem-checks; do
     status="$(cat "${logs}/${name}.status" 2>/dev/null || echo FAILED)"
     if [[ "${status}" != "OK" ]]; then
         echo "[acceptance] ${name}: FAILED — full log follows"
@@ -65,4 +47,4 @@ if [[ -z "${CINUX_CHECK_LOG_DIR:-}" ]]; then
 else
     echo "[acceptance] logs kept in ${logs}"
 fi
-echo "[acceptance] verdict: all four trees green"
+echo "[acceptance] verdict: four trees and both ecosystem cells green"

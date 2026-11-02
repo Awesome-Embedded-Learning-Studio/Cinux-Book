@@ -1,3 +1,4 @@
+#include "cinux/addr.hpp"
 #include "cinux/literal_types.hpp"
 #include "cinux/ptr.hpp"
 #include "cinux/result.hpp"
@@ -9,6 +10,7 @@
 #include "kernel/fs/vfs.hpp"
 #include "kernel/mm/address_space.hpp"
 #include "kernel/mm/demand.hpp"
+#include "kernel/mm/hardware_frames.hpp"
 #include "kernel/mm/layout.hpp"
 #include "kernel/mm/page_walk.hpp"
 #include "kernel/mm/pmm.hpp"
@@ -317,6 +319,95 @@ TEST("demand: faults nobody promised are declined, kernel-side included") {
     ASSERT_TRUE(!cinux::mm::demand::FillPage(space, kEmptyStore, kOutside,
                                              kUserWrite | cinux::arch::isr::kFaultProtection));
     ASSERT_TRUE(!cinux::mm::demand::FillPage(space, kEmptyStore, 0x100000000000ULL, kUserWrite));
+    space.teardown();
+}
+
+
+/// The fake memory device: one reserved hardware frame behind one page.
+unsigned long g_device_frame = 0;
+
+cinux::base::Result<unsigned long> fake_frame_at(void* /*self*/, cinux::fs::FsNode /*node*/,
+                                                 unsigned long long offset) {
+    if (offset >= cinux::arch::page::kSize) {
+        return cinux::base::KernelError::kInvalidArgument;
+    }
+    return g_device_frame;
+}
+
+const cinux::fs::FsOps kDeviceOps{
+    .frame_at = fake_frame_at,
+};
+
+TEST("demand: a device fault maps the named hardware frame") {
+    auto&                       ledger  = cinux::mm::Pmm::self();
+    const unsigned long         kBefore = ledger.free_page_count();
+    const cinux::base::PhysAddr kFrame  = ledger.allocate_page();
+    ASSERT_TRUE(kFrame != cinux::base::PhysAddr{});
+    ASSERT_TRUE(cinux::mm::ReserveHardwarePages(kFrame.raw, 1));
+    g_device_frame = kFrame.raw;
+    auto* const kMarker =
+        cinux::base::PtrAt<unsigned long long>(cinux::mm::DirectMapVirt(kFrame.raw));
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.FixedAddressDereference)
+    *kMarker = 0x484172444547414DULL;
+    cinux::mm::AddressSpace space;
+    ASSERT_TRUE(space.init());
+    cinux::mm::VmaStore store;
+    const unsigned long kSpot = cinux::mm::kUserNullTop + 320_KiB;
+    const RegionPlan    kPlan{
+        .start     = kSpot,
+        .bytes     = cinux::arch::page::kSize,
+        .writable  = true,
+        .kind      = cinux::mm::VmaKind::kDevice,
+        .backing   = cinux::fs::FsNode{},
+        .file_ops  = &kDeviceOps,
+        .file_self = nullptr,
+    };
+    ASSERT_TRUE(store.register_range(make_region(kPlan)).ok());
+    ASSERT_TRUE(cinux::mm::demand::FillPage(space, store, kSpot, kUserWrite));
+    ASSERT_EQ(space.translate(kSpot), kFrame.raw);
+    space.teardown();
+    ASSERT_EQ(ledger.free_page_count(), kBefore - 1);
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.FixedAddressDereference)
+    *kMarker       = 0;
+    g_device_frame = 0;
+}
+
+TEST("demand: a device offset outside the span declines") {
+    cinux::mm::AddressSpace space;
+    ASSERT_TRUE(space.init());
+    cinux::mm::VmaStore         store;
+    const cinux::base::PhysAddr kFrame = cinux::mm::Pmm::self().allocate_page();
+    ASSERT_TRUE(kFrame != cinux::base::PhysAddr{});
+    g_device_frame            = kFrame.raw;
+    const unsigned long kSpot = cinux::mm::kUserNullTop + 320_KiB;
+    const RegionPlan    kPlan{
+        .start    = kSpot,
+        .bytes    = 4 * cinux::arch::page::kSize,
+        .writable = true,
+        .kind     = cinux::mm::VmaKind::kDevice,
+        .file_ops = &kDeviceOps,
+    };
+    ASSERT_TRUE(store.register_range(make_region(kPlan)).ok());
+    ASSERT_TRUE(cinux::mm::demand::FillPage(space, store, kSpot, kUserWrite));
+    ASSERT_TRUE(!cinux::mm::demand::FillPage(space, store, kSpot + (2 * cinux::arch::page::kSize),
+                                             kUserWrite));
+    space.teardown();
+    g_device_frame = 0;
+}
+
+TEST("demand: a device promise without a frame face declines") {
+    cinux::mm::AddressSpace space;
+    ASSERT_TRUE(space.init());
+    cinux::mm::VmaStore store;
+    const unsigned long kSpot = cinux::mm::kUserNullTop + 320_KiB;
+    const RegionPlan    kPlan{
+        .start    = kSpot,
+        .bytes    = cinux::arch::page::kSize,
+        .writable = true,
+        .kind     = cinux::mm::VmaKind::kDevice,
+    };
+    ASSERT_TRUE(store.register_range(make_region(kPlan)).ok());
+    ASSERT_TRUE(!cinux::mm::demand::FillPage(space, store, kSpot, kUserWrite));
     space.teardown();
 }
 

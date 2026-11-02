@@ -66,7 +66,7 @@ add_custom_target(stage2_size_check ALL
 )
 
 function(add_cinux_image name image_file kernel_bin kernel_dep)
-    add_custom_target(${name} ALL
+    add_custom_target(${name}
         COMMAND ${CMAKE_COMMAND} -E remove ${image_file}
         COMMAND dd if=/dev/zero of=${image_file} bs=1M count=1 status=none
         COMMAND dd if=${CMAKE_BINARY_DIR}/boot/mbr.bin
@@ -92,29 +92,5 @@ foreach(entry IN LISTS CINUX_KTESTS CINUX_KTESTS_INTEGRATION)
         cinux_ktest_${ktest}_bin)
 endforeach()
 
-add_custom_target(run
-    COMMAND ${CINUX_QEMU_PROGRAM} ${CINUX_QEMU_DEVICE_ARGS}
-            -drive format=raw,file=${CMAKE_CURRENT_BINARY_DIR}/cinux.img
-            -serial stdio
-    DEPENDS boot_image ext2_img
-)
 
-add_custom_target(run_debug
-    COMMAND ${CMAKE_COMMAND} -E echo
-            "gdb stub on :1234, machine frozen at reset; attach with: gdb -q -x ${CMAKE_BINARY_DIR}/kernel.gdb"
-    COMMAND ${CINUX_QEMU_PROGRAM} ${CINUX_QEMU_DEVICE_ARGS}
-            -drive format=raw,file=${CMAKE_CURRENT_BINARY_DIR}/cinux.img
-            -serial stdio -S -s
-    DEPENDS boot_image ext2_img
-)
-
-set(CINUX_QEMU_GUI_ARGS ${CINUX_QEMU_DEVICE_ARGS})
-list(REMOVE_ITEM CINUX_QEMU_GUI_ARGS -display)
-list(REMOVE_ITEM CINUX_QEMU_GUI_ARGS none)
-
-add_custom_target(run_gui
-    COMMAND ${CINUX_QEMU_PROGRAM} ${CINUX_QEMU_GUI_ARGS}
-            -drive format=raw,file=${CMAKE_CURRENT_BINARY_DIR}/cinux.img
-            -serial stdio
-    DEPENDS boot_image ext2_img
-)
+add_custom_target(cinux_image ALL DEPENDS boot_image)

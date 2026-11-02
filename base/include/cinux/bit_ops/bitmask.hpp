@@ -98,7 +98,8 @@ struct BitMask {
      * @ingroup       base_bit_ops
      */
     [[nodiscard]] constexpr T extract(BitRange range) const {
-        return static_cast<T>((raw >> range.low) & field_mask(range.width));
+        const unsigned long long kWide = static_cast<unsigned long long>(raw) >> range.low;
+        return static_cast<T>(kWide & static_cast<unsigned long long>(field_mask(range.width)));
     }
 
     /**
@@ -113,8 +114,11 @@ struct BitMask {
      * @ingroup       base_bit_ops
      */
     constexpr void deposit(BitRange range, T value) {
-        T const kPlaced = static_cast<T>(field_mask(range.width) << range.low);
-        raw             = static_cast<T>((raw & ~kPlaced) | ((value << range.low) & kPlaced));
+        const auto kPlaced = static_cast<unsigned long long>(field_mask(range.width)) << range.low;
+        const auto kWide   = static_cast<unsigned long long>(raw);
+        const auto kBody =
+            (kWide & ~kPlaced) | ((static_cast<unsigned long long>(value) << range.low) & kPlaced);
+        raw = static_cast<T>(kBody);
     }
 
 private:
@@ -127,6 +131,9 @@ private:
      * @ingroup       base_bit_ops
      */
     static constexpr T field_mask(unsigned char width) {
+        if (width >= sizeof(T) * 8U) {
+            return static_cast<T>(~T{0});
+        }
         return static_cast<T>((T{1} << width) - T{1});
     }
 };

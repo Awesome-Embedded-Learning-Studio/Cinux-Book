@@ -19,7 +19,10 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "cinux/ref_count.hpp"
+#include "kernel/fs/fs_config.hpp"
 #include "kernel/fs/vfs.hpp"
 
 namespace cinux::fs {
@@ -54,8 +57,15 @@ struct OpenFile : base::RefCount<> {
     unsigned long            status_flags = 0;
     base::Shared<MountLease> lifetime{nullptr};  ///< Keeps a detached runtime backend alive.
 
+
+    /// Final-close observer, installed atomically by readiness registries.
+    std::atomic<void (*)(const OpenFile*)> on_last_close{nullptr};
+
     /// Drops the node reference this open has carried since birth.
     ~OpenFile() {
+        if (const auto kNotify = on_last_close.load(); kNotify != nullptr) {
+            kNotify(this);
+        }
         if (ops != nullptr) {
             ops->release(backend, node);
         }

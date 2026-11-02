@@ -100,6 +100,9 @@ using DeviceHasInput = bool (*)(void* context);
 using DeviceIoctl = long long (*)(void* context, unsigned long long word,
                                   unsigned long long argument);
 
+/// Names the physical page one mapping offset shows, or a refusal.
+using DeviceMapFrame = base::Result<unsigned long> (*)(void* context, unsigned long long offset);
+
 /**
  * @brief   The faces one device offers behind its name.
  * @note    The two directions are required; a device that cannot answer
@@ -118,11 +121,16 @@ struct DeviceOps {
     DeviceWrite    write           = nullptr;  ///< Pushes bytes into the device.
     DeviceHasInput has_input       = nullptr;  ///< Optional: can a reader progress now.
     DeviceIoctl    ioctl           = nullptr;  ///< Optional: answer one device question.
+    /// Optional: the physical frame behind one mapping offset, for memory
+    /// devices mmap faults into user worlds.
+    DeviceMapFrame map_frame       = nullptr;
     /// Optional: one open description has lost its last descriptor.
     void (*release)(void* context) = nullptr;
     void* context                  = nullptr;  ///< The word every seat receives back.
     /// Optional: one independent open description now holds this device.
     void (*retain)(void* context)  = nullptr;
+    /// Optional: mint one retained per-open device node from this binding.
+    base::Result<FsNode> (*open)(void* context, FsNode node) = nullptr;
 };
 
 /**
@@ -370,6 +378,21 @@ public:
      * @ingroup kernel_fs
      */
     [[nodiscard]] const DeviceOps* ops_of(FsNode node) const;
+
+    /**
+     * @brief         Names the physical frame behind one mapping offset.
+     *
+     * @param[in]     node    Handle from lookup.
+     * @param[in]     offset  Mapping offset, page-aligned.
+     * @return        The frame a shared mapping of this device presents,
+     *                or kNotSupported when the seated device keeps no
+     *                mapping seat and kInvalidArgument when the offset
+     *                stands outside its memory.
+     * @since         0.9.0
+     * @ingroup       kernel_fs
+     */
+    [[nodiscard]] base::Result<unsigned long> frame_at(FsNode             node,
+                                                       unsigned long long offset) const;
 
 private:
     /**

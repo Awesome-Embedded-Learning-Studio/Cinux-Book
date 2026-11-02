@@ -11,17 +11,16 @@
 #include "kernel/proc/task.hpp"
 #include "kernel/syscall/signal.hpp"
 #include "kernel/syscall/sys_clock.hpp"
+#include "kernel/syscall/sys_eventfd.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
 #include "kernel/syscall/uaccess.hpp"
+#include "kernel/syscall/wait_time.hpp"
 
 namespace cinux::syscall {
 
 namespace {
 
-constexpr unsigned int kPollIn   = 0x0001U;
-constexpr unsigned int kPollOut  = 0x0004U;
-constexpr unsigned int kPollHup  = 0x0010U;
 constexpr unsigned int kPollNval = 0x0020U;
 
 constexpr unsigned long kPollRecordBytes  = 8;
@@ -29,42 +28,9 @@ constexpr unsigned long kInterestOffset   = 4;
 constexpr unsigned long kAnswerOffset     = 6;
 constexpr unsigned long kPollRecordsLimit = 32;
 
-constexpr unsigned long long kNsPerSecond     = 1'000'000'000ULL;
-constexpr unsigned long long kTimespecBytes   = 16;
-constexpr unsigned long long kNegativeSeconds = 0x8000000000000000ULL;
-
 unsigned short readiness(unsigned int number, unsigned int events) {
-    const base::Result<base::Shared<fs::OpenFile>> kOpen = LiveSlot(number);
-    if (!kOpen.ok()) {
-        return static_cast<unsigned short>(kPollNval);
-    }
-    const fs::OpenFile* const kFile = kOpen.value().get();
-    if (kFile->ops == net::SocketOps()) {
-        return static_cast<net::Socket*>(kFile->backend)
-            ->poll_events(static_cast<unsigned short>(events));
-    }
-    if (kFile->ops != fs::PipeOps()) {
-        unsigned int answer = events & (kPollIn | kPollOut);
-        if ((answer & kPollIn) != 0U && !kFile->ops->readable(kFile->backend, kFile->node)) {
-            answer &= ~kPollIn;
-        }
-        return static_cast<unsigned short>(answer);
-    }
-    const auto* const kPipe = static_cast<fs::Pipe*>(kFile->backend);
-    if (kFile->node.opaque == nullptr) {
-        unsigned int answer = 0;
-        if ((events & kPollIn) != 0U && kPipe->has_bytes()) {
-            answer |= kPollIn;
-        }
-        if (kPipe->writers_gone()) {
-            answer |= kPollHup;
-        }
-        return static_cast<unsigned short>(answer);
-    }
-    if ((events & kPollOut) != 0U && kPipe->has_room()) {
-        return static_cast<unsigned short>(kPollOut);
-    }
-    return 0;
+    const auto kOpen = LiveSlot(number);
+    return kOpen.ok() ? PollOpen(kOpen.value().get(), events) : kPollNval;
 }
 
 /// Scans and rewrites the kernel-side copy of the caller's records;
@@ -90,43 +56,10 @@ unsigned long long scan_answers(unsigned char* base, unsigned long count) {
     return ready;
 }
 
-/**
- * @brief     Reads the caller's timeout record into an expiry deadline.
- *
- * @param[in] timeout_user   The user address of the timespec, maybe zero.
- * @param[out] deadline      The monotonic expiry; stays at the all-ones
- *                           word when the caller named no deadline.
- * @return    Zero when the deadline is settled, or a negative errno.
- * @note      A zero address means wait forever, so the deadline word
- *            stays all-ones and the loop below never sees time run
- *            out. The same answer covers a record so long the
- *            monotonic clock cannot count it: waiting past the clock's
- *            range is waiting forever to this kernel.
- */
-long long deadline_from(unsigned long long timeout_user, unsigned long long& deadline) {
-    if (timeout_user == 0) {
-        return 0;
-    }
-    unsigned long long record[2] = {};
-    if (!uaccess::CopyFromUser(record, timeout_user, kTimespecBytes)) {
-        return -kEfault;
-    }
-    if (record[0] >= kNegativeSeconds || record[1] >= kNsPerSecond) {
-        return -kEinval;
-    }
-    const unsigned long long kNow   = MonotonicNanoseconds();
-    const unsigned long long kSlack = ~0ULL - kNow;
-    if (record[1] > kSlack || record[0] > ((kSlack - record[1]) / kNsPerSecond)) {
-        return 0;
-    }
-    deadline = (kNow + (record[0] * kNsPerSecond)) + record[1];
-    return 0;
-}
-
 /// Puts the caller's own blocked set back after a masked wait.
 void restore_blocked(proc::Task* self, const SigSet& restore, bool armed) {
     if (armed) {
-        self->signals.blocked = restore;
+        proc::FinishSignalWait(*self, restore);
     }
 }
 
@@ -150,6 +83,39 @@ bool scatter_records(unsigned long long array, unsigned long count, const unsign
 
 }  // namespace
 
+unsigned short PollOpen(const fs::OpenFile* file, unsigned int events) {
+    unsigned short counter_ready = 0;
+    if (PollEventCounter(file, events, counter_ready)) {
+        return counter_ready;
+    }
+    if (file->ops == net::SocketOps()) {
+        return static_cast<net::Socket*>(file->backend)
+            ->poll_events(static_cast<unsigned short>(events));
+    }
+    if (file->ops != fs::PipeOps()) {
+        unsigned int answer = events & (kPollIn | kPollOut);
+        if ((answer & kPollIn) != 0U && !file->ops->readable(file->backend, file->node)) {
+            answer &= ~kPollIn;
+        }
+        return static_cast<unsigned short>(answer);
+    }
+    const auto* const kPipe = static_cast<fs::Pipe*>(file->backend);
+    if (file->node.opaque == nullptr) {
+        unsigned int answer = 0;
+        if ((events & kPollIn) != 0U && kPipe->has_bytes()) {
+            answer |= kPollIn;
+        }
+        if (kPipe->writers_gone()) {
+            answer |= kPollHup;
+        }
+        return static_cast<unsigned short>(answer);
+    }
+    if ((events & kPollOut) != 0U && kPipe->has_room()) {
+        return static_cast<unsigned short>(kPollOut);
+    }
+    return 0;
+}
+
 long long HandlePpoll(const SyscallFrame& frame) {
     if (frame.rsi > kPollRecordsLimit) {
         return -kEinval;
@@ -162,7 +128,7 @@ long long HandlePpoll(const SyscallFrame& frame) {
     }
 
     unsigned long long deadline = ~0ULL;
-    const long long    kParsed  = deadline_from(frame.rdx, deadline);
+    const long long    kParsed  = ReadWaitDeadline(frame.rdx, deadline);
     if (kParsed != 0) {
         return kParsed;
     }
@@ -175,7 +141,7 @@ long long HandlePpoll(const SyscallFrame& frame) {
         if (!uaccess::CopyFromUser(words, frame.r10, sizeof(SigSet))) {
             return -kEfault;
         }
-        kSelf->signals.blocked = SigSet{words[0]};
+        kSelf->signals.blocked = MaskableSignals(SigSet{words[0]});
         armed                  = true;
     }
 
@@ -215,16 +181,7 @@ long long HandlePoll(const SyscallFrame& frame) {
         return -kEfault;
     }
 
-    unsigned long long deadline = ~0ULL;
-    const auto         kMillis  = static_cast<long long>(static_cast<long>(frame.rdx));
-    if (kMillis >= 0) {
-        const unsigned long long kNow   = MonotonicNanoseconds();
-        const unsigned long long kSlack = ~0ULL - kNow;
-        const unsigned long long kWant  = static_cast<unsigned long long>(kMillis) * 1000000ULL;
-        if (kWant <= kSlack) {
-            deadline = kNow + kWant;
-        }
-    }
+    const unsigned long long kPollDeadline = MillisecondDeadline(static_cast<int>(frame.rdx));
 
     for (;;) {
         unsigned long long ready = 0;
@@ -234,7 +191,7 @@ long long HandlePoll(const SyscallFrame& frame) {
         const proc::Task* const kSelf   = CurrentTask();
         const bool              kDue    = ready != 0;
         const bool              kSignal = proc::HasPendingSignal(*kSelf);
-        const bool              kExpire = MonotonicNanoseconds() >= deadline;
+        const bool              kExpire = MonotonicNanoseconds() >= kPollDeadline;
         if (kDue || kSignal || kExpire) {
             if (!scatter_records(frame.rdi, kCount, slots)) {
                 return -kEfault;

@@ -268,6 +268,22 @@ long long make_local_socket(Word type, Word protocol, base::Shared<net::Socket>&
     return 0;
 }
 
+long long make_inet_dgram_socket(Word protocol, base::Shared<net::Socket>& socket) {
+    if (protocol == 0 || protocol == static_cast<Word>(net::kIpv4ProtocolUdp)) {
+        socket = base::Shared<net::Socket>{new net::UdpSocket(net::NetWorld::self().udp())};
+        return 0;
+    }
+    if (protocol != kIpProtoIcmp) {
+        return -kEprotonosupport;
+    }
+    auto* ping = new net::PingSocket(net::NetWorld::self().raw());
+    socket     = base::Shared<net::Socket>{ping};
+    if (ping == nullptr || !ping->seated()) {
+        return -kEnomem;
+    }
+    return 0;
+}
+
 }  // namespace
 
 long long HandleSocket(const SyscallFrame& frame) {
@@ -292,10 +308,10 @@ long long HandleSocket(const SyscallFrame& frame) {
         }
         socket = base::Shared<net::Socket>{new net::TcpSocket(net::NetWorld::self().tcp())};
     } else if (kPlainType == static_cast<Word>(net::kSockDgram)) {
-        if (kProtocol != 0 && kProtocol != static_cast<Word>(net::kIpv4ProtocolUdp)) {
-            return -kEprotonosupport;
+        const auto kMade = make_inet_dgram_socket(kProtocol, socket);
+        if (kMade != 0) {
+            return kMade;
         }
-        socket = base::Shared<net::Socket>{new net::UdpSocket(net::NetWorld::self().udp())};
     } else if (kPlainType == static_cast<Word>(net::kSockRaw)) {
         if (CurrentTask()->euid != 0) {
             return -kEperm;
@@ -479,6 +495,153 @@ long long HandleRecvfrom(const SyscallFrame& frame) {
     }
 }
 
+namespace {
+struct Message {
+    Word name;
+    uint32_t name_length;
+    uint32_t name_padding;
+    Word vectors;
+    Word vector_count;
+    Word control;
+    Word control_length;
+    uint32_t flags;
+    uint32_t flags_padding;
+};
+struct Vector { Word address; Word bytes; };
+struct ControlHeader { Word length; int level; int type; };
+static_assert(sizeof(Message) == 56);
+static_assert(sizeof(ControlHeader) == 16);
+constexpr Word kMaxVectors = 16;
+constexpr Word kMsgTrunc = 0x20;
+constexpr Word kMsgControlTrunc = 8;
+constexpr Word kMsgErrorQueue = 0x2000;
+
+long long read_message(Word address, Message& message, Vector* vectors, Word& capacity) {
+    if (!uaccess::CopyFromUser(&message, address, sizeof(message))) { return -kEfault; }
+    if (message.vector_count > kMaxVectors) { return -kEmsgsize; }
+    if (message.vector_count != 0 && !uaccess::CopyFromUser(
+            vectors, message.vectors, message.vector_count * sizeof(Vector))) { return -kEfault; }
+    capacity = 0;
+    for (Word index = 0; index < message.vector_count; ++index) {
+        if (vectors[index].bytes > (kUserAddressLimit - 1) - capacity) { return -kEinval; }
+        capacity += vectors[index].bytes;
+    }
+    return 0;
+}
+long long control_message(net::Socket& socket, Message& message, const net::SocketAddress& from) {
+    unsigned char bytes[64]{};
+    unsigned long used = 0;
+    auto append = [&](int level, int type, const void* value, unsigned long length) {
+        const ControlHeader header{sizeof(ControlHeader) + length, level, type};
+        const auto kPadded = (header.length + 7) & ~7ULL;
+        if (message.control == 0 || kPadded > message.control_length - used) {
+            message.flags |= kMsgControlTrunc;
+            return;
+        }
+        base::CopyBytes(bytes + used, &header, sizeof(header));
+        base::CopyBytes(bytes + used + sizeof(header), value, length);
+        used += kPadded;
+    };
+    if (socket.receive_timestamp.load()) {
+        const auto kStamp = from.received_ns != 0 ? from.received_ns : RealtimeNanoseconds();
+        const Word time[2]{kStamp / 1'000'000'000ULL, kStamp % 1'000'000'000ULL / 1000};
+        append(1, 29, time, sizeof(time));  // SCM_TIMESTAMP
+    }
+    if (socket.receive_ttl.load() && from.received_ttl != 0) {
+        const int kTtl = static_cast<int>(from.received_ttl);
+        append(0, 2, &kTtl, sizeof(kTtl));  // IP_TTL
+    }
+    message.control_length = used;
+    return used == 0 || uaccess::CopyToUser(message.control, bytes, used) ? 0 : -kEfault;
+}
+}
+
+long long HandleSendmsg(const SyscallFrame& frame) {
+    base::Shared<fs::OpenFile> held;
+    net::Socket* socket = nullptr;
+    const auto kFound = socket_of(frame.rdi, &socket, held);
+    if (kFound != 0) { return kFound; }
+    if ((frame.rdx & ~(kMsgDontwait | kMsgNosignal)) != 0) { return -kEopnotsupp; }
+    Message message{};
+    Vector vectors[kMaxVectors]{};
+    Word capacity = 0;
+    const auto kParsed = read_message(frame.rsi, message, vectors, capacity);
+    if (kParsed != 0) { return kParsed; }
+    if (message.control_length != 0) { return -kEopnotsupp; }
+    if (capacity > send_ceiling_of(socket->type())) { return -kEmsgsize; }
+    unsigned char payload[net::kMaxDatagramBytes]{};
+    unsigned long offset = 0;
+    for (Word index = 0; index < message.vector_count; ++index) {
+        const auto& part = vectors[index];
+        if (part.bytes != 0 && !uaccess::CopyFromUser(payload + offset, part.address, part.bytes)) {
+            return -kEfault;
+        }
+        offset += part.bytes;
+    }
+    net::SocketAddress target{};
+    if (message.name != 0) {
+        const auto kAddress = read_sockaddr(message.name, message.name_length, target);
+        if (kAddress != 0) { return kAddress; }
+        if (target.family != socket->family()) { return -kEafnosupport; }
+    } else if (!socket->report_peer(target).ok()) { return -kEdestaddrreq; }
+    return transmit_wait(*socket, *held,
+        {.source = payload, .count = capacity, .flags = frame.rdx, .destination = target});
+}
+
+long long HandleRecvmsg(const SyscallFrame& frame) {
+    base::Shared<fs::OpenFile> held;
+    net::Socket* socket = nullptr;
+    const auto kFound = socket_of(frame.rdi, &socket, held);
+    if (kFound != 0) { return kFound; }
+    if ((frame.rdx & ~(kMsgDontwait | kMsgTrunc | kMsgErrorQueue)) != 0) { return -kEopnotsupp; }
+    if ((frame.rdx & kMsgErrorQueue) != 0) { return -kEagain; }
+    Message message{};
+    Vector vectors[kMaxVectors]{};
+    Word capacity = 0;
+    const auto kParsed = read_message(frame.rsi, message, vectors, capacity);
+    if (kParsed != 0) { return kParsed; }
+    Word checked = 0;
+    for (Word index = 0; index < message.vector_count && checked < net::kMaxDatagramBytes; ++index) {
+        const auto kPart = std::min(vectors[index].bytes, net::kMaxDatagramBytes - checked);
+        if (kPart != 0 && !UserRangeWritable(vectors[index].address, kPart)) { return -kEfault; }
+        checked += kPart;
+    }
+    unsigned char payload[net::kMaxDatagramBytes]{};
+    for (;;) {
+        net::SocketAddress from{};
+        const auto kTaken = socket->receive(payload, std::min<Word>(capacity, net::kMaxDatagramBytes), &from);
+        if (!kTaken.ok()) {
+            if (kTaken.error() != base::KernelError::kWouldBlock) { return errno_of_socket(kTaken.error()); }
+            if ((frame.rdx & kMsgDontwait) != 0 || (held->status_flags & kOpenNonblock) != 0) {
+                return -kEagain;
+            }
+            if (signal_pending()) { return -kEintr; }
+            proc::Scheduler::self().yield();
+            continue;
+        }
+        unsigned long copied = 0;
+        for (Word index = 0; index < message.vector_count && copied < kTaken.value(); ++index) {
+            const auto kPart = std::min<Word>(vectors[index].bytes, kTaken.value() - copied);
+            if (kPart != 0 && !uaccess::CopyToUser(vectors[index].address, payload + copied, kPart)) {
+                return -kEfault;
+            }
+            copied += kPart;
+        }
+        message.flags = from.datagram_bytes > copied ? kMsgTrunc : 0;
+        if (message.name != 0) {
+            const auto kNamed = write_sockaddr(message.name, frame.rsi + offsetof(Message, name_length), from);
+            if (kNamed != 0) { return kNamed; }
+            message.name_length = from.family == net::kAfUnix ?
+                static_cast<uint32_t>(2 + from.name_bytes) : 16;
+        } else { message.name_length = 0; }
+        const auto kControl = control_message(*socket, message, from);
+        if (kControl != 0) { return kControl; }
+        if (!uaccess::CopyToUser(frame.rsi, &message, sizeof(message))) { return -kEfault; }
+        return static_cast<long long>((frame.rdx & kMsgTrunc) != 0 ?
+            std::max(from.datagram_bytes, copied) : copied);
+    }
+}
+
 long long HandleShutdown(const SyscallFrame& frame) {
     base::Shared<fs::OpenFile> held;
     net::Socket*               socket = nullptr;
@@ -614,6 +777,7 @@ long long HandleSetsockopt(const SyscallFrame& frame) {
     const auto kLevel = frame.rsi;
     const auto kName  = frame.rdx;
     if (kLevel == kSolSocket) {
+        if (kName == 29) { socket->receive_timestamp.store(value != 0); return 0; }
         if (kName == kSoReuseaddr || kName == kSoSndbuf || kName == kSoRcvbuf ||
             kName == kSoBroadcast) {
             return 0;
@@ -621,6 +785,10 @@ long long HandleSetsockopt(const SyscallFrame& frame) {
         return -kEnoprotoopt;
     }
     if (kLevel == kIpProtoIp && (kName == kIpTtl || kName == kIpMulticastTtl)) {
+        return 0;
+    }
+    if (kLevel == kIpProtoIp && kName == 12) {
+        socket->receive_ttl.store(value != 0);
         return 0;
     }
     return -kEnoprotoopt;

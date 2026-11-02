@@ -19,9 +19,11 @@ namespace cinux::syscall {
 /**
  * @brief         Waits for one of a set of signals, with a timeout.
  *
- * @return        Always -EAGAIN: the wait is answered try-again rather
- *                than parked, so a caller that loops on it keeps making
- *                progress instead of sleeping forever.
+ * @param[in]     frame Signal set, optional info and timeout, and set size.
+ * @return        Consumed signal number, -kEagain on timeout, -kEintr
+ *                for another unblocked signal, or an argument error.
+ * @note          Waits cooperatively without changing the blocked mask.
+ *                Signals coalesce; info supplies the signal number only.
  * @since         0.4.0
  * @ingroup       kernel_syscall
  */

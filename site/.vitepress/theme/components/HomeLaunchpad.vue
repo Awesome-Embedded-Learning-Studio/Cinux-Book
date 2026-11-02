@@ -7,23 +7,12 @@
  * 视觉重量差异本身就是信息：主入口占两倍宽，次入口是并列的窄条。
  */
 import { withBase } from 'vitepress'
-import stationTable from '../../stations.json'
 
 const secondary = [
   { title: '排错笔记', note: '真实内核故障的定位与收敛过程', href: '/debug-notes/' },
   { title: '参考手册', note: '寄存器、接口与边界速查', href: '/reference/' },
   { title: '开发流程', note: 'CI 矩阵与工程约定', href: '/ci/' },
 ]
-
-const stationCards = stationTable.stations
-  .filter((s: { slug?: string }) => s.slug)
-  .map((s: { id: string, slug: string, title: string, note: string, status: string }) => ({
-    id: s.id,
-    title: s.title,
-    note: s.note,
-    href: `/journey/${s.slug}/`,
-    latest: s.status === 'open',
-  }))
 </script>
 
 <template>
@@ -46,29 +35,6 @@ const stationCards = stationTable.stations
         </span>
         <span class="entry__item-note">{{ item.note }}</span>
       </a>
-    </div>
-
-    <div class="entry__journey">
-      <div class="entry__journey-head">
-        <span class="entry__tag">教程</span>
-        <span class="entry__count">已开放 {{ stationCards.length }} 站 · 沿真实开发史一站一站走</span>
-      </div>
-      <div class="entry__stations">
-        <a
-          v-for="station in stationCards"
-          :key="station.id"
-          class="entry__station"
-          :class="{ 'is-latest': station.latest }"
-          :href="withBase(station.href)"
-        >
-          <span class="entry__station-top">
-            <strong>{{ station.title }}</strong>
-            <span class="entry__station-id">{{ station.id }}</span>
-          </span>
-          <span class="entry__station-note">{{ station.note }}</span>
-          <span class="entry__go">{{ station.latest ? '最新一站' : '开始读' }}<i aria-hidden="true">→</i></span>
-        </a>
-      </div>
     </div>
   </section>
 </template>
@@ -183,74 +149,10 @@ const stationCards = stationTable.stations
   text-overflow: ellipsis;
 }
 
-.entry__journey {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 18px 26px 20px;
-  color: inherit;
-  background: var(--vp-c-bg-alt);
-  border: 1px solid var(--vp-c-divider);
-  border-radius: 14px;
-}
-.entry__journey-head {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-}
-.entry__stations {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-.entry__station {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px 16px;
-  color: inherit;
-  background: var(--vp-c-bg);
-  border: 1px solid var(--vp-c-divider);
-  border-radius: 10px;
-  text-decoration: none;
-  transition: border-color 0.18s ease, background 0.18s ease;
-}
-.entry__station:hover {
-  border-color: color-mix(in srgb, var(--vp-c-brand-1) 50%, var(--vp-c-divider));
-  background: var(--vp-c-bg-elv);
-}
-.entry__station-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-.entry__station-top strong {
-  color: var(--vp-c-text-1);
-  font-size: 14.5px;
-  font-weight: 650;
-}
-.entry__station-id {
-  color: var(--vp-c-text-3);
-  font: 700 10px/1 var(--vp-font-family-mono);
-}
-.entry__station-note {
-  color: var(--vp-c-text-3);
-  font-size: 12px;
-  line-height: 1.55;
-}
-.entry__station .entry__go { margin-top: auto; font-size: 12.5px; }
-.entry__station.is-latest {
-  border-color: color-mix(in srgb, var(--vp-c-brand-1) 35%, var(--vp-c-divider));
-}
-.entry__station:hover .entry__go i { transform: translateX(3px); }
-
 @media (max-width: 900px) {
   .entry { grid-template-columns: 1fr; padding-top: 48px; }
   .entry__side { grid-template-rows: none; grid-template-columns: repeat(3, 1fr); }
   .entry__item { gap: 6px; }
-  .entry__stations { grid-template-columns: 1fr; }
 }
 @media (max-width: 639px) {
   .entry { padding: 40px 18px 0; gap: 10px; }
@@ -258,6 +160,5 @@ const stationCards = stationTable.stations
   .entry__main strong { font-size: 22px; }
   .entry__side { grid-template-columns: 1fr; }
   .entry__item { padding: 14px 16px; }
-  .entry__journey { padding: 14px 14px 16px; }
 }
 </style>

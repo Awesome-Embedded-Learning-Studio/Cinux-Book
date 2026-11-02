@@ -32,3 +32,18 @@ void AssertionFailed(const char* k_message, std::source_location loc) {
 }
 
 }  // namespace cinux::base::safety
+
+extern "C" [[noreturn]] void GlibcxxAssertionFailed(const char* file, int line,
+                                                    const char* function,
+                                                    const char* condition) noexcept
+    __asm__("_ZSt21__glibcxx_assert_failPKciS0_S0_");  // Holy shit, I dont means of mock it :(,
+                                                       // TODO: using target compilers to generate
+                                                       // instead of hard encoding
+
+extern "C" [[noreturn]] void GlibcxxAssertionFailed(const char* file, int line,
+                                                    const char* function,
+                                                    const char* condition) noexcept {
+    cinux::print::Println("[panic] libstdc++ assertion: %s", condition);
+    cinux::print::Println("[kern] %s:%d in %s", file, line, function);
+    cinux::debug::PanicDump(reinterpret_cast<unsigned long long>(__builtin_frame_address(0)));
+}

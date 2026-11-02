@@ -59,7 +59,7 @@ inline CpuIdWords ReadCpuId(unsigned int leaf, unsigned int subleaf) {
     unsigned int stride   = subleaf;
     asm volatile("cpuid" : "+a"(selected), "+b"(answer.ebx), "+c"(stride), "+d"(answer.edx));
     answer.eax = selected;
-    static_cast<void>(stride);
+    answer.ecx = stride;
     return answer;
 }
 

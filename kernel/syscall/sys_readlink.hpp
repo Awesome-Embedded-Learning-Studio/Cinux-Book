@@ -31,4 +31,12 @@ namespace cinux::syscall {
  */
 long long HandleReadlink(const SyscallFrame& frame);
 
+/**
+ * @brief         Answer a link relative to an open directory or AT_FDCWD.
+ * @return        Bytes written, or a negative errno.
+ * @since         0.5.0
+ * @ingroup       kernel_syscall
+ */
+long long HandleReadlinkat(const SyscallFrame& frame);
+
 }  // namespace cinux::syscall

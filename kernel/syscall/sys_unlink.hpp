@@ -17,6 +17,12 @@
 namespace cinux::syscall {
 
 /**
+ * @brief Remove an empty directory.
+ * @return The result or a negative Linux errno.
+ */
+long long HandleRmdir(const SyscallFrame& frame);
+
+/**
  * @brief         Remove a file or an empty directory.
  *
  * @return        What ring 3 receives: a count, a code, or a negative

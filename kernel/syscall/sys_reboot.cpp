@@ -2,6 +2,7 @@
 
 #include "kernel/console/console.hpp"
 #include "kernel/driver/acpi/acpi.hpp"
+#include "kernel/fs/file_world.hpp"
 #include "kernel/syscall/syscall.hpp"
 #include "kernel/syscall/syscall_internal.hpp"
 
@@ -23,6 +24,9 @@ long long HandleReboot(const SyscallFrame& frame) {
     const auto* const kFadt = driver::acpi::FindFadt(driver::acpi::FindRootPointer());
     if (kFadt == nullptr) {
         return -kEnosys;
+    }
+    if (!fs::FileWorld::self().sync()) {
+        return -kEio;
     }
     console::Flush();
     driver::acpi::PowerOff(kFadt);

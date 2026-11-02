@@ -1,0 +1,54 @@
+name: Cinux self-host and persistence
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 19 * * 5'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: selfhost-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  selfhost:
+    name: ${{ matrix.suite }} (Release, ${{ matrix.checks }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [selfhost, native]
+        checks: [none, checks]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup-cinux
+        with:
+          kvm: 'true'
+          cache-key: ${{ matrix.suite }}-${{ matrix.checks }}
+      - name: Prepare tar-capable mke2fs for the native Buildroot volume
+        if: matrix.suite == 'native'
+        run: |
+          bash scripts/checks/setup-mke2fs.sh "$RUNNER_TEMP/cinux-e2fsprogs"
+          echo "$RUNNER_TEMP/cinux-e2fsprogs/sbin" >> "$GITHUB_PATH"
+      - name: Run existing complete self-build validation
+        env:
+          CINUX_CHECK_JOBS: '4'
+        run: bash scripts/checks/run-cell.sh ${{ matrix.suite }} Release ${{ matrix.checks }} build-ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.suite }}-${{ matrix.checks }}-logs
+          path: |
+            build-ci/*.log
+            build-ci/*.json
+            build-ci/native-gui/*.log
+            build-ci/native-gui/*.ppm
+            build-ci/persistence-*/*/*.log
+            build-ci/persistence-*/before.fsck.log
+            build-ci/CMakeCache.txt
+            build-ci/qemu-device-args.txt

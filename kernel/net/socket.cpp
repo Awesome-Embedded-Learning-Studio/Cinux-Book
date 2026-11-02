@@ -4,7 +4,10 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <cstdint>
 
+#include "cinux/byte_order.hpp"
+#include "cinux/checksum.hpp"
 #include "cinux/memory.hpp"
 #include "cinux/result.hpp"
 #include "cinux/shared.hpp"
@@ -16,6 +19,7 @@
 #include "kernel/net/udp.hpp"
 #include "kernel/proc/scheduler.hpp"
 #include "kernel/proc/sync.hpp"
+#include "kernel/syscall/sys_clock.hpp"
 
 namespace cinux::net {
 
@@ -207,6 +211,7 @@ void UdpSocket::take(void* context, const UdpDelivery& delivery) {
     const auto  kGate = kSelf->ring_gate_.guard();
     Waiting     room{};
     room.from = SocketAddress{.address = delivery.sender, .port = delivery.sender_port};
+    room.from.datagram_bytes = delivery.length;
     room.length =
         delivery.length < kUdpSocketPayloadBytes ? delivery.length : kUdpSocketPayloadBytes;
     base::CopyBytes(room.bytes, delivery.bytes, room.length);
@@ -305,8 +310,143 @@ void RawSocket::take(void* context, const unsigned char* bytes, size_t length,
     }
     Waiting entry{};
     entry.from.address = header.source;
+    entry.from.received_ttl = bytes[8];
+    entry.from.received_ns = syscall::RealtimeNanoseconds();
+    entry.from.datagram_bytes = length;
     entry.length       = length;
     base::CopyBytes(entry.bytes, bytes, length);
+    static_cast<void>(self.waiting_.push(entry));
+}
+
+PingSocket::PingSocket(RawModule& module)
+    : Socket(kSockDgram), module_(module), identifier_(static_cast<std::uint16_t>(identity())) {
+    seated_ = module_.bind(this, take);
+}
+
+PingSocket::~PingSocket() {
+    if (seated_) {
+        module_.unbind(this);
+    }
+    gate_.retire();
+}
+
+base::Result<unsigned long> PingSocket::receive(void* sink, unsigned long count,
+                                                SocketAddress* from) {
+    if (count == 0) {
+        return 0;
+    }
+    const auto kGuard = gate_.guard();
+    Waiting    taken{};
+    if (!waiting_.pop(taken)) {
+        return base::KernelError::kWouldBlock;
+    }
+    const unsigned long kBytes = taken.length < count ? taken.length : count;
+    base::CopyBytes(sink, taken.bytes, kBytes);
+    if (from != nullptr) {
+        *from = taken.from;
+    }
+    return kBytes;
+}
+
+base::Result<unsigned long> PingSocket::transmit(const void* source, unsigned long count,
+                                                 const SocketAddress& destination) {
+    SocketAddress target     = destination;
+    std::uint16_t identifier = 0;
+    {
+        const auto kGuard = gate_.guard();
+        if (target.address == 0 && named_) {
+            target = peer_;
+        }
+        identifier = identifier_;
+    }
+    if (target.address == 0) {
+        return base::KernelError::kNotFound;
+    }
+    const auto* message = static_cast<const unsigned char*>(source);
+    if (count < kIcmpEchoHeaderBytes || message[0] != kIcmpEchoRequest || message[1] != 0) {
+        return base::KernelError::kInvalidArgument;
+    }
+    if (count > kMaxIcmpEchoBytes) {
+        return base::KernelError::kNotSupported;
+    }
+    unsigned char packet[kMaxIcmpEchoBytes] = {};
+    base::CopyBytes(packet, message, count);
+    base::WriteWord16Be(packet, 2, 0);
+    base::WriteWord16Be(packet, 4, identifier);
+    base::InternetChecksum checksum;
+    checksum.add(packet, count);
+    base::WriteWord16Be(packet, 2, checksum.value());
+    if (!module_.send(target.address, packet, count)) {
+        return base::KernelError::kIOError;
+    }
+    return count;
+}
+
+base::Result<void> PingSocket::adopt_local(const SocketAddress& local) {
+    const auto kGuard = gate_.guard();
+    local_            = local;
+    if (local.port != 0) {
+        identifier_ = local.port;
+    }
+    return {};
+}
+
+base::Result<void> PingSocket::adopt_peer(const SocketAddress& peer) {
+    const auto kGuard = gate_.guard();
+    peer_             = peer;
+    named_            = true;
+    return {};
+}
+
+base::Result<void> PingSocket::report_local(SocketAddress& local) const {
+    const auto kGuard = gate_.guard();
+    local             = local_;
+    local.port        = identifier_;
+    return {};
+}
+
+base::Result<void> PingSocket::report_peer(SocketAddress& peer) const {
+    const auto kGuard = gate_.guard();
+    if (!named_) {
+        return base::KernelError::kNotFound;
+    }
+    peer = peer_;
+    return {};
+}
+
+bool PingSocket::holds_input() const {
+    const auto kGuard = gate_.guard();
+    return waiting_.count() != 0;
+}
+
+void PingSocket::take(void* context, const unsigned char* bytes, size_t length,
+                      const Ipv4View& header) {
+    auto& self = *static_cast<PingSocket*>(context);
+    if (length < header.header_bytes + kIcmpEchoHeaderBytes) {
+        return;
+    }
+    const unsigned char* icmp   = bytes + header.header_bytes;
+    const auto kIcmpLength = length - header.header_bytes;
+    base::InternetChecksum checksum;
+    checksum.add(icmp, kIcmpLength);
+    if (kIcmpLength > kMaxIcmpEchoBytes || icmp[1] != 0 || checksum.value() != 0) {
+        return;
+    }
+    const auto           kGuard = self.gate_.guard();
+    if (icmp[0] != kIcmpEchoReply || base::ReadWord16Be(icmp, 4) != self.identifier_) {
+        return;
+    }
+    if ((self.local_.address != 0 && self.local_.address != header.destination) ||
+        (self.named_ && self.peer_.address != header.source)) {
+        return;
+    }
+    Waiting entry{};
+    entry.from.address = header.source;
+    entry.length       = length - header.header_bytes;
+    entry.from.received_ttl = bytes[8];
+    entry.from.received_ns = syscall::RealtimeNanoseconds();
+    entry.from.datagram_bytes = entry.length;
+    base::CopyBytes(entry.bytes, icmp, entry.length);
     static_cast<void>(self.waiting_.push(entry));
 }
 

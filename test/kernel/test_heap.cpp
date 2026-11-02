@@ -38,12 +38,12 @@ TEST("heap: a large allocation grows the span and stays writable") {
 }
 
 TEST("heap: freed blocks are reused before the span grows again") {
-    auto* const         kFirst  = new unsigned long(1);
-    auto* const         kSecond = new unsigned long(2);
-    unsigned long const kTop    = cinux::mm::Heap::self().top();
+    auto* const         kFirst     = new unsigned long(1);
+    auto* const         kSecond    = new unsigned long(2);
+    unsigned long const kTop       = cinux::mm::Heap::self().top();
+    auto const          kFirstSpot = reinterpret_cast<unsigned long>(kFirst);
     delete kFirst;
     auto* const kThird     = new unsigned long(3);
-    auto const  kFirstSpot = reinterpret_cast<unsigned long>(kFirst);
     auto const  kThirdSpot = reinterpret_cast<unsigned long>(kThird);
     cinux::print::Println("[ktest] heap reuse: first %X third %X", kFirstSpot, kThirdSpot);
     delete kSecond;

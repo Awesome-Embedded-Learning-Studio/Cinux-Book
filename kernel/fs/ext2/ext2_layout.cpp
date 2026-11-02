@@ -52,7 +52,7 @@ static_assert(kSingleSlot == kDirectSlots);
 static_assert(kDoubleSlot == kSingleSlot + 1);
 static_assert(kTripleSlot == kDoubleSlot + 1);
 static_assert(kDirEntryHeadBytes == sizeof(DirEntry));
-static_assert(kMaxGroups * sizeof(GroupDescriptor) <= kVolumeBlockBytes);
+static_assert((kMaxGroups * sizeof(GroupDescriptor)) % kVolumeBlockBytes == 0);
 
 namespace {
 
@@ -67,14 +67,14 @@ constexpr unsigned long kSingleFirst = kDirectSlots;
 /// The first file block the double-indirect layer serves.
 constexpr unsigned long kDoubleFirst = kDirectSlots + kSingleTableSlots;
 
-/// The mode word's type segment: the top four bits.
-constexpr base::bit::BitRange kModeTypeSegment{.low = 12, .width = 4};
-
 /// The type-segment value saying directory.
 constexpr std::uint16_t kModeTypeDirectory = 0x4;
 
 /// The type-segment value saying regular file.
 constexpr std::uint16_t kModeTypeRegular = 0x8;
+
+/// The type-segment value saying symbolic link.
+constexpr std::uint16_t kModeTypeSymlink = 0xA;
 
 }  // namespace
 
@@ -96,32 +96,51 @@ unsigned long DirEntryLength(unsigned long name_len) {
 
 BlockSlot MapFileBlock(unsigned long file_block) {
     if (file_block < kSingleFirst) {
-        return {.kind = BlockSlot::Kind::kDirect, .slot = file_block, .outer = 0, .inner = 0};
+        return {
+            .kind  = BlockSlot::Kind::kDirect,
+            .slot  = file_block,
+            .outer = 0,
+            .inner = 0,
+        };
     }
     if (file_block < kDoubleFirst) {
-        return {.kind  = BlockSlot::Kind::kSingle,
-                .slot  = kSingleSlot,
-                .outer = file_block - kSingleFirst,
-                .inner = 0};
+        return {
+            .kind  = BlockSlot::Kind::kSingle,
+            .slot  = kSingleSlot,
+            .outer = file_block - kSingleFirst,
+            .inner = 0,
+        };
     }
     if (file_block < kDoubleFirst + kDoubleTableSlots) {
         const unsigned long kPast = file_block - kDoubleFirst;
-        return {.kind  = BlockSlot::Kind::kDouble,
-                .slot  = kDoubleSlot,
-                .outer = kPast / kSingleTableSlots,
-                .inner = kPast % kSingleTableSlots};
+        return {
+            .kind  = BlockSlot::Kind::kDouble,
+            .slot  = kDoubleSlot,
+            .outer = kPast / kSingleTableSlots,
+            .inner = kPast % kSingleTableSlots,
+        };
     }
-    return {.kind = BlockSlot::Kind::kUnsupported, .slot = 0, .outer = 0, .inner = 0};
+    return {
+        .kind  = BlockSlot::Kind::kUnsupported,
+        .slot  = 0,
+        .outer = 0,
+        .inner = 0,
+    };
 }
 
 bool IsDirectoryMode(std::uint16_t mode) {
-    const base::bit::BitMask<std::uint16_t> kWord{mode};
+    const base::bit::BitMask<unsigned long> kWord{mode};
     return kWord.extract(kModeTypeSegment) == kModeTypeDirectory;
 }
 
 bool IsRegularMode(std::uint16_t mode) {
-    const base::bit::BitMask<std::uint16_t> kWord{mode};
+    const base::bit::BitMask<unsigned long> kWord{mode};
     return kWord.extract(kModeTypeSegment) == kModeTypeRegular;
+}
+
+bool IsSymlinkMode(std::uint16_t mode) {
+    const base::bit::BitMask<unsigned long> kWord{mode};
+    return kWord.extract(kModeTypeSegment) == kModeTypeSymlink;
 }
 
 }  // namespace cinux::fs::ext2

@@ -2,52 +2,24 @@
 
 #include <stdint.h>
 
+#include "cinux/bit_ops/bitmask.hpp"
 #include "kernel/driver/base/io.hpp"
+#include "kernel/driver/input/event_stream.hpp"
+#include "kernel/driver/input/input_config.hpp"
 #include "kernel/driver/keyboard/scancode.hpp"
+#include "kernel/driver/ps2/controller.hpp"
 #include "kernel/interrupt/irq.hpp"
+
 
 namespace {
 
-constexpr uint16_t kDataPort    = 0x60;
-constexpr uint16_t kCommandPort = 0x64;
-
-constexpr uint8_t kStatusOutputFull = 0x01;
-constexpr uint8_t kStatusInputFull  = 0x02;
-
-constexpr uint8_t kCommandDisableFirst  = 0xAD;
-constexpr uint8_t kCommandDisableSecond = 0xA7;
-constexpr uint8_t kCommandEnableFirst   = 0xAE;
-constexpr uint8_t kCommandSelfTest      = 0xAA;
-constexpr uint8_t kCommandReadConfig    = 0x20;
-constexpr uint8_t kCommandWriteConfig   = 0x60;
-constexpr uint8_t kCommandExpectHealthy = 0x55;
-
-constexpr uint8_t kConfigIrqFirst    = 0x01;
-constexpr uint8_t kConfigIrqSecond   = 0x02;
 constexpr uint8_t kConfigTranslation = 0x40;
 
+using cinux::driver::ps2::kConfigIrqFirst;
+using cinux::driver::ps2::kConfigIrqSecond;
+using cinux::driver::ps2::kDataPort;
+
 constexpr unsigned int kKeyboardIrqLineValue = 1;
-
-void send_command(uint8_t command) {
-    cinux::driver::WaitBitsClear(kCommandPort, kStatusInputFull);
-    cinux::driver::OutB({.port = kCommandPort, .value = command});
-}
-
-uint8_t read_data() {
-    cinux::driver::WaitBitsSet(kCommandPort, kStatusOutputFull);
-    return cinux::driver::InB(kDataPort);
-}
-
-void write_data(uint8_t value) {
-    cinux::driver::WaitBitsClear(kCommandPort, kStatusInputFull);
-    cinux::driver::OutB({.port = kDataPort, .value = value});
-}
-
-void flush_output() {
-    while ((cinux::driver::InB(kCommandPort) & kStatusOutputFull) != 0) {
-        cinux::driver::InB(kDataPort);
-    }
-}
 
 void irq1_thunk() {
     cinux::driver::Keyboard::self().on_byte(cinux::driver::InB(kDataPort));
@@ -58,24 +30,40 @@ void irq1_thunk() {
 namespace cinux::driver {
 
 bool Keyboard::init() {
-    send_command(kCommandDisableFirst);
-    send_command(kCommandDisableSecond);
-    flush_output();
-    send_command(kCommandReadConfig);
-    auto const kConfig = read_data();
-    auto const kWanted = static_cast<uint8_t>((kConfig | kConfigIrqFirst | kConfigTranslation) &
-                                              static_cast<uint8_t>(~kConfigIrqSecond));
-    send_command(kCommandWriteConfig);
-    write_data(kWanted);
-    send_command(kCommandSelfTest);
-    if (read_data() != kCommandExpectHealthy) {
+    const ps2::Ps2Ports kPorts = ps2::HostPs2Ports();
+    using ps2::kCommandDisableFirst;
+    using ps2::kCommandDisableSecond;
+    using ps2::kCommandEnableFirst;
+    using ps2::kCommandReadConfig;
+    using ps2::kCommandSelfTest;
+    using ps2::kCommandWriteConfig;
+    using ps2::kSelfTestHealthy;
+    if (!ps2::SendCommand(kPorts, kCommandDisableFirst) ||
+        !ps2::SendCommand(kPorts, kCommandDisableSecond) || !ps2::Drain(kPorts) ||
+        !ps2::SendCommand(kPorts, kCommandReadConfig)) {
         return false;
     }
-    send_command(kCommandEnableFirst);
-    return true;
+    uint8_t config = 0;
+    if (!ps2::ReadWhenReady(kPorts, config)) {
+        return false;
+    }
+    base::bit::BitMask<uint8_t> wanted{config};
+    wanted = (wanted | base::bit::BitMask<uint8_t>{kConfigIrqFirst} |
+              base::bit::BitMask<uint8_t>{kConfigTranslation}) &
+             ~base::bit::BitMask<uint8_t>{kConfigIrqSecond};
+    if (!ps2::SendCommand(kPorts, kCommandWriteConfig) || !ps2::WriteData(kPorts, wanted.raw) ||
+        !ps2::SendCommand(kPorts, kCommandSelfTest)) {
+        return false;
+    }
+    uint8_t healthy = 0;
+    if (!ps2::ReadWhenReady(kPorts, healthy) || healthy != kSelfTestHealthy) {
+        return false;
+    }
+    return ps2::SendCommand(kPorts, kCommandEnableFirst);
 }
 
 void Keyboard::attach() {
+    stream_.set_grab_hook(&Keyboard::grab_hook, nullptr);
     cinux::interrupt::Irq::self().register_handler(
         cinux::interrupt::IrqLine{.value = kKeyboardIrqLineValue}, irq1_thunk);
     cinux::interrupt::Irq::self().enable_line(
@@ -84,9 +72,14 @@ void Keyboard::attach() {
 
 void Keyboard::on_byte(uint8_t raw_byte) {
     char const kGlyph = TranslateScancode(state_, raw_byte);
-    if (kGlyph != 0) {
+    if (kGlyph != 0 && glyphs_live_) {
         events_.push(kGlyph);
         readable_.post();
+    }
+    KeycodeEvent word{};
+    if (TranslateScancodeKeycode(codes_, raw_byte, word)) {
+        stream_.publish(kEvKey, word.code, word.pressed ? 1 : 0);
+        stream_.publish_report();
     }
 }
 
@@ -105,6 +98,14 @@ char Keyboard::take(bool wait) {
     char code = 0;
     events_.pop(code);
     return code;
+}
+
+EventStream& Keyboard::events() {
+    return stream_;
+}
+
+void Keyboard::grab_hook(void* /*context*/, bool grabbed) {
+    Keyboard::self().glyphs_live_ = !grabbed;
 }
 
 }  // namespace cinux::driver

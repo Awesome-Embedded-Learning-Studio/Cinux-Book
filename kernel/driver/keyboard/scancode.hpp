@@ -71,6 +71,21 @@ inline constexpr uint8_t kScancodeControl = 0x1D;
 /// The bit that splits release from press in set 1.
 inline constexpr uint8_t kScancodeReleaseBit = 0x80;
 
+/// One key's event face: the code the event stream publishes, and
+/// whether the key went down or came up.
+struct KeycodeEvent {
+    uint16_t code;
+    bool     pressed;
+};
+
+/// The event face's own extended-group tracker. The glyph translator
+/// consumes the leader from the shared state, so the event face keeps
+/// its own: one byte stream, two consumers, each swallowing its own
+/// leader.
+struct KeycodeState {
+    bool extended = false;
+};
+
 /**
  * @brief         Translate one raw scancode byte against the modifier
  *                state: shift seats fold, the extended group drops
@@ -85,5 +100,25 @@ inline constexpr uint8_t kScancodeReleaseBit = 0x80;
  * @ingroup       kernel_driver
  */
 char TranslateScancode(TranslatorState& state, uint8_t raw_byte);
+
+/**
+ * @brief         Translate one raw scancode byte into its event face:
+ *                the code an input stream publishes, and the key's
+ *                direction.
+ *
+ * @param[in,out] state   The event face's own state, updated in place.
+ * @param[in]     raw_byte   Byte read from the data port.
+ * @param[out]    out        The code and direction, when the byte names
+ *                          a key.
+ * @return        True when out carries an event; the leader byte, a
+ *                byte with no code, and anything the extended table
+ *                leaves unnamed answer false.
+ * @note          The main block's make codes are already the event
+ *                codes, so only the extended group carries a table.
+ * @since         0.9.0
+ * @ingroup       kernel_driver
+ */
+[[nodiscard]] bool TranslateScancodeKeycode(KeycodeState& state, uint8_t raw_byte,
+                                            KeycodeEvent& out);
 
 }  // namespace cinux::driver

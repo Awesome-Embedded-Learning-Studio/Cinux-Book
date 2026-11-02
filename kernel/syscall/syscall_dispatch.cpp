@@ -18,10 +18,13 @@
 #include "kernel/syscall/sys_access.hpp"
 #include "kernel/syscall/sys_arch_prctl.hpp"
 #include "kernel/syscall/sys_brk.hpp"
+#include "kernel/syscall/sys_capability.hpp"
 #include "kernel/syscall/sys_chdir.hpp"
 #include "kernel/syscall/sys_clock.hpp"
 #include "kernel/syscall/sys_clone.hpp"
 #include "kernel/syscall/sys_close.hpp"
+#include "kernel/syscall/sys_epoll.hpp"
+#include "kernel/syscall/sys_eventfd.hpp"
 #include "kernel/syscall/sys_exec.hpp"
 #include "kernel/syscall/sys_exit.hpp"
 #include "kernel/syscall/sys_fcntl.hpp"
@@ -57,6 +60,7 @@
 #include "kernel/syscall/sys_read.hpp"
 #include "kernel/syscall/sys_readlink.hpp"
 #include "kernel/syscall/sys_reboot.hpp"
+#include "kernel/syscall/sys_rename.hpp"
 #include "kernel/syscall/sys_sendfile.hpp"
 #include "kernel/syscall/sys_set_tid_address.hpp"
 #include "kernel/syscall/sys_shm.hpp"
@@ -64,6 +68,7 @@
 #include "kernel/syscall/sys_sigtimedwait.hpp"
 #include "kernel/syscall/sys_socket.hpp"
 #include "kernel/syscall/sys_stat.hpp"
+#include "kernel/syscall/sys_sync.hpp"
 #include "kernel/syscall/sys_sysinfo.hpp"
 #include "kernel/syscall/sys_tgkill.hpp"
 #include "kernel/syscall/sys_uname.hpp"
@@ -83,16 +88,43 @@ struct Row {
 };
 
 constexpr Row kRows[] = {
+    {.number = cinux::syscall::SyscallNr::kSendmsg, .handler = cinux::syscall::HandleSendmsg},
+    {.number = cinux::syscall::SyscallNr::kRecvmsg, .handler = cinux::syscall::HandleRecvmsg},
+    {.number = cinux::syscall::SyscallNr::kCapget, .handler = cinux::syscall::HandleCapget},
+    {.number = cinux::syscall::SyscallNr::kCapset, .handler = cinux::syscall::HandleCapset},
+    {.number = cinux::syscall::SyscallNr::kEpollWait, .handler = cinux::syscall::HandleEpollWait},
+    {.number = cinux::syscall::SyscallNr::kEpollCtl, .handler = cinux::syscall::HandleEpollCtl},
+    {.number = cinux::syscall::SyscallNr::kEpollPwait, .handler = cinux::syscall::HandleEpollPwait},
+    {.number = cinux::syscall::SyscallNr::kEventfd2, .handler = cinux::syscall::HandleEventfd2},
+    {
+        .number  = cinux::syscall::SyscallNr::kClockGetres,
+        .handler = cinux::syscall::HandleUnsupportedProbe,
+    },
+    {
+        .number  = cinux::syscall::SyscallNr::kSchedGetaffinity,
+        .handler = cinux::syscall::HandleUnsupportedProbe,
+    },
+    {
+        .number  = cinux::syscall::SyscallNr::kIoUringSetup,
+        .handler = cinux::syscall::HandleUnsupportedProbe,
+    },
+    {.number = cinux::syscall::SyscallNr::kRename, .handler = cinux::syscall::HandleRename},
+    {
+        .number  = cinux::syscall::SyscallNr::kRtSigpending,
+        .handler = cinux::syscall::HandleRtSigpending,
+    },
+    {.number = cinux::syscall::SyscallNr::kRmdir, .handler = cinux::syscall::HandleRmdir},
     {.number = cinux::syscall::SyscallNr::kCloseRange, .handler = cinux::syscall::HandleCloseRange},
     {
         .number  = cinux::syscall::SyscallNr::kEpollCreate1,
-        .handler = cinux::syscall::HandleUnsupportedProbe,
+        .handler = cinux::syscall::HandleEpollCreate1,
     },
     {
         .number  = cinux::syscall::SyscallNr::kMremap,
         .handler = cinux::syscall::HandleUnsupportedProbe,
     },
     {.number = cinux::syscall::SyscallNr::kFsync, .handler = cinux::syscall::HandleFsync},
+    {.number = cinux::syscall::SyscallNr::kSync, .handler = cinux::syscall::HandleSync},
     {.number = cinux::syscall::SyscallNr::kFdatasync, .handler = cinux::syscall::HandleFsync},
     {
         .number  = cinux::syscall::SyscallNr::kSendfile,
@@ -111,6 +143,7 @@ constexpr Row kRows[] = {
     {.number = cinux::syscall::SyscallNr::kWrite, .handler = cinux::syscall::HandleWrite},
     {.number = cinux::syscall::SyscallNr::kLseek, .handler = cinux::syscall::HandleLseek},
     {.number = cinux::syscall::SyscallNr::kOpen, .handler = cinux::syscall::HandleOpen},
+    {.number = cinux::syscall::SyscallNr::kCreat, .handler = cinux::syscall::HandleCreat},
     {.number = cinux::syscall::SyscallNr::kClose, .handler = cinux::syscall::HandleClose},
     {.number = cinux::syscall::SyscallNr::kStat, .handler = cinux::syscall::HandleStat},
     {.number = cinux::syscall::SyscallNr::kLstat, .handler = cinux::syscall::HandleStat},
@@ -206,6 +239,7 @@ constexpr Row kRows[] = {
         .handler = cinux::syscall::HandleRtSigtimedwait,
     },
     {.number = cinux::syscall::SyscallNr::kReadlink, .handler = cinux::syscall::HandleReadlink},
+    {.number = cinux::syscall::SyscallNr::kReadlinkat, .handler = cinux::syscall::HandleReadlinkat},
     {.number = cinux::syscall::SyscallNr::kMount, .handler = cinux::syscall::HandleMount},
     {.number = cinux::syscall::SyscallNr::kShmget, .handler = cinux::syscall::HandleShmget},
     {.number = cinux::syscall::SyscallNr::kShmat, .handler = cinux::syscall::HandleShmat},
@@ -246,7 +280,7 @@ constexpr Row kRows[] = {
     },
     {
         .number  = cinux::syscall::SyscallNr::kChmod,
-        .handler = cinux::syscall::HandleUnsupportedProbe,
+        .handler = cinux::syscall::HandleChmod,
     },
     {
         .number  = cinux::syscall::SyscallNr::kUmask,

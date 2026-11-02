@@ -149,4 +149,21 @@ constexpr Nanoseconds ToNanoseconds(Nanoseconds span) {
     return span;
 }
 
+/**
+ * @brief Add a duration to a clock value, saturating at its largest representation.
+ * @param[in] now Clock reading.
+ * @param[in] seconds Whole seconds to wait.
+ * @param[in] tail Subsecond duration.
+ * @return The deadline, or the maximum value on overflow.
+ */
+constexpr Nanoseconds DeadlineAfter(Nanoseconds now, Seconds seconds, Nanoseconds tail) {
+    constexpr auto kMaximum = ~0ULL;
+    constexpr auto kScale   = ToNanoseconds(Seconds{1}).value;
+    const auto     kSlack   = kMaximum - now.value;
+    if (tail.value > kSlack || seconds.value > (kSlack - tail.value) / kScale) {
+        return Nanoseconds{kMaximum};
+    }
+    return Nanoseconds{now.value + ToNanoseconds(seconds).value + tail.value};
+}
+
 }  // namespace cinux::base::time

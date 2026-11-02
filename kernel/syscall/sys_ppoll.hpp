@@ -14,7 +14,24 @@
 
 #include "kernel/syscall/syscall.hpp"
 
+namespace cinux::fs {
+struct OpenFile;
+}
+
 namespace cinux::syscall {
+
+/// Linux readiness words shared by poll, epoll and anonymous counters.
+inline constexpr unsigned int kPollIn  = 0x0001U;
+inline constexpr unsigned int kPollOut = 0x0004U;
+inline constexpr unsigned int kPollErr = 0x0008U;
+inline constexpr unsigned int kPollHup = 0x0010U;
+
+
+/**
+ * @brief Read the readiness bits of a live open description.
+ * @return Readiness bits for the requested events.
+ */
+unsigned short PollOpen(const fs::OpenFile* file, unsigned int events);
 
 /**
  * @brief         ppoll(ufds, nfds, timeout, sigmask): wait until some

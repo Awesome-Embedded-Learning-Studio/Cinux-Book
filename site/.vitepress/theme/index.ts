@@ -22,6 +22,10 @@ import ResizableSidebar from './components/ResizableSidebar.vue'
 import MediaLightbox from './components/MediaLightbox.vue'
 // 对齐移植:首页
 import HomeHeroVisual from './components/HomeHeroVisual.vue'
+// 首页实拍区:一张真截图加三句现场说明,接在入口区之后
+import HomeShowcase from './components/HomeShowcase.vue'
+// 首页底部教程索引:三十一站从入口区挪到页尾
+import HomeStations from './components/HomeStations.vue'
 import HomePathExplorer from './components/HomePathExplorer.vue'
 import ChapterNav from './components/ChapterNav.vue'
 import ChapterLink from './components/ChapterLink.vue'
@@ -54,9 +58,10 @@ export default {
       // 默认 VPFeatures 隐藏,避免同一批入口被重复展示。
       'home-features-before': () => [
         h(HomeLaunchpad),
+        h(HomeShowcase),
         // h(ScreenshotCarousel),
       ],
-      'home-features-after': () => h(HomePathExplorer),
+      'home-features-after': () => [h(HomePathExplorer), h(HomeStations)],
       // 字号切换器:桌面顶栏 + 移动端抽屉各一份
       'nav-bar-content-after': () => h(FontSizeSwitcher),
       'nav-screen-content-after': () => h(FontSizeSwitcher),

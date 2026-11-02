@@ -94,6 +94,15 @@ long long CopyUserPath(Word source, char* out, unsigned long cap);
 long long FoldUserPath(Word source, char* out, unsigned long cap);
 
 /**
+ * @brief         Fold a user path relative to an open directory or AT_FDCWD.
+ * @return        Folded length, or a negative errno.
+ * @note          Output holds at least fs::kFsPathMax bytes.
+ * @since         0.3.0
+ * @ingroup       kernel_syscall
+ */
+long long FoldUserPathAt(Word descriptor, Word address, char* output);
+
+/**
  * @brief         The task currently holding the CPU.
  * @return        The task whose syscall this is.
  * @since         0.1.0

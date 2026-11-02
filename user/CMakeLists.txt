@@ -207,3 +207,5 @@ target_link_options(user_ecotest PRIVATE -no-pie -Wl,-rpath,/lib
     -Wl,--dynamic-linker=/lib64/ld-linux-x86-64.so.2)
 set_target_properties(user_ecotest PROPERTIES OUTPUT_NAME ecotest
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/glibc)
+
+add_subdirectory(examples EXCLUDE_FROM_ALL)

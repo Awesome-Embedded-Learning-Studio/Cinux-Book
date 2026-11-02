@@ -28,7 +28,7 @@ long long HandleAccess(const SyscallFrame& frame) {
 }
 
 long long HandleFaccessat(const SyscallFrame& frame) {
-    if (static_cast<std::int32_t>(frame.rdi) != -100) {
+    if (static_cast<std::int32_t>(frame.rdi) != kAtFdcwd) {
         return -kEnotdir;
     }
     if (frame.rax == static_cast<unsigned long long>(SyscallNr::kFaccessat2) &&

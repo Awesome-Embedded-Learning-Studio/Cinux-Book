@@ -38,9 +38,16 @@ class ImageDisk {
 public:
     explicit ImageDisk(std::vector<std::uint8_t> image) : image_(std::move(image)) {}
 
+    /**
+     * @brief Copies sectors from the mock image.
+     * @param[in] first Starting sector.
+     * @param[in] span Number of sectors.
+     * @param[out] sink Destination bytes.
+     * @return False on injected failure or an out-of-range request.
+     */
     bool read_blocks(cinux::driver::Lba first, cinux::driver::BlockSpan span, uint8_t* sink) {
         ++reads_;
-        if (fail_reads_) {
+        if (fail_reads_ || reads_ > read_limit_) {
             return false;
         }
         const unsigned long kFirst = first.value * kImageSector;
@@ -52,10 +59,17 @@ public:
         return true;
     }
 
+    /**
+     * @brief Copies sectors into the mock image.
+     * @param[in] first Starting sector.
+     * @param[in] span Number of sectors.
+     * @param[in] source Source bytes.
+     * @return False on injected failure or an out-of-range request.
+     */
     bool write_blocks(cinux::driver::Lba first, cinux::driver::BlockSpan span,
                       const uint8_t* source) {
         ++writes_;
-        if (fail_writes_) {
+        if (fail_writes_ || good_writes_ >= fail_after_) {
             return false;
         }
         const unsigned long kFirst = first.value * kImageSector;
@@ -64,14 +78,27 @@ public:
             return false;
         }
         cinux::base::CopyBytes(image_.data() + kFirst, source, kBytes);
+        ++good_writes_;
         return true;
     }
 
+    /** @brief Returns the image's sector count. @return Sector count. */
     uint64_t block_count() { return image_.size() / kImageSector; }
 
+    /** @brief Returns the sector size. @return Bytes per sector. */
     unsigned long block_size() { return kImageSector; }
 
-    bool flush() { return true; }
+    /** @brief Records a flush request. @return False on injected failure. */
+    bool flush() {
+        ++flushes_;
+        return !fail_flushes_;
+    }
+
+    /// @brief Device flush requests, including injected failures.
+    [[nodiscard]] unsigned long flush_count() const { return flushes_; }
+
+    /// @brief Controls device flush failure injection.
+    void fail_flushes(bool fail) { fail_flushes_ = fail; }
 
     /// @brief Read requests reaching the device, including injected failures.
     [[nodiscard]] unsigned long read_count() const { return reads_; }
@@ -79,15 +106,26 @@ public:
     [[nodiscard]] unsigned long write_count() const { return writes_; }
     /// @brief Controls read failure injection.
     void                        fail_reads(bool fail) { fail_reads_ = fail; }
+    /// @brief Limit successful read requests for preparation-failure tests.
+    void                        fail_reads_from(unsigned long survived) { read_limit_ = survived; }
     /// @brief Controls write failure injection.
     void                        fail_writes(bool fail) { fail_writes_ = fail; }
+    /// @brief Fails every write from the nth successful one onward.
+    void                        fail_writes_from(unsigned long survived) { fail_after_ = survived; }
+    /// @brief The image bytes as they stand now, failed writes included.
+    [[nodiscard]] const std::vector<std::uint8_t>& image() const { return image_; }
 
 private:
     std::vector<std::uint8_t> image_;
-    unsigned long             reads_       = 0;
-    unsigned long             writes_      = 0;
-    bool                      fail_reads_  = false;
-    bool                      fail_writes_ = false;
+    unsigned long             reads_        = 0;
+    unsigned long             read_limit_   = ~0UL;
+    unsigned long             writes_       = 0;
+    unsigned long             flushes_      = 0;
+    unsigned long             good_writes_  = 0;
+    unsigned long             fail_after_   = ~0UL;
+    bool                      fail_reads_   = false;
+    bool                      fail_writes_  = false;
+    bool                      fail_flushes_ = false;
 };
 
 static_assert(cinux::driver::BlockDevice<ImageDisk>, "the image disk satisfies the face");

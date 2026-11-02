@@ -67,6 +67,7 @@ add_cinux_test(net_socket ${CMAKE_SOURCE_DIR}/kernel/net/raw.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/net/ifaces.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/driver/tty/tty.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_common.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_path.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/time/timer_table.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
                           ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
@@ -85,6 +86,8 @@ add_cinux_test(mm_layout)
 add_cinux_test(vmm)
 add_cinux_test(page)
 add_cinux_test(cpu_bits)
+add_cinux_test(firmware_config ${CMAKE_SOURCE_DIR}/kernel/arch/x86_64/firmware_config.cpp
+                               mock/firmware_config.cpp)
 add_cinux_test(extable)
 add_cinux_test(random)
 add_cinux_test(uaccess ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
@@ -108,21 +111,41 @@ add_cinux_test(hpet)
 add_cinux_test(nvme)
 add_cinux_test(madt ${CMAKE_SOURCE_DIR}/kernel/driver/acpi/madt.cpp)
 add_cinux_test(font)
-add_cinux_test(framebuffer)
 add_cinux_test(console)
 add_cinux_test(syscall_face ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_uname.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_capability.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_tgkill.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_close.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_pipe.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_sendfile.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/fs/pipe.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/fs/ramfs/ramfs.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_epoll.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_eventfd.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_ppoll.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_read.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_write.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/net/net_layout.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/net/local_socket.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/net/socket.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/net/udp.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/net/raw.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/net/tcp.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/net/ipv4.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/net/icmp.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/net/arp.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/net/net_stack.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/time/timer_table.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_mmap.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_pread.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_sigtimedwait.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_wait.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/wait_time.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_prlimit.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_fcntl.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_getrandom.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_openat.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_path.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/proc/sched_class.cpp
@@ -133,9 +156,22 @@ add_cinux_test(syscall_face ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_uname.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/fs/file_table.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/mm/vma.cpp
                            framework/syscall_host.cpp
+                           framework/clock_host.cpp
                            ${CMAKE_SOURCE_DIR}/kernel/syscall/uaccess.cpp)
 
 add_cinux_test(keyboard ${CMAKE_SOURCE_DIR}/kernel/driver/keyboard/scancode.cpp)
+add_cinux_test(input ${CMAKE_SOURCE_DIR}/kernel/driver/input/event_stream.cpp
+                      ${CMAKE_SOURCE_DIR}/kernel/driver/keyboard/scancode.cpp
+                      ${CMAKE_SOURCE_DIR}/kernel/driver/mouse/mouse_packet.cpp)
+target_link_libraries(test_input PRIVATE Threads::Threads)
+add_cinux_test(input_node ${CMAKE_SOURCE_DIR}/kernel/driver/input/event_stream.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/driver/device/device.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/fs/devfs/input_node.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/fs/devfs/devfs.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/fs/vfs.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/fs/file_table.cpp)
+add_cinux_test(ps2_controller ${CMAKE_SOURCE_DIR}/kernel/driver/ps2/controller.cpp
+                             ${CMAKE_SOURCE_DIR}/test/framework/clock_host.cpp)
 add_cinux_test(pmm ${CMAKE_SOURCE_DIR}/kernel/mm/pmm.cpp)
 add_cinux_test(heap ${CMAKE_SOURCE_DIR}/kernel/mm/heap.cpp)
 add_cinux_test(tick)
@@ -212,6 +248,7 @@ add_cinux_test(pty_node ${CMAKE_SOURCE_DIR}/kernel/driver/tty/pty.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/fs/file_table.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_read.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_common.cpp
+                          ${CMAKE_SOURCE_DIR}/kernel/syscall/sys_path.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/scheduler.cpp
                        ${CMAKE_SOURCE_DIR}/kernel/proc/futex.cpp
@@ -238,6 +275,7 @@ add_cinux_test(ustar ${CMAKE_SOURCE_DIR}/kernel/fs/ustar.cpp)
 add_cinux_test(ext2 ${CMAKE_SOURCE_DIR}/kernel/fs/ext2/ext2_layout.cpp
                     ${CMAKE_SOURCE_DIR}/kernel/fs/ext2/ext2.cpp
                     ${CMAKE_SOURCE_DIR}/kernel/fs/ext2/ext2_write.cpp
+                     ${CMAKE_SOURCE_DIR}/kernel/fs/ext2/ext2_mutation.cpp
                     ${CMAKE_SOURCE_DIR}/kernel/driver/block/block_cache.cpp
                     ${CMAKE_SOURCE_DIR}/kernel/driver/block/block_queue.cpp
                     ${CMAKE_SOURCE_DIR}/kernel/proc/task.cpp
@@ -253,7 +291,8 @@ add_cinux_test(msi_layout ${CMAKE_SOURCE_DIR}/kernel/driver/pci/pci_layout.cpp
                             ${CMAKE_SOURCE_DIR}/kernel/driver/msi/msi_layout.cpp
                             ${CMAKE_SOURCE_DIR}/kernel/driver/msi/msix.cpp)
 add_cinux_test(irq ${CMAKE_SOURCE_DIR}/kernel/interrupt/irq.cpp)
-add_cinux_test(xhci_layout ${CMAKE_SOURCE_DIR}/kernel/driver/usb/xhci_layout.cpp)
+add_cinux_test(xhci_layout ${CMAKE_SOURCE_DIR}/kernel/driver/usb/xhci_layout.cpp
+                           ${CMAKE_SOURCE_DIR}/kernel/driver/usb/tablet_report.cpp)
 add_cinux_test(async)
 add_cinux_test(ahci ${CMAKE_SOURCE_DIR}/kernel/driver/ahci/ahci_identify.cpp
                     ${CMAKE_SOURCE_DIR}/kernel/driver/ahci/ahci_layout.cpp)
@@ -314,14 +353,23 @@ foreach(entry IN LISTS CINUX_KTESTS CINUX_KTESTS_INTEGRATION)
     endif()
     string(REPLACE "boot/ext2.img" "boot/ext2_ktest.img" CINUX_KTEST_DEVICE_ARGS
                    "${CINUX_QEMU_DEVICE_ARGS}")
-    add_test(NAME kernel_test_${ktest}
-        COMMAND ${CMAKE_COMMAND}
-                -DQEMU_PROGRAM=${CINUX_QEMU_PROGRAM}
-                "-DQEMU_DEVICE_ARGS=${CINUX_KTEST_DEVICE_ARGS}"
-                -DIMAGE_FILE=${CMAKE_BINARY_DIR}/boot/cinux_ktest_${ktest}.img
-                -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/kernel_test_${ktest}
-                -P ${CMAKE_SOURCE_DIR}/cmake/test/run_kernel_tests.cmake)
-    set_tests_properties(kernel_test_${ktest} PROPERTIES TIMEOUT 120)
+    set(ktest_cpus 1 2)
+    if(ktest IN_LIST CINUX_KTESTS_DUAL_CPU)
+        set(ktest_cpus 2)
+    endif()
+    foreach(cpus IN LISTS ktest_cpus)
+        set(test_name kernel_test_${ktest}_cpu${cpus})
+        add_test(NAME ${test_name}
+            COMMAND ${CMAKE_COMMAND}
+                    "-DQEMU_PROGRAM=${CINUX_QEMU_COMMAND}"
+                    "-DQEMU_DEVICE_ARGS=${CINUX_KTEST_DEVICE_ARGS}"
+                    -DCPU_COUNT=${cpus}
+                    -DIMAGE_FILE=${CMAKE_BINARY_DIR}/boot/cinux_ktest_${ktest}.img
+                    -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/${test_name}
+                    -P ${CMAKE_SOURCE_DIR}/cmake/test/run_kernel_tests.cmake)
+        set_tests_properties(${test_name} PROPERTIES
+            TIMEOUT 120 LABELS "kernel;cpu${cpus}" RESOURCE_LOCK cinux_qemu)
+    endforeach()
     list(APPEND CINUX_KTEST_IMAGE_TARGETS boot_ktest_${ktest})
     add_dependencies(boot_ktest_${ktest} ext2_ktest_img)
 endforeach()

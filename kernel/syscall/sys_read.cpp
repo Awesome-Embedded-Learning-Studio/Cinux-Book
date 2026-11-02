@@ -38,8 +38,11 @@ long long HandleRead(const SyscallFrame& frame) {
     const auto    kWant =
         static_cast<unsigned long>(frame.rdx < kReadStageBytes ? frame.rdx : kReadStageBytes);
     for (;;) {
+        const bool kTryRead =
+            (kFile->status_flags & kOpenNonblock) != 0 && kFile->ops->try_read != nullptr;
+        const auto kRead = kTryRead ? kFile->ops->try_read : kFile->ops->read;
         const base::Result<unsigned long> kGot =
-            kFile->ops->read(kFile->backend, kFile->node, kFile->offset, stage, kWant);
+            kRead(kFile->backend, kFile->node, kFile->offset, stage, kWant);
         if (kGot.ok()) {
             if (!uaccess::CopyToUser(frame.rsi, stage, kGot.value())) {
                 return -kEfault;

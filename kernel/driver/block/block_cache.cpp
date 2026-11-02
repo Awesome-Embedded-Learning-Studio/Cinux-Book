@@ -52,6 +52,7 @@ BlockCache::BlockCache(BlockQueue& queue, unsigned long slot_count)
 }
 
 BlockCache::~BlockCache() {
+    gate_.retire();
     for (unsigned long index = 0; index < slot_total_; ++index) {
         delete[] slots_[index].bytes;
     }
@@ -105,7 +106,7 @@ bool BlockCache::flush() {
             all = false;
         }
     }
-    return all;
+    return all && queue_.flush();
 }
 
 unsigned long BlockCache::slot_count() const {
@@ -127,15 +128,19 @@ unsigned long BlockCache::find_slot(unsigned long page) const {
 }
 
 unsigned long BlockCache::choose_victim() {
-    for (;;) {
+    for (unsigned long checked = 0; checked < slot_total_ * 2; ++checked) {
         const unsigned long kIndex = next_;
         next_                      = (next_ + 1) % slot_total_;
         Slot& candidate            = slots_[kIndex];
+        if (candidate.pinned) {
+            continue;
+        }
         if (!candidate.live || !candidate.referenced) {
             return kIndex;
         }
         candidate.referenced = false;
     }
+    return ~0UL;
 }
 
 void BlockCache::remove_index(unsigned long index) {
@@ -157,7 +162,10 @@ BlockCache::Slot* BlockCache::claim_slot(unsigned long page) {
         return &slots_[kHit];
     }
     const unsigned long kIndex = choose_victim();
-    Slot&               victim = slots_[kIndex];
+    if (kIndex == ~0UL) {
+        return nullptr;
+    }
+    Slot& victim = slots_[kIndex];
     if (victim.live && victim.dirty && !spill(victim)) {
         return nullptr;
     }
@@ -190,6 +198,86 @@ bool BlockCache::spill(Slot& slot) {
         return false;
     }
     slot.dirty = false;
+    return true;
+}
+
+BlockCache::Batch::~Batch() {
+    while (const auto* page = pages_.pop_head()) {
+        delete page;
+    }
+}
+BlockCache::Batch::Page* BlockCache::Batch::find(unsigned long number) {
+    return pages_.find_if([number](const Page& page) { return page.number == number; });
+}
+bool BlockCache::Batch::read(Lba first, void* sink, unsigned long bytes) {
+    if (failed_ || bytes > cache_.slot_bytes_ - offset_of(first)) {
+        failed_ = true;
+        return false;
+    }
+    const auto* page = find(page_of(first));
+    if (page != nullptr) {
+        base::CopyBytes(sink, page->bytes.get() + offset_of(first), bytes);
+        return true;
+    }
+    if (!cache_.read(first, sink, bytes)) {
+        failed_ = true;
+        return false;
+    }
+    return true;
+}
+bool BlockCache::Batch::patch(Lba first, unsigned long offset, unsigned long bytes,
+                              const void* source) {
+    const auto kStart = offset_of(first);
+    if (failed_ || offset > cache_.slot_bytes_ - kStart ||
+        bytes > cache_.slot_bytes_ - kStart - offset) {
+        failed_ = true;
+        return false;
+    }
+    auto* page = find(page_of(first));
+    if (page == nullptr) {
+        base::Own<Page> fresh(new Page);
+        fresh->number = page_of(first);
+        fresh->bytes.reset(new uint8_t[cache_.slot_bytes_]);
+        if (!cache_.read(Lba{.value = fresh->number * kCachePageSectors}, fresh->bytes.get(),
+                         cache_.slot_bytes_)) {
+            failed_ = true;
+            return false;
+        }
+        page = fresh.release();
+        pages_.push_back(*page);
+    }
+    base::CopyBytes(page->bytes.get() + kStart + offset, source, bytes);
+    return true;
+}
+void BlockCache::Batch::unpin() {
+    for (auto* page = pages_.head(); page != nullptr; page = pages_.after(*page)) {
+        if (page->slot != ~0UL) {
+            cache_.slots_[page->slot].pinned = false;
+            page->slot                       = ~0UL;
+        }
+    }
+}
+bool BlockCache::Batch::commit() {
+    if (failed_) {
+        return false;
+    }
+    const proc::MutexGuard kGate(cache_.gate_);
+    for (auto* page = pages_.head(); page != nullptr; page = pages_.after(*page)) {
+        auto* slot = cache_.claim_slot(page->number);
+        if (slot == nullptr) {
+            unpin();
+            failed_ = true;
+            return false;
+        }
+        slot->pinned = true;
+        page->slot   = static_cast<unsigned long>(slot - cache_.slots_.get());
+    }
+    for (auto* page = pages_.head(); page != nullptr; page = pages_.after(*page)) {
+        auto& slot = cache_.slots_[page->slot];
+        base::CopyBytes(slot.bytes, page->bytes.get(), cache_.slot_bytes_);
+        slot.dirty = true;
+    }
+    unpin();
     return true;
 }
 

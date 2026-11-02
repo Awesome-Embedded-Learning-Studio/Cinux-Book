@@ -1,6 +1,7 @@
 #include <stdint.h>
 
 #include "../framework/framework.hpp"
+#include "kernel/driver/usb/usb_tablet.hpp"
 #include "kernel/driver/usb/xhci_layout.hpp"
 #include "test_assert.hpp"
 
@@ -217,6 +218,23 @@ TEST("xhci: both control modifiers produce terminal signal bytes") {
     ASSERT_EQ(cinux::driver::usb::HidReportKey(kShiftC, kIdle), 3);
     ASSERT_EQ(cinux::driver::usb::HidReportKey(kControlZ, kIdle), 26);
     ASSERT_EQ(cinux::driver::usb::HidReportKey(kControlSlash, kIdle), 28);
+}
+
+TEST("tablet: CinuxOS absolute report preserves full coordinates and masks buttons") {
+    const unsigned char kBytes[] = {0xff, 0xff, 0x7f, 0x34, 0x12};
+    const auto          kReport  = cinux::driver::DecodeTablet(kBytes);
+    ASSERT_EQ(kReport.buttons, 7);
+    ASSERT_EQ(kReport.x, 32767);
+    ASSERT_EQ(kReport.y, 0x1234);
+}
+
+TEST("xhci: an unrelated interface ends the HID endpoint search") {
+    const unsigned char kConfig[] = {
+        9, 2, 34, 0, 2, 1, 0,    0x80, 50, 9, 4, 0, 0,    0, 3, 1, 2,
+        0, 9, 4,  1, 0, 1, 0xff, 0,    0,  0, 7, 5, 0x81, 3, 8, 0, 10,
+    };
+    cinux::driver::usb::KeyboardEp endpoint{};
+    ASSERT_FALSE(cinux::driver::usb::FindHidInterface(kConfig, sizeof(kConfig), 2, endpoint));
 }
 
 int main() {

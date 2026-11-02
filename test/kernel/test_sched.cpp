@@ -647,10 +647,8 @@ constexpr unsigned long long kForkUserR15 = 0xF015000000000004ULL;
 constexpr unsigned long long kForkUserRsp = 0x0000000000005000ULL;
 constexpr unsigned long long kForkUserRip = 0x0000000000400016ULL;
 
-cinux::base::Shared<cinux::mm::AddressSpace> g_fork_world;
-cinux::base::Shared<cinux::mm::VmaStore>     g_fork_ranges;
-cinux::syscall::SyscallFrame                 g_fork_frame{};
-bool                                         g_fork_built = false;
+cinux::syscall::SyscallFrame g_fork_frame{};
+bool                         g_fork_built = false;
 
 void stage_callee_saved() {
     g_fork_frame.r12 = kForkUserR12;
@@ -685,10 +683,10 @@ void inspect_shared_cursor(const cinux::proc::Task& child, const cinux::proc::Ta
 void inspect_fork_family(const cinux::proc::Task& child, const cinux::proc::Task& parent,
                          unsigned long first_fd) {
     ASSERT_TRUE(child.parent == &parent);
-    ASSERT_TRUE(child.user_root != g_fork_world->root());
+    ASSERT_TRUE(child.user_root != parent.space->root());
     ASSERT_EQ(child.user_root, child.space->root());
     ASSERT_TRUE(child.space.holds());
-    ASSERT_TRUE(child.space.get() != g_fork_world.get());
+    ASSERT_TRUE(child.space.get() != parent.space.get());
     inspect_shared_cursor(child, parent, first_fd);
 }
 
@@ -723,10 +721,9 @@ void fork_exit_child() {
 void fork_wait_parent_task() {
     auto&       scheduler = cinux::proc::Scheduler::self();
     auto* const kSelf     = scheduler.current();
-    g_fork_world          = cinux::base::MakeShared<cinux::mm::AddressSpace>();
-    cinux::base::safety::Check(g_fork_world.holds(), "fork wait world failed");
-    kSelf->space = g_fork_world;
-    cinux::base::safety::Check(g_fork_world->init(), "fork wait world failed");
+    kSelf->space          = cinux::base::MakeShared<cinux::mm::AddressSpace>();
+    cinux::base::safety::Check(kSelf->space.holds(), "fork wait world failed");
+    cinux::base::safety::Check(kSelf->space->init(), "fork wait world failed");
     auto* const kChild = cinux::proc::TaskBuilder{}
                              .set_entry(fork_exit_child)
                              .set_name("fork_calf")
@@ -738,23 +735,20 @@ void fork_wait_parent_task() {
     g_receipt    = cinux::proc::ChildReceipt{};
     g_wait_ok    = scheduler.wait_child(-1, false, g_receipt);
     kSelf->space = {};
-    g_fork_world = {};
 }
 
 void forking_parent_task() {
     const auto& scheduler = cinux::proc::Scheduler::self();
     auto* const kSelf     = scheduler.current();
-    g_fork_world          = cinux::base::MakeShared<cinux::mm::AddressSpace>();
-    g_fork_ranges         = cinux::base::MakeShared<cinux::mm::VmaStore>();
-    cinux::base::safety::Check(g_fork_world.holds() && g_fork_ranges.holds(),
+    kSelf->space          = cinux::base::MakeShared<cinux::mm::AddressSpace>();
+    kSelf->vmas           = cinux::base::MakeShared<cinux::mm::VmaStore>();
+    cinux::base::safety::Check(kSelf->space.holds() && kSelf->vmas.holds(),
                                "fork fixture world failed");
-    cinux::base::safety::Check(g_fork_world->init(), "fork fixture world failed");
+    cinux::base::safety::Check(kSelf->space->init(), "fork fixture world failed");
     const cinux::base::PhysAddr kPage = cinux::mm::Pmm::self().allocate_page();
     cinux::base::safety::Check(kPage != cinux::base::PhysAddr{}, "fork fixture frame failed");
-    cinux::base::safety::Check(g_fork_world->map_user(cinux::mm::kUserNullTop + 80_KiB, kPage.raw),
+    cinux::base::safety::Check(kSelf->space->map_user(cinux::mm::kUserNullTop + 80_KiB, kPage.raw),
                                "fork fixture map failed");
-    kSelf->space       = g_fork_world;
-    kSelf->vmas        = g_fork_ranges;
     const auto kFirst  = kSelf->files->alloc(&cinux::test::FileRefs::kOps, &g_file_refs, {});
     const auto kSecond = kSelf->files->alloc(&cinux::test::FileRefs::kOps, &g_file_refs, {});
     cinux::base::safety::Check(kFirst.ok() && kSecond.ok(), "fork fixture fds failed");
@@ -771,10 +765,8 @@ void forking_parent_task() {
     }
     inspect_fork_child(*kChild, *kSelf, kFirst.value());
     retire_fork_child(*kChild);
-    kSelf->space  = {};
-    kSelf->vmas   = {};
-    g_fork_world  = {};
-    g_fork_ranges = {};
+    kSelf->space = {};
+    kSelf->vmas  = {};
 }
 
 constexpr unsigned long long kCloneChildRsp = kForkUserRsp + 0x2000;
@@ -829,13 +821,11 @@ void inspect_clone_child(const cinux::proc::Task& child, const cinux::proc::Task
 void cloning_parent_task() {
     const auto& scheduler = cinux::proc::Scheduler::self();
     auto* const kSelf     = scheduler.current();
-    g_fork_world          = cinux::base::MakeShared<cinux::mm::AddressSpace>();
-    g_fork_ranges         = cinux::base::MakeShared<cinux::mm::VmaStore>();
-    cinux::base::safety::Check(g_fork_world.holds() && g_fork_ranges.holds(),
+    kSelf->space          = cinux::base::MakeShared<cinux::mm::AddressSpace>();
+    kSelf->vmas           = cinux::base::MakeShared<cinux::mm::VmaStore>();
+    cinux::base::safety::Check(kSelf->space.holds() && kSelf->vmas.holds(),
                                "clone fixture world failed");
-    cinux::base::safety::Check(g_fork_world->init(), "clone fixture world failed");
-    kSelf->space     = g_fork_world;
-    kSelf->vmas      = g_fork_ranges;
+    cinux::base::safety::Check(kSelf->space->init(), "clone fixture world failed");
     const auto kOnly = kSelf->files->alloc(&cinux::test::FileRefs::kOps, &g_file_refs, {});
     cinux::base::safety::Check(kOnly.ok(), "clone fixture fd failed");
     kSelf->files->get(kOnly.value()).value()->offset = 64;
@@ -856,10 +846,8 @@ void cloning_parent_task() {
     }
     inspect_clone_child(*kChild, *kSelf, kOnly.value());
     retire_fork_child(*kChild);
-    kSelf->space  = {};
-    kSelf->vmas   = {};
-    g_fork_world  = {};
-    g_fork_ranges = {};
+    kSelf->space = {};
+    kSelf->vmas  = {};
 }
 
 }  // namespace

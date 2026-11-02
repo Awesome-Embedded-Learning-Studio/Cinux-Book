@@ -1,0 +1,3 @@
+[submodule "third_party/vesper"]
+	path = third_party/vesper
+	url = https://github.com/Awesome-Embedded-Learning-Studio/vesper.git

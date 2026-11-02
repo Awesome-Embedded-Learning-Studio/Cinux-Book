@@ -6,11 +6,9 @@ import subprocess
 import time
 
 import frame
-from qemu_args import device_args
+from qemu_args import device_args, qemu_command
 
-QEMU = "qemu-system-x86_64"
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-VOLUME_PATH = os.path.join(REPO_ROOT, "build", "boot", "ext2.img")
 MON_PATH = "/tmp/cinux_qemu_mon"
 SERIAL_PATH = "/tmp/cinux_qemu_serial.log"
 DUMP_PATH = "/tmp/cinux_qemu_screen.ppm"
@@ -19,8 +17,10 @@ BOOT_WAIT_SECONDS = 4.0
 
 
 class Session:
-    def __init__(self, image):
+    def __init__(self, image, config_name="qemu-run-args.txt", snapshot=False):
         self.image = image
+        self.config_name = config_name
+        self.snapshot = snapshot
         self.mon = None
         self.proc = None
 
@@ -30,7 +30,8 @@ class Session:
                 os.unlink(stale)
         self.proc = subprocess.Popen(
             [
-                QEMU, *device_args(self.image),
+                *qemu_command(self.image), *device_args(self.image, self.config_name),
+                *(["-snapshot"] if self.snapshot else []),
                 "-drive", f"format=raw,file={self.image}",
                 "-serial", f"file:{SERIAL_PATH}",
                 "-monitor", f"unix:{MON_PATH},server,nowait",
