@@ -5,35 +5,47 @@ on:
     branches: [main]
   pull_request:
     branches: [main, develop]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Unrelated label events must not cancel the actual CI run for this PR.
+  group: >-
+    ci-${{ github.workflow }}-${{
+      ((github.event.action == 'labeled' || github.event.action == 'unlabeled') &&
+       github.event.label.name != 'full') && github.run_id || github.ref
+    }}
   cancel-in-progress: true
 
 jobs:
   test-infrastructure:
+    if: &ci-event >-
+      ${{ (github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
+          github.event.label.name == 'full' }}
     name: test-infrastructure (GCC ${{ matrix.toolchain.gcc }})
     runs-on: ${{ matrix.toolchain.runner }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        toolchain: &supported-toolchains
-          - {runner: ubuntu-24.04, gcc: '14'}
-          - {runner: ubuntu-26.04, gcc: '15'}
-          - {runner: ubuntu-26.04, gcc: '16'}
+        toolchain: &selected-toolchains >-
+          ${{ fromJSON(
+            github.event_name == 'pull_request' &&
+            contains(github.event.pull_request.labels.*.name, 'full') &&
+            '[{"runner":"ubuntu-24.04","gcc":"14"},{"runner":"ubuntu-26.04","gcc":"15"},{"runner":"ubuntu-26.04","gcc":"16"}]' ||
+            '[{"runner":"ubuntu-24.04","gcc":"14"}]'
+          ) }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install G++ for the libstdc++ assertion test
+      - name: Install tools for the CI infrastructure tests
         env:
           CXX: g++-${{ matrix.toolchain.gcc }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y "$CXX"
+          sudo apt-get install -y "$CXX" e2fsprogs
           "$CXX" --version
       - name: Check test orchestration and failure handling
         env:
@@ -44,12 +56,13 @@ jobs:
 
   host-tests:
     name: host (Release, ${{ matrix.sanitizer }}, GCC ${{ matrix.toolchain.gcc }})
+    if: *ci-event
     runs-on: ${{ matrix.toolchain.runner }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        toolchain: *supported-toolchains
+        toolchain: *selected-toolchains
         sanitizer: [asan, tsan]
     steps:
       - uses: actions/checkout@v4
@@ -74,12 +87,13 @@ jobs:
 
   kernel-tests:
     name: kernel (${{ matrix.build_type }}, ${{ matrix.checks }}, GCC ${{ matrix.toolchain.gcc }})
+    if: *ci-event
     runs-on: ${{ matrix.toolchain.runner }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        toolchain: *supported-toolchains
+        toolchain: *selected-toolchains
         build_type: [Debug, Release]
         checks: [none, ubsan, lockdep]
     steps:
@@ -110,10 +124,11 @@ jobs:
           "${qemu_command[@]}" $(tr '\n' ' ' < build-ci/qemu-device-args.txt) \
             -snapshot -drive format=raw,file=build-ci/boot/cinux.img \
             -serial file:build-ci/autopsy-serial.log -monitor none \
-            -gdb tcp::1234 &
+            -d int,cpu_reset -D build-ci/autopsy-qemu.log -gdb tcp::1234 &
           qemu_pid=$!
           sleep 45
           for sample in 1 2; do
+            kill -0 "$qemu_pid" 2>/dev/null || break
             echo "=== gdb sample $sample ===" >> build-ci/autopsy-gdb.txt
             gdb -batch -nx \
               -ex 'set pagination off' \
@@ -127,7 +142,12 @@ jobs:
               >> build-ci/autopsy-gdb.txt 2>&1 || true
             sleep 3
           done
-          kill "$qemu_pid" || true
+          if kill -0 "$qemu_pid" 2>/dev/null; then
+            kill "$qemu_pid" || true
+          fi
+          qemu_status=0
+          wait "$qemu_pid" || qemu_status=$?
+          echo "QEMU exit status: $qemu_status"
           echo '=== autopsy serial ==='
           cat build-ci/autopsy-serial.log || true
           echo '=== autopsy gdb ==='
@@ -141,6 +161,7 @@ jobs:
             build-ci/test/kernel_test_*/serial.log
             build-ci/station33-ecosystem.serial.log
             build-ci/autopsy-serial.log
+            build-ci/autopsy-qemu.log
             build-ci/autopsy-gdb.txt
             build-ci/test-inventory.json
             build-ci/CMakeCache.txt
@@ -149,12 +170,13 @@ jobs:
 
   ecosystem:
     name: ecosystem (Release, ${{ matrix.checks }}, GCC ${{ matrix.toolchain.gcc }})
+    if: *ci-event
     runs-on: ${{ matrix.toolchain.runner }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        toolchain: *supported-toolchains
+        toolchain: *selected-toolchains
         checks: [none, checks]
     steps:
       - uses: actions/checkout@v4
@@ -191,14 +213,9 @@ jobs:
   # ── 文档构建验证(Cinux-Book 特有)──────────────────────────────
 
   docs:
-    # The GCC label identifies the matrix lane. VitePress uses Node, not the configured compiler.
-    name: docs (GCC ${{ matrix.toolchain.gcc }} lane)
-    runs-on: ${{ matrix.toolchain.runner }}
+    if: *ci-event
+    runs-on: ubuntu-latest
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        toolchain: *supported-toolchains
     steps:
       - uses: actions/checkout@v4
         with:
@@ -219,9 +236,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: site/.vitepress/.build-cache
-          key: cinux-build-${{ matrix.toolchain.runner }}-gcc${{ matrix.toolchain.gcc }}-${{ hashFiles('document/**', 'site/.vitepress/config/**', 'site/.vitepress/plugins/**', 'site/.vitepress/public/**', 'site/.vitepress/theme/**', 'project.config.ts', 'scripts/build.ts', 'package.json', 'pnpm-lock.yaml') }}
+          key: cinux-build-${{ runner.os }}-${{ hashFiles('document/**', 'site/.vitepress/config/**', 'site/.vitepress/plugins/**', 'site/.vitepress/public/**', 'site/.vitepress/theme/**', 'project.config.ts', 'scripts/build.ts', 'package.json', 'pnpm-lock.yaml') }}
           restore-keys: |
-            cinux-build-${{ matrix.toolchain.runner }}-gcc${{ matrix.toolchain.gcc }}-
+            cinux-build-${{ runner.os }}-
       - name: Build docs
         run: pnpm build
         env:

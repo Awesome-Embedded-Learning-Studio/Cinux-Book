@@ -22,8 +22,7 @@ is_elf() {
 # closure, and the as/ld toolchain staging tree merged on top. mkfs.ext2 -d
 # preserves hardlinks (one busybox inode under every applet name) and
 # SONAME symlinks, which the per-file debugfs road below cannot express at
-# this scale. 192 MiB / 16384 inodes follows the self-host station's volume
-# calibre.
+# this scale.
 bake_glibc_volume() {
     local staging="${CINUX_TOOLCHAIN_STAGING:-${build_dir}/toolchain-staging}"
     if [ ! -x "${staging}/usr/bin/as" ] || [ ! -x "${staging}/usr/bin/ld" ]; then
@@ -92,9 +91,16 @@ bake_glibc_volume() {
     local ecotest="${CINUX_ECOTEST:-${build_dir}/glibc/ecotest}"
     [ -f "$ecotest" ] && install -m 0755 "$ecotest" "$assemble/bin/ecotest"
     cp -a "${staging}/." "$assemble/"
-    truncate -s 192M "$image"
+    local payload_kib image_mib
+    payload_kib="$(du --summarize --apparent-size --block-size=1024 -- "$assemble")"
+    payload_kib="${payload_kib%%$'\t'*}"
+    image_mib=$(( (payload_kib + (payload_kib + 3) / 4 + 1023) / 1024 + 16 ))
+    if (( image_mib < 192 )); then
+        image_mib=192
+    fi
+    echo "[ext2-disk] glibc volume: ${payload_kib} KiB assembled, ${image_mib} MiB image"
+    truncate -s "${image_mib}M" "$image"
     mkfs.ext2 -q -F -b 1024 -O none -N 16384 -d "$assemble" "$image"
-    echo "[ext2-disk] glibc volume baked from ${assemble} (busybox + as/ld toolchain, 192M/16384 inodes)"
 }
 
 ldso="${CINUX_LDSO:-}"
