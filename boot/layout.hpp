@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include "cinux/ptr.hpp"
 #include "cinux/region/memory_region.hpp"
 
@@ -76,7 +78,7 @@ inline constexpr unsigned long      kHandoffMailboxInfo  = 0x4F08;
 inline constexpr unsigned long long kHighHalfBase        = 0xFFFFFFFF80000000ULL;
 
 /**
- * @brief         Reads one word from a fixed physical address.
+ * @brief         Reads a 32-bit value from a fixed physical address.
  *
  * @param[in]     address   Linear address to read.
  * @return        The word stored there.
@@ -87,13 +89,13 @@ inline constexpr unsigned long long kHighHalfBase        = 0xFFFFFFFF80000000ULL
  * @since         0.1.0
  * @ingroup       boot_layout
  */
-inline unsigned long LoadWord(unsigned long address) {
+inline uint32_t LoadWord(unsigned long address) {
     // NOLINTNEXTLINE(clang-analyzer-core.FixedAddressDereference)
-    return *base::PtrAt<const volatile unsigned long>(address);
+    return *base::PtrAt<const volatile uint32_t>(address);
 }
 
 /**
- * @brief         Writes one word to a fixed physical address.
+ * @brief         Writes a 32-bit value to a fixed physical address.
  *
  * @param[in]     address   Linear address to write.
  * @param[in]     value     Word to store.
@@ -105,9 +107,9 @@ inline unsigned long LoadWord(unsigned long address) {
  * @since         0.1.0
  * @ingroup       boot_layout
  */
-inline void StoreWord(unsigned long address, unsigned long value) {
+inline void StoreWord(unsigned long address, uint32_t value) {
     // NOLINTNEXTLINE(clang-analyzer-core.FixedAddressDereference)
-    *base::PtrAt<volatile unsigned long>(address) = value;
+    *base::PtrAt<volatile uint32_t>(address) = value;
 }
 
 // Semantic contracts: stage2 sits right behind the MBR, flat DS is design not luck
