@@ -8,24 +8,33 @@
 
 namespace {
 
-constexpr unsigned long      kXmmWord     = 20;
-constexpr unsigned long long kFirstUser   = 0xA11CE00000000001ULL;
-constexpr unsigned long long kSecondUser  = 0xB0B0000000000002ULL;
-constexpr unsigned long long kKernelValue = 0xC0DE000000000003ULL;
+constexpr unsigned long      kMxcsrWord    = 3;
+constexpr unsigned long long kRoundingMask = 0x6000;
+constexpr unsigned long long kFirstUser    = 0x2000;
+constexpr unsigned long long kSecondUser   = 0x4000;
+constexpr unsigned long long kKernelValue  = 0x6000;
 
-void set_live_value(unsigned long long value) {
+unsigned long long rounding(const cinux::arch::FpuImage& image) {
+    return image.words[kMxcsrWord] & kRoundingMask;
+}
+
+void set_rounding(cinux::arch::FpuImage& image, unsigned long long value) {
+    image.words[kMxcsrWord] = (image.words[kMxcsrWord] & ~kRoundingMask) | value;
+}
+
+void set_live_rounding(unsigned long long value) {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
     cinux::arch::FpuImage image;
     cinux::arch::SaveFpu(image);
-    image.words[kXmmWord] = value;
+    set_rounding(image, value);
     cinux::arch::RestoreFpu(image);
 }
 
-unsigned long long live_value() {
+unsigned long long live_rounding() {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
     cinux::arch::FpuImage image;
     cinux::arch::SaveFpu(image);
-    return image.words[kXmmWord];
+    return rounding(image);
 }
 
 enum class Scenario : unsigned char {
@@ -49,8 +58,8 @@ struct GateWorld {
     explicit GateWorld(Scenario chosen) : scenario(chosen) {
         cinux::arch::SaveFpu(first.ctx.fpu);
         cinux::arch::SaveFpu(second.ctx.fpu);
-        first.ctx.fpu.words[kXmmWord]  = kFirstUser;
-        second.ctx.fpu.words[kXmmWord] = kSecondUser;
+        set_rounding(first.ctx.fpu, kFirstUser);
+        set_rounding(second.ctx.fpu, kSecondUser);
         cinux::proc::Scheduler::self().init(*this);
         cinux::proc::Scheduler::self().install_class(cinux::proc::DefaultFifoClass());
         cinux::proc::Scheduler::self().seat(first);
@@ -76,9 +85,9 @@ struct GateWorld {
 
     void finish_first() {
         ExitFpuGate();
-        inner_exit_kept = first.fpu_gate_depth == 1;
+        inner_exit_kept = first.fpu_gate_depth == 1 && live_rounding() == kKernelValue;
         ExitFpuGate();
-        outer_restored = first.fpu_gate_depth == 0 && first.entry_fpu.words[kXmmWord] == kFirstUser;
+        outer_restored = first.fpu_gate_depth == 0 && live_rounding() == kFirstUser;
         cinux::proc::Scheduler::self().exit_current();
     }
 
@@ -87,11 +96,10 @@ struct GateWorld {
         if (&task == &second) {
             EnterFpuGate();
             second_independent =
-                second.fpu_gate_depth == 1 && second.entry_fpu.words[kXmmWord] == kSecondUser;
-            set_live_value(kKernelValue);
+                second.fpu_gate_depth == 1 && rounding(second.entry_fpu) == kSecondUser;
+            set_live_rounding(kKernelValue);
             ExitFpuGate();
-            second_restored =
-                second.fpu_gate_depth == 0 && second.entry_fpu.words[kXmmWord] == kSecondUser;
+            second_restored = second.fpu_gate_depth == 0 && live_rounding() == kSecondUser;
             scheduler.exit_current();
             return;
         }
@@ -100,10 +108,11 @@ struct GateWorld {
             return;
         }
         EnterFpuGate();
-        outer_saved = first.fpu_gate_depth == 1 && first.entry_fpu.words[kXmmWord] == kFirstUser;
-        set_live_value(kKernelValue);
+        outer_saved = first.fpu_gate_depth == 1 && rounding(first.entry_fpu) == kFirstUser;
+        set_live_rounding(kKernelValue);
         EnterFpuGate();
-        nested_kept = first.fpu_gate_depth == 2 && first.entry_fpu.words[kXmmWord] == kFirstUser;
+        nested_kept = first.fpu_gate_depth == 2 && rounding(first.entry_fpu) == kFirstUser &&
+                      live_rounding() == kKernelValue;
         if (scenario == Scenario::kSwitch) {
             scheduler.yield();
         } else if (scenario == Scenario::kExit) {
@@ -127,10 +136,10 @@ void run_world(GateWorld& world) {
 }
 
 TEST("fpu gate: entries before scheduling leave the live image alone") {
-    const unsigned long long kBefore = live_value();
+    const unsigned long long kBefore = live_rounding();
     EnterFpuGate();
     ExitFpuGate();
-    ASSERT_EQ(live_value(), kBefore);
+    ASSERT_EQ(live_rounding(), kBefore);
 }
 
 TEST("fpu gate: only the outer exit consumes the task's own entry image") {
