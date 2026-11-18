@@ -12,13 +12,13 @@
 
 #include "kernel/arch/x86_64/ex_table.hpp"
 
-namespace cinux::arch::ex_table {
-
-namespace {
-
 /// The linker's table bounds, named by the kernel script.
 extern "C" unsigned char g_ex_table_start[];
 extern "C" unsigned char g_ex_table_end[];
+
+namespace cinux::arch::ex_table {
+
+namespace {
 
 /// How many entries the linker gathered.
 unsigned long linked_count() {

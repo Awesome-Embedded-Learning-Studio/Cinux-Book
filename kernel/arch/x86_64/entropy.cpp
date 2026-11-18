@@ -15,16 +15,16 @@
 #include "cinux/random.hpp"
 #include "kernel/arch/x86_64/rdrand.hpp"
 
+/// The kernel's own virtual landing address, mixed in because a
+/// compiler-chosen seat is still a fact two boots rarely share.
+extern "C" unsigned char __vma_start[];
+
 namespace cinux::arch {
 
 namespace {
 
 /// The one generator every layout consumer shares.
 base::random::Generator g_generator{};
-
-/// The kernel's own virtual landing address, mixed in because a
-/// compiler-chosen seat is still a fact two boots rarely share.
-extern "C" unsigned char __vma_start[];
 
 /// The cycle counter; free-running since reset and different on every
 /// boot by construction.
