@@ -16,22 +16,40 @@ concurrency:
 
 jobs:
   test-infrastructure:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    name: test-infrastructure (GCC ${{ matrix.toolchain.gcc }})
+    runs-on: ${{ matrix.toolchain.runner }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: &supported-toolchains
+          - {runner: ubuntu-24.04, gcc: '14'}
+          - {runner: ubuntu-26.04, gcc: '15'}
+          - {runner: ubuntu-26.04, gcc: '16'}
     steps:
       - uses: actions/checkout@v4
+      - name: Install G++ for the libstdc++ assertion test
+        env:
+          CXX: g++-${{ matrix.toolchain.gcc }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y "$CXX"
+          "$CXX" --version
       - name: Check test orchestration and failure handling
+        env:
+          CXX: g++-${{ matrix.toolchain.gcc }}
         run: |
           bash -n scripts/checks/acceptance.sh scripts/checks/matrix.sh scripts/checks/run-cell.sh scripts/checks/setup-mke2fs.sh
           python3 -m unittest discover -s test/tools -p 'test_ci_checks.py' -v
 
   host-tests:
-    name: host (Release, ${{ matrix.sanitizer }})
-    runs-on: ubuntu-24.04
+    name: host (Release, ${{ matrix.sanitizer }}, GCC ${{ matrix.toolchain.gcc }})
+    runs-on: ${{ matrix.toolchain.runner }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
+        toolchain: *supported-toolchains
         sanitizer: [asan, tsan]
     steps:
       - uses: actions/checkout@v4
@@ -39,7 +57,8 @@ jobs:
           submodules: recursive
       - uses: ./.github/actions/setup-cinux
         with:
-          cache-key: host-${{ matrix.sanitizer }}
+          gcc-version: ${{ matrix.toolchain.gcc }}
+          cache-key: host-${{ matrix.sanitizer }}-${{ matrix.toolchain.runner }}-gcc${{ matrix.toolchain.gcc }}
       - name: Run host sanitizer cell
         env:
           CINUX_CHECK_JOBS: '4'
@@ -47,19 +66,20 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: host-${{ matrix.sanitizer }}-logs
+          name: host-${{ matrix.sanitizer }}-gcc${{ matrix.toolchain.gcc }}-logs
           path: |
             build-ci/test/Testing/Temporary/
             build-ci/test-inventory.json
             build-ci/CMakeCache.txt
 
   kernel-tests:
-    name: kernel (${{ matrix.build_type }}, ${{ matrix.checks }})
-    runs-on: ubuntu-24.04
+    name: kernel (${{ matrix.build_type }}, ${{ matrix.checks }}, GCC ${{ matrix.toolchain.gcc }})
+    runs-on: ${{ matrix.toolchain.runner }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
+        toolchain: *supported-toolchains
         build_type: [Debug, Release]
         checks: [none, ubsan, lockdep]
     steps:
@@ -68,8 +88,9 @@ jobs:
           submodules: recursive
       - uses: ./.github/actions/setup-cinux
         with:
+          gcc-version: ${{ matrix.toolchain.gcc }}
           kvm: 'true'
-          cache-key: kernel-${{ matrix.build_type }}-${{ matrix.checks }}
+          cache-key: kernel-${{ matrix.build_type }}-${{ matrix.checks }}-${{ matrix.toolchain.runner }}-gcc${{ matrix.toolchain.gcc }}
       - name: Run host and single/dual CPU kernel tests
         env:
           CINUX_CHECK_JOBS: '4'
@@ -114,7 +135,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: kernel-${{ matrix.build_type }}-${{ matrix.checks }}-logs
+          name: kernel-${{ matrix.build_type }}-${{ matrix.checks }}-gcc${{ matrix.toolchain.gcc }}-logs
           path: |
             build-ci/test/Testing/Temporary/
             build-ci/test/kernel_test_*/serial.log
@@ -127,12 +148,13 @@ jobs:
             build-ci/qemu-command.txt
 
   ecosystem:
-    name: ecosystem (Release, ${{ matrix.checks }})
-    runs-on: ubuntu-24.04
+    name: ecosystem (Release, ${{ matrix.checks }}, GCC ${{ matrix.toolchain.gcc }})
+    runs-on: ${{ matrix.toolchain.runner }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
+        toolchain: *supported-toolchains
         checks: [none, checks]
     steps:
       - uses: actions/checkout@v4
@@ -140,8 +162,9 @@ jobs:
           submodules: recursive
       - uses: ./.github/actions/setup-cinux
         with:
+          gcc-version: ${{ matrix.toolchain.gcc }}
           kvm: 'true'
-          cache-key: ecosystem-${{ matrix.checks }}
+          cache-key: ecosystem-${{ matrix.checks }}-${{ matrix.toolchain.runner }}-gcc${{ matrix.toolchain.gcc }}
       - name: Check combined instrumentation on the host and in kernel tests
         if: matrix.checks == 'checks'
         env:
@@ -154,7 +177,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ecosystem-${{ matrix.checks }}-logs
+          name: ecosystem-${{ matrix.checks }}-gcc${{ matrix.toolchain.gcc }}-logs
           path: |
             build-ci/*.log
             build-ci/test/Testing/Temporary/
@@ -168,9 +191,14 @@ jobs:
   # ── 文档构建验证(Cinux-Book 特有)──────────────────────────────
 
   docs:
-    # VitePress 分卷并发构建 + dead-link 隐式检查(build 报断链即失败)。
-    runs-on: ubuntu-latest
+    # The GCC label identifies the matrix lane. VitePress uses Node, not the configured compiler.
+    name: docs (GCC ${{ matrix.toolchain.gcc }} lane)
+    runs-on: ${{ matrix.toolchain.runner }}
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: *supported-toolchains
     steps:
       - uses: actions/checkout@v4
         with:
@@ -191,9 +219,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: site/.vitepress/.build-cache
-          key: cinux-build-${{ runner.os }}-${{ hashFiles('document/**', 'site/.vitepress/config/**', 'site/.vitepress/plugins/**', 'site/.vitepress/public/**', 'site/.vitepress/theme/**', 'project.config.ts', 'scripts/build.ts', 'package.json', 'pnpm-lock.yaml') }}
+          key: cinux-build-${{ matrix.toolchain.runner }}-gcc${{ matrix.toolchain.gcc }}-${{ hashFiles('document/**', 'site/.vitepress/config/**', 'site/.vitepress/plugins/**', 'site/.vitepress/public/**', 'site/.vitepress/theme/**', 'project.config.ts', 'scripts/build.ts', 'package.json', 'pnpm-lock.yaml') }}
           restore-keys: |
-            cinux-build-${{ runner.os }}-
+            cinux-build-${{ matrix.toolchain.runner }}-gcc${{ matrix.toolchain.gcc }}-
       - name: Build docs
         run: pnpm build
         env:
