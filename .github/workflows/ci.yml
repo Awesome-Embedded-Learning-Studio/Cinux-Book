@@ -111,43 +111,48 @@ jobs:
         run: bash scripts/checks/run-cell.sh kernel ${{ matrix.build_type }} ${{ matrix.checks }} build-ci
       - name: Boot the production kernel and run the existing BusyBox checks
         run: python3 scripts/test_station33_ecosystem.py --image build-ci/boot/cinux.img
-      - name: Autopsy the frozen guest via QEMU gdbstub
+      - name: Trace the failed guest from long mode to the kernel entry
         if: failure() && matrix.build_type == 'Debug' && matrix.checks == 'none'
         run: |
           sudo apt-get install -y -q gdb || { sudo apt-get update -q && sudo apt-get install -y -q gdb; }
-          if [ ! -f build-ci/boot/cinux.img ]; then
-            cmake --build build-ci --parallel 2 --target boot_image ext2_img qemu_disks
-          fi
-          kelf=$(find build-ci -maxdepth 2 -type f -name cinux_kernel | head -1)
-          echo "kernel elf: ${kelf:-none}"
+          cmake --build build-ci --parallel 2 --target boot_image ext2_img qemu_disks
           mapfile -t qemu_command < build-ci/qemu-command.txt
-          "${qemu_command[@]}" $(tr '\n' ' ' < build-ci/qemu-device-args.txt) \
+          mapfile -t qemu_devices < build-ci/qemu-device-args.txt
+          objdump -d --disassemble=LmEntry build-ci/boot/lm_blob > build-ci/autopsy-lm.txt
+          lm_jump=$(awk '/jmp[q]?[[:space:]]+\*%rax/ {sub(/:$/, "", $1); print "0x" $1; exit}' build-ci/autopsy-lm.txt)
+          test -n "$lm_jump"
+          "${qemu_command[@]}" "${qemu_devices[@]}" \
             -snapshot -drive format=raw,file=build-ci/boot/cinux.img \
             -serial file:build-ci/autopsy-serial.log -monitor none \
-            -d int,cpu_reset -D build-ci/autopsy-qemu.log -gdb tcp::1234 &
+            -d int,cpu_reset -D build-ci/autopsy-qemu.log \
+            -S -no-shutdown -gdb tcp:127.0.0.1:1234 \
+            > build-ci/autopsy-qemu-console.log 2>&1 &
           qemu_pid=$!
-          sleep 45
-          for sample in 1 2; do
-            kill -0 "$qemu_pid" 2>/dev/null || break
-            echo "=== gdb sample $sample ===" >> build-ci/autopsy-gdb.txt
-            gdb -batch -nx \
-              -ex 'set pagination off' \
-              -ex 'set architecture i386:x86-64' \
-              -ex "file $kelf" \
-              -ex 'target remote :1234' \
-              -ex 'info threads' \
-              -ex 'thread apply all bt' \
-              -ex 'thread apply all info registers rip rbp rsp rdx rsi rdi r12 r13 rcx' \
-              -ex 'thread apply all x/4i $pc-8' \
-              >> build-ci/autopsy-gdb.txt 2>&1 || true
-            sleep 3
-          done
-          if kill -0 "$qemu_pid" 2>/dev/null; then
-            kill "$qemu_pid" || true
-          fi
-          qemu_status=0
-          wait "$qemu_pid" || qemu_status=$?
-          echo "QEMU exit status: $qemu_status"
+          trap 'kill "$qemu_pid" 2>/dev/null || true; wait "$qemu_pid" 2>/dev/null || true' EXIT
+          timeout --kill-after=5s 75s stdbuf -oL -eL gdb -batch -nx build-ci/kernel/cinux_kernel \
+            -ex 'set pagination off' \
+            -ex 'set confirm off' \
+            -ex 'set tcp auto-retry on' \
+            -ex 'set tcp connect-timeout 10' \
+            -ex 'target remote 127.0.0.1:1234' \
+            -ex "hbreak *$lm_jump" \
+            -ex continue \
+            -ex 'echo === Long-mode handoff jump ===\n' \
+            -ex 'x/4wx 0x4f00' \
+            -ex 'info registers rip rax rdi rsp cr0 cr3 cr4' \
+            -ex 'x/8i $rax' \
+            -ex 'delete breakpoints' \
+            -ex 'hbreak *KernelEntry' \
+            -ex continue \
+            -ex 'echo === KernelEntry breakpoint ===\n' \
+            -ex 'info registers rip rax rdi rsp cr0 cr3 cr4' \
+            -ex 'x/8i $pc' \
+            -ex 'delete breakpoints' \
+            -ex 'hbreak *KernelStart' \
+            -ex continue \
+            -ex 'echo === KernelStart breakpoint ===\n' \
+            -ex 'info registers rip rax rdi rsp cr0 cr3 cr4' \
+            > build-ci/autopsy-gdb.txt 2>&1 || echo "GDB exit status: $?"
           echo '=== autopsy serial ==='
           cat build-ci/autopsy-serial.log || true
           echo '=== autopsy gdb ==='
@@ -162,6 +167,8 @@ jobs:
             build-ci/station33-ecosystem.serial.log
             build-ci/autopsy-serial.log
             build-ci/autopsy-qemu.log
+            build-ci/autopsy-qemu-console.log
+            build-ci/autopsy-lm.txt
             build-ci/autopsy-gdb.txt
             build-ci/test-inventory.json
             build-ci/CMakeCache.txt
