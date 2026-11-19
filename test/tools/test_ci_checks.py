@@ -12,6 +12,45 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
+class Ext2ImageTests(unittest.TestCase):
+    def bake_glibc_volume(self, large_payload):
+        temporary = tempfile.TemporaryDirectory(prefix='cinux-ext2-test-')
+        self.addCleanup(temporary.cleanup)
+        work = pathlib.Path(temporary.name)
+        staging = work / 'staging'
+        binaries = staging / 'usr/bin'
+        binaries.mkdir(parents=True)
+        for name in ('as', 'ld'):
+            (binaries / name).symlink_to(sys.executable)
+        if large_payload:
+            compilers = staging / 'usr/libexec/gcc'
+            compilers.mkdir(parents=True)
+            chunk = b'x' * (1024 * 1024)
+            for name in ('cc1', 'cc1plus', 'runtime-a', 'runtime-b'):
+                with (compilers / name).open('wb') as stream:
+                    for _ in range(52):
+                        stream.write(chunk)
+
+        image = work / 'test.ext2'
+        result = subprocess.run(
+            ['bash', str(ROOT / 'scripts/create_ext2_disk.sh'), str(image)],
+            env=dict(os.environ, CINUX_BUILD_DIR=str(work / 'build'), CINUX_LIBC='glibc',
+                     CINUX_TOOLCHAIN_STAGING=str(staging), CINUX_BUSYBOX=sys.executable,
+                     CINUX_HELLO_GLIBC=sys.executable, CINUX_LDSO=str(work / 'no-musl'),
+                     CINUX_HELLO_DYN=str(work / 'no-musl-hello')),
+            capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        check = subprocess.run(['e2fsck', '-fn', str(image)], capture_output=True, text=True)
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        return image.stat().st_size
+
+    def test_small_glibc_volume_keeps_the_existing_size(self):
+        self.assertEqual(self.bake_glibc_volume(large_payload=False), 192 * 1024 * 1024)
+
+    def test_glibc_volume_grows_to_fit_the_toolchain(self):
+        self.assertGreater(self.bake_glibc_volume(large_payload=True), 208 * 1024 * 1024)
+
+
 class KernelRunnerTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='cinux-ci-test-')

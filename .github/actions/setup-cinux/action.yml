@@ -1,7 +1,10 @@
 name: Setup Cinux build
-description: Install the GCC 14 toolchain, restore source/compiler caches and check KVM when required.
+description: Install the selected GCC toolchain, restore source/compiler caches and check KVM when required.
 
 inputs:
+  gcc-version:
+    description: GCC major version to install from the runner's package sources.
+    default: '14'
   kvm:
     description: Require an accessible KVM device for this job.
     default: 'false'
@@ -14,26 +17,39 @@ runs:
   steps:
     - name: Install build dependencies
       shell: bash
+      env:
+        GCC_VERSION: ${{ inputs.gcc-version }}
       run: |
+        if [[ ! "$GCC_VERSION" =~ ^[0-9]+$ ]]; then
+          echo "Expected a GCC major version, got: $GCC_VERSION" >&2
+          exit 1
+        fi
         sudo apt-get update
-        sudo apt-get install -y gcc-14 g++-14 gcc-14-multilib g++-14-multilib \
+        sudo apt-get install -y "gcc-$GCC_VERSION" "g++-$GCC_VERSION" \
+          "gcc-$GCC_VERSION-multilib" "g++-$GCC_VERSION-multilib" \
           ccache cmake ninja-build make binutils libc6-dev python3 curl bzip2 xz-utils \
           qemu-system-x86 e2fsprogs file bc bison flex rsync cpio unzip iputils-ping \
           libncurses-dev libssl-dev libarchive-dev pkg-config
 
     - name: Select matching compiler tools
       shell: bash
+      env:
+        GCC_VERSION: ${{ inputs.gcc-version }}
       run: |
         toolchain_dir="$RUNNER_TEMP/cinux-toolchain"
+        cc="gcc-$GCC_VERSION"
+        cxx="g++-$GCC_VERSION"
+        cpp="cpp-$GCC_VERSION"
+        cc_path=$(command -v "$cc")
+        cxx_path=$(command -v "$cxx")
+        cpp_path=$(command -v "$cpp")
         mkdir -p "$toolchain_dir"
-        ln -s "$(command -v gcc-14)" "$toolchain_dir/gcc"
-        ln -s "$(command -v g++-14)" "$toolchain_dir/g++"
-        ln -s "$(command -v cpp-14)" "$toolchain_dir/cpp"
+        ln -s "$cc_path" "$toolchain_dir/gcc"
+        ln -s "$cxx_path" "$toolchain_dir/g++"
+        ln -s "$cpp_path" "$toolchain_dir/cpp"
         echo "$toolchain_dir" >> "$GITHUB_PATH"
-        echo 'CC=gcc-14' >> "$GITHUB_ENV"
-        echo 'CXX=g++-14' >> "$GITHUB_ENV"
-        echo 'CINUX_GCC_BIN=gcc-14' >> "$GITHUB_ENV"
-        echo 'CINUX_GXX_BIN=g++-14' >> "$GITHUB_ENV"
+        printf 'CC=%s\nCXX=%s\nCINUX_GCC_BIN=%s\nCINUX_GXX_BIN=%s\n' \
+          "$cc" "$cxx" "$cc" "$cxx" >> "$GITHUB_ENV"
         echo 'CINUX_COMPILER_LAUNCHER=ccache' >> "$GITHUB_ENV"
         echo "CCACHE_DIR=$GITHUB_WORKSPACE/.cache/ccache" >> "$GITHUB_ENV"
 

@@ -1,5 +1,8 @@
+#include <stdint.h>
+
 #include "../framework/framework.hpp"
 #include "boot/layout.hpp"
+#include "test_assert.hpp"
 
 using cinux::boot::kLmEntryVma;
 using cinux::boot::kLowFree;
@@ -39,6 +42,15 @@ TEST("layout: semantic contract pins") {
     ASSERT_TRUE(kLowFree.top == kMbrBase);
     ASSERT_TRUE(kPageTables.base % 0x1000 == 0);
     ASSERT_TRUE(kPageTables.top <= kStage2Stack.top);
+}
+
+TEST("layout: boot handoff accesses exactly four bytes in long mode") {
+    alignas(8) uint32_t words[2]{0, 0xA5A5A5A5U};
+    auto const          kAddress = reinterpret_cast<uintptr_t>(&words[0]);
+    cinux::boot::StoreWord(kAddress, 0x80200030U);
+    ASSERT_EQ(words[0], 0x80200030U);
+    ASSERT_EQ(words[1], 0xA5A5A5A5U);
+    ASSERT_EQ(cinux::boot::LoadWord(kAddress), 0x80200030U);
 }
 
 int main() {
